@@ -10,13 +10,10 @@
     }
   ],
   "require": {
-    "milpa/agent": "^0.5",
-    "milpa/ai-gateway": "^0.8",
     "milpa/command": "^0.5",
     "milpa/console": "^0.7",
     "milpa/container": "^0.1",
     "milpa/core": "^0.6.2 || ^0.7",
-    "milpa/event-store": "^0.1",
     "milpa/http": "^0.1.5",
     "milpa/live-tui": "^0.4 || ^0.5 || ^0.6",
     "milpa/plugin": "^0.9",
@@ -25,9 +22,12 @@
   },
   "require-dev": {
     "friendsofphp/php-cs-fixer": "^3.75",
+    "milpa/agent": "^0.5",
+    "milpa/ai-gateway": "^0.8",
     "milpa/auth": "^0.3.4",
     "milpa/data": "^0.2.2",
     "milpa/devtools": "^0.10 || ^0.11",
+    "milpa/event-store": "^0.1",
     "phpstan/phpdoc-parser": "^2.3",
     "phpstan/phpstan": "^2.1",
     "phpunit/phpunit": "^11.5"
@@ -45,5 +45,13 @@
   },
   "config": {
     "sort-packages": true
+  },
+  "suggest": {
+    "milpa/agent": "The agent runtime itself: sessions, gates, sub-agents. Without it the agent operations are not offered.",
+    "milpa/ai-gateway": "One message and tool-call shape across model providers. Needed by the agent operations.",
+    "milpa/auth": "Verifying the token a caller presents over HTTP.",
+    "milpa/data": "Persisting those tokens.",
+    "milpa/devtools": "`coa doctor`, `coa repair` and `coa update`.",
+    "milpa/event-store": "Append-only session streams. Needed by the agent operations."
   }
 }

@@ -9,57 +9,79 @@
 
 # milpa/app-runtime
 
-**El runtime del agente que una app Milpa *instala*, en vez de copiar.**
+**The agent runtime a Milpa app *installs* instead of copying.**
 
-Aquí viven las piezas que gobiernan lo que un agente puede hacer dentro de tu app: la compuerta que
-decide si una llamada procede, la delegación a sub-agentes con su techo de autonomía, el presupuesto
-del árbol, el vigía del bucle estéril y el puente que lleva lo que pasa a las superficies en vivo.
+What an agent is allowed to do inside your app, what your app knows how to do, and the two surfaces
+you drive it from — the CLI and the agent screen. All of it arrives by version.
 
-## Por qué existe este paquete
+## Why this package exists
 
-Porque estaba dentro de la plantilla, y eso significaba que **no llegaba a nadie**.
+Because it used to live inside the template, and that meant **it never reached anyone**.
 
-`milpa/framework` es `type: project`: cuando corres `composer create-project`, su `src/` se copia a tu
-app y desde ese momento es tuyo. Perfecto para el plugin de ejemplo que vas a borrar; pésimo para el
-runtime del agente, que mejora cada semana y que nadie edita nunca.
+`milpa/framework` is `type: project`. When you run `composer create-project`, its `src/` is *copied*
+into your app and from that moment it is yours. That is exactly right for the example plugin you are
+going to delete. It is exactly wrong for the agent runtime, which improves every week and which
+nobody ever edits.
 
-El síntoma que lo destapó, medido: una app creada un día antes **no recibía** los botones de la
-pregunta de permiso, ni el indicador que late con cada hecho, ni `agent:board` — aunque actualizara
-todo. Y el caso peor era el sutil: recibía la versión nueva de `milpa/live-tui`, que sabe pintar de
-distinto color lo que dijo el sistema y lo que dijo el modelo, **y no veía ningún cambio**, porque su
-copia de la pantalla no emitía los marcadores que disparan ese pintado.
+The symptom that exposed it, measured: an app created one day earlier **did not receive** the
+permission-question buttons, or the indicator that pulses on every real event, or `agent:board` —
+even after updating everything. And the worst case was the quiet one: it *did* receive the new
+`milpa/live-tui`, which knows how to paint what the system said in a different colour from what the
+model said, **and saw no change at all** — because its copied screen never emitted the markers that
+trigger that painting. Half the improvement landed, half didn't, and nothing said so.
 
-> La regla que salió de ahí, y que este paquete aplica: **se copia lo que vas a editar; se instala lo
-> que vas a usar.** Una plantilla que copia archivos que nadie va a tocar es un paquete disfrazado —
-> con el costo de un paquete y ninguno de sus beneficios.
+> The rule that came out of it, and that this package applies: **you copy what you are going to
+> edit; you install what you are going to use.** A template that copies files nobody will touch is a
+> package in disguise — all of a package's cost, none of its benefit.
 
-## Qué trae
+## What's in it
 
-| pieza | qué decide |
+**The gates — what an agent may do**
+
+| piece | what it decides |
 |---|---|
-| `SessionToolGate` | si una llamada procede: permiso, contrato de intención, bucle estéril, orden |
-| `SubAgentSpawner` | delegar a una sesión hija y retomarla — con contexto fresco, no re-delegando |
-| `TreeBudget` | cuántos pasos gasta el ÁRBOL, no cada hijo: acotar al hijo no acota al árbol |
-| `SterileLoopGuard` | no repetir una llamada que ya falló dos veces igual |
-| `PrerequisiteGate` | una obligación de orden ejecutada: hasta que lo obligado corra, el resto no procede |
-| `SessionOptionTable` | retirar una herramienta del catálogo de una sesión — prohibir, no pedir |
-| `BroadcastingEventStore` · `SurfaceBroadcaster` · `MercureBroadcaster` | que lo que pasa llegue a las superficies mientras pasa |
-| `SessionBookkeeping` · `SessionPlanBoard` | el plan y los pendientes de la sesión, atados a SU id |
+| `SessionToolGate` | whether a call proceeds: permission, intent contract, sterile loop, ordering |
+| `SubAgentSpawner` | delegating to a child session and resuming it — with fresh context, not re-delegating |
+| `TreeBudget` | how many steps the *tree* spends, not each child: bounding the child does not bound the tree |
+| `SterileLoopGuard` | not repeating a call that already failed the same way twice |
+| `PrerequisiteGate` | an ordering obligation, executed: until the required thing runs, the rest does not |
+| `SessionOptionTable` | withdrawing a tool from a session's catalogue — forbidding, not asking |
+| `BroadcastingEventStore` · `SurfaceBroadcaster` · `MercureBroadcaster` | getting what happens to the live surfaces while it happens |
+| `SessionBookkeeping` · `SessionPlanBoard` | the session's plan and to-dos, bound to *its* id |
 
-Casi todas existen porque una medición dijo que hacían falta, no porque parecieran buena idea. Los
-cierres viven en el monorepo (`docs/library/settlement-q-*.md`) y los docblocks citan cuál.
+**The operations — what your app knows how to do**
 
-## Instalación
+`AgentOperations`, `SessionOperations`, `CapabilityOperations` and `TokenOperations` are the operation
+groups a Milpa app registers. They are *returned*, never self-registered: whoever assembles the
+registry decides which groups get in and with what authority, and a group that registered itself
+would take that decision away.
+
+**The surfaces — where you drive it from**
+
+`Console\Application` is the single door of the CLI: `coa` on its own, a named command, the TUI, a
+one-shot chat. `Tui\AgentScreen` renders the agent screen as text — the actor markers travel *inside*
+the text, so a painter can colour by origin and the same screen still works where there is no colour.
+
+Most of these exist because a measurement said they were needed, not because they seemed like a good
+idea. The settlements live in the monorepo (`docs/library/settlement-q-*.md`) and the docblocks cite
+which one.
+
+## Install
 
 ```bash
 composer require milpa/app-runtime
 ```
 
-Un host lo compone: este paquete no arranca nada por su cuenta y no conoce tu app. Recibe el almacén
-de sesiones, el catálogo de operaciones y la credencial del modelo de quien lo construye — que es
-quien tiene el kernel.
+A host composes it: this package boots nothing on its own and knows nothing about your app. It
+receives the session store, the operation catalogue and the model credential from whoever builds it —
+which is whoever holds the kernel.
 
-## Licencia
+Optional packages widen what it offers, and their absence is handled rather than assumed:
+`milpa/auth` for token verification, `milpa/data` for persisting them, `milpa/devtools` for `coa
+doctor`, `coa repair` and `coa update`. Without them those surfaces are simply not offered — the app
+never promises what it cannot do.
+
+## License
 
 Apache-2.0 · © Rodrigo Vicente — TeamX Agency
 
