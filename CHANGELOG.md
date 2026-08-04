@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/getmilpa/app-runtime/compare/v0.2.0...v0.3.0) (2026-08-04)
+
+
+### Features
+
+* las operaciones, el catálogo de capacidades, los tokens y las dos superficies ([9142cc2](https://github.com/getmilpa/app-runtime/commit/9142cc25086e4b0200f8998f954de3f8813a9d31))
+
 ## [0.2.0](https://github.com/getmilpa/app-runtime/compare/v0.1.0...v0.2.0) (2026-08-04)
 
 
