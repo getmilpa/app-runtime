@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0](https://github.com/getmilpa/app-runtime/compare/v0.3.0...v0.4.0) (2026-08-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* milpa/agent vuelve a ser opcional — una app tiny volvió a ser tiny
+
+### Bug Fixes
+
+* milpa/agent vuelve a ser opcional — una app tiny volvió a ser tiny ([eb3c0c8](https://github.com/getmilpa/app-runtime/commit/eb3c0c8ebb717715fb24f5455ecb86b2bddd9f48))
+
 ## [0.3.0](https://github.com/getmilpa/app-runtime/compare/v0.2.0...v0.3.0) (2026-08-04)
 
 
