@@ -1,0 +1,1440 @@
+<?php
+
+/**
+ * This file is part of milpa/app-runtime — the agent runtime a Milpa app installs, not copies.
+ *
+ * (c) Rodrigo Vicente - TeamX Agency — https://teamx.agency <hola@teamx.agency>
+ *
+ * @license Apache-2.0
+ *
+ * @link    https://github.com/getmilpa/app-runtime
+ */
+
+declare(strict_types=1);
+
+namespace Milpa\AppRuntime\Operations;
+
+use Milpa\AiGateway\AgentOrchestrator;
+use Milpa\AiGateway\PlanBoard;
+use Milpa\AiGateway\RunInterrupted;
+use Milpa\AppRuntime\Agent\ArchitectureSummaryProjector;
+use Milpa\Attributes\PluginMetadata;
+use Milpa\Plugin\Runtime\MetadataGraphResolver;
+use Milpa\Resolver\Report\ResolutionReport;
+use Milpa\AiGateway\LlmService;
+use Milpa\AiGateway\McpClientService;
+use Milpa\AiGateway\OptionTable;
+use Milpa\AiGateway\SecondOpinionGate;
+use Milpa\AppRuntime\Agent\RecordOnlyOptionTable;
+use Milpa\AppRuntime\Agent\SessionOptionTable;
+use Milpa\AppRuntime\Agent\SessionPlanBoard;
+use Milpa\AppRuntime\Agent\StepWatcher;
+use Milpa\AppRuntime\Agent\SterileLoopGuard;
+use Milpa\AppRuntime\Agent\SubAgentSpawner;
+use Milpa\AppRuntime\Agent\TreeBudget;
+use Milpa\AiGateway\ToolCallGate;
+use Milpa\AiGateway\ToolCallRecorder;
+use Milpa\Agent\AutonomyMode;
+use Milpa\Agent\Compactor;
+use Milpa\Agent\SessionStore;
+use Milpa\AppRuntime\Support\Capabilities;
+use Milpa\AppRuntime\Support\StderrLogger;
+use Milpa\Command\CommandProvider;
+use Milpa\Command\Operation;
+use Milpa\Console\McpProjector;
+use Milpa\Interfaces\Di\DIContainerInterface;
+use Milpa\Runtime\Config;
+use Milpa\AppRuntime\Agent\SessionBookkeeping;
+use Milpa\AppRuntime\Agent\PrerequisiteGate;
+use Milpa\AppRuntime\Agent\SessionToolGate;
+use Milpa\AppRuntime\Support\Operations;
+use Milpa\Interfaces\Tooling\ToolProviderInterface;
+use Milpa\EventStore\EventStoreInterface;
+use Milpa\AppRuntime\Agent\BroadcastingEventStore;
+use Milpa\AppRuntime\Agent\MercureBroadcaster;
+use Milpa\AppRuntime\Agent\SurfaceBroadcaster;
+use Milpa\EventStore\FileEventStore;
+use Milpa\Runtime\Kernel;
+use Milpa\ToolRuntime\ToolRegistry;
+use Psr\Log\NullLogger;
+
+/**
+ * El agente de esta app: le pides algo en tu idioma y lo hace con las MISMAS operaciones que ya
+ * tienes.
+ *
+ * `milpa/ai-gateway` traía el bucle —alterna modelo ↔ herramientas— desde antes, y venía instalado
+ * con el framework sin que nadie lo llamara: estaba en el árbol y no existía para quien creaba una
+ * app. Esto es la línea que faltaba.
+ *
+ * ── LAS HERRAMIENTAS SON LOS ÁTOMOS, NO OTRA COSA ───────────────────────────────────────────────
+ *
+ * El agente ve exactamente lo que ve un cliente MCP, porque se arma igual: las operaciones de esta
+ * app proyectadas con {@see McpProjector}. No hay un segundo catálogo de «herramientas del agente»
+ * que se pueda desincronizar del primero — sería el mismo defecto que tener dos gestores de plugins.
+ *
+ * ── SIN LLAVE NO FINGE ──────────────────────────────────────────────────────────────────────────
+ *
+ * Sin API key configurada contesta qué falta y cómo ponerla. No hay modo demo ni respuesta simulada:
+ * un agente que contesta algo plausible sin haber llamado a nadie es peor que uno que no arranca.
+ */
+class AgentOperations implements CommandProvider
+{
+    public function __construct(private readonly DIContainerInterface $container)
+    {
+    }
+
+    /**
+     * @return list<Operation>
+     */
+    /**
+     * Las operaciones del agente que este grupo aporta al registro.
+     *
+     * Se devuelven en vez de registrarse solas: quien arma el registro decide qué grupos entran y
+     * con qué autoridad, y un grupo que se auto-registrara le quitaría esa decisión.
+     */
+    public function operations(): array
+    {
+        // LO QUE NO SE PUEDE HACER NO SE OFRECE.
+        //
+        // Este framework es tiny por default y crece por opt-in, así que `milpa/agent` puede no estar
+        // instalado. Anunciar una operación que sólo sabe contestar «esta app no tiene…» es peor que
+        // no anunciarla: quien lee `coa list` —persona o agente— la cuenta como disponible, la llama,
+        // y aprende que el listado miente. `coa capabilities` es donde se ve lo que FALTA, con el
+        // `composer require` que lo enciende.
+        // SÓLO `agent-runs`, y la diferencia importa: correr y RECORDAR son dos capacidades.
+        //
+        // La primera versión exigía las dos, y con eso una app con modelo pero sin `milpa/agent` no
+        // tenía `coa agent` en absoluto — cuando `run()` ya maneja el almacén nulo y contesta igual,
+        // sólo que sin sobrevivir al proceso. Lo destapó montar el laboratorio de Q-P20-A: el brazo
+        // que debía pedirle al agente que instalara las sesiones no podía ni arrancar al agente.
+        //
+        // Es el mismo error que este contrato existe para no cometer: dos capacidades fundidas en una
+        // guarda contestan por la que falta, no por la que hace falta.
+        if (!Capabilities::installed('agent-runs')) {
+            return [];
+        }
+
+        return [
+            new Operation(
+                name: 'agent',
+                description: 'Ask the agent to do something using the operations of this app',
+                handler: fn (array $input): array => $this->run($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'prompt' => ['type' => 'string', 'description' => 'Qué quieres que haga, en tu idioma'],
+                        'steps' => ['type' => 'integer', 'description' => 'Tope de pasos modelo↔herramienta; 12 si no se dice'],
+                        'session' => ['type' => 'string', 'description' => 'Continúa esta sesión — sin ella, cada pregunta empieza de cero'],
+                        'mode' => ['type' => 'string', 'enum' => ['ask', 'acknowledge', 'auto'], 'description' => 'Autonomía: ask pregunta antes de mutar, auto sigue sola. Ninguno se salta una firma'],
+                    ],
+                    'required' => ['prompt'],
+                ],
+                // MUTA, y lo dice: el agente puede llamar operaciones que cambian cosas. Lo que NO
+                // hace es pedir firma por sí mismo — la pide cada herramienta que la exige, cuando la
+                // exige, y esa es la compuerta que nombra la llamada concreta. Una firma aquí
+                // consentiría «lo que el agente decida», que es justo lo que no se puede consentir.
+                mutating: true,
+                // Fuera de la terminal: un agente que corre por HTTP con las credenciales del
+                // servidor es otra decisión, y esta plantilla no la toma por nadie.
+                surfaces: ['cli'],
+            ),
+        ];
+    }
+
+    /**
+     * Corre el bucle y devuelve lo que el agente contestó.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array{ok: bool, answer?: string, steps?: int, tools?: int, error?: string, hint?: string, paused?: bool, exhausted?: bool, interrupted?: bool}
+     */
+    private function run(array $input): array
+    {
+        $prompt = \is_string($input['prompt'] ?? null) ? trim($input['prompt']) : '';
+        if ($prompt === '') {
+            return ['ok' => false, 'error' => 'falta `prompt`: qué quieres que haga'];
+        }
+
+        if (!class_exists(AgentOrchestrator::class) || !class_exists(ToolRegistry::class)) {
+            return [
+                'ok' => false,
+                'error' => 'esta app no tiene la superficie de agente instalada',
+                'hint' => 'composer require milpa/ai-gateway milpa/tool-runtime',
+            ];
+        }
+
+        $credencial = $this->credential();
+        if ($credencial === null) {
+            return [
+                'ok' => false,
+                'error' => 'no hay API key configurada, así que no hay a quién preguntarle',
+                'hint' => 'exporta ANTHROPIC_API_KEY (o OPENAI_API_KEY) y vuelve a correrlo',
+            ];
+        }
+
+        [$proveedor, $llave, $modelo] = $credencial;
+
+        $pasos = \is_int($input['steps'] ?? null) && $input['steps'] > 0 ? $input['steps'] : 12;
+
+        // LA SESIÓN (P16.1). Sin `session`, esto sigue siendo lo que era: una pregunta con una
+        // respuesta. Con ella, la conversación sobrevive al proceso — que es la diferencia entre un
+        // agente al que se le pregunta algo y uno con el que se trabaja un rato.
+        $almacen = $this->sessions();
+        $sesionId = \is_string($input['session'] ?? null) ? trim($input['session']) : '';
+        $historial = [];
+
+        if ($sesionId !== '' && $almacen !== null) {
+            // CADUCAR ANTES DE MIRAR. Una pregunta vencida deja la sesión sin poder correr para
+            // siempre —`isRunnable()` es falso mientras haya pregunta— así que sin esta línea la
+            // sesión olvidada no queda pausada: queda muerta y nadie lo declara ([Q-P19-B]).
+            //
+            // Va aquí y no en un cron porque el momento en que importa es éste: cuando alguien
+            // vuelve a la sesión. Un barrido nocturno mataría sesiones que nadie estaba mirando, y
+            // dejaría vivas las que sí — al revés de lo que hace falta.
+            $almacen->expireIfDue($sesionId, new \DateTimeImmutable());
+
+            $sesion = $almacen->load($sesionId);
+            // `ask` cuando no se dice: una sesión que empieza pidiendo permiso enseña qué va a hacer
+            // antes de hacerlo, y quien la mira sube el modo cuando ya vio de qué se trata. El default
+            // contrario —empezar en `auto`— pediría confianza antes de haberla ganado.
+            $modo = AutonomyMode::tryFrom(\is_string($input['mode'] ?? null) ? $input['mode'] : '');
+
+            if ($sesion === null) {
+                // Se abre con el primer prompt como objetivo: continuar una sesión que no existe es
+                // empezarla, y negarse obligaría a dos comandos para lo que es una intención.
+                $almacen->start($sesionId, $prompt, $modo ?? AutonomyMode::Ask);
+            } elseif (!$sesion->isRunnable()) {
+                // Una sesión con una pregunta abierta o ya terminada NO se sigue por accidente: se
+                // contesta o se abre otra. Seguirla sería contestar por el humano que no contestó.
+                return [
+                    'ok' => false,
+                    'error' => $sesion->question !== null
+                        ? "la sesión «{$sesionId}» está esperando una respuesta: {$sesion->question->question}"
+                        : "la sesión «{$sesionId}» ya terminó: {$sesion->endedBecause}",
+                    'hint' => $sesion->question !== null
+                        ? 'contéstala y vuelve a correrlo'
+                        : 'usa otro --session para empezar una nueva',
+                ];
+            } else {
+                // `window()` y no `turns`: si ya hubo compactación, esto es el resumen más lo reciente.
+                // El stream conserva todo; lo que se acorta es lo que se le manda al modelo.
+                $historial = $sesion->window();
+
+                // Un `--mode` sobre una sesión viva la cambia, y queda apendado. Es explícito: alguien
+                // lo tecleó. Lo que NO se hace es cambiarlo en silencio cuando no se dijo nada — el
+                // modo es de la sesión, no del comando, y heredar el default de cada invocación
+                // devolvería a `ask` una sesión que alguien puso en `auto` a propósito.
+                if ($modo !== null && $modo !== $sesion->mode) {
+                    $almacen->setMode($sesionId, $modo);
+                }
+
+                // COMPACTAR ANTES DE PREGUNTAR (P16.2), no después. Después sería descubrir que la
+                // ventana no cabía cuando el proveedor ya la rechazó — y una sesión larga se muere
+                // exactamente ahí, a la mitad, con trabajo hecho que conviene no repetir.
+                $compactado = $this->compactor()->compactIfNeeded($almacen, $sesion);
+                if ($compactado !== null) {
+                    // Se relee: la ventana cambió, y mandar la vieja habría hecho el trabajo de
+                    // compactar sin cobrar el beneficio.
+                    $sesion = $almacen->load($sesionId);
+                }
+
+                $historial = $sesion?->window() ?? $historial;
+            }
+
+            $almacen->recordTurn($sesionId, 'user', $prompt);
+        }
+
+        // LA COMPUERTA (P16.4/P16.5) y LAS HERRAMIENTAS DE LA SESIÓN (P16.3). Las dos sólo con sesión:
+        // pedir permiso sin sesión sería pedirlo sin dónde apuntarlo, y ofrecer un `plan` sin dónde
+        // guardarlo sería peor — el modelo lo llamaría, lo vería contestar «ok», y seguiría creyendo
+        // que dejó un plan.
+        $compuerta = null;
+        $contabilidad = [];
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if ($sesionId !== '' && $almacen !== null && $kernel instanceof Kernel) {
+            $viva = $almacen->load($sesionId);
+            if ($viva !== null) {
+                $compuerta = new SessionToolGate(
+                    $almacen,
+                    $viva,
+                    Operations::all($kernel, $kernel->root()),
+                    permissionWindow: $this->permissionWindow(),
+                    // La petición de ESTA corrida, no el goal de la sesión: el contrato de intención
+                    // (ADR-0044) compara los argumentos contra lo que el humano acaba de pedir.
+                    petition: $prompt,
+                    vigiaDeBucle: $this->vigiaDeBucle(),
+                );
+                // ATADAS a esta sesión: el id se captura, no se le pide al modelo. Uno que el modelo
+                // pudiera nombrar es uno que puede errar, y escribirle el plan a otra sesión no es una
+                // equivocación recuperable — quien la lea mañana verá un plan que su agente no escribió.
+                $contabilidad = (new SessionBookkeeping($almacen, $sesionId))->operations();
+
+                // LA DELEGACIÓN (Q-P19-P). El hijo es una sesión con `parentId` corriendo por los
+                // MISMOS rieles: mismo orquestador, misma compuerta —que ya pide el techo del linaje
+                // en cada llamada—, mismo almacén. El catálogo del hijo sale de su propia
+                // contabilidad SIN spawn: profundidad 1 por construcción, y el presupuesto del árbol
+                // (§5.4) queda diferido con esa misma decisión a la vista.
+                $presupuestoDelArbol = $this->presupuestoDelArbol($pasos);
+                $spawner = new SubAgentSpawner(
+                    $almacen,
+                    $sesionId,
+                    function (string $encargo, string $hijoId, array $historialHijo, array $primeroHijo = []) use ($almacen, $kernel, $pasos, $proveedor, $llave, $modelo, $presupuestoDelArbol): array {
+                        $hijo = $almacen->load($hijoId);
+                        if ($hijo === null) {
+                            return ['answer' => 'la sesión hija no se pudo abrir', 'steps' => 0];
+                        }
+
+                        $compuertaHijo = new SessionToolGate(
+                            $almacen,
+                            $hijo,
+                            Operations::all($kernel, $kernel->root()),
+                            permissionWindow: $this->permissionWindow(),
+                            // El contrato de intención del hijo compara contra SU encargo: lo que el
+                            // padre le pidió es, para el hijo, lo que el humano es para el padre.
+                            petition: $encargo,
+                            // El hijo tiene el SUYO, nuevo: el presupuesto que gasta repitiendo es
+                            // el suyo, y los fallos del padre no son los de él.
+                            vigiaDeBucle: $this->vigiaDeBucle(),
+                            // LA OBLIGACIÓN DE ORDEN, ejecutada (Q-P20-I). Va por el mismo canal que
+                            // corre al hijo y NO por el stream, así que sólo gobierna la vuelta que
+                            // spawnea: un hijo retomado llega con la mesa abierta. Es residuo
+                            // declarado, no descuido — persistirlo pide un evento nuevo en
+                            // `milpa/agent`, y la pregunta que esta rebanada contesta se mide en
+                            // spawn.
+                            compuertaPrevia: $primeroHijo === [] ? null : new PrerequisiteGate($primeroHijo),
+                        );
+                        $registroHijo = $this->toolsOfThisApp(
+                            (new SessionBookkeeping($almacen, $hijoId))->operations(),
+                            registroPropio: true,
+                        );
+                        if ($registroHijo === null) {
+                            return ['answer' => 'esta app no expuso ninguna operación como herramienta', 'steps' => 0];
+                        }
+
+                        $vistosHijo = 0;
+
+                        // EL HISTORIAL LO DECIDE EL SPAWNER, no este cableado: vacío al spawnear
+                        // (§5.1, el contexto fresco es la razón de ser) y la ventana del hijo al
+                        // retomar (Q-P19-Q, retomar no es re-spawnear).
+                        // EL TECHO DEL HIJO SALE DEL FONDO: el suyo, o lo que quede si es menos. La
+                        // negativa por fondo agotado ya la dio el spawner antes de llegar aquí, así
+                        // que esto sólo recorta al último hijo que todavía alcanza a trabajar.
+                        $respuestaHijo = $this->ask(
+                            $encargo,
+                            $presupuestoDelArbol?->techoParaElSiguiente($pasos) ?? $pasos,
+                            $registroHijo,
+                            $proveedor,
+                            $llave,
+                            $modelo,
+                            function () use (&$vistosHijo): void {
+                                ++$vistosHijo;
+                            },
+                            $historialHijo,
+                            $compuertaHijo,
+                            // LA MESA DEL HIJO, que antes iba en `null` y por eso una opción retirada
+                            // no salía de su catálogo. Es lo que vuelve ejecutable el `deny` de
+                            // `agent_spawn`: sin ella, prohibirle una herramienta sería otra frase
+                            // más — y Q-P20-G midió cuánto valen las frases (0/8).
+                            new SessionOptionTable($almacen, $hijoId),
+                            $compuertaHijo,
+                            $this->tableroDePlan($hijoId, $almacen),
+                        );
+
+                        return ['answer' => $respuestaHijo, 'steps' => $vistosHijo];
+                    },
+                    $presupuestoDelArbol,
+                );
+                $contabilidad[] = $spawner->operation();
+                $contabilidad[] = $spawner->resumeOperation();
+            }
+        }
+
+        // ── EL SEGUNDO JUICIO, SI ESTA APP LO PIDE ──────────────────────────────────────────────
+        //
+        // `agent.secondOpinion` en `config/app.php` enlista las herramientas que ameritan un segundo
+        // lector. Sin esa lista no se envuelve nada y el comportamiento es el de hoy: esto se apila,
+        // no reemplaza. Q-P19-D está pre-registrada para medir si sirve, y puede refutarse.
+        //
+        // Va DESPUÉS de construir la compuerta de sesión y envolviéndola, nunca en su lugar: el piso
+        // sintáctico decide primero y su `no` no se apela. Un verificador que pudiera revertirlo sería
+        // una vía de escape con forma de mejora.
+        // LA MESA DE ESTA SESIÓN. Es la misma autoridad para las dos puntas: quien retira una opción y
+        // quien dice cuáles quedan. Separarlas daría dos verdades sobre lo mismo, y este repositorio ya
+        // pagó ese precio cuatro veces con los comparadores de capacidad (Q-P17).
+        //
+        // Sin sesión no hay mesa: retirar una opción sin dónde apuntarlo sería un cambio que no
+        // sobrevive al proceso, y el agente volvería a encontrarla enfrente al paso siguiente.
+        $modoMesa = $this->retiraOpciones();
+        $mesa = ($sesionId !== '' && $almacen !== null && $modoMesa !== false)
+            ? new SessionOptionTable($almacen, $sesionId)
+            : null;
+        if ($mesa !== null && $modoMesa === 'record-only') {
+            $mesa = new RecordOnlyOptionTable($mesa);
+        }
+
+        // QUIÉN REGISTRA SE CAPTURA ANTES DE ENVOLVER, y esto es un arreglo, no un refinamiento.
+        //
+        // `McpClientService` deducía la grabadora del gate final (`$gate instanceof ToolCallRecorder`).
+        // `SessionToolGate` implementa los dos papeles; `SecondOpinionGate` sólo juzga. Así que en
+        // cuanto una app declaraba `agent.secondOpinion`, envolver la compuerta **apagaba el registro
+        // de herramientas**: la sesión seguía apendando preguntas y turnos, y ni una sola
+        // `session.tool_called`.
+        //
+        // Medido aquí el 2026-08-02 antes de correr nada: una corrida con el verificador puesto dio 8
+        // pasos, trajo datos reales de tres herramientas de observación, y dejó CERO llamadas en el
+        // stream. Como el stream es la evidencia con que se distingue «observó» de «contestó sin
+        // mirar», ese cero se habría leído como el hallazgo — y es del instrumento.
+        //
+        // Registrar es papel del piso. Envolverlo para juzgar no se lo quita.
+        $grabadora = $compuerta instanceof ToolCallRecorder ? $compuerta : null;
+
+        $segundas = $this->segundaOpinion();
+        if ($compuerta !== null && $segundas !== [] && class_exists(SecondOpinionGate::class)) {
+            $juez = $this->llm();
+            if ($juez !== null) {
+                // CON UN LOGGER DE VERDAD. El gate promete que un juez caído «no calla», y sin esto
+                // su warning iba a un NullLogger — o sea que callaba, y una corrida donde el juez no
+                // pudo opinar se veía idéntica a una donde aprobó. En una terminal, stderr es donde
+                // se ven las advertencias; en el laboratorio, es el `.err` de cada corrida.
+                $compuerta = new SecondOpinionGate(
+                    $compuerta,
+                    $juez,
+                    $prompt,
+                    $segundas,
+                    $this->alternativasObservables(),
+                    logger: new StderrLogger(),
+                    mesa: $mesa,
+                );
+            }
+        }
+
+        $veredictoCatalogo = $this->clasificarPeticion($prompt);
+        $registry = $this->toolsOfThisApp($contabilidad, $veredictoCatalogo === 'reads');
+        if ($registry === null) {
+            return ['ok' => false, 'error' => 'esta app no expuso ninguna operación como herramienta'];
+        }
+
+        $vistos = 0;
+        // EL VIGÍA MIRA EL TECLADO ENTRE PASOS, si la app registró uno. Sin él esto corre igual que
+        // antes: una app sin terminal no tiene a quién preguntarle si quiere parar.
+        $vigia = $this->container->has(StepWatcher::class) ? $this->container->get(StepWatcher::class) : null;
+        $vigia = $vigia instanceof StepWatcher ? $vigia : null;
+
+        try {
+            $respuesta = $this->ask($prompt, $pasos, $registry, $proveedor, $llave, $modelo, function () use (&$vistos, $vigia): void {
+                ++$vistos;
+                $vigia?->paso($vistos);
+            }, $historial, $compuerta, $mesa, $grabadora, $this->tableroDePlan($sesionId, $almacen));
+        } catch (RunInterrupted $e) {
+            // INTERRUMPIR NO ES FALLAR. El trabajo hecho hasta aquí ya está en el stream —cada llamada
+            // se apenda al ocurrir— así que la sesión sigue viva y retomable. Decirlo como error
+            // sugeriría que hay algo que arreglar, y lo que hay es una decisión del humano.
+            if ($sesionId !== '' && $almacen !== null) {
+                $almacen->recordTurn($sesionId, 'assistant', 'La vuelta se interrumpió.');
+            }
+
+            return [
+                'ok' => true,
+                'answer' => 'La vuelta se interrumpió.',
+                'interrupted' => true,
+                'steps' => $vistos,
+                'tools' => \count($registry->getToolDefinitions()),
+                'session' => $sesionId !== '' ? $sesionId : null,
+                'hint' => 'dile qué cambió y pídele que siga',
+            ];
+        } catch (\Throwable $e) {
+            // El motivo se devuelve tal cual: viene del proveedor —una llave inválida, un modelo que
+            // no existe, la red— y quien lo lee necesita esa frase, no una reformulación.
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+
+        if ($sesionId !== '' && $almacen !== null) {
+            $almacen->recordTurn($sesionId, 'assistant', $respuesta);
+        }
+
+        $resultado = [
+            'ok' => true,
+            'answer' => $respuesta,
+            'steps' => $vistos,
+            'tools' => \count($registry->getToolDefinitions()),
+        ];
+
+        if ($sesionId !== '') {
+            $resultado['session'] = $sesionId;
+        }
+
+        // QUE LA VUELTA HAYA TERMINADO PAUSADA SE DICE, no se infiere.
+        //
+        // El texto de la pausa ES la pregunta, así que una superficie que además pinta el widget de la
+        // pregunta la mostraba DOS VECES — una con la voz del agente y otra como pregunta. Y una
+        // superficie no debería tener que adivinar por el contenido de una cadena en qué estado quedó
+        // la sesión.
+        //
+        // El `hint` es de la CLI: dice cómo contestar donde no hay dónde teclear la respuesta. El TUI
+        // lo ignora porque ahí sí lo hay. Antes esa línea viajaba dentro del texto y salía en las dos.
+        $pausada = $sesionId !== '' && $almacen !== null ? $almacen->load($sesionId) : null;
+        if ($pausada?->question !== null) {
+            $resultado['paused'] = true;
+            $resultado['hint'] = 'contesta con: coa agent:answer --session=' . $sesionId
+                . ' --answer=<' . implode('|', $pausada->question->options ?: ['tu respuesta']) . '>';
+        }
+
+        // AGOTAR EL TECHO NO ES CONTESTAR. Se nombra para que la superficie no lo pinte como respuesta.
+        if ($respuesta === AgentOrchestrator::STEPS_EXHAUSTED) {
+            $resultado['exhausted'] = true;
+            $resultado['answer'] = 'La vuelta se quedó sin pasos antes de terminar.';
+            $resultado['hint'] = 'pídele que siga, o dale más pasos con `--steps`';
+        }
+
+        // Que se haya compactado se DICE. Es lo único de esta operación que cambia en silencio lo que
+        // el modelo ve, y una sesión que empieza a contestar distinto sin que nadie sepa por qué es
+        // la clase de cosa que se depura durante una hora.
+        if (isset($compactado)) {
+            $resultado['compacted'] = true;
+        }
+
+        // Y EL VEREDICTO DEL CLASIFICADOR TAMBIÉN — por la misma razón exacta que `compacted`: es la
+        // otra cosa que cambia en silencio lo que el modelo ve. Sin este campo, un catálogo completo
+        // no distingue «el clasificador leyó CHANGES» de «el clasificador no contestó», y esa
+        // confusión ya estuvo a punto de fabricar el resultado de una medición (Q-P19-J).
+        if ($veredictoCatalogo !== 'off') {
+            $resultado['classifier'] = $veredictoCatalogo;
+        }
+
+        return $resultado;
+    }
+
+    /**
+     * Una vuelta del bucle: pregunta al modelo, deja que llame herramientas, devuelve la respuesta.
+     *
+     * Es un método aparte —y protegido— porque es la ÚNICA parte que sale a la red. Todo lo demás de
+     * esta operación —qué falta, qué herramientas hay, qué forma tiene el resultado, qué pasa si el
+     * proveedor truena— se puede probar sin llave y sin red sustituyendo esto. La alternativa era
+     * dejar la mitad del archivo sin medir y enterarse en producción.
+     *
+     * @param callable():void                            $onStep
+     * @param list<array{role: string, content: string}> $history lo que ya se dijo en esta sesión —
+     *                                                            vacío cuando no hay sesión, que es
+     *                                                            como corría antes de P16.1
+     */
+    protected function ask(
+        string $prompt,
+        int $pasos,
+        ToolRegistry $registry,
+        string $proveedor,
+        string $llave,
+        string $modelo,
+        callable $onStep,
+        array $history = [],
+        ?ToolCallGate $gate = null,
+        ?OptionTable $mesa = null,
+        ?ToolCallRecorder $recorder = null,
+        ?PlanBoard $tablero = null,
+    ): string {
+        $modeloRemoto = new LlmService(
+            $llave,
+            $modelo,
+            $proveedor,
+            new NullLogger(),
+            baseUrl: $this->baseUrl(),
+            extraHeaders: $this->extraHeaders(),
+        );
+        $cliente = new McpClientService($registry, $gate, $recorder ?? ($gate instanceof ToolCallRecorder ? $gate : null), $mesa);
+
+        // EL PARÁMETRO SÓLO SE PASA CUANDO HAY TABLERO, y no es estilo: es defensa.
+        //
+        // `planBoard` llegó en `milpa/ai-gateway` 0.8. Este archivo viaja con `composer
+        // create-project` y **convive con el vendor que su dueño tenga**, no con el que su manifiesto
+        // pide; contra un 0.7 instalado, `planBoard: null` truena con «Unknown named parameter» en
+        // CADA vuelta del agente — no cuando hay plan, siempre.
+        //
+        // El `conflict: milpa/ai-gateway <0.8` declara la exigencia; no la garantiza, porque nadie
+        // obliga a correr `composer update`. Ya pasó una vez con `Operation::$namedTarget`, y el modo
+        // de falla es el peor: un desajuste de versiones que se ve como un sistema roto.
+        $orquestador = $tablero === null
+            ? new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger())
+            : new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger(), null, $tablero);
+
+        return $orquestador->run(
+            $prompt,
+            $this->systemPrompt(),
+            $history,
+            $onStep,
+        );
+    }
+
+    /**
+     * Dónde viven las sesiones de esta app.
+     *
+     * El almacén se pide al contenedor primero: una app que ya guarda eventos guarda las sesiones de
+     * su agente en el MISMO log, y ahí es donde tiene que estar — un segundo almacén sería una segunda
+     * verdad sobre lo que pasó. Si no hay ninguno registrado, se cae a un JSONL bajo `var/`, porque
+     * una app recién creada tiene que poder tener memoria sin configurar nada.
+     *
+     * Devuelve `null` sólo si el paquete no está instalado: sin sesiones, `agent` sigue contestando
+     * exactamente como antes. Perder la memoria es peor que no tenerla, pero no poder preguntar nada
+     * es peor que las dos.
+     */
+    /**
+     * Cuándo se compacta esta app, y con qué resumidor (P16.2).
+     *
+     * Los umbrales salen de `config/app.php` (`agent.compaction`) porque dependen del modelo: una
+     * ventana de 8k y una de 200k no se compactan igual, y cablear un número aquí obligaría a la mitad
+     * de las apps a editarlo. Los defaults —40 turnos sin resumir, 12 conservados— están pensados para
+     * un modelo mediano; lo importante es que `keepRecent` sea holgado, porque el resumen contesta
+     * «qué ha pasado» y sólo los turnos íntegros contestan «en qué íbamos».
+     *
+     * Es `protected` para poder fijarlo desde una prueba sin generar cuarenta turnos de verdad.
+     */
+    protected function compactor(): Compactor
+    {
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $ajustes = $config instanceof Config ? $config->get('agent.compaction') : null;
+
+        $maximo = 40;
+        $recientes = 12;
+        if (\is_array($ajustes)) {
+            $maximo = \is_int($ajustes['maxTurns'] ?? null) ? $ajustes['maxTurns'] : $maximo;
+            $recientes = \is_int($ajustes['keepRecent'] ?? null) ? $ajustes['keepRecent'] : $recientes;
+        }
+
+        return new Compactor($maximo, $recientes);
+    }
+
+    /**
+     * El almacén de sesiones de esta app, para quien lo necesite desde fuera.
+     *
+     * Existe para que {@see SessionOperations} lea y escriba EXACTAMENTE donde esta operación lo hace:
+     * dos lugares que decidan dónde viven las sesiones son dos lugares donde pueden dejar de
+     * coincidir, y el día que lo hicieran `agent:answer` contestaría en una sesión que `agent` no
+     * está leyendo.
+     */
+    public function sessionStore(): ?SessionStore
+    {
+        return $this->sessions();
+    }
+
+    /**
+     * Cuánto tiempo tiene un humano para contestar antes de que la sesión se declare muerta.
+     *
+     * Se lee de `agent.permissionWindow` como una cadena de {@see \DateInterval} —`PT4H`, `P1D`— y
+     * **sin default**: si el host no la declara, las preguntas esperan para siempre, que es lo que
+     * hacían antes de que esto existiera.
+     *
+     * No poner un default es deliberado. Cuánto tiempo es razonable depende de quién opera el agente
+     * —una jornada, un turno, un fin de semana— y un número inventado aquí mataría sesiones de gente
+     * que nunca lo eligió. Lo que este código garantiza es que la ventana se PUEDA poner y que
+     * vencerla sea un hecho declarado ({@see SessionStore::expireIfDue()}), no que exista una.
+     */
+    private function permissionWindow(): ?\DateInterval
+    {
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $declarada = $config instanceof Config ? $config->get('agent.permissionWindow') : null;
+        if (!\is_string($declarada) || $declarada === '') {
+            return null;
+        }
+
+        try {
+            return new \DateInterval($declarada);
+        } catch (\Throwable) {
+            // Una ventana ilegible NO se convierte en una inventada: se ignora y las preguntas siguen
+            // sin plazo. Adivinar aquí sería matar sesiones por un typo en un archivo de config.
+            return null;
+        }
+    }
+
+    /**
+     * El plan de esta sesión, para que el bucle se lo vuelva a poner enfrente al agente en cada paso.
+     *
+     * `agent.reprojectPlan` en `config/app.php`. Detrás de una perilla por la misma razón que
+     * `agent.removeRefusedOptions`: es la intervención que
+     * Q-P20-B mide, y un experimento sin el brazo que
+     * NO la tiene no se puede comparar contra nada.
+     *
+     * Apagada por default mientras la pregunta esté abierta: lo que se despacha es lo ya medido, no lo
+     * que se está midiendo.
+     *
+     * `protected` por lo mismo que {@see ask()}: para que una prueba pueda mirar la decisión sin montar
+     * un kernel entero. El control positivo de esta perilla es lo único que hace legible la tanda.
+     *
+     * Sin sesión devuelve `null` y no un tablero vacío — no hay plan que reproyectar cuando no hay
+     * dónde guardarlo, y un encabezado sin tarjetas ocuparía contexto para decir nada.
+     */
+    protected function tableroDePlan(string $sesionId, ?SessionStore $almacen): ?PlanBoard
+    {
+        if ($sesionId === '' || $almacen === null) {
+            return null;
+        }
+
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        if (($config instanceof Config ? $config->get('agent.reprojectPlan') : null) !== true) {
+            return null;
+        }
+
+        // SIN LA INTERFAZ NO SE INSTANCIA EL ADAPTADOR. `SessionPlanBoard implements PlanBoard`, así
+        // que contra un `milpa/ai-gateway` anterior a 0.8 cargarlo sería un fatal por interfaz
+        // ausente. Misma razón que la guarda de arriba: el manifiesto pide, el vendor instalado manda.
+        if (!interface_exists(PlanBoard::class)) {
+            return null;
+        }
+
+        return new SessionPlanBoard($almacen, $sesionId);
+    }
+
+    /**
+     * Si el prompt le pide al agente que escriba y mueva su plan.
+     *
+     * `agent.planInstruction`, y **encendida por default** — al revés que las otras perillas, porque
+     * ésta no enciende una intervención nueva: apaga la que **ya se despacha**. El brazo A de Q-P20-B
+     * es el único que la pone en `false`, para medir el piso sin palabras.
+     *
+     * Que exista esta perilla es lo que destapó la enmienda 4 de esa pregunta: el «control» del diseño
+     * anterior ya traía la instrucción puesta, así que habría sido el mismo brazo dos veces.
+     */
+    /**
+     * Si esta app se niega a repetir una llamada que ya falló dos veces igual (Q-P19-R).
+     *
+     * `agent.sterileLoopGuard` en `config/app.php`. Apagada por default mientras la pregunta esté
+     * abierta, por la misma razón que las demás perillas de esta familia: lo que se despacha es lo
+     * ya medido, no lo que se está midiendo. Un entero fija la tolerancia; `true` usa la de casa.
+     */
+    /**
+     * El fondo de pasos que el árbol comparte en esta vuelta (§5.4), o `null` para correr sin techo.
+     *
+     * El default es TRES VECES el techo del padre y no una constante suelta: el número que importa es
+     * cuánto puede gastar delegando comparado con lo que gasta él, y esa proporción se lee. Un `12`
+     * escrito aquí no diría nada el día que alguien corra con techo de 40.
+     */
+    private function presupuestoDelArbol(int $pasos): ?TreeBudget
+    {
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $valor = $config instanceof Config ? $config->get('agent.treeBudget') : null;
+
+        if (\is_int($valor)) {
+            // Un cero o un negativo declarado NO es «sin techo»: es «no delegues», y se respeta. Caer
+            // a ilimitado ante un número raro convertiría un error de config en un gasto abierto.
+            return new TreeBudget(max(0, $valor));
+        }
+
+        return $valor === false ? null : new TreeBudget($pasos * 3);
+    }
+
+    private function vigiaDeBucle(): ?SterileLoopGuard
+    {
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $valor = $config instanceof Config ? $config->get('agent.sterileLoopGuard') : null;
+
+        if (\is_int($valor) && $valor > 0) {
+            return new SterileLoopGuard($valor);
+        }
+
+        return $valor === true ? new SterileLoopGuard() : null;
+    }
+
+    private function instruccionDePlan(): bool
+    {
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+
+        return ($config instanceof Config ? $config->get('agent.planInstruction') : null) !== false;
+    }
+
+    /**
+     * Si una negativa del segundo juicio además RETIRA la opción de la mesa.
+     *
+     * `agent.removeRefusedOptions` en `config/app.php`. Va detrás de una perilla por la misma razón que
+     * `agent.conditionalCatalog`: es la intervención que Q-P19-H mide, y un experimento necesita poder
+     * correr el brazo que NO la tiene. Sin la perilla, negar-y-quitar sería la única conducta posible y
+     * el brazo de control dejaría de existir — no se puede medir contra nada.
+     *
+     * Apagada por default, y eso es deliberado: mientras la pregunta esté abierta, el comportamiento
+     * que se despacha es el ya medido, no el que se está midiendo.
+     */
+    private function retiraOpciones(): bool|string
+    {
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $valor = $config instanceof Config ? $config->get('agent.removeRefusedOptions') : null;
+
+        // `record-only` es un valor de LABORATORIO y se llama así para que nadie lo confunda con una
+        // política: apenda que la opción se fue y la sigue ofreciendo, que es lo peor de las dos. Existe
+        // porque el cierre de Q-P19-H no pudo atribuir su propio resultado — el brazo que corrió cambió
+        // dos cosas a la vez, y éste separa «la vuelta siguió» de «la mesa cambió».
+        return $valor === 'record-only' ? 'record-only' : $valor === true;
+    }
+
+    /**
+     * Las herramientas que esta app quiere que un segundo lector revise.
+     *
+     * Lista y no booleano: preguntarle al modelo por cada lectura duplicaría las peticiones para
+     * confirmar lo obvio, y ese costo se paga en cada corrida. Cuáles ameritan revisión es una
+     * decisión de la app, no de este archivo.
+     *
+     * @return list<string>
+     */
+    private function segundaOpinion(): array
+    {
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $declarado = $config instanceof Config ? $config->get('agent.secondOpinion') : null;
+
+        return \is_array($declarado)
+            ? array_values(array_filter($declarado, static fn ($x): bool => \is_string($x)))
+            : [];
+    }
+
+    /**
+     * La herramienta que OBSERVA lo que cada una cambia.
+     *
+     * `agent.observableAlternatives` en `config/app.php`. La declara la app y no la adivina el modelo:
+     * Q-P19-D midió que una negativa sin esto apaga al agente —0 de 32 corridas volvieron a llamar una
+     * herramienta— y pedirle al verificador que la invente sería mover la adivinación de lugar.
+     *
+     * @return array<string, string>
+     */
+    private function alternativasObservables(): array
+    {
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $mapa = $config instanceof Config ? $config->get('agent.observableAlternatives') : null;
+
+        if (!\is_array($mapa)) {
+            return [];
+        }
+
+        $limpio = [];
+        foreach ($mapa as $muta => $observa) {
+            if (\is_string($muta) && \is_string($observa)) {
+                $limpio[$muta] = $observa;
+            }
+        }
+
+        return $limpio;
+    }
+
+    /**
+     * ¿Esta petición se contesta mirando, o pide cambiar algo?
+     *
+     * Un solo juicio, al empezar, sobre la petición — no uno por llamada sobre cada intento. Es más
+     * barato y llega antes: en vez de negar N veces, no ofrece.
+     *
+     * Sin `agent.conditionalCatalog` no se pregunta nada y el catálogo es el de siempre. Y si el
+     * juicio no se puede emitir, **también** se ofrece todo: recortar por no haber podido preguntar
+     * sería censurar a ciegas, y una app sin red se quedaría sin agente.
+     */
+    /**
+     * Qué dijo el clasificador de la petición — y CADA desenlace con su nombre, no un booleano.
+     *
+     * La primera forma devolvía `bool`, y con eso CUATRO situaciones distintas colapsaban en el mismo
+     * `false` → catálogo completo: el veredicto CHANGES real, una excepción de red, una respuesta sin
+     * veredicto, y una respuesta con las dos palabras. Ninguna dejaba huella — el catch era mudo.
+     *
+     * Lo encontró la revisión adversaria del pre-registro de Q-P19-J, donde la divergencia de lecturas
+     * ES el mensurando: un hipo del endpoint habría fabricado un «CHANGES» indistinguible del real, y
+     * la tanda habría concluido «la ambigüedad se sortea» sobre un fallo de infraestructura. Es la
+     * sexta vez que este programa está a punto de medir su propio instrumento.
+     *
+     * Los valores: `off` (la app no pidió catálogo condicionado) · `no-judge` (sin credencial) ·
+     * `reads` · `changes` · `no-verdict` (contestó sin la palabra) · `unreachable` (excepción). Sólo
+     * `reads` recorta el catálogo; todos los demás lo dejan completo, que es el comportamiento de
+     * siempre — lo que cambia es que ahora cada uno se llama por su nombre.
+     */
+    private function clasificarPeticion(string $prompt): string
+    {
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        if (($config instanceof Config ? $config->get('agent.conditionalCatalog') : null) !== true) {
+            return 'off';
+        }
+
+        $juez = $this->llm();
+        if ($juez === null) {
+            return 'no-judge';
+        }
+
+        // LA PREGUNTA SE HACE POR LA INTENCIÓN, no por la mecánica. Su primera forma —«¿llevar esto a
+        // cabo requiere cambiar algo?»— contestó CHANGES ante «¿qué deja de funcionar si deshabilito
+        // X?», porque la petición NOMBRA una acción aunque sea hipotética. Preguntando qué quiere la
+        // persona —saber algo, o que el sistema quede distinto— acierta en los dos casos.
+        $pregunta = <<<TXT
+            Read this request and decide ONE thing.
+
+            «{$prompt}»
+
+            Does the person want the state of the system to be DIFFERENT after this, or do they want to
+            KNOW something?
+
+            - They want to know something  → answer READS
+            - They want the system changed → answer CHANGES
+
+            A hypothetical («what would happen if…») is a request to KNOW. Your whole answer is one word.
+            TXT;
+
+        try {
+            $r = $juez->generateResponse($pregunta, maxTokens: 20);
+        } catch (\Throwable $e) {
+            // El fallo SE DICE — un clasificador caído que calla se ve idéntico a uno que contestó
+            // CHANGES, y esa confusión ya estuvo a punto de arruinar una medición.
+            (new StderrLogger())->warning('el clasificador no pudo opinar; el catálogo va completo', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return 'unreachable';
+        }
+
+        $texto = \is_string($r['content'] ?? null) ? $r['content'] : '';
+
+        // Se busca la palabra EXPLÍCITA. Un párrafo sin veredicto no recorta nada: tratar un silencio
+        // como «sólo lee» quitaría herramientas por una opinión que nadie emitió. Y una respuesta con
+        // LAS DOS palabras tampoco es un veredicto — es el modelo dudando en voz alta.
+        $dijoReads = preg_match('/\bREADS\b/i', $texto) === 1;
+        $dijoChanges = preg_match('/\bCHANGES\b/i', $texto) === 1;
+
+        return match (true) {
+            $dijoReads && !$dijoChanges => 'reads',
+            $dijoChanges && !$dijoReads => 'changes',
+            default => 'no-verdict',
+        };
+    }
+
+    /** El mismo modelo que corre al agente, para el que lo juzga. */
+    // `protected` por lo mismo que `ask()`: es una costura que sale a la red, y una prueba tiene que
+    // poder sustituirla sin red y sin llave. Antes era `private` y el clasificador quedó sin prueba
+    // unitaria — sus controles vivían sólo en el laboratorio.
+    protected function llm(): ?LlmService
+    {
+        $credencial = $this->credential();
+        if ($credencial === null || !class_exists(LlmService::class)) {
+            return null;
+        }
+
+        [$proveedor, $llave, $modelo] = $credencial;
+
+        return new LlmService(
+            $llave,
+            $modelo,
+            $proveedor,
+            new NullLogger(),
+            baseUrl: $this->baseUrl(),
+            extraHeaders: $this->extraHeaders(),
+        );
+    }
+
+    protected function sessions(): ?SessionStore
+    {
+        if (!class_exists(SessionStore::class)) {
+            return null;
+        }
+
+        // CUANDO HAY SUPERFICIE, EL ALMACÉN LO CONSTRUIMOS NOSOTROS.
+        //
+        // `DIContainer::has()` contesta que sí tanto a lo que alguien declaró como a lo que el
+        // contenedor puede FABRICAR, y `SessionStore` es fabricable en cuanto haya un
+        // `EventStoreInterface` registrado. Preguntando primero por él, el contenedor devolvería una
+        // sesión armada por su cuenta —sin puente—, el agente seguiría escribiendo y el tablero se
+        // quedaría quieto sin que nada fallara. Lo encontró la prueba de cableado, no el diseño.
+        $superficie = $this->broadcaster();
+
+        if ($superficie !== null && $this->container->has(EventStoreInterface::class)) {
+            $eventos = $this->container->get(EventStoreInterface::class);
+            if ($eventos instanceof EventStoreInterface) {
+                return new SessionStore(new BroadcastingEventStore($eventos, $superficie));
+            }
+        }
+
+        if ($this->container->has(SessionStore::class)) {
+            $declarado = $this->container->get(SessionStore::class);
+            if ($declarado instanceof SessionStore) {
+                return $declarado;
+            }
+        }
+
+        if ($this->container->has(EventStoreInterface::class)) {
+            $eventos = $this->container->get(EventStoreInterface::class);
+            if ($eventos instanceof EventStoreInterface) {
+                return new SessionStore($eventos);
+            }
+        }
+
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return null;
+        }
+
+        $directorio = $kernel->root() . '/var';
+        if (!is_dir($directorio) && !mkdir($directorio, 0o775, true) && !is_dir($directorio)) {
+            return null;
+        }
+
+        return new SessionStore($this->conPuente(new FileEventStore($directorio . '/agent-sessions.jsonl')));
+    }
+
+    /**
+     * El mismo almacén, empujando a la superficie — si hay alguien a quien empujarle.
+     *
+     * ── POR QUÉ AQUÍ Y NO EN UN «BOOT» APARTE ───────────────────────────────────────────────────
+     *
+     * Porque éste es el ÚNICO lugar donde se decide qué almacén usa una sesión. Un puente montado en
+     * otra parte tendría que adivinar cuál de los tres caminos de arriba se tomó, y el día que no
+     * coincidiera dejaría de empujar sin que nada fallara: el agente seguiría escribiendo, el tablero
+     * se quedaría quieto, y nadie tendría por qué sospechar. Es exactamente la forma del defecto que
+     * este repositorio lleva un mes cazando —lo declarado que nunca aterriza—, y aterrizarlo aquí es
+     * lo que impide que se repita.
+     *
+     * ── DOS FORMAS DE PRENDERLO, Y NINGUNA OBLIGA A INSTALAR NADA ───────────────────────────────
+     *
+     * La app puede registrar su propio {@see SurfaceBroadcaster} —cualquier transporte— o, si ya
+     * tiene un hub Mercure en el contenedor, se envuelve solo. Sin ninguno de los dos, esto devuelve
+     * el almacén intacto: una app sin tablero no paga nada, ni siquiera una dependencia.
+     */
+    private function conPuente(EventStoreInterface $eventos): EventStoreInterface
+    {
+        $superficie = $this->broadcaster();
+
+        return $superficie === null ? $eventos : new BroadcastingEventStore($eventos, $superficie);
+    }
+
+    /** A quién se le empuja, si hay alguien. */
+    private function broadcaster(): ?SurfaceBroadcaster
+    {
+        if (!class_exists(BroadcastingEventStore::class)) {
+            return null;
+        }
+
+        if ($this->container->has(SurfaceBroadcaster::class)) {
+            $declarado = $this->container->get(SurfaceBroadcaster::class);
+            if ($declarado instanceof SurfaceBroadcaster) {
+                return $declarado;
+            }
+        }
+
+        // Sin puerto declarado, sirve el hub que ya esté configurado. Se pregunta por el NOMBRE y no
+        // por la clase para no arrastrar `milpa/mercure` como dependencia de este proyecto.
+        $hub = $this->container->has('Milpa\\Mercure\\MercureService')
+            ? $this->container->get('Milpa\\Mercure\\MercureService')
+            : null;
+
+        return \is_object($hub) && method_exists($hub, 'publish') ? new MercureBroadcaster($hub) : null;
+    }
+
+    /**
+     * Lo que el agente sabe de esta app antes de que nadie le pregunte nada.
+     *
+     * ── POR QUÉ NO ES UNA LÍNEA ─────────────────────────────────────────────────────────────────
+     *
+     * Era una: «usa las herramientas y no inventes resultados». Suena suficiente y no lo es, porque
+     * las herramientas dicen QUÉ se puede hacer y no CÓMO está armada la app. Medido: a «quiero
+     * guardar en sqlite en vez de json, dime qué cambio» el agente contestó que creara un
+     * `SQLitePersistencePlugin` con `make plugin`. Inventó un plugin que no existe para resolver algo
+     * que es una línea de `config/app.php` — y no estaba desobedeciendo, estaba llenando un hueco.
+     * Un agente sin contexto no se calla: adivina.
+     *
+     * ── LAS DOS COSTURAS ────────────────────────────────────────────────────────────────────────
+     *
+     * `getPromptSections()` es la de siempre: vive en `ToolProviderInterface`, los stubs que este
+     * framework genera ya traen su marcador `// {coa:tool-prompts}`, `PluginsManager` sabe juntarlas
+     * — y NADIE las leía. Un plugin que contribuye herramientas también contribuye lo que hay que
+     * saber para usarlas, y ese texto se estaba tirando. Es el quinto valor producido y descartado
+     * que aparece esta semana, después de `merge`, `guidance`, el sabor del verify y el inventario.
+     *
+     * `agent.instructions` en `config/app.php` es la otra: lo que esta app en particular quiere que
+     * su agente sepa y que no le toca a ningún plugin decir.
+     *
+     * Es `protected` por la misma razón que {@see ask()}: para poder mirarlo desde una prueba sin
+     * salir a la red. Un prompt de sistema que nadie puede leer se convierte en el lugar donde se
+     * acumulan afirmaciones que ya no son ciertas.
+     */
+    protected function systemPrompt(): string
+    {
+        $partes = [
+            'Eres el agente de esta app Milpa. Usa las herramientas para responder; no inventes '
+            . 'resultados. Si una herramienta contesta con `guidance`, esa guía es el siguiente paso '
+            . 'real: repítela en vez de improvisar uno.',
+
+            // Lo que un agente necesita para no inventar un plugin donde había una línea de config.
+            "Cómo está armada esta app:\n"
+            . "- Cada cosa que sabe hacer es una operación declarada; las herramientas que ves SON esas operaciones.\n"
+            . "- Los plugins se declaran en `config/plugins.php`. Andamiar uno NO lo enciende: hay que agregar su clase a esa lista.\n"
+            . "- La persistencia sale de `config/app.php`, bloque `storage`: `driver` es `file`, `sqlite`, `mysql` o `memory`\n"
+            . "  (con su `path` o su `dsn`). Lo que `make entity` y `make crud` escriben ya lee ese bloque a través de\n"
+            . "  `Milpa\\Data\\RepositoryFactory`, así que cambiar de backend es esa línea y nada más. NO hace falta un plugin\n"
+            . "  de persistencia, y no existe uno.\n"
+            . "- Doctrine es de la convención legacy, no de ésta. Las entidades que `make` escribe implementan\n"
+            . '  `Milpa\\Data\\EntityInterface`: sin atributos de ORM, sin mapeo.',
+
+        ];
+
+        // LA INSTRUCCIÓN DEL PLAN, QUE AHORA SE PUEDE APAGAR.
+        //
+        // Sin esto, las herramientas existen y no se usan. Un modelo que puede anotar su plan y no sabe
+        // que le conviene, no lo anota — y el plan es lo único que sobrevive a una compactación para
+        // decirle qué sigue.
+        //
+        // Va detrás de `agent.planInstruction` porque el brazo A de Q-P20-B mide el piso sin ella. Y
+        // hay una ironía que vale la pena dejar escrita donde vive: el tercer renglón le pide seguir un
+        // plan que **el bucle nunca le enseña** — `AgentOrchestrator` no conocía `Todo` hasta que
+        // apareció {@see \Milpa\AiGateway\PlanBoard}. Ésa es la pregunta entera en una frase.
+        if ($this->instruccionDePlan()) {
+            $partes[] = "Cuando el trabajo lleve más de dos o tres pasos:\n"
+                . "- Escribe un plan con `plan` ANTES de empezar, y agrega un pendiente con `todo` por cada parte.\n"
+                . "- Marca `todo` con status `done` EN CUANTO termines cada una, no al final.\n"
+                . '- Si una sesión ya trae plan y pendientes, sigue ésos en vez de escribir otros: son tuyos, de antes.';
+        }
+
+        // LO QUE ESTA APP TRAE PUESTO, dicho por los paquetes mismos.
+        //
+        // Es la mitad del contrato de capacidades que no son operaciones: un paquete no sólo agrega
+        // herramientas, agrega CONTEXTO. Sin esto, el agente tendría que deducir de la lista de
+        // herramientas qué clase de app opera —si persiste, si sabe quién llama, si puede pausarse— y
+        // deducir es una decisión más, que es lo que llevamos cuatro tandas midiendo que cuesta.
+        //
+        // Y va aquí y no en una constante porque una app tiny y una completa son apps distintas: un
+        // prompt que hablara de tokens en una app sin identidad estaría describiendo otra.
+        $puesto = Capabilities::briefing();
+        if ($puesto !== []) {
+            $partes[] = "Lo que esta app trae puesto:\n- " . implode("\n- ", $puesto);
+        }
+
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+
+        // El resumen de arquitectura, APAGADO por default (`agent.architectureSummary`).
+        //
+        // Apagado no por timidez: su efecto está SIN MEDIR — Q-P17-E pregunta cuánta arquitectura
+        // derivada hay que entregar sin que la pidan, y encenderlo por default antes de contestar
+        // sería el verde sin medición que este repositorio lleva semanas negándose a escribir. La
+        // bandera existe para que el experimento tenga sus dos condiciones sobre el MISMO binario;
+        // si la medición lo sostiene, el default cambia y la bandera deja de hacer falta.
+        // `true` da el resumen entero; `'pointer'` da SÓLO la línea que nombra la herramienta, en la
+        // MISMA ranura del prompt. Lo segundo existe para medir de dónde viene el efecto que Q-P17-G
+        // observó: si el puntero solo basta, el resumen son 68 tokens que no compran nada. Misma
+        // ranura y mismo texto a propósito — en otra posición, una diferencia podría deberse a dónde
+        // está y no a qué dice.
+        $modo = $config instanceof Config ? $config->get('agent.architectureSummary') : null;
+        if ($modo === true || $modo === 'pointer' || $modo === 'state') {
+            $proyector = new ArchitectureSummaryProjector();
+            $resumen = match ($modo) {
+                'pointer' => $proyector->pointerOnly(),
+                'state' => $proyector->stateOnly($this->architectureReport(), $this->providedCapabilities()),
+                default => $proyector->section($this->architectureReport(), $this->providedCapabilities()),
+            };
+            if ($resumen !== '') {
+                $partes[] = $resumen;
+            }
+        }
+
+        $propias = $config instanceof Config ? $config->get('agent.instructions') : null;
+        if (\is_string($propias) && trim($propias) !== '') {
+            $partes[] = trim($propias);
+        }
+
+        // El filtro vive AQUÍ y no sólo en quien recolecta: las partes se unen con una línea en
+        // blanco, así que una sección vacía se vuelve un hueco donde el modelo espera contenido.
+        // `PluginsManager` intercala cadenas vacías como separador entre plugins, y cualquier host que
+        // arme su propia lista puede hacer lo mismo — el ensamblador tiene que aguantarlo.
+        foreach ($this->promptSectionsOfPlugins() as $seccion) {
+            if (trim($seccion) !== '') {
+                $partes[] = trim($seccion);
+            }
+        }
+
+        return implode("\n\n", $partes);
+    }
+
+    /**
+     * Las capacidades que los plugins arrancados DECLARAN proveer.
+     *
+     * Aparte del reporte porque el reporte no las tiene: la resolución la mueven los requisitos, así
+     * que una capacidad que nadie pide no aparece ni en `resolved` ni en `missing`. Sin esta lista, el
+     * punto ciego que Q-P17-C midió —provista por dos, consumida por nadie— seguiría invisible
+     * también aquí.
+     *
+     * @return list<string>
+     */
+    protected function providedCapabilities(): array
+    {
+        $ids = [];
+        foreach ($this->pluginMetadata() as $meta) {
+            foreach ($meta->provides as $entrada) {
+                $id = \is_string($entrada) ? $entrada : ($entrada['id'] ?? null);
+                if (\is_string($id) && $id !== '' && !\in_array($id, $ids, true)) {
+                    $ids[] = $id;
+                }
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * El `#[PluginMetadata]` de cada plugin ARRANCADO.
+     *
+     * @return list<PluginMetadata>
+     */
+    protected function pluginMetadata(): array
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return [];
+        }
+
+        $metas = [];
+        foreach ($kernel->plugins() as $plugin) {
+            $atributos = (new \ReflectionClass($plugin))->getAttributes(PluginMetadata::class);
+            if ($atributos !== []) {
+                $metas[] = $atributos[0]->newInstance();
+            }
+        }
+
+        return $metas;
+    }
+
+    /**
+     * El grafo de esta app como reporte, o `null` si no se puede saber.
+     *
+     * Se diagnostica desde los plugins ARRANCADOS —igual que {@see promptSectionsOfPlugins()}— y no
+     * desde `config/plugins.php`: lo que importa es lo que botó, porque un plugin declarado y vetado
+     * no aporta capacidades y su línea hablaría de un grafo que no existe.
+     *
+     * Nunca lanza. Un prompt es lo último que puede tumbar una sesión: si el grafo no se puede
+     * diagnosticar, el agente trabaja sin resumen igual que antes de que esto existiera, y sigue
+     * teniendo `plugins_architecture` a una llamada. Devolver `null` es decir «no sé», y el proyector
+     * ya sabe que eso se calla en vez de rellenar.
+     */
+    protected function architectureReport(): ?ResolutionReport
+    {
+        try {
+            $registros = [];
+            foreach ($this->pluginMetadata() as $meta) {
+                $registros[] = [
+                    'name' => $meta->name,
+                    'version' => $meta->version,
+                    'type' => $meta->type,
+                    'provides' => array_values($meta->provides),
+                    'requires' => array_values($meta->requires),
+                    'suggests' => array_values($meta->suggests),
+                ];
+            }
+
+            return $registros === [] ? null : (new MetadataGraphResolver())->diagnose($registros);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Lo que cada plugin arrancado quiere que el agente sepa sobre sus herramientas.
+     *
+     * Se camina el kernel y no `PluginsManager` porque lo que importa es lo que BOOTEÓ: un plugin
+     * declarado y vetado no tiene herramientas en el registro, así que su sección hablaría de algo que
+     * el agente no puede llamar.
+     *
+     * @return list<string>
+     */
+    protected function promptSectionsOfPlugins(): array
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return [];
+        }
+
+        $secciones = [];
+        foreach ($kernel->plugins() as $plugin) {
+            if (!$plugin instanceof ToolProviderInterface) {
+                continue;
+            }
+
+            foreach ($plugin->getPromptSections() as $seccion) {
+                // Las vacías se tiran: `PluginsManager` intercala cadenas vacías como separador entre
+                // plugins, y un separador que llegue al prompt como sección deja un hueco donde el
+                // modelo espera contenido.
+                if (trim($seccion) !== '') {
+                    $secciones[] = trim($seccion);
+                }
+            }
+        }
+
+        return $secciones;
+    }
+
+    /**
+     * A dónde va el agente: el proveedor público, o el endpoint que esta app declare.
+     *
+     * `MILPA_AGENT_BASE_URL` apunta a cualquier cosa compatible con la API de OpenAI — un Ollama en
+     * la LAN, un vLLM, un proxy. Existe por dos razones que se parecen poco: probar el bucle sin
+     * gastarle tokens a un proveedor público, y correrlo con datos que no pueden salir de la casa.
+     */
+    private function baseUrl(): ?string
+    {
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $declarado = $config instanceof Config ? $config->get('agent.baseUrl') : null;
+        if (\is_string($declarado) && $declarado !== '') {
+            return $declarado;
+        }
+
+        $entorno = getenv('MILPA_AGENT_BASE_URL');
+
+        return \is_string($entorno) && $entorno !== '' ? $entorno : null;
+    }
+
+    /**
+     * Encabezados extra para el endpoint — auth básica, si la hay.
+     *
+     * `MILPA_AGENT_BASIC_AUTH` en la forma `usuario:contraseña`. Un endpoint local detrás de auth
+     * básica no acepta el Bearer del proveedor, y sin esto la única salida era no usarlo.
+     *
+     * @return array<string,string>
+     */
+    private function extraHeaders(): array
+    {
+        $basica = getenv('MILPA_AGENT_BASIC_AUTH');
+        if (!\is_string($basica) || !str_contains($basica, ':')) {
+            return [];
+        }
+
+        return ['Authorization' => 'Basic ' . base64_encode($basica)];
+    }
+
+    /**
+     * La llave, el proveedor y el modelo — de las variables de entorno, o `null` si no hay ninguna.
+     *
+     * Anthropic primero porque es el default de la casa. El modelo se puede fijar en `config/app.php`
+     * (`agent.model`) y si no se usa el de cada proveedor.
+     *
+     * @return array{0: string, 1: string, 2: string}|null
+     */
+    private function credential(): ?array
+    {
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $modeloDeclarado = $config instanceof Config ? $config->get('agent.model') : null;
+
+        // Un endpoint propio manda: quien apuntó su agente a un modelo local no quiere que una
+        // ANTHROPIC_API_KEY olvidada en el entorno lo mande a otro lado —y a cobrar.
+        if ($this->baseUrl() !== null) {
+            $llaveLocal = getenv('MILPA_AGENT_API_KEY');
+
+            return [
+                'openai',
+                \is_string($llaveLocal) && $llaveLocal !== '' ? $llaveLocal : 'local',
+                \is_string($modeloDeclarado) ? $modeloDeclarado : (getenv('MILPA_AGENT_MODEL') ?: 'qwen3-coder:30b'),
+            ];
+        }
+
+        $anthropic = getenv('ANTHROPIC_API_KEY');
+        if (\is_string($anthropic) && $anthropic !== '') {
+            return ['anthropic', $anthropic, \is_string($modeloDeclarado) ? $modeloDeclarado : 'claude-sonnet-4-5'];
+        }
+
+        $openai = getenv('OPENAI_API_KEY');
+        if (\is_string($openai) && $openai !== '') {
+            return ['openai', $openai, \is_string($modeloDeclarado) ? $modeloDeclarado : 'gpt-4o'];
+        }
+
+        return null;
+    }
+
+    /**
+     * Las operaciones de esta app, proyectadas como herramientas — las MISMAS que ve un cliente MCP.
+     *
+     * Se proyecta contra un registry nuevo y no contra el del kernel: el del kernel puede traer
+     * herramientas que un plugin registró con `#[Tool]`, y las queremos también, pero armar el
+     * catálogo aquí es lo que garantiza que el agente vea lo mismo que `bin/mcp-server.php` expone.
+     */
+    /**
+     * @param list<Operation> $extra operaciones que sólo existen para esta corrida — hoy, las que
+     *                               atan el plan y los pendientes a la sesión en curso
+     */
+    private function toolsOfThisApp(array $extra = [], bool $soloLectura = false, bool $registroPropio = false): ?ToolRegistry
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return null;
+        }
+
+        // UN REGISTRO PROPIO PARA QUIEN TIENE OTRA SESIÓN — y no es una optimización, es corregir que
+        // el hijo escribía en el cuaderno del padre.
+        //
+        // El registro del kernel es UNO para el proceso, y unas líneas más abajo se descarta lo que ya
+        // esté registrado por NOMBRE. `plan` y `todo` no son herramientas cualesquiera: son cierres
+        // atados a una sesión concreta. El padre registraba las suyas primero, el `plan` del hijo se
+        // descartaba por duplicado, y el hijo terminaba llamando al del padre: su plan y sus
+        // pendientes aterrizaban en el stream del padre.
+        //
+        // Se descubrió el 2026-08-04 midiendo Q-P20-I, y su daño no fue el estado: fue la MEDICIÓN.
+        // «El hijo no planeó 0/8» era el `plan_set` archivado en el otro stream — el cierre de
+        // Q-P20-G se construyó sobre eso y quedó corregido. `SessionBookkeeping($almacen, $hijoId)`
+        // era un lector muerto: se construía con el id correcto y nadie lo llamaba.
+        $registry = $registroPropio ? new ToolRegistry(new NullLogger()) : $kernel->toolRegistry();
+        if (!$registry instanceof ToolRegistry) {
+            $registry = new ToolRegistry(new NullLogger());
+        }
+
+        // TODO lo que esta app declara, no sólo lo que los plugins arrancaron: `kernel->commands()`
+        // trae las operaciones de los plugins booteados y deja fuera las de `config/operations.php`.
+        // Con eso, el agente veía OCHO herramientas mientras `coa` ofrecía doce — `make` y `validate`
+        // entre las que faltaban, que son justo las que sirven para construir algo. Dos inventarios
+        // de la misma app es exactamente lo que `Operations` existe para evitar, y aquí no se estaba
+        // usando.
+        $todas = [...Operations::all($kernel, $kernel->root()), ...$extra];
+
+        // ── EL CATÁLOGO CONDICIONADO POR LA TAREA ───────────────────────────────────────────────
+        //
+        // Si `$soloLectura` es verdadero —lo decidió UN juicio, al empezar, sobre la petición— las
+        // herramientas que mutan no entran. No se niegan después: no se ofrecen.
+        //
+        // Es la cuarta intervención de esta serie y la primera que cambia el sistema en vez de
+        // hablarle al agente. Las tres anteriores están medidas y fallaron: explicarle (4 tandas sin
+        // moverse), juzgarlo (Q-P19-D: cero destructivo apagando al agente) y sugerirle (Q-P19-E:
+        // idéntico). El brazo sin freno enseña por qué se prueba esto: 36 llamadas a `plugins_disable`
+        // en 32 corridas. **Una herramienta ofrecida es una herramienta que se va a llamar.**
+        //
+        // Q-P19-F está pre-registrada para medirlo y puede refutarse: si tampoco observa, la serie
+        // termina apuntando al modelo y no al diseño.
+        //
+        // LA CONTABILIDAD NO SE FILTRA. `plan` y `todo` declaran `mutating: true` —y es verdad,
+        // apendan— pero su efecto es exclusivamente sobre la bitácora de esta sesión: no tocan un
+        // archivo, una base ni un plugin. Es la misma doctrina con que `SessionToolGate` las exime de
+        // la compuerta: quitarle el cuaderno a un agente en modo lectura no lo vuelve más seguro, lo
+        // vuelve ilegible. Y era además una variable oculta: dos mesas que difieren en lo destructivo
+        // Y en la contabilidad no permiten atribuir una diferencia de conducta a lo primero — lo
+        // encontró la revisión adversaria de Q-P19-J.
+        if ($soloLectura) {
+            $sinMutantes = array_values(array_filter(
+                Operations::all($kernel, $kernel->root()),
+                static fn ($op): bool => !$op->mutating,
+            ));
+            $todas = [...$sinMutantes, ...$extra];
+        }
+
+        // LAS OPERACIONES QUE ADJUDICAN SESIONES NO SON HERRAMIENTAS DEL ADJUDICADO.
+        //
+        // `agent:answer` contesta la pregunta que pausó una sesión; `agent:mode` cambia cuánta
+        // autonomía tiene. Las dos existen para que un HUMANO gobierne al agente — y estaban en el
+        // catálogo del propio agente, con el mensaje de pausa entregándole la sintaxis exacta. Un
+        // agente que puede contestarse «sí» a sí mismo o subirse solo a `auto` no está gobernado:
+        // está narrando gobernanza. Lo encontró la revisión adversaria de Q-P19-M, y habría vuelto
+        // teatro TODO el contrato de intención de ADR-0044.
+        //
+        // Se filtra aquí —después de TODAS las ramas que arman la lista, un solo sitio— y no por
+        // `surfaces`, porque un cliente MCP con un humano detrás contesta legítimamente por esa
+        // superficie: la regla no es «answer no sale por MCP», es «answer no es una herramienta de
+        // la sesión que espera la respuesta».
+        // `agent:discard` entra a esta lista el día que nace, y no después: cierra una sesión, y un
+        // padre que pudiera cerrar a su hijo pausado haría desaparecer la pregunta que el humano tenía
+        // que ver. No otorga nada — vuelve invisible lo que existía para ser visto.
+        $adjudican = ['agent:answer', 'agent:mode', 'agent:discard'];
+        $todas = array_values(array_filter(
+            $todas,
+            static fn ($op): bool => !\in_array($op->name, $adjudican, true),
+        ));
+
+        // Sólo lo que TODAVÍA no está. Proyectar dos veces sobre el mismo registro lanza
+        // `ToolAlreadyRegisteredException`, y eso convertía la segunda llamada al agente —en el mismo
+        // proceso— en una excepción. Lo encontró una prueba que llama dos veces; en producción lo
+        // habría encontrado quien le preguntara dos cosas seguidas.
+        $faltantes = array_values(array_filter(
+            $todas,
+            static fn ($op): bool => $registry->getDefinition(McpProjector::toolName($op->name)) === null,
+        ));
+
+        if ($faltantes !== []) {
+            (new McpProjector())->projectAll($faltantes, $registry, $kernel->container());
+        }
+
+        return $registry;
+    }
+}
