@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/getmilpa/app-runtime/compare/v0.4.1...v0.5.0) (2026-08-05)
+
+
+### Features
+
+* **channel:** agent_message — el padre corrige a media tarea, y el hijo avisa sin terminar ([932907b](https://github.com/getmilpa/app-runtime/commit/932907b9ffd51c3e49d89bbe793beb38b9116ab6))
+
 ## [0.4.1](https://github.com/getmilpa/app-runtime/compare/v0.4.0...v0.4.1) (2026-08-05)
 
 
