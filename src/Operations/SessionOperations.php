@@ -25,6 +25,11 @@ use Milpa\Auth\AuthContext;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\InvocationContext;
+use Milpa\Command\Effect\Authority;
+use Milpa\Command\Effect\EffectProfile;
+use Milpa\Command\Effect\Externality;
+use Milpa\Command\Effect\Mutation;
+use Milpa\Command\Effect\Reversibility;
 use Milpa\Command\Operation;
 use Milpa\Interfaces\Di\DIContainerInterface;
 
@@ -76,6 +81,13 @@ final class SessionOperations implements CommandProvider
         return [
             new Operation(
                 name: 'agent:sessions',
+                effects: new EffectProfile(
+                    Mutation::None,
+                    Externality::None,
+                    Reversibility::Guaranteed,
+                    Authority::Read,
+                    rollbackContract: 'nothing-to-roll-back',
+                ),
                 description: 'The agent sessions of this app, and where each one stands',
                 handler: fn (array $input): array => $this->listar(),
                 inputSchema: ['type' => 'object', 'properties' => []],
@@ -83,6 +95,13 @@ final class SessionOperations implements CommandProvider
             ),
             new Operation(
                 name: 'agent:show',
+                effects: new EffectProfile(
+                    Mutation::None,
+                    Externality::None,
+                    Reversibility::Guaranteed,
+                    Authority::Read,
+                    rollbackContract: 'nothing-to-roll-back',
+                ),
                 description: 'Everything known about one session: goal, plan, todos, permissions and how it ended',
                 handler: fn (array $input): array => $this->mostrar($input),
                 inputSchema: [
@@ -96,6 +115,15 @@ final class SessionOperations implements CommandProvider
             ),
             new Operation(
                 name: 'agent:mode',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    // Append-only stream: a decision is a fact, and facts are not withdrawn.
+                    Reversibility::Irreversible,
+                    // It raises how far the agent may act WITHOUT ASKING — it spends the human's
+                    // authority over decisions that have not happened yet.
+                    Authority::WriteAsUser,
+                ),
                 description: 'Change how far a session may go without asking',
                 handler: fn (array $input): array => $this->cambiarModo($input),
                 inputSchema: [
@@ -119,6 +147,13 @@ final class SessionOperations implements CommandProvider
             ),
             new Operation(
                 name: 'agent:timeline',
+                effects: new EffectProfile(
+                    Mutation::None,
+                    Externality::None,
+                    Reversibility::Guaranteed,
+                    Authority::Read,
+                    rollbackContract: 'nothing-to-roll-back',
+                ),
                 description: 'What happened in a session, translated for a surface to paint: cards, plan and closing',
                 handler: fn (array $input): array => $this->linea($input),
                 inputSchema: [
@@ -137,6 +172,12 @@ final class SessionOperations implements CommandProvider
             ),
             new Operation(
                 name: 'agent:answer',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    Reversibility::Irreversible,
+                    Authority::WriteAsUser,
+                ),
                 // NO DICE «and resume it», y antes sí. Contestar apenda la respuesta y devuelve el hint
                 // para retomar; el bucle NO se vuelve a correr. La descripción prometía lo que la
                 // operación no hace, y en el TUI eso se sentía como un agente que se quedó callado.
@@ -167,6 +208,13 @@ final class SessionOperations implements CommandProvider
             ),
             new Operation(
                 name: 'agent:board',
+                effects: new EffectProfile(
+                    Mutation::None,
+                    Externality::None,
+                    Reversibility::Guaranteed,
+                    Authority::Read,
+                    rollbackContract: 'nothing-to-roll-back',
+                ),
                 description: 'The work of one session as four columns, derived from its stream',
                 handler: fn (array $input): array => $this->tablero($input),
                 inputSchema: [
@@ -184,6 +232,12 @@ final class SessionOperations implements CommandProvider
             ),
             new Operation(
                 name: 'agent:discard',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    Reversibility::Irreversible,
+                    Authority::WriteAsUser,
+                ),
                 description: 'Discard a session: it stops waiting and nothing can resume it',
                 handler: fn (array $input, ?InvocationContext $ctx = null): array => $this->descartar($input, $ctx),
                 inputSchema: [

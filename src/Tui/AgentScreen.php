@@ -24,6 +24,7 @@ use Milpa\Live\Contracts\Tui\TerminalInterface;
 use Milpa\Live\Tui\RetainedTuiLoop;
 use Milpa\Live\Tui\RetainedTuiRenderer;
 use Milpa\Live\Tui\SimpleTuiLayoutEngine;
+use Milpa\Live\Contracts\Tui\MeasurableTuiNodeRendererInterface;
 use Milpa\Live\Tui\TuiNodeRendererRegistry;
 use Milpa\Live\ValueObjects\Tui\TuiNode;
 
@@ -78,7 +79,7 @@ final class AgentScreen implements SurfaceBroadcaster
     private string $entrada = '';
 
     /** @var list<array{quien: string, texto: string, voz?: string}> */
-    private array $conversacion = [];
+    private array $conversation = [];
 
     /**
      * En qué está la pantalla AHORA: `null` cuando espera al humano, o la línea que describe el
@@ -149,7 +150,10 @@ final class AgentScreen implements SurfaceBroadcaster
         private readonly \Closure $responder,
         private readonly ?\Closure $sesion = null,
         private readonly ?\Closure $contestar = null,
-        int $width = 80,
+        // El ancho SE GUARDA, no sólo se pasa al loop: la conversación necesita preguntarle a cada
+        // renderer cuántos renglones ocupa su nodo A ESTE ANCHO, y sin el dato el cálculo sería una
+        // suposición sobre la terminal de alguien más.
+        private readonly int $width = 80,
         private readonly int $height = 24,
         bool $ansi = true,
         /**
@@ -213,6 +217,23 @@ final class AgentScreen implements SurfaceBroadcaster
         );
     }
 
+    /**
+     * Cuántos renglones ocupa este nodo al ancho de la pantalla.
+     *
+     * Se lo pregunta al renderer que va a pintarlo. El que no sepa contestar —`instanceof` falla—
+     * recibe UN renglón: es la respuesta conservadora, y una entrada que se ve corta de más se nota
+     * al instante, mientras que una que se pasa de alto empuja al resto fuera de la pantalla sin
+     * síntoma. Hoy los dos tipos que usa la conversación saben medirse.
+     */
+    private function heightOf(TuiNode $nodo): int
+    {
+        $renderer = self::renderers()->resolve($nodo);
+
+        return $renderer instanceof MeasurableTuiNodeRendererInterface
+            ? max(1, $renderer->measureHeight($nodo, $this->width))
+            : 1;
+    }
+
     private static function renderers(): TuiNodeRendererRegistry
     {
         $registry = new TuiNodeRendererRegistry();
@@ -228,6 +249,9 @@ final class AgentScreen implements SurfaceBroadcaster
         // distinguir: lo que él dice (markdown), lo que una herramienta devolvió (tabla), en qué
         // estado está (badge con color) y cuánto lleva (barra).
         $registry->register(new TextRenderer());
+        // El campo donde escribe el humano. Sin registrarlo, el nodo `text-input` no lo atiende
+        // NADIE y se pinta como nada — la manera más silenciosa de que una capacidad no llegue.
+        $registry->register(new \Milpa\Live\Tui\NodeRenderers\TextInputRenderer());
         $registry->register(new \Milpa\Live\Tui\NodeRenderers\MilpaLogoRenderer());
         $registry->register(new \Milpa\Live\Tui\NodeRenderers\SpacerRenderer());
         $registry->register(new \Milpa\Live\Tui\NodeRenderers\MarkdownRenderer());
@@ -379,7 +403,7 @@ final class AgentScreen implements SurfaceBroadcaster
      */
     public function conversation(): array
     {
-        return $this->conversacion;
+        return $this->conversation;
     }
 
     /**
@@ -505,7 +529,7 @@ final class AgentScreen implements SurfaceBroadcaster
                     // La conversación se limpia: lo que se ve tiene que ser de la sesión que se
                     // acaba de abrir. Dejar los turnos de la anterior mezclaría dos trabajos en una
                     // pantalla, que es justo lo que separar las sesiones vino a evitar.
-                    $this->conversacion = [];
+                    $this->conversation = [];
                     $this->tokensGastados = 0;
                     // Y se vuelve a permitir traer lo que la sesión elegida ya vivió: sin esto, la
                     // pantalla mostraría vacía una conversación que sí existe.
@@ -607,7 +631,7 @@ final class AgentScreen implements SurfaceBroadcaster
             return;
         }
 
-        $this->conversacion[] = ['quien' => 'tú', 'texto' => $pregunta];
+        $this->conversation[] = ['quien' => 'tú', 'texto' => $pregunta];
         $this->entrada = '';
 
         // CONTESTAR es lo primero. Con una pregunta abierta, la sesión no es corrible: mandarla al
@@ -618,12 +642,12 @@ final class AgentScreen implements SurfaceBroadcaster
             $eco = ($this->contestar)($pregunta);
 
             if (!$eco['ok']) {
-                $this->conversacion[] = ['quien' => 'agente', 'voz' => 'sistema', 'texto' => '✗ ' . ($eco['error'] ?? '')];
+                $this->conversation[] = ['quien' => 'agente', 'voz' => 'sistema', 'texto' => '✗ ' . ($eco['error'] ?? '')];
 
                 return;
             }
 
-            $this->conversacion[] = [
+            $this->conversation[] = [
                 'quien' => 'agente',
                 'voz' => 'sistema',
                 'texto' => '✓ contestado' . (($eco['granted'] ?? null) !== null ? ' · autorizado: ' . $eco['granted'] : ''),
@@ -654,7 +678,7 @@ final class AgentScreen implements SurfaceBroadcaster
         $hijo = $this->preguntaDeHijoPendiente();
         if ($hijo !== null && $this->contestarHijo !== null) {
             $eco = ($this->contestarHijo)($hijo['session'], $pregunta);
-            $this->conversacion[] = [
+            $this->conversation[] = [
                 'quien' => 'agente',
                 'voz' => 'sistema',
                 'texto' => ($eco['ok'])
@@ -732,7 +756,7 @@ final class AgentScreen implements SurfaceBroadcaster
         // INTERRUMPIR NO ES FALLAR, y se pinta como lo que fue: una decisión del humano. Con la voz
         // del sistema, porque esto no lo dijo el modelo.
         if (($respuesta['interrupted'] ?? false) === true) {
-            $this->conversacion[] = [
+            $this->conversation[] = [
                 'quien' => 'agente',
                 'voz' => 'sistema',
                 'texto' => '⏹ la vuelta se interrumpió' . $paso
@@ -743,7 +767,7 @@ final class AgentScreen implements SurfaceBroadcaster
         }
 
         if (($respuesta['paused'] ?? false) === true) {
-            $this->conversacion[] = [
+            $this->conversation[] = [
                 'quien' => 'agente',
                 'voz' => 'sistema',
                 'texto' => '⏸ la vuelta se detuvo a preguntar' . $paso,
@@ -752,7 +776,7 @@ final class AgentScreen implements SurfaceBroadcaster
             return;
         }
 
-        $this->conversacion[] = $respuesta['ok']
+        $this->conversation[] = $respuesta['ok']
             ? [
                 'quien' => 'agente',
                 // AGOTAR EL TECHO NO TIENE LA VOZ DEL AGENTE. Es un estado del sistema, y pintarlo
@@ -1054,7 +1078,7 @@ final class AgentScreen implements SurfaceBroadcaster
     private function rehidratar(): void
     {
         $sesion = $this->sesionActual();
-        if ($sesion === null || $this->conversacion !== [] || $this->rehidratada) {
+        if ($sesion === null || $this->conversation !== [] || $this->rehidratada) {
             return;
         }
 
@@ -1069,7 +1093,7 @@ final class AgentScreen implements SurfaceBroadcaster
         ));
 
         foreach (\array_slice($conversables, -6) as $turno) {
-            $this->conversacion[] = [
+            $this->conversation[] = [
                 'quien' => $turno['role'] === 'user' ? 'tú' : 'agente',
                 'texto' => $turno['content'],
             ];
@@ -1095,7 +1119,7 @@ final class AgentScreen implements SurfaceBroadcaster
         // LA PORTADA, mientras nadie haya escrito nada. No es decoración: es donde se contesta «¿con
         // qué modelo estoy hablando y qué puede tocar?» sin teclear un comando. Un agente que no
         // dice con qué está pensando obliga a confiar sin poder verificar.
-        if ($this->conversacion === [] && !$this->eligiendoSesion && $this->actividad === null && $this->sesionEnBlanco()) {
+        if ($this->conversation === [] && !$this->eligiendoSesion && $this->actividad === null && $this->sesionEnBlanco()) {
             return $this->portada();
         }
 
@@ -1121,7 +1145,7 @@ final class AgentScreen implements SurfaceBroadcaster
             $hijos[] = new TuiNode('sep-estado', 'text', props: ['text' => str_repeat('─', 40)]);
         }
 
-        if ($this->conversacion === []) {
+        if ($this->conversation === []) {
             $hijos[] = new TuiNode('vacio', 'text', props: [
                 'text' => $sesion !== null && $sesion->question !== null
                     ? 'Está esperando tu respuesta.'
@@ -1144,12 +1168,35 @@ final class AgentScreen implements SurfaceBroadcaster
         // que uno pidió de lo que él contestó. Lo del humano lleva su marca `›`; lo del agente se
         // rinde como markdown —negritas, listas, bloques de código— que es como el modelo escribe.
         $lineas = [];
-        foreach (\array_slice($this->conversacion, -6) as $i => $turno) {
+        foreach (\array_slice($this->conversation, -6) as $i => $turno) {
             // TRES VOCES Y NO DOS. Lo que dice el MODELO es markdown y se rinde como tal; lo que
             // dice el SISTEMA —un error, una confirmación— es literal y se pinta crudo. Mezclarlas
             // costó ver `ANTHROPIC_API_KEY` convertido en `ANTHROPICAPIKEY`: markdown leyó los
             // guiones bajos como énfasis y se comió el nombre de la variable que hacía falta poner.
             $voz = $turno['voz'] ?? ($turno['quien'] === 'tú' ? 'humano' : 'agente');
+
+            // ── WHAT THE MODEL SAYS TRAVELS WHOLE, AS ONE BLOCK ────────────────────────────────
+            //
+            // It used to be split on `\n`, one markdown node per line. Rod caught it in a capture:
+            // `### Main operations:` was showing its hashes.
+            //
+            // Two causes, both from the splitting:
+            //
+            //   · the two-space indent that marks «the model said this» lived INSIDE the text, and
+            //     an indented markdown heading stops being a heading — the bullet survived and the
+            //     `###` did not, which is why markdown looked like it worked «sometimes»;
+            //   · and an ordered list cannot renumber itself when every row is its own list of one
+            //     item: the model wrote `1.` six times and six `1.` came out.
+            //
+            // Whole, the renderer sees the entire block: headings, lists that number themselves,
+            // fenced code. The indent travels as `paddingX`, which the renderer applies AFTER
+            // parsing — same look, nothing broken.
+            if ($voz === 'agente') {
+                $lineas[] = ["turno:{$i}", $turno['texto'], $voz];
+
+                continue;
+            }
+
             foreach (explode("\n", $turno['texto']) as $j => $linea) {
                 $lineas[] = [
                     "turno:{$i}:{$j}",
@@ -1189,23 +1236,128 @@ final class AgentScreen implements SurfaceBroadcaster
         // separador · badge · barra de estado · prompt · ayuda, más aire; y tres más si hay una
         // pregunta esperando —propia o de un sub-agente—, que se pinta con su motivo y sus opciones.
         $deHijo = $sesion?->question === null ? $this->preguntaDeHijoPendiente() : null;
-        $chrome = 7 + (($sesion?->question !== null || $deHijo !== null) ? 3 : 0) + $altoTabla;
+        // EL CAMPO CUENTA POR LO QUE MIDE, no por uno. Es lo único del chrome que cambia de tamaño
+        // mientras alguien escribe, y darlo por fijo devuelve el desborde: el árbol pasa del alto de
+        // la terminal y este motor no recorta, deja la pantalla en blanco. Ya van cuatro veces con
+        // este cálculo, y ésta es la primera en que uno de los sumandos respira.
+        $fieldHeight = $this->heightOf(new TuiNode('prompt', 'text-input', props: [
+            'value' => $this->entrada,
+            'prompt' => '› ',
+            'multiline' => true,
+            'maxLines' => 6,
+        ]));
+        $chrome = 6 + $fieldHeight + (($sesion?->question !== null || $deHijo !== null) ? 3 : 0) + $altoTabla;
         $presupuesto = max(3, $this->height - \count($hijos) - $chrome);
-        foreach (\array_slice($lineas, -$presupuesto) as [$id, $texto, $voz]) {
-            $hijos[] = $voz === 'agente'
+
+        // ── UNA CONVERSACIÓN SE DESPLAZA; NO SE REPARTE ────────────────────────────────────────
+        //
+        // El presupuesto era de ENTRADAS y el motor repartía el alto en partes iguales entre ellas,
+        // así que a más dicho, menos se veía de cada cosa — justo cuando más hay que leer. Con la
+        // pantalla llena, cada bloque acababa en una o dos líneas, cortadas a media palabra y sin
+        // nada que lo dijera. Rod lo vio en el uso real; visto en tmux, es exactamente eso.
+        //
+        // Ahora el presupuesto es de RENGLONES y se gasta desde lo más nuevo hacia atrás: lo último
+        // dicho se ve entero y lo viejo sale por arriba, que es como se lee una conversación.
+        //
+        // Cada nodo declara su `height`. Es lo que apaga el reparto: el motor sólo divide entre los
+        // hijos que NO lo declaran. Y el alto se lo pregunta al renderer que va a pintarlo
+        // —`measureHeight`— porque contarlo aquí sería una segunda implementación del salto de línea
+        // que coincide con la primera hasta el día que no, y ese desacuerdo se ve como texto que
+        // falta sin que nadie sepa que faltaba.
+        $visible = [];
+        $spent = 0;
+        $allFits = true;
+        foreach (array_reverse($lineas) as [$id, $texto, $voz]) {
+            $nodo = $voz === 'agente'
                 // `markdown` y no `text`: el modelo escribe con negritas, listas y bloques de
                 // código, y pintarlo plano descarta información que él sí puso.
                 //
-                // Y ENVUELVE. Iba en `wrap => false` sin motivo escrito, y el renderer trunca cada
-                // línea al ancho: una respuesta larga se cortaba a media frase —«…lo que significa que
-                // ya no se»— y lo que el agente dijo después no existía para quien miraba. Rod lo
-                // reportó desde el uso real; visto en tmux, es exactamente eso.
-                //
-                // Una pantalla que corta sin decirlo es peor que una que no cabe: no hay puntos
-                // suspensivos, no hay barra, nada distingue «terminó ahí» de «no cupo».
-                ? new TuiNode($id, 'markdown', props: ['content' => $texto, 'wrap' => true])
+                // `paddingX` rather than two spaces in the text: the indent is the mark saying the
+                // model said this, and inside the content it breaks the markdown it claims to render.
+                ? new TuiNode($id, 'markdown', props: ['content' => $texto, 'wrap' => true, 'paddingX' => 2])
                 : new TuiNode($id, 'text', props: ['text' => $texto]);
+
+            $height = $this->heightOf($nodo);
+
+            // THE NEWEST IS SHOWN EVEN IF IT DOES NOT FIT — by its TAIL, which is what was said last.
+            //
+            // A model turn is one block now, and one block can be taller than the screen. Under a
+            // strict «whole or nothing» rule the long answer — the one most worth reading — would be
+            // the only one nobody ever sees.
+            if ($visible === [] && $height > $presupuesto && $voz === 'agente') {
+                $visible[] = new TuiNode($nodo->id, $nodo->type, props: [
+                    ...$nodo->props,
+                    'height' => $presupuesto,
+                    'scrollToBottom' => true,
+                ]);
+                $spent = $presupuesto;
+                $allFits = false;
+
+                break;
+            }
+
+            if ($spent + $height > $presupuesto) {
+                // NINGÚN NODO SE PINTA A MEDIAS. Un nodo es UNA línea del texto original, que al
+                // ancho de la terminal puede ocupar varios renglones; dejarlo entrar con la mitad de
+                // sus renglones es la forma de corte que no se distingue de «ahí terminó», y es el
+                // defecto que esta rebanada existe para quitar.
+                //
+                // Lo que NO afirma: que un turno completo entre o no entre. Un turno se parte en una
+                // línea por nodo, así que la cola puede empezar a media respuesta del modelo. Eso se
+                // ve —hay contenido arriba y el contador lo dice— y es distinto de un corte mudo.
+                $allFits = false;
+                break;
+            }
+            $spent += $height;
+            $visible[] = new TuiNode(
+                $nodo->id,
+                $nodo->type,
+                props: [...$nodo->props, 'height' => $height],
+            );
         }
+
+        // Y SE DICE LO QUE NO SE VE. Una pantalla que corta sin avisar es peor que una que no cabe:
+        // quien lee no tiene cómo distinguir «terminó ahí» de «no cupo».
+        // ROWS ARE COUNTED — the one unit that means the same thing for every block.
+        //
+        // This counter has already lied TWICE in its noun, both times with the right number. It said
+        // «entries» when the unit was the line, and «lines» when the model's turn became a single
+        // block. A correct number under the wrong name is worse than a wrong one: it reads without
+        // raising suspicion.
+        //
+        // A row does not depend on how the conversation happens to be chopped up inside, and it is
+        // what the reader wants to know: how much is left to see, not how many pieces we store.
+        $rowsAbove = 0;
+        if (!$allFits) {
+            $placed = [];
+            foreach ($visible as $node) {
+                $placed[$node->id] = true;
+            }
+            foreach ($lineas as [$id, $texto, $voz]) {
+                if (isset($placed[$id])) {
+                    continue;
+                }
+                $rowsAbove += $this->heightOf($voz === 'agente'
+                    ? new TuiNode($id, 'markdown', props: ['content' => $texto, 'wrap' => true, 'paddingX' => 2])
+                    : new TuiNode($id, 'text', props: ['text' => $texto]));
+            }
+        }
+        if ($rowsAbove > 0) {
+            $hijos[] = new TuiNode('conv-arriba', 'text', props: [
+                'text' => sprintf('  ↑ %d renglón(es) más arriba', $rowsAbove),
+                'height' => 1,
+            ]);
+        }
+
+        foreach (array_reverse($visible) as $nodo) {
+            $hijos[] = $nodo;
+        }
+
+        // UN SOLO HIJO ELÁSTICO, Y A PROPÓSITO. Con todos los altos declarados el árbol ya no se
+        // estira, así que una conversación corta dejaba el campo y la barra flotando a media
+        // pantalla en vez de abajo. Este espaciador se come lo que sobre: es la única pieza que
+        // reparte, y reparte con uno solo, que es el caso donde el reparto no le quita a nadie.
+        $hijos[] = new TuiNode('empuje', 'spacer', props: []);
 
         $hijos[] = new TuiNode('separador', 'text', props: ['text' => str_repeat('─', 40)]);
 
@@ -1263,22 +1415,67 @@ final class AgentScreen implements SurfaceBroadcaster
         ]);
         $hijos[] = new TuiNode('estado-barra', 'status-bar', props: [
             'indicator' => $this->actividad !== null ? self::PULSO[$this->pulso % \count(self::PULSO)] : '○',
-            'left' => $this->actividad ?? 'listo',
+            // THE LEFT IS THE ACTIVITY, and at rest there is none — so it stays empty.
+            //
+            // It read `?? 'listo'` and the screen ended with «listo» twice in a row: once in the
+            // badge, which exists to name the state and give it colour, and once here. Rod caught it
+            // in a capture. Two pieces saying the same thing do not reinforce each other: they teach
+            // the reader that one of them is not worth reading, and then nobody knows which.
+            'left' => $this->actividad ?? '',
             // A la derecha lo que costó la última vuelta, que es la otra pregunta que uno se hace
             // mirando una pantalla: no sólo «¿está viva?», también «¿cuánto lleva?».
             'right' => $this->ultimoCosto ?? '',
         ]);
 
-        $hijos[] = new TuiNode('prompt', 'text', props: [
-            'text' => '› ' . $this->entrada . '▏',
+        // ── DONDE ESCRIBE EL HUMANO: UN CAMPO QUE CRECE, NO UN RENGLÓN ─────────────────────────
+        //
+        // Era un nodo `text` de una línea, así que una respuesta larga se salía por la derecha sin
+        // decirlo: exactamente el mismo corte mudo que esta rebanada quitó de la conversación, en el
+        // único sitio donde el corte se lo hace uno a sí mismo mientras escribe.
+        //
+        // Y ahí es donde más falta hace el espacio. La tercera afordancia de una pregunta —después
+        // de sí y de no— es «escribo la mía»: corregir, poner una condición, dar contexto. Nada de
+        // eso cabe en una línea.
+        //
+        // Crece hacia ARRIBA sin que nadie lo programe: va debajo de la conversación en una pila
+        // vertical, así que cada renglón que toma es un renglón que la conversación cede. El tope de
+        // 6 no es estético — sin él, pegar un párrafo se comería la conversación que está
+        // contestando.
+        $field = new TuiNode('prompt', 'text-input', props: [
+            'value' => $this->entrada,
+            'prompt' => '› ',
+            'placeholder' => $pendiente !== null ? 'tu respuesta…' : 'escribe tu pregunta…',
+            'multiline' => true,
+            'maxLines' => 6,
+            'focused' => true,
         ]);
+        $hijos[] = new TuiNode(
+            $field->id,
+            $field->type,
+            props: [...$field->props, 'height' => $this->heightOf($field)],
+        );
         $hijos[] = new TuiNode('ayuda', 'text', props: [
             'text' => $pendiente !== null
                 ? '  [Enter] contestar · [Esc] limpiar · [Ctrl-C] salir'
                 : '  [Enter] preguntar · [Esc] limpiar · [Ctrl-C] salir',
         ]);
 
-        return new TuiNode('root', 'box', props: ['title' => 'coa · agent'], children: $hijos);
+        // ── TODO NODO DECLARA SU ALTO, Y NO ES UN DETALLE ──────────────────────────────────────
+        //
+        // El motor reparte el espacio sobrante SÓLO entre los hijos que no lo declaran. Basta con
+        // que uno se quede sin declararlo para que se lleve todo lo que los demás dejaron libre — y
+        // eso fue exactamente lo que pasó: la conversación y el campo declararon el suyo, los nodos
+        // del encabezado no, y el encabezado se comió la pantalla hasta empujar al campo fuera. En
+        // pantalla se veía como que el campo «no crecía»; en realidad no le quedaba dónde.
+        //
+        // Medirlos a todos apaga el reparto por completo. Es la misma regla que hizo que la
+        // conversación se desplazara en vez de dividirse, aplicada al árbol entero.
+        return new TuiNode('root', 'box', props: ['title' => 'coa · agent'], children: array_map(
+            fn (TuiNode $n): TuiNode => isset($n->props['height']) || $n->id === 'empuje'
+                ? $n
+                : new TuiNode($n->id, $n->type, props: [...$n->props, 'height' => $this->heightOf($n)], children: $n->children),
+            $hijos,
+        ));
     }
 
     /**

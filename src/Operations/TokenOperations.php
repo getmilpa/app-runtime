@@ -18,6 +18,11 @@ use Milpa\AppRuntime\Auth\ApiToken;
 use Milpa\AppRuntime\Auth\TokenVerifier;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\Command\CommandProvider;
+use Milpa\Command\Effect\Authority;
+use Milpa\Command\Effect\EffectProfile;
+use Milpa\Command\Effect\Externality;
+use Milpa\Command\Effect\Mutation;
+use Milpa\Command\Effect\Reversibility;
 use Milpa\Command\Operation;
 use Milpa\Data\RepositoryInterface;
 use Psr\Container\ContainerInterface;
@@ -66,6 +71,13 @@ final readonly class TokenOperations implements CommandProvider
         return [
             new Operation(
                 name: 'token.list',
+                effects: new EffectProfile(
+                    Mutation::None,
+                    Externality::None,
+                    Reversibility::Guaranteed,
+                    Authority::Read,
+                    rollbackContract: 'nothing-to-roll-back',
+                ),
                 description: 'The API tokens of this app: who each one is and what it can do — never the secret',
                 handler: fn (array $input): array => $this->list($input),
                 inputSchema: ['type' => 'object', 'properties' => []],
@@ -76,6 +88,16 @@ final readonly class TokenOperations implements CommandProvider
             ),
             new Operation(
                 name: 'token.new',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    // The secret is shown ONCE and never stored in the clear. Nothing leaves this process — but
+                    // what it prints is a credential, and a credential that has been read cannot be unread.
+                    Externality::None,
+                    // Revoking stops the token working. It does not undo whoever already copied it.
+                    Reversibility::Compensatable,
+                    // Whoever can mint a token can mint one with every scope. Its own description says so.
+                    Authority::Privileged,
+                ),
                 description: 'Mint a token for an actor with the scopes you name; it is printed ONCE',
                 handler: fn (array $input): array => $this->create($input),
                 inputSchema: [
@@ -97,6 +119,15 @@ final readonly class TokenOperations implements CommandProvider
             ),
             new Operation(
                 name: 'token.revoke',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    // Revoking cannot be un-revoked: the honest recovery is minting a new one, which is a
+                    // different token with a different identity.
+                    Reversibility::Irreversible,
+                    Authority::Privileged,
+                    escalatesOn: ['id'],
+                ),
                 description: 'Revoke a token by its id; it stops working on the next request',
                 handler: fn (array $input): array => $this->revoke($input),
                 inputSchema: [

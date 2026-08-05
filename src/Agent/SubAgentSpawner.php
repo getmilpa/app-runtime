@@ -16,6 +16,9 @@ namespace Milpa\AppRuntime\Agent;
 
 use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\SessionStore;
+use Milpa\AppRuntime\Agent\Artifact\ArtifactCheck;
+use Milpa\AppRuntime\Agent\Artifact\ArtifactContract;
+use Milpa\AppRuntime\Agent\Artifact\ArtifactRegistry;
 use Milpa\AiGateway\AgentOrchestrator;
 use Milpa\AiGateway\RunInterrupted;
 use Milpa\Command\Operation;
@@ -59,7 +62,12 @@ final class SubAgentSpawner
         // EL FONDO DEL ÁRBOL (§5.4), o `null` para correr sin techo como antes. Vive aquí y no en el
         // cierre porque es de la DELEGACIÓN: quien decide si se puede delegar es quien delega, y la
         // negativa tiene que llegar antes de gastar la vuelta del modelo.
-        private readonly ?TreeBudget $presupuesto = null,
+        private readonly ?TreeBudget $budget = null,
+        // THIS APP'S ARTIFACT VOCABULARY. It lives here because the contract belongs to the
+        // DELEGATION: whoever delegates picks the shape that must come back, and that pick has to be
+        // refusable by name at the door when the shape does not exist.
+        private readonly ArtifactRegistry $artifacts = new ArtifactRegistry(),
+        private readonly ArtifactCheck $artifactCheck = new ArtifactCheck(),
     ) {
     }
 
@@ -117,6 +125,15 @@ final class SubAgentSpawner
                         'type' => 'string',
                         'description' => 'Opcional: el papel del especialista (p. ej. «revisor de seguridad de plugins»).',
                     ],
+                    'produces' => [
+                        'type' => 'string',
+                        'enum' => $this->artifacts->kinds(),
+                        'description' => 'Optional, and PREFER IT over describing a format in the brief: the '
+                            . 'artifact the sub-agent must deliver. The system tells it the exact shape, CHECKS what '
+                            . 'comes back and hands it back to fix if it does not comply — so what reaches you '
+                            . 'already has that shape and you read it field by field instead of interpreting it. '
+                            . 'A format asked for in prose is checked by nobody.',
+                    ],
                 ],
                 'required' => ['brief'],
             ],
@@ -164,10 +181,10 @@ final class SubAgentSpawner
         // es seguro si nombra un estado que el catálogo del ejecutor sabe producir. Quien redacta el
         // criterio no tiene ese catálogo enfrente; el sistema sí. Mientras esa distinción no exista
         // en la frontera, el criterio queda opcional y el schema advierte lo único que importa.
-        $criterio = \is_string($input['done_when'] ?? null) ? trim($input['done_when']) : '';
+        $stopRule = \is_string($input['done_when'] ?? null) ? trim($input['done_when']) : '';
 
         $rol = \is_string($input['role'] ?? null) ? trim($input['role']) : '';
-        $encargo = $rol === '' ? $brief : "Tu papel: {$rol}.\n\n{$brief}";
+        $brief = $rol === '' ? $brief : "Tu papel: {$rol}.\n\n{$brief}";
 
         // LAS OBLIGACIONES LLEGAN AUNQUE EL PADRE NO LAS ESCRIBA (Q-P20-E).
         //
@@ -184,25 +201,47 @@ final class SubAgentSpawner
         // Y van AL FINAL y con su nombre. Al final porque es lo último que el hijo lee antes de
         // trabajar; con su nombre porque una obligación mezclada con el encargo se lee como un paso
         // más, y lo que la distingue es que no se negocia con el trabajo.
-        $obligaciones = [];
+        $duties = [];
         foreach (\is_array($input['must'] ?? null) ? $input['must'] : [] as $obligacion) {
             if (\is_string($obligacion) && trim($obligacion) !== '') {
-                $obligaciones[] = trim($obligacion);
+                $duties[] = trim($obligacion);
             }
         }
 
-        if ($obligaciones !== []) {
-            $numeradas = '';
-            foreach ($obligaciones as $i => $obligacion) {
-                $numeradas .= "\n" . ($i + 1) . '. ' . $obligacion;
+        if ($duties !== []) {
+            $numbered = '';
+            foreach ($duties as $i => $obligacion) {
+                $numbered .= "\n" . ($i + 1) . '. ' . $obligacion;
             }
-            $encargo .= "\n\nObligaciones de este encargo, que se cumplen siempre:{$numeradas}";
+            $brief .= "\n\nObligaciones de este encargo, que se cumplen siempre:{$numbered}";
         }
 
-        if ($criterio !== '') {
+        // ── THE ARTIFACT CONTRACT, IF ONE WAS ASKED FOR ────────────────────────────────────────
+        //
+        // It goes at the END of the brief and comes from the same declaration that later judges it.
+        // Writing the shape by hand into the brief and validating against a schema somewhere else are
+        // two sources of one truth: they agree until someone edits one, and from then on the child is
+        // told to produce A and judged against B — and the discrepancy reads like the model failing.
+        $contract = null;
+        $requestedKind = \is_string($input['produces'] ?? null) ? trim($input['produces']) : '';
+        if ($requestedKind !== '') {
+            if (!$this->artifacts->has($requestedKind)) {
+                // Refused BEFORE the child's session is opened. Opening it and finding out on the
+                // way back would spend a model turn learning something already known right here.
+                return ['ok' => false, 'error' => sprintf(
+                    'unknown artifact «%s» — this app declares: %s',
+                    $requestedKind,
+                    implode(', ', $this->artifacts->kinds()),
+                )];
+            }
+            $contract = $this->artifacts->get($requestedKind);
+            $brief .= "\n\n" . $contract->briefing();
+        }
+
+        if ($stopRule !== '') {
             // Aparte del trabajo y al final: es la regla de paro, no otro requisito que se mezcle
             // con lo que hay que hacer.
-            $encargo .= "\n\nTerminas cuando: {$criterio}\nEn cuanto se cumpla, entrega tu reporte y no sigas.";
+            $brief .= "\n\nTerminas cuando: {$stopRule}\nEn cuanto se cumpla, entrega tu reporte y no sigas.";
         }
 
         // `auto` DECLARADO A PROPÓSITO: el techo del linaje es quien manda (probado en
@@ -220,9 +259,9 @@ final class SubAgentSpawner
         // al hijo buscando lo que ya no está: gasta su presupuesto en un catálogo que no coincide con
         // su encargo. El hecho cambia el mundo; la frase le dice por qué cambió.
         $prohibidas = [];
-        foreach (\is_array($input['deny'] ?? null) ? $input['deny'] : [] as $herramienta) {
-            if (\is_string($herramienta) && trim($herramienta) !== '') {
-                $prohibidas[] = trim($herramienta);
+        foreach (\is_array($input['deny'] ?? null) ? $input['deny'] : [] as $tool) {
+            if (\is_string($tool) && trim($tool) !== '') {
+                $prohibidas[] = trim($tool);
             }
         }
 
@@ -231,35 +270,35 @@ final class SubAgentSpawner
         // La hipótesis es que «planea antes de empezar» nunca fue una obligación irreducible sino una
         // prohibición disfrazada —«no empieces sin plan»—, y que por eso admite la misma traducción
         // que ya se cumplió 8/8.
-        $primero = [];
-        foreach (\is_array($input['first'] ?? null) ? $input['first'] : [] as $herramienta) {
-            if (\is_string($herramienta) && trim($herramienta) !== '') {
-                $primero[] = trim($herramienta);
+        $runFirst = [];
+        foreach (\is_array($input['first'] ?? null) ? $input['first'] : [] as $tool) {
+            if (\is_string($tool) && trim($tool) !== '') {
+                $runFirst[] = trim($tool);
             }
         }
 
         // ANTES DE ABRIR LA SESIÓN, no después: un hijo creado y negado deja un stream huérfano que
         // luego alguien tiene que explicar, y no explica nada.
-        $sinFondo = $this->presupuesto?->motivoParaNoDelegar();
+        $sinFondo = $this->budget?->motivoParaNoDelegar();
         if ($sinFondo !== null) {
             return ['ok' => false, 'error' => $sinFondo];
         }
 
-        $hijoId = $this->parentId . '.sub-' . substr(bin2hex(random_bytes(4)), 0, 6);
-        $this->sessions->start($hijoId, $brief, AutonomyMode::Auto, parentId: $this->parentId);
+        $childId = $this->parentId . '.sub-' . substr(bin2hex(random_bytes(4)), 0, 6);
+        $this->sessions->start($childId, $brief, AutonomyMode::Auto, parentId: $this->parentId);
 
-        foreach ($prohibidas as $herramienta) {
+        foreach ($prohibidas as $tool) {
             // Con CÓDIGO y no sólo con prosa: quien lea este stream mañana tiene que poder contar
             // por qué se fue una opción sin parsear una frase que para entonces puede no existir.
-            $this->sessions->removeOption($hijoId, $herramienta, 'denied-by-delegation', 'quien delegó este trabajo la excluyó del encargo');
+            $this->sessions->removeOption($childId, $tool, 'denied-by-delegation', 'quien delegó este trabajo la excluyó del encargo');
         }
 
         if ($prohibidas !== []) {
-            $encargo .= "\n\nEstas herramientas no están en tu catálogo para este encargo: "
+            $brief .= "\n\nEstas herramientas no están en tu catálogo para este encargo: "
                 . implode(', ', $prohibidas) . '. No las busques.';
         }
 
-        if ($primero !== []) {
+        if ($runFirst !== []) {
             // SE LE DICE, por lo mismo que a `deny`: el hecho cambia el mundo y la frase le dice por
             // qué. Un hijo que choca con una negativa sin haberla visto venir gasta la llamada que
             // esta línea le ahorra.
@@ -269,12 +308,12 @@ final class SubAgentSpawner
             // faltó fue siempre la quinta. Es el mecanismo de posición que Q-P20-E ya había medido
             // —8/8 dentro de la enumeración contra 1/8 colgando después—, y esta frase lo estaba
             // provocando desde el otro lado: no se caía ella, tiraba a la de junto.
-            $encargo = 'Antes que cualquier otra cosa corre: ' . implode(', ', $primero)
-                . ". Hasta entonces tus demás llamadas no proceden.\n\n" . $encargo;
+            $brief = 'Antes que cualquier otra cosa corre: ' . implode(', ', $runFirst)
+                . ". Hasta entonces tus demás llamadas no proceden.\n\n" . $brief;
         }
 
         // HISTORIAL VACÍO A PROPÓSITO (§5.1): el contexto fresco es la razón de ser del spawn.
-        return $this->correr($hijoId, $encargo, [], $primero);
+        return $this->correr($childId, $brief, [], $runFirst, $contract);
     }
 
     /**
@@ -313,102 +352,163 @@ final class SubAgentSpawner
      */
     public function resume(array $input): array
     {
-        $hijoId = \is_string($input['sub_session'] ?? null) ? trim($input['sub_session']) : '';
-        if ($hijoId === '') {
+        $childId = \is_string($input['sub_session'] ?? null) ? trim($input['sub_session']) : '';
+        if ($childId === '') {
             return ['ok' => false, 'error' => 'falta `sub_session`: el id que agent_spawn devolvió'];
         }
 
         // EL LINAJE SE VALIDA CON LO CAPTURADO, no con lo dicho: `parentId` viene del stream del
         // hijo y el id del padre se capturó al construir. Sin esta línea, cualquier sesión del
         // almacén sería retomable por id — leer y correr el trabajo de otro árbol.
-        $hijo = $this->sessions->load($hijoId);
-        if ($hijo === null || $hijo->parentId !== $this->parentId) {
-            return ['ok' => false, 'error' => "«{$hijoId}» no es un sub-agente de esta sesión"];
+        $child = $this->sessions->load($childId);
+        if ($child === null || $child->parentId !== $this->parentId) {
+            return ['ok' => false, 'error' => "«{$childId}» no es un sub-agente de esta sesión"];
         }
 
-        if ($hijo->question !== null) {
+        if ($child->question !== null) {
             return [
                 'ok' => false,
-                'error' => "el sub-agente sigue esperando una respuesta: {$hijo->question->question}",
-                'sub_session' => $hijoId,
+                'error' => "el sub-agente sigue esperando una respuesta: {$child->question->question}",
+                'sub_session' => $childId,
             ];
         }
 
-        if ($hijo->endedBecause !== null) {
-            return ['ok' => false, 'error' => "el sub-agente ya terminó: {$hijo->endedBecause}", 'sub_session' => $hijoId];
+        if ($child->endedBecause !== null) {
+            return ['ok' => false, 'error' => "el sub-agente ya terminó: {$child->endedBecause}", 'sub_session' => $childId];
         }
 
         // SU VENTANA, no contexto fresco: la decisión contestada ya es un turno de su stream, y
         // retomar con historial vacío sería re-spawnear con otro nombre (falsificador 2 de Q-P19-Q).
         return $this->correr(
-            $hijoId,
+            $childId,
             'La pregunta que te pausó ya fue contestada — la decisión está en tu historial. Continúa '
             . 'con tu encargo hasta terminar y entrega tu reporte.',
-            $hijo->window(),
+            $child->window(),
         );
     }
 
     /**
      * La vuelta del hijo y su reporte: una sola verdad para spawn y resume.
      *
-     * @param array<int, array{role: string, content: string}> $historial
-     * @param list<string>                                     $primero   lo que el hijo tiene que
-     *                                                                    correr antes que cualquier
-     *                                                                    otra cosa
+     * @param array<int, array{role: string, content: string}> $history
+     * @param list<string>                                     $runFirst lo que el hijo tiene que
+     *                                                                   correr antes que cualquier
+     *                                                                   otra cosa
      *
      * @return array<string, mixed>
      */
-    private function correr(string $hijoId, string $encargo, array $historial, array $primero = []): array
-    {
-        $this->sessions->recordTurn($hijoId, 'user', $encargo);
+    private function correr(
+        string $childId,
+        string $brief,
+        array $history,
+        array $runFirst = [],
+        ?ArtifactContract $contract = null,
+    ): array {
+        $this->sessions->recordTurn($childId, 'user', $brief);
 
         try {
-            $corrida = ($this->runChild)($encargo, $hijoId, $historial, $primero);
+            $run = ($this->runChild)($brief, $childId, $history, $runFirst);
         } catch (RunInterrupted $e) {
             // La interrupción del humano NO se traga: para el árbol completo. Convertirla en un
             // reporte de fallo dejaría al padre seguir trabajando después de que el humano dijo alto.
             throw $e;
         } catch (\Throwable $e) {
             // Un hijo que truena produce un reporte explícito, nunca una desaparición (ADR-0029/0033).
-            $this->sessions->recordTurn($hijoId, 'assistant', 'La vuelta falló: ' . $e->getMessage());
+            $this->sessions->recordTurn($childId, 'assistant', 'La vuelta falló: ' . $e->getMessage());
 
             return [
                 'ok' => false,
                 'error' => 'el sub-agente falló: ' . $e->getMessage(),
-                'sub_session' => $hijoId,
+                'sub_session' => $childId,
             ];
         }
 
-        $respuesta = $corrida['answer'];
-        $this->sessions->recordTurn($hijoId, 'assistant', $respuesta);
+        $answer = $run['answer'];
+        $this->sessions->recordTurn($childId, 'assistant', $answer);
 
         // SE DESCUENTA LO QUE GASTÓ, no lo que se le autorizó: un hijo que terminó en dos pasos deja
         // los otros diez para sus hermanos. Reservar por adelantado acotaría el árbol al número de
         // delegaciones y no a su costo, que es lo que importa.
-        $this->presupuesto?->anota($corrida['steps']);
+        $this->budget?->anota($run['steps']);
 
-        $reporte = [
+        $report = [
             'ok' => true,
-            'report' => $respuesta,
-            'sub_session' => $hijoId,
-            'steps' => $corrida['steps'],
+            'report' => $answer,
+            'sub_session' => $childId,
+            'steps' => $run['steps'],
         ];
+
+        // ── IS THIS THE ARTIFACT THAT WAS ASKED FOR? ──────────────────────────────────────────
+        //
+        // If not, control goes back TO THE CHILD with the discrepancy, not up to the parent (§5.2).
+        // The child is the only one that can fix its own output and it is still alive; handing the
+        // parent something malformed turns its next move into a guess about what the child meant.
+        //
+        // ONE RETRY, and the number is chosen: two attempts tell «wrong envelope» apart from «cannot
+        // produce this shape», and from the third on the tree would be spending its budget on
+        // formatting instead of on work.
+        if ($contract !== null) {
+            $verdict = $this->artifactCheck->check($contract, $answer);
+
+            if (!$verdict['ok']) {
+                $this->sessions->recordTurn($childId, 'user', $verdict['discrepancy']);
+
+                // ── THE CHILD CORRECTS ITSELF WITH ITS OWN WINDOW, NOT FROM SCRATCH ────────────
+                //
+                // This used to pass `[]`, while the message it receives says — word for word — «keep
+                // the work you already did: this is about the shape, not about what you found». It
+                // asked the child to keep something that had just been taken out of its sight.
+                //
+                // With luck it reinvented something similar. Without luck it returned JSON with the
+                // right shape and hollow content — WHICH PASSES VALIDATION. A conforming, hollow
+                // artifact is worse than a malformed one: nobody looks at it twice.
+                //
+                // It is reloaded from the store rather than kept from before because the failed turn
+                // has already been written: `window()` includes that attempt, which is precisely what
+                // the child has to correct. Same as `resume`, for the same reason — correcting is not
+                // re-delegating.
+                $childWindow = $this->sessions->load($childId)?->window() ?? [];
+                $secondTry = ($this->runChild)($verdict['discrepancy'], $childId, $childWindow, []);
+                $this->budget?->anota($secondTry['steps']);
+                $this->sessions->recordTurn($childId, 'assistant', $secondTry['answer']);
+                $report['steps'] += $secondTry['steps'];
+                $report['report'] = $secondTry['answer'];
+                $answer = $secondTry['answer'];
+                $verdict = $this->artifactCheck->check($contract, $answer);
+                $report['artifact_retried'] = true;
+            }
+
+            if ($verdict['ok']) {
+                $report['artifact'] = ['kind' => $contract->kind, 'payload' => $verdict['payload']];
+            } else {
+                // NOT RETURNED AS IF IT HAD COMPLIED. An artifact that failed and arrives marked
+                // `ok` teaches the parent to read fields that are not there; the child's work is NOT
+                // thrown away — it travels as `report` — but the label tells the truth about its shape.
+                $report['ok'] = false;
+                $report['error'] = sprintf(
+                    'the sub-agent did not deliver the «%s» artifact even after being told what was '
+                    . 'missing; its answer travels in `report`, without the requested shape',
+                    $contract->kind,
+                );
+                $report['artifact_failed'] = $contract->kind;
+            }
+        }
 
         // AGOTARSE SE DICE (§5.4, ADR-0029): un techo alcanzado que se entregara como reporte
         // completo fabricaría la evidencia de que terminó.
-        if (class_exists(AgentOrchestrator::class) && $respuesta === AgentOrchestrator::STEPS_EXHAUSTED) {
-            $reporte['exhausted'] = true;
-            $reporte['report'] = 'El sub-agente se quedó sin pasos antes de terminar.';
+        if (class_exists(AgentOrchestrator::class) && $answer === AgentOrchestrator::STEPS_EXHAUSTED) {
+            $report['exhausted'] = true;
+            $report['report'] = 'El sub-agente se quedó sin pasos antes de terminar.';
         }
 
         // LA PAUSA DEL HIJO LLEGA AL PADRE CON NOMBRE, no desaparece (falsificador 5 de Q-P19-P).
         // El hijo quedó esperando en SU sesión; contestarle es de la superficie, no de este reporte.
-        $hijo = $this->sessions->load($hijoId);
-        if ($hijo?->question !== null) {
-            $reporte['paused'] = true;
-            $reporte['question'] = $hijo->question->question;
+        $child = $this->sessions->load($childId);
+        if ($child?->question !== null) {
+            $report['paused'] = true;
+            $report['question'] = $child->question->question;
         }
 
-        return $reporte;
+        return $report;
     }
 }

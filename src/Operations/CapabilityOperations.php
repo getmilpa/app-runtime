@@ -17,6 +17,11 @@ namespace Milpa\AppRuntime\Operations;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\DevTools\Doctor\Repair;
 use Milpa\Command\CommandProvider;
+use Milpa\Command\Effect\Authority;
+use Milpa\Command\Effect\EffectProfile;
+use Milpa\Command\Effect\Externality;
+use Milpa\Command\Effect\Mutation;
+use Milpa\Command\Effect\Reversibility;
 use Milpa\Command\Operation;
 
 /**
@@ -72,6 +77,15 @@ final readonly class CapabilityOperations implements CommandProvider
         return [
             new Operation(
                 name: 'capabilities',
+                effects: new EffectProfile(
+                    Mutation::None,
+                    // Reads `installed.json` from disk. Verified: it does not reach the network,
+                    // which is why the catalogue is the one operation a tiny app always has.
+                    Externality::None,
+                    Reversibility::Guaranteed,
+                    Authority::Read,
+                    rollbackContract: 'nothing-to-roll-back',
+                ),
                 description: 'What this app can do today, and the command that grows it',
                 handler: fn (array $input): array => Capabilities::answer(),
                 inputSchema: ['type' => 'object', 'properties' => []],
@@ -82,6 +96,19 @@ final readonly class CapabilityOperations implements CommandProvider
             ),
             new Operation(
                 name: 'capabilities:enable',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    // Downloads from a package registry. What arrives is code that will run inside
+                    // this app — and by GOV-11 its own declaration about itself is a claim, not a
+                    // classification.
+                    Externality::ThirdParty,
+                    // `composer remove` exists but is not a tested inverse: neither the lock nor the
+                    // vendor closure return to where they were.
+                    Reversibility::ManualRecovery,
+                    // It changes WHAT THIS APP CAN DO. Nothing else in the catalogue does that.
+                    Authority::Privileged,
+                    escalatesOn: ['capability'],
+                ),
                 description: 'Install an opt-in capability by name — one step instead of three',
                 handler: fn (array $input): array => $this->enable($input),
                 inputSchema: [
@@ -121,6 +148,14 @@ final readonly class CapabilityOperations implements CommandProvider
             ),
             new Operation(
                 name: 'repair',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    // Runs `composer require` against a registry — verified in `Doctor\Repair`.
+                    Externality::ThirdParty,
+                    Reversibility::ManualRecovery,
+                    Authority::Privileged,
+                    escalatesOn: ['package'],
+                ),
                 description: 'Apply one repair the diagnosis recommends, by name — and verify it landed',
                 handler: fn (array $input): array => $this->repair($input),
                 inputSchema: [

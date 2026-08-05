@@ -40,6 +40,11 @@ use Milpa\Agent\SessionStore;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\StderrLogger;
 use Milpa\Command\CommandProvider;
+use Milpa\Command\Effect\Authority;
+use Milpa\Command\Effect\EffectProfile;
+use Milpa\Command\Effect\Externality;
+use Milpa\Command\Effect\Mutation;
+use Milpa\Command\Effect\Reversibility;
 use Milpa\Command\Operation;
 use Milpa\Console\McpProjector;
 use Milpa\Interfaces\Di\DIContainerInterface;
@@ -117,6 +122,16 @@ class AgentOperations implements CommandProvider
         return [
             new Operation(
                 name: 'agent',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    // THE ONE THAT DOES NOT LOOK LIKE IT: this sends the petition, and whatever
+                    // context it carries, to a model provider. It is the widest reach in the whole
+                    // catalogue and nothing here is called «send».
+                    Externality::ThirdParty,
+                    // A prompt cannot be un-sent, and this house's event streams are never rewritten.
+                    Reversibility::Irreversible,
+                    Authority::WriteAsUser,
+                ),
                 description: 'Ask the agent to do something using the operations of this app',
                 handler: fn (array $input): array => $this->run($input),
                 inputSchema: [
