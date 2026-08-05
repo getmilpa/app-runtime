@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.0](https://github.com/getmilpa/app-runtime/compare/v0.5.0...v0.6.0) (2026-08-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* un rol declarativo — el prompt sugiere, el resto gobierna
+
+### Features
+
+* un rol declarativo — el prompt sugiere, el resto gobierna ([84a76b0](https://github.com/getmilpa/app-runtime/commit/84a76b089d8b3f27bfd380587bc95f8ef5289dbb))
+
 ## [0.5.0](https://github.com/getmilpa/app-runtime/compare/v0.4.1...v0.5.0) (2026-08-05)
 
 
