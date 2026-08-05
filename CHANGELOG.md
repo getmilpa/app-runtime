@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/getmilpa/app-runtime/compare/v0.7.0...v0.8.0) (2026-08-05)
+
+
+### Features
+
+* **agent:** la contención es alcanzable por quien corre el agente, y se declara por clase ([1f8afa4](https://github.com/getmilpa/app-runtime/commit/1f8afa422173dafa2df4b39337cd314c5e08b9fb))
+
 ## [0.7.0](https://github.com/getmilpa/app-runtime/compare/v0.6.0...v0.7.0) (2026-08-05)
 
 
