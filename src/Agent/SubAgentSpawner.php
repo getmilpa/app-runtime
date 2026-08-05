@@ -19,6 +19,8 @@ use Milpa\Agent\SessionStore;
 use Milpa\AppRuntime\Agent\Artifact\ArtifactCheck;
 use Milpa\AppRuntime\Agent\Artifact\ArtifactContract;
 use Milpa\AppRuntime\Agent\Artifact\ArtifactRegistry;
+use Milpa\AppRuntime\Agent\Role\AgentRole;
+use Milpa\AppRuntime\Agent\Role\RoleRegistry;
 use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Externality;
@@ -73,6 +75,10 @@ final class SubAgentSpawner
         // refusable by name at the door when the shape does not exist.
         private readonly ArtifactRegistry $artifacts = new ArtifactRegistry(),
         private readonly ArtifactCheck $artifactCheck = new ArtifactCheck(),
+        // THE SPECIALISTS THIS APP CAN DELEGATE TO. It lives here for the same reason the artifact
+        // vocabulary does: picking a role is a decision of the DELEGATION, and an unknown name has to
+        // be refusable at the door rather than discovered on the way back.
+        private readonly RoleRegistry $roles = new RoleRegistry(),
     ) {
     }
 
@@ -188,8 +194,42 @@ final class SubAgentSpawner
         // en la frontera, el criterio queda opcional y el schema advierte lo único que importa.
         $stopRule = \is_string($input['done_when'] ?? null) ? trim($input['done_when']) : '';
 
-        $rol = \is_string($input['role'] ?? null) ? trim($input['role']) : '';
-        $brief = $rol === '' ? $brief : "Tu papel: {$rol}.\n\n{$brief}";
+        // ── THE ROLE: A NAME FOR AUTHORITY THAT ALREADY GOVERNS ────────────────────────────────
+        //
+        // This used to be free prose — «the specialist's part» — glued to the brief and nothing more.
+        // A `reviewer` like that is a suggestion: the catalogue still hands it every mutating tool,
+        // and `must` governs 0/8.
+        //
+        // Now `role` is looked up in the registry. Its prompt SUGGESTS; its `deny`, `first` and
+        // `produces` ARE EXECUTED — and they are not new mechanisms, they are the three this
+        // operation already had, each one measured. What a role adds is that they travel together
+        // under a name.
+        //
+        // An unknown name is refused HERE, before the child's session is opened, and the refusal says
+        // which ones exist: whoever asks for `revisor` learns there is a `reviewer`.
+        $rolePedido = \is_string($input['role'] ?? null) ? trim($input['role']) : '';
+        $role = null;
+        if ($rolePedido !== '') {
+            if (!$this->roles->has($rolePedido)) {
+                return ['ok' => false, 'error' => sprintf(
+                    'unknown role «%s» — this app declares: %s',
+                    $rolePedido,
+                    $this->roles->names() === [] ? '(none)' : implode(', ', $this->roles->names()),
+                )];
+            }
+            $role = $this->roles->get($rolePedido);
+            $brief = $role->prompt . "\n\n" . $brief;
+
+            // ITS ARTIFACT APPLIES WHEN THE DELEGATOR ASKED FOR NONE — and this goes HERE, not lower.
+            //
+            // The first version applied it after `produces` had already been read, so the role
+            // declared its artifact and it never reached anywhere. A defect that breaks nothing
+            // visible: the child returns prose, validation never runs because there is no contract,
+            // and the parent receives something that looks like a normal report.
+            if ($role->produces !== null && (!\is_string($input['produces'] ?? null) || trim((string) $input['produces']) === '')) {
+                $input['produces'] = $role->produces;
+            }
+        }
 
         // LAS OBLIGACIONES LLEGAN AUNQUE EL PADRE NO LAS ESCRIBA (Q-P20-E).
         //
@@ -282,6 +322,17 @@ final class SubAgentSpawner
             }
         }
 
+        // THE UNION, ALWAYS. A delegator may ADD restrictions to a role and never remove them.
+        //
+        // It is GOV-08 at the call site: actors escalate, never degrade. If a caller could pass
+        // `deny: []` and get a reviewer with write access, the role would be a default rather than a
+        // contract — and every measured guarantee would hold only until somebody was in a hurry.
+        if ($role !== null) {
+            $combined = $role->combinedWith($prohibidas, $runFirst);
+            $prohibidas = $combined['deny'];
+            $runFirst = $combined['first'];
+        }
+
         // ANTES DE ABRIR LA SESIÓN, no después: un hijo creado y negado deja un stream huérfano que
         // luego alguien tiene que explicar, y no explica nada.
         $sinFondo = $this->budget?->motivoParaNoDelegar();
@@ -324,6 +375,38 @@ final class SubAgentSpawner
     /**
      * La herramienta para retomar a un hijo contestado (Q-P19-Q). Tampoco la ve el hijo.
      */
+    /**
+     * The catalogue of specialists — and where each one came from.
+     *
+     * The origin is not decoration: «why does the reviewer behave like that» has a different answer
+     * depending on whether it arrived by version in a package or lives in this repository, and the
+     * person asking cannot tell by looking at the behaviour.
+     *
+     * It is also what makes an unknown name a correction instead of a dead end — whoever asks for
+     * `revisor` can look this up and find `reviewer`.
+     */
+    public function rolesOperation(): Operation
+    {
+        return new Operation(
+            'agent:roles',
+            'The specialists this app can delegate to, and where each one came from.',
+            fn (): array => [
+                'ok' => true,
+                'roles' => array_map(
+                    static fn (AgentRole $role): array => $role->toArray(),
+                    $this->roles->all(),
+                ),
+                // COLLISIONS ARE SHOWN, never swallowed. When an app's own role displaces one that
+                // arrived in a package, the displaced one is named — otherwise «the reviewer stopped
+                // denying make» is a mystery whose cause lives in a file nobody thought to open.
+                'collisions' => $this->roles->collisions(),
+            ],
+            mutating: false,
+            effects: EffectProfile::readOnly(),
+            surfaces: ['cli', 'tui', 'mcp'],
+        );
+    }
+
     /**
      * The channel: a message to another session in this tree — and nothing more than a message.
      *
@@ -438,10 +521,10 @@ final class SubAgentSpawner
     }
 
     /**
-     * Retomar a un hijo que ya fue contestado — con SU historial, no desde cero.
+     * Resuming a child that was answered — with ITS window, not from scratch.
      *
-     * Retomar no es re-delegar: si llegara con la ventana vacía sería un hijo nuevo con el mismo id,
-     * y lo que ya hizo se perdería sin que nadie lo dijera.
+     * Resuming is not re-delegating: arriving with an empty window would make it a new child wearing
+     * the same id, and what it already did would be lost without anybody saying so.
      */
     public function resumeOperation(): Operation
     {

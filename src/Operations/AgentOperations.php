@@ -392,6 +392,11 @@ class AgentOperations implements CommandProvider
                 // Who may talk to whom is decided by the operation, reading filiation from the
                 // stream, not by this list: here it is only offered.
                 $contabilidad[] = $spawner->messageOperation();
+
+                // AND THE CATALOGUE OF SPECIALISTS. It is read-only and it is what turns «delegate to
+                // the reviewer» from a guess into a lookup: an unknown name becomes a correction
+                // rather than a dead end.
+                $contabilidad[] = $spawner->rolesOperation();
             }
         }
 

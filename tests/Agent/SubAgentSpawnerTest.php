@@ -50,7 +50,7 @@ final class SubAgentSpawnerTest extends TestCase
     }
 
     /** El papel envuelve el encargo que corre; el brief queda como objetivo de la sesión hija. */
-    public function testARoleWrapsTheBriefForTheRun(): void
+    public function testAnUnknownRoleIsRefusedInsteadOfBecomingProse(): void
     {
         $almacen = new SessionStore(new InMemoryEventStore());
         $almacen->start('padre', 'x');
@@ -62,10 +62,21 @@ final class SubAgentSpawnerTest extends TestCase
             return ['answer' => 'ok', 'steps' => 1];
         });
 
-        $spawner->spawn(['brief' => 'revisa la entidad Cliente', 'done_when' => 'la revisión cubre las tres capas', 'role' => 'revisor de seguridad']);
+        // UN ROL YA NO ES PROSA LIBRE, y esto es ruptura declarada.
+        //
+        // Antes, `role` era una frase que se pegaba al encargo: «tu papel: revisor de seguridad».
+        // Eso entregaba una sugerencia y nada más — el catálogo del hijo seguía teniendo todas las
+        // herramientas de mutación, y `must` gobierna 0/8. Un revisor así revisa hasta que decide
+        // que una edición chica ayudaría.
+        //
+        // Ahora `role` se busca en el registro, y lo desconocido se rechaza CON LA LISTA de los que
+        // existen, antes de abrir la sesión del hijo. Un nombre libre que antes «funcionaba» ahora
+        // falla, y falla diciendo por qué — que es mejor que gobernar de mentiras.
+        $rechazado = $spawner->spawn(['brief' => 'revisa la entidad Cliente', 'role' => 'revisor de seguridad']);
 
-        self::assertStringContainsString('Tu papel: revisor de seguridad', $visto);
-        self::assertStringContainsString('revisa la entidad Cliente', $visto);
+        self::assertFalse($rechazado['ok']);
+        self::assertStringContainsString('unknown role', (string) $rechazado['error']);
+        self::assertSame('', $visto, 'y no se abrió ninguna sesión hija');
     }
 
     /**
