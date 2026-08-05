@@ -318,8 +318,28 @@ class AgentOperations implements CommandProvider
                             // spawn.
                             compuertaPrevia: $primeroHijo === [] ? null : new PrerequisiteGate($primeroHijo),
                         );
+                        // THE CHILD GETS THE CHANNEL AND NOTHING ELSE FROM THE SPAWNER.
+                        //
+                        // A `SubAgentSpawner` is built with ITS id as the subject and only
+                        // `messageOperation()` is taken: it can talk to whoever delegated to it, and
+                        // still has no `agent_spawn` — depth 1 comes from the list, not from a check.
+                        //
+                        // Without this a child could only say something when it FINISHED. A scout
+                        // that found the answer on step two had to run to the end for anyone to hear.
+                        $canalDelHijo = new SubAgentSpawner(
+                            $almacen,
+                            $hijoId,
+                            // The child does not delegate, so this closure is never called. It is
+                            // explicit rather than `null` because the signature requires it, and an
+                            // exception here would tell the truth if anyone ever handed it `spawn`.
+                            static fn (): array => throw new \LogicException('a sub-agent does not delegate: depth 1 by construction'),
+                        );
+
                         $registroHijo = $this->toolsOfThisApp(
-                            (new SessionBookkeeping($almacen, $hijoId))->operations(),
+                            [
+                                ...(new SessionBookkeeping($almacen, $hijoId))->operations(),
+                                $canalDelHijo->messageOperation(),
+                            ],
                             registroPropio: true,
                         );
                         if ($registroHijo === null) {
@@ -361,6 +381,17 @@ class AgentOperations implements CommandProvider
                 );
                 $contabilidad[] = $spawner->operation();
                 $contabilidad[] = $spawner->resumeOperation();
+
+                // THE CHANNEL, in BOTH catalogues — which is why it is not in the set the child is
+                // denied along with `agent_spawn`.
+                //
+                // A child without `agent_message` can only speak when it finishes: a scout that found
+                // the answer on step two would have to run to the end for anyone to hear about it.
+                // Depth is still 1 — the child never receives `spawn` — and talking is not delegating.
+                //
+                // Who may talk to whom is decided by the operation, reading filiation from the
+                // stream, not by this list: here it is only offered.
+                $contabilidad[] = $spawner->messageOperation();
             }
         }
 

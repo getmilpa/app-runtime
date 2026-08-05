@@ -19,6 +19,11 @@ use Milpa\Agent\SessionStore;
 use Milpa\AppRuntime\Agent\Artifact\ArtifactCheck;
 use Milpa\AppRuntime\Agent\Artifact\ArtifactContract;
 use Milpa\AppRuntime\Agent\Artifact\ArtifactRegistry;
+use Milpa\Command\Effect\Authority;
+use Milpa\Command\Effect\EffectProfile;
+use Milpa\Command\Effect\Externality;
+use Milpa\Command\Effect\Mutation;
+use Milpa\Command\Effect\Reversibility;
 use Milpa\AiGateway\AgentOrchestrator;
 use Milpa\AiGateway\RunInterrupted;
 use Milpa\Command\Operation;
@@ -318,6 +323,125 @@ final class SubAgentSpawner
 
     /**
      * La herramienta para retomar a un hijo contestado (Q-P19-Q). Tampoco la ve el hijo.
+     */
+    /**
+     * The channel: a message to another session in this tree — and nothing more than a message.
+     *
+     * ── WHAT IT ADDS THAT DID NOT EXIST ─────────────────────────────────────────────────────────
+     *
+     * Until now a parent could only WAIT for its child's report. It could not correct it halfway,
+     * hand it something it learned after delegating, or tell it to stop looking where it was looking.
+     * And a child could say nothing until it finished — a scout that found the answer in step two
+     * still had to run to the end before anybody heard about it.
+     *
+     * ── WHAT A MESSAGE CANNOT DO, WHICH IS THE OTHER HALF OF THE CONTRACT ───────────────────────
+     *
+     * It carries INFORMATION, never authority. It does not grant a permission, does not raise the
+     * autonomy ceiling, does not answer a pending question and does not close a session. Each of
+     * those has its own operation, and the last three are kept out of the agent's catalogue on
+     * purpose (Q-P19-M).
+     *
+     * Without that rule a parent could write «you may write files now» and the lineage ceiling would
+     * become a suggestion — the cheapest authority laundering there is, precisely because it travels
+     * through a channel that looks harmless.
+     *
+     * ── AND WHO MAY TALK TO WHOM IS CHECKED HERE, NOT IN THE STORE ──────────────────────────────
+     *
+     * Only up to a parent or down to one's own child, and filiation is read from the stream — not
+     * from the id looking similar. A session that could message a stranger would be operating in a
+     * tree nobody put it in.
+     */
+    public function messageOperation(): Operation
+    {
+        return new Operation(
+            'agent_message',
+            'Send a message to another session in this tree: a sub-agent of yours, or whoever '
+            . 'delegated to you. Use it to correct mid-task, to pass on something you learned after '
+            . 'delegating, or to say something without waiting to finish. IT CARRIES INFORMATION, '
+            . 'NOT PERMISSIONS: it authorises nothing, raises no autonomy and answers no pending '
+            . 'question.',
+            fn (array $input): array => $this->message($input),
+            inputSchema: [
+                'type' => 'object',
+                'properties' => [
+                    'to' => [
+                        'type' => 'string',
+                        'description' => 'The target session id: a sub-agent of yours, or whoever delegated to you.',
+                    ],
+                    'message' => [
+                        'type' => 'string',
+                        'description' => 'What you want to tell them. It reaches their conversation marked as coming from you.',
+                    ],
+                ],
+                'required' => ['to', 'message'],
+            ],
+            // IT MUTATES NOTHING IN THE WORLD: it writes a line in the log of another session in the
+            // same tree. Gating it would ask permission to speak, and what this house gates is effects.
+            mutating: false,
+            effects: new EffectProfile(
+                Mutation::Persistent,
+                Externality::None,
+                // The stream is append-only by doctrine: a message once said is not withdrawn.
+                Reversibility::Irreversible,
+                Authority::WriteAsUser,
+            ),
+            namedTarget: 'to',
+        );
+    }
+
+    /**
+     * Leaves the message in the recipient's log, if it really belongs to this tree.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    public function message(array $input): array
+    {
+        $to = \is_string($input['to'] ?? null) ? trim($input['to']) : '';
+        $text = \is_string($input['message'] ?? null) ? trim($input['message']) : '';
+
+        if ($to === '' || $text === '') {
+            return ['ok' => false, 'error' => 'a message needs `to` and `message`: without a recipient it is not delivered, and without text it says nothing'];
+        }
+
+        $target = $this->sessions->load($to);
+        if ($target === null) {
+            return ['ok' => false, 'error' => "session «{$to}» does not exist"];
+        }
+
+        // FILIATION IS READ FROM THE STREAM, not from ids that look alike. Downward: its parent is
+        // this session. Upward: THIS one is a child of that one. Any other combination is a session
+        // talking into a tree nobody put it in.
+        $mine = $this->sessions->load($this->parentId);
+        $downward = $target->parentId === $this->parentId;
+        $upward = $mine?->parentId === $to;
+
+        if (!$downward && !$upward) {
+            return ['ok' => false, 'error' => sprintf(
+                'session «%s» is neither a child nor the parent of this one: a message only travels '
+                . 'along the tree, and filiation is read from the stream, not from the name',
+                $to,
+            )];
+        }
+
+        // A FINISHED SESSION DOES NOT RECEIVE. A message to a closed session would be written into a
+        // log nobody will read again, and the sender would be left believing it arrived — worse than
+        // an error, because it cannot be seen.
+        if ($target->endedBecause !== null) {
+            return ['ok' => false, 'error' => "session «{$to}» has already ended: nobody will read that message"];
+        }
+
+        $this->sessions->message($to, $this->parentId, $text);
+
+        return ['ok' => true, 'to' => $to, 'delivered' => true];
+    }
+
+    /**
+     * Retomar a un hijo que ya fue contestado — con SU historial, no desde cero.
+     *
+     * Retomar no es re-delegar: si llegara con la ventana vacía sería un hijo nuevo con el mismo id,
+     * y lo que ya hizo se perdería sin que nadie lo dijera.
      */
     public function resumeOperation(): Operation
     {
