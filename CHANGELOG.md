@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/getmilpa/app-runtime/compare/v0.6.0...v0.7.0) (2026-08-05)
+
+
+### Features
+
+* **relay:** el SDK — especialistas en orden fijo, y el artefacto es el bastón ([23ca7a8](https://github.com/getmilpa/app-runtime/commit/23ca7a8f0aaad0f3fb4524883f9ec6bee16206a0))
+
 ## [0.6.0](https://github.com/getmilpa/app-runtime/compare/v0.5.0...v0.6.0) (2026-08-05)
 
 
