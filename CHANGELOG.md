@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/getmilpa/app-runtime/compare/v0.4.0...v0.4.1) (2026-08-05)
+
+
+### Bug Fixes
+
+* el reintento del artefacto llegaba sin el trabajo del hijo ([861f860](https://github.com/getmilpa/app-runtime/commit/861f8609b3d0be1faa4a25ac4afef9c04a0ac7a8))
+
 ## [0.4.0](https://github.com/getmilpa/app-runtime/compare/v0.3.0...v0.4.0) (2026-08-04)
 
 
