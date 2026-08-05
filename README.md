@@ -56,6 +56,32 @@ groups a Milpa app registers. They are *returned*, never self-registered: whoeve
 registry decides which groups get in and with what authority, and a group that registered itself
 would take that decision away.
 
+**Containing what an agent may reach**
+
+An agent runs contained from the CLI, not only when a parent delegates to it. The withdrawal is a
+fact of the session, recorded in its stream — not a sentence in the prompt asking nicely:
+
+```bash
+# by name, when you know exactly which tools to take away
+php coa agent "review this app and report" --session=review --deny=plugins:enable,make
+
+# by effect class, which covers what a list of names forgets
+php coa agent "review this app and report" --session=review --denyEffects=mutating
+```
+
+Classes are `mutating`, `external`, `irreversible` and `authority`, resolved against the **live**
+catalogue — an operation added tomorrow is covered the day it exists. An operation that never declared
+its effects is **denied**, not waved through: unknown ranks above known-bad, so a catalogue nobody
+classified withdraws entirely, and when that happens the command refuses and says so rather than
+handing back a mute agent.
+
+`--deny` needs `--session`: the option table lives in the session, and a prohibition that cannot be
+recorded would not survive the first step.
+
+Why a class and not a list: a measurement (`settlement-q-p20p.md`) put an agent under a task it could
+not finish without mutating, took five tools away by name, and watched it reach for a sixth that
+mutates — three times out of three. The list is worth exactly what whoever wrote it remembered.
+
 **The surfaces — where you drive it from**
 
 `Console\Application` is the single door of the CLI: `coa` on its own, a named command, the TUI, a

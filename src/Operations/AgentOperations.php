@@ -141,6 +141,8 @@ class AgentOperations implements CommandProvider
                         'steps' => ['type' => 'integer', 'description' => 'Tope de pasos modelo↔herramienta; 12 si no se dice'],
                         'session' => ['type' => 'string', 'description' => 'Continúa esta sesión — sin ella, cada pregunta empieza de cero'],
                         'mode' => ['type' => 'string', 'enum' => ['ask', 'acknowledge', 'auto'], 'description' => 'Autonomía: ask pregunta antes de mutar, auto sigue sola. Ninguno se salta una firma'],
+                        'deny' => ['type' => 'string', 'description' => 'Comma-separated tools withdrawn from its catalogue. Requires --session'],
+                        'denyEffects' => ['type' => 'string', 'description' => 'Withdraw every operation in these effect classes: mutating|external|irreversible|authority. Unknown effects count as denied. Requires --session'],
                     ],
                     'required' => ['prompt'],
                 ],
@@ -194,11 +196,11 @@ class AgentOperations implements CommandProvider
         // LA SESIÓN (P16.1). Sin `session`, esto sigue siendo lo que era: una pregunta con una
         // respuesta. Con ella, la conversación sobrevive al proceso — que es la diferencia entre un
         // agente al que se le pregunta algo y uno con el que se trabaja un rato.
-        $almacen = $this->sessions();
-        $sesionId = \is_string($input['session'] ?? null) ? trim($input['session']) : '';
+        $store = $this->sessions();
+        $sessionId = \is_string($input['session'] ?? null) ? trim($input['session']) : '';
         $historial = [];
 
-        if ($sesionId !== '' && $almacen !== null) {
+        if ($sessionId !== '' && $store !== null) {
             // CADUCAR ANTES DE MIRAR. Una pregunta vencida deja la sesión sin poder correr para
             // siempre —`isRunnable()` es falso mientras haya pregunta— así que sin esta línea la
             // sesión olvidada no queda pausada: queda muerta y nadie lo declara ([Q-P19-B]).
@@ -206,9 +208,9 @@ class AgentOperations implements CommandProvider
             // Va aquí y no en un cron porque el momento en que importa es éste: cuando alguien
             // vuelve a la sesión. Un barrido nocturno mataría sesiones que nadie estaba mirando, y
             // dejaría vivas las que sí — al revés de lo que hace falta.
-            $almacen->expireIfDue($sesionId, new \DateTimeImmutable());
+            $store->expireIfDue($sessionId, new \DateTimeImmutable());
 
-            $sesion = $almacen->load($sesionId);
+            $sesion = $store->load($sessionId);
             // `ask` cuando no se dice: una sesión que empieza pidiendo permiso enseña qué va a hacer
             // antes de hacerlo, y quien la mira sube el modo cuando ya vio de qué se trata. El default
             // contrario —empezar en `auto`— pediría confianza antes de haberla ganado.
@@ -217,15 +219,15 @@ class AgentOperations implements CommandProvider
             if ($sesion === null) {
                 // Se abre con el primer prompt como objetivo: continuar una sesión que no existe es
                 // empezarla, y negarse obligaría a dos comandos para lo que es una intención.
-                $almacen->start($sesionId, $prompt, $modo ?? AutonomyMode::Ask);
+                $store->start($sessionId, $prompt, $modo ?? AutonomyMode::Ask);
             } elseif (!$sesion->isRunnable()) {
                 // Una sesión con una pregunta abierta o ya terminada NO se sigue por accidente: se
                 // contesta o se abre otra. Seguirla sería contestar por el humano que no contestó.
                 return [
                     'ok' => false,
                     'error' => $sesion->question !== null
-                        ? "la sesión «{$sesionId}» está esperando una respuesta: {$sesion->question->question}"
-                        : "la sesión «{$sesionId}» ya terminó: {$sesion->endedBecause}",
+                        ? "la sesión «{$sessionId}» está esperando una respuesta: {$sesion->question->question}"
+                        : "la sesión «{$sessionId}» ya terminó: {$sesion->endedBecause}",
                     'hint' => $sesion->question !== null
                         ? 'contéstala y vuelve a correrlo'
                         : 'usa otro --session para empezar una nueva',
@@ -240,23 +242,23 @@ class AgentOperations implements CommandProvider
                 // modo es de la sesión, no del comando, y heredar el default de cada invocación
                 // devolvería a `ask` una sesión que alguien puso en `auto` a propósito.
                 if ($modo !== null && $modo !== $sesion->mode) {
-                    $almacen->setMode($sesionId, $modo);
+                    $store->setMode($sessionId, $modo);
                 }
 
                 // COMPACTAR ANTES DE PREGUNTAR (P16.2), no después. Después sería descubrir que la
                 // ventana no cabía cuando el proveedor ya la rechazó — y una sesión larga se muere
                 // exactamente ahí, a la mitad, con trabajo hecho que conviene no repetir.
-                $compactado = $this->compactor()->compactIfNeeded($almacen, $sesion);
+                $compactado = $this->compactor()->compactIfNeeded($store, $sesion);
                 if ($compactado !== null) {
                     // Se relee: la ventana cambió, y mandar la vieja habría hecho el trabajo de
                     // compactar sin cobrar el beneficio.
-                    $sesion = $almacen->load($sesionId);
+                    $sesion = $store->load($sessionId);
                 }
 
                 $historial = $sesion?->window() ?? $historial;
             }
 
-            $almacen->recordTurn($sesionId, 'user', $prompt);
+            $store->recordTurn($sessionId, 'user', $prompt);
         }
 
         // LA COMPUERTA (P16.4/P16.5) y LAS HERRAMIENTAS DE LA SESIÓN (P16.3). Las dos sólo con sesión:
@@ -266,11 +268,11 @@ class AgentOperations implements CommandProvider
         $compuerta = null;
         $contabilidad = [];
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
-        if ($sesionId !== '' && $almacen !== null && $kernel instanceof Kernel) {
-            $viva = $almacen->load($sesionId);
+        if ($sessionId !== '' && $store !== null && $kernel instanceof Kernel) {
+            $viva = $store->load($sessionId);
             if ($viva !== null) {
                 $compuerta = new SessionToolGate(
-                    $almacen,
+                    $store,
                     $viva,
                     Operations::all($kernel, $kernel->root()),
                     permissionWindow: $this->permissionWindow(),
@@ -282,7 +284,7 @@ class AgentOperations implements CommandProvider
                 // ATADAS a esta sesión: el id se captura, no se le pide al modelo. Uno que el modelo
                 // pudiera nombrar es uno que puede errar, y escribirle el plan a otra sesión no es una
                 // equivocación recuperable — quien la lea mañana verá un plan que su agente no escribió.
-                $contabilidad = (new SessionBookkeeping($almacen, $sesionId))->operations();
+                $contabilidad = (new SessionBookkeeping($store, $sessionId))->operations();
 
                 // LA DELEGACIÓN (Q-P19-P). El hijo es una sesión con `parentId` corriendo por los
                 // MISMOS rieles: mismo orquestador, misma compuerta —que ya pide el techo del linaje
@@ -291,16 +293,16 @@ class AgentOperations implements CommandProvider
                 // (§5.4) queda diferido con esa misma decisión a la vista.
                 $presupuestoDelArbol = $this->presupuestoDelArbol($pasos);
                 $spawner = new SubAgentSpawner(
-                    $almacen,
-                    $sesionId,
-                    function (string $encargo, string $hijoId, array $historialHijo, array $primeroHijo = []) use ($almacen, $kernel, $pasos, $proveedor, $llave, $modelo, $presupuestoDelArbol): array {
-                        $hijo = $almacen->load($hijoId);
+                    $store,
+                    $sessionId,
+                    function (string $encargo, string $hijoId, array $historialHijo, array $primeroHijo = []) use ($store, $kernel, $pasos, $proveedor, $llave, $modelo, $presupuestoDelArbol): array {
+                        $hijo = $store->load($hijoId);
                         if ($hijo === null) {
                             return ['answer' => 'la sesión hija no se pudo abrir', 'steps' => 0];
                         }
 
                         $compuertaHijo = new SessionToolGate(
-                            $almacen,
+                            $store,
                             $hijo,
                             Operations::all($kernel, $kernel->root()),
                             permissionWindow: $this->permissionWindow(),
@@ -327,7 +329,7 @@ class AgentOperations implements CommandProvider
                         // Without this a child could only say something when it FINISHED. A scout
                         // that found the answer on step two had to run to the end for anyone to hear.
                         $canalDelHijo = new SubAgentSpawner(
-                            $almacen,
+                            $store,
                             $hijoId,
                             // The child does not delegate, so this closure is never called. It is
                             // explicit rather than `null` because the signature requires it, and an
@@ -337,7 +339,7 @@ class AgentOperations implements CommandProvider
 
                         $registroHijo = $this->toolsOfThisApp(
                             [
-                                ...(new SessionBookkeeping($almacen, $hijoId))->operations(),
+                                ...(new SessionBookkeeping($store, $hijoId))->operations(),
                                 $canalDelHijo->messageOperation(),
                             ],
                             registroPropio: true,
@@ -370,9 +372,9 @@ class AgentOperations implements CommandProvider
                             // no salía de su catálogo. Es lo que vuelve ejecutable el `deny` de
                             // `agent_spawn`: sin ella, prohibirle una herramienta sería otra frase
                             // más — y Q-P20-G midió cuánto valen las frases (0/8).
-                            new SessionOptionTable($almacen, $hijoId),
+                            new SessionOptionTable($store, $hijoId),
                             $compuertaHijo,
-                            $this->tableroDePlan($hijoId, $almacen),
+                            $this->tableroDePlan($hijoId, $store),
                         );
 
                         return ['answer' => $respuestaHijo, 'steps' => $vistosHijo];
@@ -415,12 +417,114 @@ class AgentOperations implements CommandProvider
         //
         // Sin sesión no hay mesa: retirar una opción sin dónde apuntarlo sería un cambio que no
         // sobrevive al proceso, y el agente volvería a encontrarla enfrente al paso siguiente.
-        $modoMesa = $this->retiraOpciones();
-        $mesa = ($sesionId !== '' && $almacen !== null && $modoMesa !== false)
-            ? new SessionOptionTable($almacen, $sesionId)
+        // ── `deny` FOR WHOEVER RUNS THE AGENT, NOT ONLY FOR WHOEVER DELEGATES ───────────────────
+        //
+        // The mechanism was already complete — `SubAgentSpawner` withdraws options from the child's
+        // table — but only a delegating parent could reach it. Somebody wanting to run a contained
+        // reviewer by hand had no way to: all that was left was asking in prose, which is precisely
+        // what this house measured does not govern (Q-P20-G: the obligation arrives 8/8 and is obeyed
+        // 0/8; withdrawing the option redirects 16/16). Containment was a property of delegation
+        // rather than of the system.
+        //
+        // Same withdrawal, same table, same record in the stream. What changes is who may ask for it.
+        $denied = [];
+        $asked = $input['deny'] ?? null;
+        // The CLI hands `--deny=a,b,c` over as a string; a programmatic call hands over the list.
+        foreach (\is_string($asked) ? explode(',', $asked) : (\is_array($asked) ? $asked : []) as $tool) {
+            if (\is_string($tool) && trim($tool) !== '') {
+                $denied[] = trim($tool);
+            }
+        }
+
+        // ── AND THE SAME WITHDRAWAL BY EFFECT CLASS, WHICH IS THE ONE THAT DOES NOT LEAK ────────
+        //
+        // Q-P20-P measured what a list of names is worth. With five tools withdrawn by name, three of
+        // three runs reached for `plugins.lock` — an operation that mutates and was not on the list.
+        // Not once: 3/3. Take the named door away and the model goes for the one next to it.
+        //
+        //     Containment by name is worth exactly what the list is worth — and the list is written
+        //     by somebody who has to remember everything.
+        //
+        // «Withdraw what mutates» is not something anyone forgets. It resolves against the LIVE
+        // catalogue rather than against a list somebody maintains, so an operation added tomorrow is
+        // covered the day it exists.
+        //
+        // UNKNOWN COUNTS AS DENIED, and that is the invariant that closes the leak rather than
+        // narrowing it: an operation that never declared its effects is treated as carrying the
+        // ceiling of the dimension. The opposite reading — unknown means harmless — turns every
+        // undeclared operation into the next `plugins.lock`.
+        //
+        // The session bookkeeping is exempt, and not by exception: it arrives through `$extra`, never
+        // through the catalogue this resolves against. `plan` and `todo` declare `mutating: true` and
+        // it is true — they append — but their effect is confined to this session's log. Taking the
+        // notebook away from a contained agent does not make it safer, it makes it illegible.
+        $undeclared = 0;
+        $catalogue = 0;
+        foreach ($this->operationsMatchingEffects($input['denyEffects'] ?? null, $undeclared, $catalogue) as $tool) {
+            $denied[] = $tool;
+        }
+        $denied = array_values(array_unique($denied));
+
+        // AND IF THAT LEAVES NOTHING, SAY SO INSTEAD OF HANDING BACK A MUTE AGENT.
+        //
+        // Measured 2026-08-05, and it is the failure mode this flag ships with: on a catalogue where
+        // nothing declared its effects every operation ceilings at `Unknown`, and `Unknown` is on the
+        // deny side by construction — so «withdraw what mutates» withdraws EVERYTHING, reads
+        // included. On a fixture running published packages that was 25 of 25.
+        //
+        // The withdrawal is NOT softened: unknown never reduces controls, and an `Unknown` waved
+        // through is the next `plugins.lock`. What changes is that the cause gets named. An agent
+        // that comes back empty because nobody classified the catalogue looks exactly like a broken
+        // agent, and whoever typed the flag would go looking anywhere but at the real reason.
+        if ($denied !== [] && $catalogue > 0 && \count($denied) >= $catalogue) {
+            return [
+                'ok' => false,
+                'error' => "containing by effect class withdrew the whole catalogue ({$catalogue} operations)"
+                    . ($undeclared > 0 ? ", {$undeclared} of them because they never declared their effects" : ''),
+                'hint' => 'classify the catalogue, or name the tools with --deny instead',
+            ];
+        }
+
+        $tableMode = $this->retiraOpciones();
+
+        // AN EXPLICIT `deny` IS NOT ENABLED BY AN APP-LEVEL SETTING.
+        //
+        // `agent.removeRefusedOptions` governs whether the SYSTEM withdraws an option the gate has
+        // refused — an automatism an app may not want, and which ships off. Whoever types `--deny`
+        // has already decided, and making that decision depend on an unrelated flag would render it
+        // silently inert: exactly the case this house names as worse than not having the mechanism.
+        //
+        // `record-only` may not degrade it either: it is a laboratory value that records the
+        // withdrawal and keeps offering the tool. Applied to an explicit prohibition it would be a
+        // lie with a receipt.
+        $table = ($sessionId !== '' && $store !== null && ($tableMode !== false || $denied !== []))
+            ? new SessionOptionTable($store, $sessionId)
             : null;
-        if ($mesa !== null && $modoMesa === 'record-only') {
-            $mesa = new RecordOnlyOptionTable($mesa);
+        if ($table !== null && $tableMode === 'record-only' && $denied === []) {
+            $table = new RecordOnlyOptionTable($table);
+        }
+
+        if ($denied !== []) {
+            if ($table === null || $store === null) {
+                // REFUSE RATHER THAN PRETEND. Without a session there is nowhere to record the
+                // withdrawal, so the prohibition would not survive the first step — and a `deny`
+                // silently ignored is worse than none: whoever typed it walks away believing they
+                // are contained.
+                return [
+                    'ok' => false,
+                    'error' => 'a tool cannot be withdrawn without a session: the table lives in the session',
+                    'hint' => 'add --session=<id> and run it again',
+                ];
+            }
+
+            foreach ($denied as $tool) {
+                $store->removeOption($sessionId, $tool, 'denied-by-operator', 'whoever ran this agent excluded it from the brief');
+            }
+            // AND IT IS TOLD, same as the child: the fact changes the world and the sentence tells it
+            // why. A tool that vanishes without explanation leaves the agent spending steps hunting
+            // for what is no longer there.
+            $prompt .= "\n\nThese tools are not in your catalogue for this brief: "
+                . implode(', ', $denied) . '. Do not look for them.';
         }
 
         // QUIÉN REGISTRA SE CAPTURA ANTES DE ENVOLVER, y esto es un arreglo, no un refinamiento.
@@ -454,7 +558,7 @@ class AgentOperations implements CommandProvider
                     $segundas,
                     $this->alternativasObservables(),
                     logger: new StderrLogger(),
-                    mesa: $mesa,
+                    mesa: $table,
                 );
             }
         }
@@ -475,13 +579,13 @@ class AgentOperations implements CommandProvider
             $respuesta = $this->ask($prompt, $pasos, $registry, $proveedor, $llave, $modelo, function () use (&$vistos, $vigia): void {
                 ++$vistos;
                 $vigia?->paso($vistos);
-            }, $historial, $compuerta, $mesa, $grabadora, $this->tableroDePlan($sesionId, $almacen));
+            }, $historial, $compuerta, $table, $grabadora, $this->tableroDePlan($sessionId, $store));
         } catch (RunInterrupted $e) {
             // INTERRUMPIR NO ES FALLAR. El trabajo hecho hasta aquí ya está en el stream —cada llamada
             // se apenda al ocurrir— así que la sesión sigue viva y retomable. Decirlo como error
             // sugeriría que hay algo que arreglar, y lo que hay es una decisión del humano.
-            if ($sesionId !== '' && $almacen !== null) {
-                $almacen->recordTurn($sesionId, 'assistant', 'La vuelta se interrumpió.');
+            if ($sessionId !== '' && $store !== null) {
+                $store->recordTurn($sessionId, 'assistant', 'La vuelta se interrumpió.');
             }
 
             return [
@@ -490,7 +594,7 @@ class AgentOperations implements CommandProvider
                 'interrupted' => true,
                 'steps' => $vistos,
                 'tools' => \count($registry->getToolDefinitions()),
-                'session' => $sesionId !== '' ? $sesionId : null,
+                'session' => $sessionId !== '' ? $sessionId : null,
                 'hint' => 'dile qué cambió y pídele que siga',
             ];
         } catch (\Throwable $e) {
@@ -499,8 +603,8 @@ class AgentOperations implements CommandProvider
             return ['ok' => false, 'error' => $e->getMessage()];
         }
 
-        if ($sesionId !== '' && $almacen !== null) {
-            $almacen->recordTurn($sesionId, 'assistant', $respuesta);
+        if ($sessionId !== '' && $store !== null) {
+            $store->recordTurn($sessionId, 'assistant', $respuesta);
         }
 
         $resultado = [
@@ -510,8 +614,8 @@ class AgentOperations implements CommandProvider
             'tools' => \count($registry->getToolDefinitions()),
         ];
 
-        if ($sesionId !== '') {
-            $resultado['session'] = $sesionId;
+        if ($sessionId !== '') {
+            $resultado['session'] = $sessionId;
         }
 
         // QUE LA VUELTA HAYA TERMINADO PAUSADA SE DICE, no se infiere.
@@ -523,10 +627,10 @@ class AgentOperations implements CommandProvider
         //
         // El `hint` es de la CLI: dice cómo contestar donde no hay dónde teclear la respuesta. El TUI
         // lo ignora porque ahí sí lo hay. Antes esa línea viajaba dentro del texto y salía en las dos.
-        $pausada = $sesionId !== '' && $almacen !== null ? $almacen->load($sesionId) : null;
+        $pausada = $sessionId !== '' && $store !== null ? $store->load($sessionId) : null;
         if ($pausada?->question !== null) {
             $resultado['paused'] = true;
-            $resultado['hint'] = 'contesta con: coa agent:answer --session=' . $sesionId
+            $resultado['hint'] = 'contesta con: coa agent:answer --session=' . $sessionId
                 . ' --answer=<' . implode('|', $pausada->question->options ?: ['tu respuesta']) . '>';
         }
 
@@ -711,9 +815,9 @@ class AgentOperations implements CommandProvider
      * Sin sesión devuelve `null` y no un tablero vacío — no hay plan que reproyectar cuando no hay
      * dónde guardarlo, y un encabezado sin tarjetas ocuparía contexto para decir nada.
      */
-    protected function tableroDePlan(string $sesionId, ?SessionStore $almacen): ?PlanBoard
+    protected function tableroDePlan(string $sessionId, ?SessionStore $store): ?PlanBoard
     {
-        if ($sesionId === '' || $almacen === null) {
+        if ($sessionId === '' || $store === null) {
             return null;
         }
 
@@ -729,7 +833,7 @@ class AgentOperations implements CommandProvider
             return null;
         }
 
-        return new SessionPlanBoard($almacen, $sesionId);
+        return new SessionPlanBoard($store, $sessionId);
     }
 
     /**
@@ -1386,8 +1490,70 @@ class AgentOperations implements CommandProvider
      * catálogo aquí es lo que garantiza que el agente vea lo mismo que `bin/mcp-server.php` expone.
      */
     /**
-     * @param list<Operation> $extra operaciones que sólo existen para esta corrida — hoy, las que
-     *                               atan el plan y los pendientes a la sesión en curso
+     * The tool names of every live operation whose declared effects fall in one of the given classes.
+     *
+     * Resolved from the booted catalogue, never from a maintained list: what this app can do today is
+     * a fact of the app, and reading it anywhere else is how a second inventory starts.
+     *
+     * @param mixed $classes    comma-separated string or list: mutating|external|irreversible|authority
+     * @param int   $undeclared out: how many matched only because nobody classified them
+     * @param int   $catalogue  out: how many live operations were considered at all
+     *
+     * @return list<string>
+     */
+    private function operationsMatchingEffects(mixed $classes, int &$undeclared = 0, int &$catalogue = 0): array
+    {
+        $wanted = [];
+        foreach (\is_string($classes) ? explode(',', $classes) : (\is_array($classes) ? $classes : []) as $c) {
+            if (\is_string($c) && trim($c) !== '') {
+                $wanted[] = strtolower(trim($c));
+            }
+        }
+        if ($wanted === []) {
+            return [];
+        }
+
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return [];
+        }
+
+        $names = [];
+        foreach (Operations::all($kernel, $kernel->root()) as $op) {
+            ++$catalogue;
+            $e = $op->effectCeiling();
+            $sinClasificar = !$e->isFullyClassified();
+
+            // Unknown is on the deny side of every one of these, deliberately. See the call site.
+            $matches = false;
+            foreach ($wanted as $class) {
+                $matches = $matches || match ($class) {
+                    // `mutating` reads the declared bool TOO, and not only the profile: eight
+                    // consumers across four packages already set it, and an operation that says it
+                    // mutates is denied whether or not anybody got around to classifying it.
+                    'mutating' => $op->mutating || $e->mutation !== Mutation::None,
+                    'external' => $e->externality !== Externality::None,
+                    'irreversible' => $e->reversibility !== Reversibility::Guaranteed
+                        && $e->reversibility !== Reversibility::Compensatable,
+                    'authority' => $e->authority !== Authority::None && $e->authority !== Authority::Read,
+                    default => false,
+                };
+            }
+
+            if ($matches) {
+                $names[] = str_replace([':', '.'], '_', $op->name);
+                if ($sinClasificar && !$op->mutating) {
+                    ++$undeclared;
+                }
+            }
+        }
+
+        return array_values(array_unique($names));
+    }
+
+    /**
+     * @param list<Operation> $extra operations that exist only for this run — today, the ones tying
+     *                               the plan and the pending items to the session in flight
      */
     private function toolsOfThisApp(array $extra = [], bool $soloLectura = false, bool $registroPropio = false): ?ToolRegistry
     {
@@ -1407,7 +1573,7 @@ class AgentOperations implements CommandProvider
         //
         // Se descubrió el 2026-08-04 midiendo Q-P20-I, y su daño no fue el estado: fue la MEDICIÓN.
         // «El hijo no planeó 0/8» era el `plan_set` archivado en el otro stream — el cierre de
-        // Q-P20-G se construyó sobre eso y quedó corregido. `SessionBookkeeping($almacen, $hijoId)`
+        // Q-P20-G se construyó sobre eso y quedó corregido. `SessionBookkeeping($store, $hijoId)`
         // era un lector muerto: se construía con el id correcto y nadie lo llamaba.
         $registry = $registroPropio ? new ToolRegistry(new NullLogger()) : $kernel->toolRegistry();
         if (!$registry instanceof ToolRegistry) {
