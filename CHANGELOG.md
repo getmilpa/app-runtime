@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/getmilpa/app-runtime/compare/v0.8.0...v0.9.0) (2026-08-06)
+
+
+### Features
+
+* the live Kanban board, the derived capability index, and code that lands through gates ([3520631](https://github.com/getmilpa/app-runtime/commit/3520631f0078951b4bff5c5ce6e69f907a3b67ba))
+
 ## [0.8.0](https://github.com/getmilpa/app-runtime/compare/v0.7.0...v0.8.0) (2026-08-05)
 
 
