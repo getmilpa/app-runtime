@@ -36,6 +36,8 @@ use Milpa\AiGateway\ToolCallGate;
 use Milpa\AiGateway\ToolCallRecorder;
 use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\Compactor;
+use Milpa\Agent\Todo;
+use Milpa\Agent\TodoStatus;
 use Milpa\Agent\SessionStore;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\StderrLogger;
@@ -101,17 +103,17 @@ class AgentOperations implements CommandProvider
     {
         // LO QUE NO SE PUEDE HACER NO SE OFRECE.
         //
-        // Este framework es tiny por default y crece por opt-in, así que `milpa/agent` puede no estar
-        // instalado. Anunciar una operación que sólo sabe contestar «esta app no tiene…» es peor que
-        // no anunciarla: quien lee `coa list` —persona o agente— la cuenta como disponible, la llama,
-        // y aprende que el listado miente. `coa capabilities` es donde se ve lo que FALTA, con el
-        // `composer require` que lo enciende.
+        // This framework ships tiny and grows by opt-in, so `milpa/agent` may well be absent.
+        // Advertising an operation whose only answer is «this app does not have…» is worse than
+        // leaving it out: whoever reads `coa list` —person or agent— counts it as available, calls
+        // it, and learns that the listing lies. `coa capabilities` is where what is MISSING shows,
+        // together with the `composer require` that turns it on.
         // SÓLO `agent-runs`, y la diferencia importa: correr y RECORDAR son dos capacidades.
         //
-        // La primera versión exigía las dos, y con eso una app con modelo pero sin `milpa/agent` no
-        // tenía `coa agent` en absoluto — cuando `run()` ya maneja el almacén nulo y contesta igual,
-        // sólo que sin sobrevivir al proceso. Lo destapó montar el laboratorio de Q-P20-A: el brazo
-        // que debía pedirle al agente que instalara las sesiones no podía ni arrancar al agente.
+        // The first version demanded both, and with that an app holding a model but lacking
+        // `milpa/agent` had `coa agent` at all — where `run()` already handles the null store and
+        // answers just the same, only without surviving the process. Building the Q-P20-A laboratory
+        // exposed it: the arm meant to ask the agent to install sessions could never start the agent.
         //
         // Es el mismo error que este contrato existe para no cometer: dos capacidades fundidas en una
         // guarda contestan por la que falta, no por la que hace falta.
@@ -137,12 +139,13 @@ class AgentOperations implements CommandProvider
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
-                        'prompt' => ['type' => 'string', 'description' => 'Qué quieres que haga, en tu idioma'],
-                        'steps' => ['type' => 'integer', 'description' => 'Tope de pasos modelo↔herramienta; 12 si no se dice'],
+                        'prompt' => ['type' => 'string', 'description' => 'What you want it to do, in your own words'],
+                        'steps' => ['type' => 'integer', 'description' => 'Ceiling on model↔tool steps; 12 when unsaid'],
                         'session' => ['type' => 'string', 'description' => 'Continúa esta sesión — sin ella, cada pregunta empieza de cero'],
                         'mode' => ['type' => 'string', 'enum' => ['ask', 'acknowledge', 'auto'], 'description' => 'Autonomía: ask pregunta antes de mutar, auto sigue sola. Ninguno se salta una firma'],
                         'deny' => ['type' => 'string', 'description' => 'Comma-separated tools withdrawn from its catalogue. Requires --session'],
                         'denyEffects' => ['type' => 'string', 'description' => 'Withdraw every operation in these effect classes: mutating|external|irreversible|authority. Unknown effects count as denied. Requires --session'],
+                        'first' => ['type' => 'string', 'description' => 'Comma-separated tools that must run before anything else proceeds — an ordering obligation, executed rather than asked'],
                     ],
                     'required' => ['prompt'],
                 ],
@@ -265,6 +268,83 @@ class AgentOperations implements CommandProvider
         // pedir permiso sin sesión sería pedirlo sin dónde apuntarlo, y ofrecer un `plan` sin dónde
         // guardarlo sería peor — el modelo lo llamaría, lo vería contestar «ok», y seguiría creyendo
         // que dejó un plan.
+        // `--first=plan,todo` — the tools that must run before anything else proceeds.
+        $runFirst = [];
+        $pedidoFirst = $input['first'] ?? null;
+        foreach (\is_string($pedidoFirst) ? explode(',', $pedidoFirst) : (\is_array($pedidoFirst) ? $pedidoFirst : []) as $tool) {
+            if (\is_string($tool) && trim($tool) !== '') {
+                $runFirst[] = trim($tool);
+            }
+        }
+
+        // ── THE OBLIGATION OUTLIVES THE TURN ────────────────────────────────────────────────────
+        //
+        // `--first` used to govern only the invocation that carried it. A session paused for a
+        // confirmation and resumed came back with the obligation gone — and Q-P17-L measured what it
+        // buys: 21 plans and 14 cards moved with it, zero of both without, and zero work finished
+        // without. Something worth that much cannot depend on whoever types the resume.
+        //
+        // So it is written to the session and read back from it. Passing `--first` again REPLACES it
+        // —the standing obligation is the last one somebody with authority declared— and passing an
+        // empty one lifts it, because the same authority that set it has to be able to unset it.
+        if ($sessionId !== '' && $store !== null) {
+            if ($runFirst !== []) {
+                $store->requireFirst($sessionId, $runFirst);
+            } else {
+                $liveSession = $store->load($sessionId);
+                $runFirst = $liveSession->runFirst ?? [];
+
+                // ── THE SYSTEM RENEWS IT, so a long session does not depend on somebody retyping ──
+                //
+                // Q-P17-L, four runs, one variable moved at a time:
+                //
+                //     plan obliged + renewed every turn   6/9 work · but a new plan each turn
+                //     an innocuous obligation, renewed    1/9 work · turns without direction
+                //     plan obliged once                   0/9 · the agent calls itself done
+                //     nothing                             0/9
+                //
+                // Renewal buys TURNS; the plan buys what to do with them. Neither alone completes
+                // work, and today the renewal exists only while somebody keeps typing `--first`.
+                //
+                // So the system renews it — but never with `plan`, which is what produced six copies
+                // of the same card. It renews with `todo`: a session that already holds a plan and
+                // unfinished items is asked to move them before doing anything else. That is the
+                // push, pointed at the work that exists instead of at writing the work down again.
+                //
+                // ONLY WHEN THERE IS SOMETHING TO RESUME: a session lacking a plan has nothing to
+                // renew, and one whose items are all done is not being pushed — it is being nagged.
+                //
+                // UNMEASURED, and it says so here rather than in a commit nobody reads: the four
+                // runs measured `plan` renewed rather than `todo` renewed. This is the shape evidence
+                // points at, not a shape the evidence confirms. It has its own question to answer.
+                if ($runFirst === [] && $liveSession?->obligationDeclared === true) {
+                    $pending = array_filter(
+                        $liveSession->todos,
+                        static fn (Todo $t): bool => $t->status !== TodoStatus::Done,
+                    );
+                    if ($liveSession->plan !== null && $liveSession->plan !== '' && $pending !== []) {
+                        $runFirst = ['todo'];
+                    }
+                }
+            }
+        }
+
+        // AND IT IS TOLD, at the FRONT of the brief — both halves, or neither works.
+        //
+        // Measured here before the experiment that needed it: with the gate alone, the agent takes
+        // ONE step, meets «`plugins_list` does not proceed yet: `plan` runs first», and stops. One
+        // step, zero tools, and never a plan. A fact without its sentence is not an obligation but a
+        // wall the agent lacks any reason to climb.
+        //
+        // `SubAgentSpawner` already carried this in writing —«the fact changes the world; the
+        // sentence tells it why»— and it goes FIRST rather than appended for a measured reason: hung
+        // at the end it pushed the brief's last stage away from the tail, and 4 of 8 runs lost the
+        // fifth stage. Position is a mechanism (Q-P20-E), not formatting.
+        if ($runFirst !== []) {
+            $prompt = 'Before anything else, run: ' . implode(', ', $runFirst)
+                . ". Until then none of your other calls proceed.\n\n" . $prompt;
+        }
+
         $compuerta = null;
         $contabilidad = [];
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
@@ -280,6 +360,18 @@ class AgentOperations implements CommandProvider
                     // (ADR-0044) compara los argumentos contra lo que el humano acaba de pedir.
                     petition: $prompt,
                     vigiaDeBucle: $this->vigiaDeBucle(),
+                    // ── AN ORDERING OBLIGATION FOR WHOEVER RUNS THE AGENT ────────────────────
+                    //
+                    // Same asymmetry `deny` had: the mechanism existed and only a delegating parent
+                    // could reach it. `PrerequisiteGate` is measured — Q-P20-I: `must` delivers the
+                    // sentence 8/8 and is obeyed 0/8; closing the table until the required call runs
+                    // is what makes it a fact instead of a request.
+                    //
+                    // The reason it matters here and not only in delegation: `plan` and `todo` ask
+                    // in prose today —«do it BEFORE starting anything long»— and 32 measured runs
+                    // touched neither, not once. A board built on that source would paint stale
+                    // cards as current state, which is worse than painting nothing.
+                    compuertaPrevia: $runFirst === [] ? null : new PrerequisiteGate($runFirst),
                 );
                 // ATADAS a esta sesión: el id se captura, no se le pide al modelo. Uno que el modelo
                 // pudiera nombrar es uno que puede errar, y escribirle el plan a otra sesión no es una

@@ -88,6 +88,24 @@ mutates — three times out of three. The list is worth exactly what whoever wro
 one-shot chat. `Tui\AgentScreen` renders the agent screen as text — the actor markers travel *inside*
 the text, so a painter can colour by origin and the same screen still works where there is no colour.
 
+`Web\BoardPage` renders the session's work as a **read-only Kanban board** in a browser: four
+columns, no buttons. It never folds the stream client-side — the fold is `agent:board`, shared with
+the CLI — and when the live bridge pushes a fact the page repaints the activity line and fetches the
+fold again, so reconnecting *is* catching up. A card born already done is set apart, never animated
+as if it had crossed. Serve `agent:board` over HTTP (`config/http.php`), point the page at your
+Mercure hub, and with no hub it says so instead of pretending to be live.
+
+**Growing the app — `capabilities`, `capabilities:refresh`, `capabilities:enable`**
+
+The capability→package index is **derived from what the registry publishes**, never written by
+hand: every announcing package declares `"type": "milpa-capability"` on Packagist with its full
+contract (`extra.milpa.capability`), and `capabilities:refresh` turns that into a dated artifact
+under `var/`. Three authorities answer «what exists» and the rank is executed, not implied:
+`installed.json` (what IS) over the derived index (what EXISTS, dated) over a small offline floor —
+and every answer names which one it used. After `capabilities:enable` installs, what the registry
+**promised** is compared with what **arrived**, and any difference is recorded: a package's
+declaration about itself is a claim, not a classification.
+
 Most of these exist because a measurement said they were needed, not because they seemed like a good
 idea. The settlements live in the monorepo (`docs/library/settlement-q-*.md`) and the docblocks cite
 which one.

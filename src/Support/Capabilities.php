@@ -247,34 +247,64 @@ final class Capabilities
     /**
      * El estado completo: lo puesto, lo que falta, y los puertos.
      *
-     * @return array{installed: list<array<string, mixed>>, available: list<array<string, mixed>>, ports: array<string, list<string>>}
+     * ── THE RANK OF AUTHORITIES, EXECUTED ───────────────────────────────────────────────────────
+     *
+     * Three places answer «what exists», and unranked they diverge on the case nobody tested:
+     * `installed.json` (what IS) outranks the derived index (what EXISTS in the registry, DATED)
+     * which outranks the offline floor. The answer SAYS which authority it used — a list whose
+     * origin cannot be known is a list that cannot be corrected.
+     *
+     * With an index, `unlocks` and `version` arrive FILLED from what was published — the promise
+     * that used to ship empty «until installed». The floor still adds whatever the index does not
+     * carry: a smaller answer is honest, a silent one is not.
+     *
+     * @param null|array<string, mixed> $index the derived artifact; `null` means «there is none»
+     *                                         and the floor answers — whoever holds one passes it
+     *                                         (the operation passes {@see CapabilityIndex::read()})
+     *
+     * @return array{installed: list<array<string, mixed>>, available: list<array<string, mixed>>, ports: array<string, list<string>>, source: string}
      */
-    public static function state(?string $vendor = null): array
+    public static function state(?string $vendor = null, ?array $index = null): array
     {
         $declarado = self::declaredBy($vendor);
 
         $puestas = [];
-        foreach ($declarado as $paquete => $cap) {
+        foreach ($declarado as $package => $cap) {
             $puestas[] = [
                 'id' => $cap['id'],
-                'package' => $paquete,
+                'package' => $package,
                 'title' => \is_string($cap['title'] ?? null) ? $cap['title'] : '',
                 'unlocks' => \is_array($cap['unlocks'] ?? null) ? array_values($cap['unlocks']) : [],
                 'provides' => \is_array($cap['provides'] ?? null) ? array_values($cap['provides']) : [],
             ];
         }
 
+        $fromIndex = \is_array($index['capabilities'] ?? null) ? $index['capabilities'] : [];
+
         $faltantes = [];
+        foreach ($fromIndex as $package => $cap) {
+            if (isset($declarado[$package]) || !\is_array($cap)) {
+                continue;
+            }
+            $faltantes[] = [
+                'package' => $package,
+                'title' => \is_string($cap['title'] ?? null) ? $cap['title'] : '',
+                // FILLED from what was published: the registry already declared what this version unlocks.
+                'unlocks' => \is_array($cap['unlocks'] ?? null) ? array_values($cap['unlocks']) : [],
+                'version' => \is_string($cap['version'] ?? null) ? $cap['version'] : '',
+                'command' => 'composer require ' . $package,
+            ];
+        }
+
         foreach (self::knownOptIns() as $paquete => $para) {
-            if (isset($declarado[$paquete])) {
+            if (isset($declarado[$paquete]) || isset($fromIndex[$paquete])) {
                 continue;
             }
             $faltantes[] = [
                 'package' => $paquete,
                 'title' => $para,
-                // Lo que desbloquea NO se puede saber hasta instalarlo —lo declara el paquete, y el
-                // paquete no está—, así que va vacío y se llena al llegar. Prometer aquí una lista
-                // sería el catálogo escrito a mano otra vez.
+                // What it unlocks CANNOT be known with no network and no package: it ships empty
+                // and fills on arrival. Promising a list here would be the hand-written catalogue again.
                 'unlocks' => [],
                 // EL COMANDO ARMADO, no descrito. Un agente que tiene que componerlo tiene una
                 // decisión más que tomar, y ya sabemos lo que cuesta cada una que se le agrega.
@@ -282,7 +312,16 @@ final class Capabilities
             ];
         }
 
-        return ['installed' => $puestas, 'available' => $faltantes, 'ports' => self::ports($vendor)];
+        $date = \is_string($index['derived_at'] ?? null) ? $index['derived_at'] : null;
+
+        return [
+            'installed' => $puestas,
+            'available' => $faltantes,
+            'ports' => self::ports($vendor),
+            'source' => $date !== null
+                ? "registry index derived {$date}, offline floor beneath"
+                : 'offline floor — no derived index; run `capabilities:refresh` to build one',
+        ];
     }
 
     /**
@@ -298,7 +337,7 @@ final class Capabilities
      */
     public static function answer(?string $vendor = null): array
     {
-        $estado = self::state($vendor);
+        $estado = self::state($vendor, CapabilityIndex::read());
         $salida = ['ok' => true, ...$estado];
 
         $pista = self::hintFor($estado['available']);
@@ -323,6 +362,10 @@ final class Capabilities
      * cannot arrange, it injects — and what it injects is named, not mocked behind a framework.
      *
      * @param null|callable(string): array{0: int, 1: list<string>} $runner
+     * @param null|array<string, mixed>                             $index       the derived
+     *                                                                           artifact — the promise the delivery is compared against
+     * @param null|string                                           $vendorAfter the vendor after
+     *                                                                           the install; in production the same tree re-read
      *
      * @return array<string, mixed>
      */
@@ -331,13 +374,19 @@ final class Capabilities
         ?string $vendor = null,
         ?callable $runner = null,
         bool $dryRun = false,
+        ?array $index = null,
+        ?string $vendorAfter = null,
     ): array {
         $pedido = trim($pedido);
         if ($pedido === '') {
             return ['ok' => false, 'error' => 'missing `capability`: which one'];
         }
 
-        $estado = self::state($vendor);
+        // The «after» is the same tree except in tests, where the before and the after of an
+        // install must be allowed to differ — because in real life they do.
+        $vendorAfter ??= $vendor;
+
+        $estado = self::state($vendor, $index);
 
         // ALREADY THERE IS NOT AN ERROR. Someone who asks twice is told it is done, not that it
         // failed — a failure reads as "this cannot be had" and sends them looking for another way.
@@ -415,8 +464,9 @@ final class Capabilities
         // siempre puede venir vacío es la clase de defecto que este repositorio lleva una semana
         // cazando: algo declarado que nunca aterriza. La capacidad se comprueba donde existe —el
         // disco— releyendo lo que el paquete declara de sí mismo.
-        $llego = self::unlocksOf((string) $objetivo['package'], $vendor);
-        if (!isset(self::declaredBy($vendor)[(string) $objetivo['package']])) {
+        $llego = self::unlocksOf((string) $objetivo['package'], $vendorAfter);
+        $delivered0 = self::declaredBy($vendorAfter)[(string) $objetivo['package']] ?? null;
+        if ($delivered0 === null) {
             return [
                 'ok' => false,
                 'capability' => $objetivo['package'],
@@ -432,7 +482,7 @@ final class Capabilities
             ];
         }
 
-        return [
+        $okOut = [
             'ok' => true,
             'capability' => $objetivo['package'],
             'command' => $comando,
@@ -443,6 +493,32 @@ final class Capabilities
             'unlocked' => $llego,
             'hint' => 'run `coa list` to see the new operations',
         ];
+
+        // ── THE PROMISE IS COMPARED WITH THE DELIVERY, and any difference is RECORDED ────────────
+        //
+        // The index holds what the registry PROMISED for this package; `installed.json` holds what
+        // ARRIVED. By GOV-11 a package's declaration about itself is a claim, not a classification —
+        // so a difference does not refuse (deciding what to do about it has no evidence yet, and is
+        // deferred SAID), but it never passes in silence either: the chain-of-supply risk gets its
+        // record here, which is what makes the question answerable later.
+        $promise = \is_array($index['capabilities'][(string) $objetivo['package']] ?? null)
+            ? $index['capabilities'][(string) $objetivo['package']]
+            : null;
+        if ($promise !== null) {
+            $okOut['promised_version'] = \is_string($promise['version'] ?? null) ? $promise['version'] : '';
+
+            $contract = static fn (array $c): array => [
+                'id' => $c['id'] ?? null,
+                'provides' => \is_array($c['provides'] ?? null) ? array_values($c['provides']) : [],
+                'unlocks' => \is_array($c['unlocks'] ?? null) ? array_values($c['unlocks']) : [],
+            ];
+            [$promised, $delivered] = [$contract($promise), $contract($delivered0)];
+            if ($promised !== $delivered) {
+                $okOut['promise_mismatch'] = ['promised' => $promised, 'delivered' => $delivered];
+            }
+        }
+
+        return $okOut;
     }
 
     /**

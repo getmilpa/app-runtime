@@ -67,10 +67,20 @@ final class ContratoInstaladoTest extends TestCase
         $raro = new class () {
             public ?string $namedTarget = '';
 
+            /** @var list<string>|null */
             public ?array $removedOptions = null;
         };
 
         self::assertNull(ContratoInstalado::cadena($raro, 'namedTarget'));
         self::assertSame([], ContratoInstalado::listaDeCadenas($raro, 'removedOptions'));
+    }
+
+    /** A property the vendor never declared answers the honest default — never a guess. */
+    public function testAnAbsentPropertyAnswersTheHonestDefault(): void
+    {
+        $vacio = new class () {};
+
+        self::assertNull(ContratoInstalado::valorDeEnum($vacio, 'mode'));
+        self::assertSame([], ContratoInstalado::arreglo($vacio, 'options'));
     }
 }

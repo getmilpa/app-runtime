@@ -380,14 +380,30 @@ final class Application
                 contestarHijo: $this->contestarAlHijo(...),
             );
 
-            // LA PANTALLA SE REGISTRA COMO SUPERFICIE, y por eso recibe lo que el agente hace
-            // mientras lo hace: `AgentOperations` arma el almacén con `BroadcastingEventStore` en
-            // cuanto encuentra un `SurfaceBroadcaster` en el contenedor. No hace falta un canal
-            // nuevo — es el mismo puente por el que se enteraría una página web.
+            // THE SCREEN REGISTERS AS A SURFACE, which is how it receives what the agent does while
+            // it does it: `AgentOperations` builds the store with `BroadcastingEventStore` as soon
+            // as it finds a `SurfaceBroadcaster` in the container. No new channel — it is the same
+            // bridge a web page learns from.
             //
-            // Va ANTES de correr: el almacén se construye en la primera pregunta, y un broadcaster
-            // registrado después llegaría tarde a su propia sesión.
-            $this->kernel()->container()->registerService(SurfaceBroadcaster::class, $chat);
+            // AND FOR THAT VERY REASON IT NEVER REGISTERS ALONE. The bridge takes the first
+            // broadcaster it finds, so the bare screen DISPLACED the hub: with a chat open, the web
+            // board stood still wearing a «live» face until somebody reloaded — found by a human
+            // watching the browser, not by a suite. The screen and the hub are audiences of the
+            // same fact, not rivals for the channel.
+            //
+            // It goes BEFORE running: the store is built on the first question, and a broadcaster
+            // registered later would be late to its own session.
+            $audiences = [$chat];
+            $hub = $this->kernel()->container()->has('Milpa\\Mercure\\MercureService')
+                ? $this->kernel()->container()->get('Milpa\\Mercure\\MercureService')
+                : null;
+            if (\is_object($hub) && method_exists($hub, 'publish')) {
+                $audiences[] = new \Milpa\AppRuntime\Agent\MercureBroadcaster($hub);
+            }
+            $this->kernel()->container()->registerService(
+                SurfaceBroadcaster::class,
+                \count($audiences) === 1 ? $chat : new \Milpa\AppRuntime\Agent\FanOutBroadcaster($audiences),
+            );
 
             return $this->pantalla($chat);
         }

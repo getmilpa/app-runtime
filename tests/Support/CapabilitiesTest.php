@@ -20,6 +20,9 @@ final class CapabilitiesTest extends TestCase
 {
     private string $vendor;
 
+    /** @var list<string> extra vendors created per test — each one its own tree */
+    private array $extras = [];
+
     protected function setUp(): void
     {
         $this->vendor = sys_get_temp_dir() . '/milpa-cap-' . bin2hex(random_bytes(6));
@@ -31,9 +34,32 @@ final class CapabilitiesTest extends TestCase
         @unlink($this->vendor . '/composer/installed.json');
         @rmdir($this->vendor . '/composer');
         @rmdir($this->vendor);
+        foreach ($this->extras as $extra) {
+            exec('rm -rf ' . escapeshellarg($extra));
+        }
+        $this->extras = [];
     }
 
-    /** @param list<array<string, mixed>> $paquetes */
+    /**
+     * A vendor SEPARATE from the main one — the tests where the before and the after of an
+     * install must be different trees, because in real life they are.
+     *
+     * @param list<array<string, mixed>> $paquetes
+     */
+    private function otroVendorCon(array $paquetes): string
+    {
+        $dir = sys_get_temp_dir() . '/milpa-cap-otro-' . bin2hex(random_bytes(6));
+        mkdir($dir . '/composer', 0o775, true);
+        file_put_contents(
+            $dir . '/composer/installed.json',
+            json_encode(['packages' => $paquetes], \JSON_THROW_ON_ERROR),
+        );
+        $this->extras[] = $dir;
+
+        return $dir;
+    }
+
+    /** @param array<int, mixed> $paquetes — mixed on purpose: some tests feed deliberate garbage */
     private function vendorCon(array $paquetes): string
     {
         file_put_contents(
@@ -213,6 +239,16 @@ final class CapabilitiesTest extends TestCase
         self::assertStringContainsString('capability', (string) ($r['error'] ?? ''));
     }
 
+    /** The operation wrapper travels whole: dry_run reaches install through the declared handler. */
+    public function testTheEnableHandlerPassesDryRunThrough(): void
+    {
+        /** @var array<string, mixed> $r */
+        $r = ($this->enable())(['capability' => 'milpa/definitely-not-a-package', 'dry_run' => true]);
+
+        self::assertFalse($r['ok'] ?? true);
+        self::assertIsArray($r['available'] ?? null, 'the refusal travels with the valid answers');
+    }
+
     /**
      * Un nombre que no existe se rechaza CON las respuestas validas.
      *
@@ -234,6 +270,107 @@ final class CapabilitiesTest extends TestCase
     {
         self::assertNull(Capabilities::hintFor([]));
         self::assertNotNull(Capabilities::hintFor([['package' => 'milpa/agent']]));
+    }
+
+    /**
+     * With a derived index, `available` answers from the REGISTRY — packages the offline floor
+     * never heard of appear, their unlocks arrive filled, and the answer names its authority and
+     * its date. Rank: installed.json > derived index > offline floor.
+     */
+    public function testWithAnIndexAvailableAnswersFromTheRegistryAndNamesItsSource(): void
+    {
+        $index = [
+            'derived_at' => '2026-08-06T09:00:00+00:00',
+            'capabilities' => [
+                'acme/teleport' => [
+                    'id' => 'teleport', 'title' => 'Teleportation', 'unlocks' => ['coa teleport'],
+                    'provides' => ['transport.instant'], 'briefing' => '', 'version' => 'v2.0.0',
+                ],
+            ],
+            'undeclared' => [],
+        ];
+
+        $estado = Capabilities::state($this->vendorCon([]), $index);
+
+        $fila = null;
+        foreach ($estado['available'] as $f) {
+            if ($f['package'] === 'acme/teleport') {
+                $fila = $f;
+            }
+        }
+        self::assertNotNull($fila, 'un tercero del registro no aparece — el piso sigue mandando');
+        self::assertSame(['coa teleport'], $fila['unlocks']);
+        self::assertSame('v2.0.0', $fila['version']);
+        self::assertStringContainsString('2026-08-06', (string) $estado['source']);
+    }
+
+    /** Without an index the floor answers — and SAYS it is the floor. */
+    public function testWithoutAnIndexTheFloorAnswersAndSaysSo(): void
+    {
+        $estado = Capabilities::state($this->vendorCon([]));
+
+        self::assertStringContainsString('offline floor', (string) $estado['source']);
+    }
+
+    /**
+     * The promise the registry made travels into the install verification: what ARRIVED is
+     * compared with what was PROMISED, and any difference is RECORDED — its own declaration about
+     * itself is a claim, not a classification (GOV-11). The record is the deliverable; deciding
+     * what to do about a mismatch has no evidence yet and stays deferred.
+     */
+    public function testADeliveryThatDiffersFromThePromiseIsRecorded(): void
+    {
+        $index = [
+            'derived_at' => '2026-08-06T09:00:00+00:00',
+            'capabilities' => [
+                'milpa/agent' => [
+                    'id' => 'agent', 'title' => 'Sessions', 'unlocks' => ['coa chat', 'agent:answer'],
+                    'provides' => ['agent.sessions'], 'briefing' => '', 'version' => 'v0.6.0',
+                ],
+            ],
+            'undeclared' => [],
+        ];
+        // The delivered vendor declares FEWER unlocks than the registry promised.
+        $deliveredVendor = $this->otroVendorCon([$this->paquete('milpa/agent', 'agent', 'agent.sessions')]);
+
+        $r = Capabilities::install('milpa/agent', $this->vendorCon([]), static fn (string $c): array => [0, ['ok']], index: $index, vendorAfter: $deliveredVendor);
+
+        self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
+        self::assertSame('v0.6.0', $r['promised_version']);
+        self::assertIsArray($r['promise_mismatch'] ?? null, 'la diferencia con la promesa no quedó registrada');
+    }
+
+    /**
+     * `capabilities:refresh` exists with its effects said: it reaches a third-party registry, it
+     * writes a deletable cache, and it never changes what the app can DO — only what it knows
+     * exists. And it is not offered over http: a web request that makes this server fan out to a
+     * registry is a surface nobody asked for.
+     */
+    public function testRefreshDeclaresItsEffectsAndStaysOffTheWeb(): void
+    {
+        $refresh = null;
+        foreach ((new CapabilityOperations())->operations() as $o) {
+            if ($o->name === 'capabilities:refresh') {
+                $refresh = $o;
+            }
+        }
+
+        self::assertNotNull($refresh, 'capabilities:refresh no se ofrece');
+        self::assertTrue($refresh->mutating, 'escribe el artefacto y lo dice');
+        self::assertNotContains('http', $refresh->surfaces ?? []);
+    }
+
+    /** A delivery that matches its promise carries no mismatch — the field only exists when true. */
+    public function testADeliveryThatMatchesItsPromiseCarriesNoMismatch(): void
+    {
+        $cap = ['id' => 'agent', 'title' => 'Sessions', 'unlocks' => ['algo'], 'provides' => ['agent.sessions'], 'briefing' => '', 'version' => 'v0.6.0'];
+        $index = ['derived_at' => '2026-08-06T09:00:00+00:00', 'capabilities' => ['milpa/agent' => $cap], 'undeclared' => []];
+        $deliveredVendor = $this->otroVendorCon([$this->paquete('milpa/agent', 'agent', 'agent.sessions')]);
+
+        $r = Capabilities::install('milpa/agent', $this->vendorCon([]), static fn (string $c): array => [0, ['ok']], index: $index, vendorAfter: $deliveredVendor);
+
+        self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
+        self::assertArrayNotHasKey('promise_mismatch', $r);
     }
 
     /**
@@ -409,7 +546,7 @@ final class CapabilitiesTest extends TestCase
     {
         $v = $this->vendorCon([]);
 
-        $r = Capabilities::install('milpa/agent', $v, function (string $cmd) use ($v): array {
+        $r = Capabilities::install('milpa/agent', $v, function (string $cmd): array {
             // El paquete "llega" al vendor, que es lo que hace composer.
             $this->vendorCon([$this->paquete('milpa/agent', 'agent', 'agent.sessions')]);
 

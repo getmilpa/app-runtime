@@ -22,7 +22,7 @@
   },
   "require-dev": {
     "friendsofphp/php-cs-fixer": "^3.75",
-    "milpa/agent": "^0.6",
+    "milpa/agent": "^0.7",
     "milpa/ai-gateway": "^0.8",
     "milpa/auth": "^0.3.8",
     "milpa/data": "^0.2.2",

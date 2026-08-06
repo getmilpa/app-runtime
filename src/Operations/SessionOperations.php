@@ -107,7 +107,7 @@ final class SessionOperations implements CommandProvider
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
-                        'session' => ['type' => 'string', 'description' => 'Identificador de la sesión'],
+                        'session' => ['type' => 'string', 'description' => 'The session identifier'],
                     ],
                     'required' => ['session'],
                 ],
@@ -129,7 +129,7 @@ final class SessionOperations implements CommandProvider
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
-                        'session' => ['type' => 'string', 'description' => 'Identificador de la sesión'],
+                        'session' => ['type' => 'string', 'description' => 'The session identifier'],
                         'mode' => [
                             'type' => 'string',
                             'enum' => ['ask', 'acknowledge', 'auto'],
@@ -159,8 +159,8 @@ final class SessionOperations implements CommandProvider
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
-                        'session' => ['type' => 'string', 'description' => 'Identificador de la sesión'],
-                        'since' => ['type' => 'integer', 'description' => 'La última secuencia que ya viste; 0 trae todo'],
+                        'session' => ['type' => 'string', 'description' => 'The session identifier'],
+                        'since' => ['type' => 'integer', 'description' => 'The last sequence you already saw; 0 brings everything'],
                     ],
                     'required' => ['session'],
                 ],
@@ -189,8 +189,8 @@ final class SessionOperations implements CommandProvider
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
-                        'session' => ['type' => 'string', 'description' => 'Identificador de la sesión'],
-                        'answer' => ['type' => 'string', 'description' => 'Tu respuesta — «sí» autoriza la operación en esta sesión'],
+                        'session' => ['type' => 'string', 'description' => 'The session identifier'],
+                        'answer' => ['type' => 'string', 'description' => 'Your answer — «sí» authorises the operation for this session'],
                     ],
                     'required' => ['session', 'answer'],
                 ],
@@ -220,7 +220,7 @@ final class SessionOperations implements CommandProvider
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
-                        'session' => ['type' => 'string', 'description' => 'Identificador de la sesión'],
+                        'session' => ['type' => 'string', 'description' => 'The session identifier'],
                     ],
                     'required' => ['session'],
                 ],
@@ -243,8 +243,8 @@ final class SessionOperations implements CommandProvider
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
-                        'session' => ['type' => 'string', 'description' => 'Identificador de la sesión'],
-                        'because' => ['type' => 'string', 'description' => 'Por qué se descarta — queda en el stream'],
+                        'session' => ['type' => 'string', 'description' => 'The session identifier'],
+                        'because' => ['type' => 'string', 'description' => 'Why it is discarded — it stays in the stream'],
                     ],
                     'required' => ['session', 'because'],
                 ],
@@ -258,11 +258,11 @@ final class SessionOperations implements CommandProvider
     }
 
     /**
-     * El tablero de una sesión: cuatro columnas, TODAS derivadas del stream (P19.5).
+     * One session's board: four columns, ALL of them derived from the stream (P19.5).
      *
      * ── LA PROPIEDAD QUE NO SE PUEDE PERDER ─────────────────────────────────────────────────────
      *
-     * **El tablero no tiene estado.** Lo que se ve es el fold del stream, releído en cada llamada. En
+     * **The board holds no state.** What you see is the fold of the stream, re-read on every call. In
      * el momento en que esto guardara su propia copia de en qué columna va una tarjeta habría dos
      * sitios que contestan «¿en qué va esto?», y divergirían — la única pregunta sería cuándo. Es la
      * misma regla que el tablero de `milpa/devtools` ya tenía escrita: *nadie mueve nada, las columnas
@@ -296,8 +296,8 @@ final class SessionOperations implements CommandProvider
             return $error ?? ['ok' => false, 'error' => 'esta app no tiene dónde guardar sesiones'];
         }
 
-        $sesion = $almacen->load($id);
-        if ($sesion === null) {
+        $session = $almacen->load($id);
+        if ($session === null) {
             return ['ok' => false, 'error' => "no existe la sesión «{$id}»"];
         }
 
@@ -306,7 +306,83 @@ final class SessionOperations implements CommandProvider
             $columnas[$estado->value] = [];
         }
 
-        foreach ($sesion->todos as $todo) {
+        // ONLY THE PLAN GENERATION IN FORCE.
+        //
+        // Re-planning is what completes long work —Q-P17-L: 6/9 against 0/9— and it is also what
+        // stacked generations: measured on a real session, TWENTY pending cards for SIX tasks, six
+        // copies of the same one. Showing all of them as today's state is the lie that refreshes
+        // itself, and it beats an empty board only in looking alive.
+        //
+        // Filtered HERE, with nothing retired from the stream: the copies happened and they stay.
+        // The board holds no state — what you see is the fold, and the fold picks its generation.
+        //
+        // A session whose plan carries no version filters nothing: there are no generations to tell
+        // apart, and hiding cards there would invent a criterion nobody declared.
+        $generation = $session->planVersion;
+
+        // THE MOST RECENT CARD FOR EACH TEXT, in arrival order — and no generations involved.
+        //
+        // The generation approach could not work here and the measurement said why: nine `plan_set`
+        // events in one real session, ALL of them version 1. The agent does not write a NEW plan when
+        // it re-plans — it writes the SAME plan again, so there are no generations to compare and the
+        // duplicates come from re-adding cards under an unchanged plan.
+        //
+        // Three refinements were built on a discriminator that never varied. What actually separates
+        // a restatement from a distinct task is the text, and the risk of merging on it was measured
+        // rather than assumed: of sixteen groups sharing a text, ZERO had more than one card ever
+        // worked. The agent never treated them as two.
+        $newest = [];
+        foreach ($session->todos as $t) {
+            $newest[self::normalised($t->text)] = $t->id;
+        }
+
+        // Which ones were superseded, read from the fold itself: each card names the one it replaced.
+        $replaced = [];
+        foreach ($session->todos as $t) {
+            if ($t->replaces !== null) {
+                $replaced[$t->replaces] = true;
+            }
+        }
+        foreach ($session->todos as $todo) {
+            if ($generation > 0 && $todo->planVersion > 0 && $todo->planVersion !== $generation) {
+                continue;
+            }
+            // AND WHAT SOMEBODY DECLARED REPLACED STOPS BEING SHOWN.
+            //
+            // Comparing plan generations could not do this: the stamp records when a card was last
+            // touched, so one moved after a re-plan migrates to the new generation and survives the
+            // filter. Verified rather than assumed — seven generations removed seven cards in one
+            // run and none in the other.
+            //
+            // Whether two cards speak about the same task is not something the system can derive
+            // without guessing what the agent meant. So it gets declared, and the declaration is
+            // EXECUTED here rather than trusted as prose: `must` governs 0/8 in this house.
+            if (isset($replaced[$todo->id])) {
+                continue;
+            }
+            // AND A CARD RESTATED BY A LATER PLAN GENERATION STEPS ASIDE FOR IT.
+            //
+            // Re-planning REFORMULATES: of 68 card births measured on real sessions, 51 repeated a
+            // text already there — and not approximately, the SAME text once normalised. That is why
+            // this is not the system guessing what the agent meant: it is reading what the agent
+            // wrote twice.
+            //
+            // Compared on the BIRTH generation, never on the last touch: a card moved after a
+            // re-plan migrates forward under the touch stamp and stops being comparable with the one
+            // it duplicates. That is exactly why this rule shipped inert the first time.
+            //
+            // Only ACROSS generations, never within one. A plan that legitimately lists «verify»
+            // twice in the same generation is naming two moments, and collapsing those would be the
+            // guess this rule refuses to make.
+            //
+            // And it hides rather than closes: the older card stays open and untouched in the
+            // stream. Closing it would need to know it is done, which nobody here knows — measured,
+            // 17% to 33% of a generation's tasks never reappear in the next one, and treating that
+            // silence as completion would throw away up to a third of the work.
+            if (($newest[self::normalised($todo->text)] ?? $todo->id) !== $todo->id) {
+                continue;
+            }
+
             $columnas[$todo->status->value][] = [
                 'id' => $todo->id,
                 'text' => $todo->text,
@@ -317,7 +393,7 @@ final class SessionOperations implements CommandProvider
                 // CUÁNTAS MUTACIONES PASARON DESPUÉS de tocar esta tarjeta. `0` es una tarjeta al día;
                 // un número alto es el sistema diciendo «cambiaron siete cosas y esto no se movió ni
                 // se cerró». No afirma que esté mal: afirma que no se explicó.
-                'unexplained' => max(0, $sesion->mutations - $todo->mutationsAt),
+                'unexplained' => max(0, $session->mutations - $todo->mutationsAt),
             ];
         }
 
@@ -325,8 +401,8 @@ final class SessionOperations implements CommandProvider
 
         // LA PREGUNTA ABIERTA VA EN EL TABLERO, porque es trabajo detenido esperando a un humano — y
         // un tablero que no la muestra deja al agente parado sin que nadie lo vea.
-        if ($sesion->question !== null) {
-            $salida['pending_question'] = $sesion->question->question;
+        if ($session->question !== null) {
+            $salida['pending_question'] = $session->question->question;
         }
 
         return $salida;
@@ -381,8 +457,8 @@ final class SessionOperations implements CommandProvider
             return ['ok' => false, 'error' => 'falta `because`: por qué se descarta, y queda en el stream'];
         }
 
-        $sesion = $almacen->load($id);
-        if ($sesion === null) {
+        $session = $almacen->load($id);
+        if ($session === null) {
             return ['ok' => false, 'error' => "no existe la sesión «{$id}»"];
         }
 
@@ -436,14 +512,14 @@ final class SessionOperations implements CommandProvider
      * cuánto **no se explicó**. Cero es una sesión limpia — o porque cerró todo, o porque no pasó nada
      * mientras algo quedaba abierto, que también está bien.
      */
-    private function trabajoSinExplicar(Session $sesion): int
+    private function trabajoSinExplicar(Session $session): int
     {
         $peor = 0;
-        foreach ($sesion->todos as $todo) {
+        foreach ($session->todos as $todo) {
             if ($todo->status === TodoStatus::Done) {
                 continue;
             }
-            $peor = max($peor, $sesion->mutations - $todo->mutationsAt);
+            $peor = max($peor, $session->mutations - $todo->mutationsAt);
         }
 
         return max(0, $peor);
@@ -511,26 +587,26 @@ final class SessionOperations implements CommandProvider
 
         $filas = [];
         foreach ($almacen->ids() as $id) {
-            $sesion = $almacen->load($id);
-            if ($sesion === null) {
+            $session = $almacen->load($id);
+            if ($session === null) {
                 continue;
             }
 
             $filas[] = [
                 'session' => $id,
-                'goal' => $sesion->goal,
-                'mode' => $sesion->mode->value,
-                'turns' => \count($sesion->turns),
+                'goal' => $session->goal,
+                'mode' => $session->mode->value,
+                'turns' => \count($session->turns),
                 // Qué le pasa AHORA, que es lo que alguien busca al listar: una sesión esperando una
                 // respuesta se ve igual que una viva si sólo se muestra su objetivo.
-                'state' => $sesion->endedBecause !== null
+                'state' => $session->endedBecause !== null
                     ? 'terminada'
-                    : ($sesion->question !== null ? 'esperando respuesta' : 'viva'),
-                'pending' => \count($sesion->pendingTodos()),
+                    : ($session->question !== null ? 'esperando respuesta' : 'viva'),
+                'pending' => \count($session->pendingTodos()),
                 // TRABAJO SIN EXPLICAR. El invariante existía en el stream y no lo leía nadie — que es
                 // el patrón que este repositorio lleva un mes cazando. Aquí es donde alguien mira para
                 // saber qué sesión necesita atención, así que aquí tiene que estar.
-                'unexplained' => $this->trabajoSinExplicar($sesion),
+                'unexplained' => $this->trabajoSinExplicar($session),
             ];
         }
 
@@ -549,22 +625,22 @@ final class SessionOperations implements CommandProvider
             return $error ?? ['ok' => false, 'error' => 'esta app no tiene dónde guardar sesiones'];
         }
 
-        $sesion = $almacen->load($id);
-        if ($sesion === null) {
+        $session = $almacen->load($id);
+        if ($session === null) {
             return ['ok' => false, 'error' => "no existe la sesión «{$id}»"];
         }
 
         return [
             'ok' => true,
-            'session' => $sesion->id,
-            'goal' => $sesion->goal,
-            'mode' => $sesion->mode->value,
-            'plan' => $sesion->plan,
-            'todos' => array_map(static fn ($t): array => $t->toArray(), $sesion->todos),
-            'permissions' => $sesion->permissions,
-            'turns' => \count($sesion->turns),
-            'compactedThrough' => $sesion->compactedThrough,
-            'question' => $sesion->question?->toArray(),
+            'session' => $session->id,
+            'goal' => $session->goal,
+            'mode' => $session->mode->value,
+            'plan' => $session->plan,
+            'todos' => array_map(static fn ($t): array => $t->toArray(), $session->todos),
+            'permissions' => $session->permissions,
+            'turns' => \count($session->turns),
+            'compactedThrough' => $session->compactedThrough,
+            'question' => $session->question?->toArray(),
             // LO QUE SE DECIDIÓ, y quién. Sin esta línea el principal se guardaba y no lo veía nadie
             // —el patrón que este repositorio lleva un mes cazando: una capacidad a la que le falta
             // la línea que la enchufa—. `agent:show` es donde alguien va a preguntar «¿quién
@@ -582,9 +658,9 @@ final class SessionOperations implements CommandProvider
                     // el desreferenciado, NO la lectura — con un vendor anterior emite el aviso que
                     // destruye la pantalla del TUI antes de devolver null.
                     'origin' => ContratoInstalado::valorDeEnum($t, 'origin'),
-                    'mutationsSince' => max(0, $sesion->mutations - $t->mutationsAt),
+                    'mutationsSince' => max(0, $session->mutations - $t->mutationsAt),
                 ],
-                array_filter($sesion->todos, static fn (Todo $t): bool => $t->status !== TodoStatus::Done),
+                array_filter($session->todos, static fn (Todo $t): bool => $t->status !== TodoStatus::Done),
             )),
             'decisions' => array_map(
                 static fn (array $d): array => [
@@ -599,9 +675,9 @@ final class SessionOperations implements CommandProvider
                 ],
                 // `decisions` puede no existir en un vendor anterior, y `array_map` sobre null es
                 // TypeError, no aviso: la operación entera se cae en vez de mostrar lo que sí sabe.
-                ContratoInstalado::arreglo($sesion, 'decisions'),
+                ContratoInstalado::arreglo($session, 'decisions'),
             ),
-            'endedBecause' => $sesion->endedBecause,
+            'endedBecause' => $session->endedBecause,
         ];
     }
 
@@ -640,12 +716,12 @@ final class SessionOperations implements CommandProvider
             return ['ok' => false, 'error' => 'falta `answer`: qué le contestas'];
         }
 
-        $sesion = $almacen->load($id);
-        if ($sesion === null) {
+        $session = $almacen->load($id);
+        if ($session === null) {
             return ['ok' => false, 'error' => "no existe la sesión «{$id}»"];
         }
 
-        if ($sesion->question === null) {
+        if ($session->question === null) {
             // Contestar algo que nadie preguntó no es inocuo: si sólo se apendara, quedaría un turno
             // suelto que el modelo leería como contexto en la siguiente vuelta.
             return [
@@ -655,7 +731,7 @@ final class SessionOperations implements CommandProvider
             ];
         }
 
-        $pregunta = $sesion->question;
+        $pregunta = $session->question;
         $almacen->answer(
             $id,
             $pregunta->id,
@@ -703,12 +779,12 @@ final class SessionOperations implements CommandProvider
             ];
         }
 
-        $sesion = $almacen->load($id);
-        if ($sesion === null) {
+        $session = $almacen->load($id);
+        if ($session === null) {
             return ['ok' => false, 'error' => "no existe la sesión «{$id}»"];
         }
 
-        $antes = $sesion->mode;
+        $antes = $session->mode;
         $almacen->setMode($id, $modo);
 
         return [
@@ -754,6 +830,17 @@ final class SessionOperations implements CommandProvider
         }
 
         return [$almacen, $id, null];
+    }
+
+    /**
+     * The comparable form of a card's text: same words, no accidents of punctuation or case.
+     *
+     * Deliberately blunt. A cleverer normaliser would start matching cards that merely resemble each
+     * other, and the evidence only covers literal repeats.
+     */
+    private static function normalised(string $text): string
+    {
+        return trim(preg_replace('/[^a-z0-9 ]/u', '', mb_strtolower($text)) ?? '');
     }
 
     /**

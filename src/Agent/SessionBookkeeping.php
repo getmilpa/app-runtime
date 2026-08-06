@@ -94,12 +94,13 @@ final readonly class SessionBookkeeping
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
-                        'text' => ['type' => 'string', 'description' => 'Qué hay que hacer'],
+                        'text' => ['type' => 'string', 'description' => 'What needs doing'],
                         'id' => ['type' => 'string', 'description' => 'El de uno que ya existe, para moverlo'],
+                        'replaces' => ['type' => 'string', 'description' => 'The id of the item this one supersedes, when you reword one that already existed'],
                         'status' => [
                             'type' => 'string',
                             'enum' => ['pending', 'in_progress', 'done', 'blocked'],
-                            'description' => 'En qué va; `pending` si no se dice',
+                            'description' => 'Where it stands; `pending` when unsaid',
                         ],
                     ],
                     'required' => [],
@@ -165,7 +166,30 @@ final readonly class SessionBookkeeping
 
         // El id lo pone la app y no el modelo: uno inventado puede chocar con otro y sobrescribir un
         // pendiente ajeno, y ese choque se ve como un pendiente que cambió de texto solo.
-        $nuevo = new Todo('t' . (\count($sesion->todos) + 1), $texto, $estado ?? TodoStatus::Pending);
+        // WHICH ONE THIS SUPERSEDES, and only when that card really exists.
+        //
+        // VALIDATED rather than believed: a made-up id closing somebody else's card would be the
+        // same collision the generated ids above already avoid. And when it does not exist it is
+        // said out loud — swallowing it would leave the agent believing it replaced something.
+        $supersedes = \is_string($input['replaces'] ?? null) ? trim($input['replaces']) : '';
+        $found = false;
+        foreach ($sesion->todos as $t) {
+            if ($t->id === $supersedes) {
+                $found = true;
+
+                break;
+            }
+        }
+        if ($supersedes !== '' && !$found) {
+            return ['ok' => false, 'error' => "there is no item «{$supersedes}» for this one to supersede"];
+        }
+
+        $nuevo = new Todo(
+            't' . (\count($sesion->todos) + 1),
+            $texto,
+            $estado ?? TodoStatus::Pending,
+            replaces: $supersedes !== '' ? $supersedes : null,
+        );
         $this->sessions->setTodo($this->sessionId, $nuevo);
 
         return ['ok' => true, 'todo' => $nuevo->toArray()];

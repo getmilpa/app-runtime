@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Operations;
 
 use Milpa\AppRuntime\Support\Capabilities;
+use Milpa\AppRuntime\Support\CapabilityIndex;
 use Milpa\DevTools\Doctor\Repair;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Effect\Authority;
@@ -93,6 +94,26 @@ final readonly class CapabilityOperations implements CommandProvider
                 // EVERY SURFACE. If the agent cannot call it, the system shows the way only to
                 // whoever already knew where to look.
                 surfaces: ['cli', 'tui', 'mcp', 'http'],
+            ),
+            new Operation(
+                name: 'capabilities:refresh',
+                effects: new EffectProfile(
+                    // Writes the dated index artifact under `var/` — a cache, deletable without loss.
+                    Mutation::Persistent,
+                    // Reads the package registry. Nothing is sent beyond the request itself.
+                    Externality::ThirdParty,
+                    Reversibility::Guaranteed,
+                    // It changes what this app KNOWS exists — never what it can do.
+                    Authority::Read,
+                    rollbackContract: 'delete var/capability-index.json',
+                ),
+                description: 'Derive the capability index from what the registry publishes, dated',
+                handler: fn (array $input): array => $this->refresh(),
+                inputSchema: ['type' => 'object', 'properties' => []],
+                mutating: true,
+                // NOT over http: a web request that makes this server fan out to a registry and
+                // write disk is a surface nobody asked for. The terminal, the TUI and the agent can.
+                surfaces: ['cli', 'tui', 'mcp'],
             ),
             new Operation(
                 name: 'capabilities:enable',
@@ -194,7 +215,20 @@ final readonly class CapabilityOperations implements CommandProvider
         return Capabilities::install(
             \is_string($input['capability'] ?? null) ? $input['capability'] : '',
             dryRun: ($input['dry_run'] ?? false) === true,
+            // The dated index, when one was derived: it widens `available` to what the registry
+            // publishes, and it is the PROMISE the delivery gets compared against afterwards.
+            index: CapabilityIndex::read(),
         );
+    }
+
+    /**
+     * Derive the index from the registry and persist it dated — the logic lives with its seam.
+     *
+     * @return array<string, mixed>
+     */
+    private function refresh(): array
+    {
+        return CapabilityIndex::refresh();
     }
 
     /**
