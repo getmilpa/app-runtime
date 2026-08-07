@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/getmilpa/app-runtime/compare/v0.9.0...v0.10.0) (2026-08-07)
+
+
+### Features
+
+* the guard wakes armed, the renewal orients, and the board carries its one write ([0d8ea85](https://github.com/getmilpa/app-runtime/commit/0d8ea852142bfcbc14f5563f0247c655bc3c1e53))
+
 ## [0.9.0](https://github.com/getmilpa/app-runtime/compare/v0.8.0...v0.9.0) (2026-08-06)
 
 
