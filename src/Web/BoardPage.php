@@ -31,12 +31,20 @@ use Milpa\AppRuntime\Agent\BroadcastingEventStore;
  * client that maintains its own cursor is a client that can maintain it wrong and skip facts in
  * silence. Refetching the fold makes catching up idempotent: reconnecting IS catching up.
  *
- * ── WHY THERE ARE NO BUTTONS ─────────────────────────────────────────────────────────────────────
+ * ── THE ONE WRITE, AND WHAT GUARDS IT ────────────────────────────────────────────────────────────
  *
- * Approving is a consent to an effect. It has its own shape (`PolicyDecision`, with the verified
- * principal of whoever consents), its own acceptance criteria, and its own construction step that
- * is gated on identity working end to end. A surface that writes before identity is proven is the
- * order this repository already learned not to invert — so this step paints and refuses to touch.
+ * Answering is a consent to an effect, so the identity of whoever answers is PART OF THE FACT
+ * (board spec §4). The page ships the two answer buttons born disabled: they wake only when a
+ * token is present, the token travels in the `Authorization` header — never in a URL, which gets
+ * logged and shared, and never in browser storage, which outlives the consent — and the write goes
+ * to `agent:answer`, whose server side refuses any non-terminal caller that brings no verified
+ * actor (criteria 3–4). The page-level gating is a courtesy; THE gate is the operation's. When the
+ * server refuses, the refusal is shown verbatim: a surface that rephrases a refusal teaches its
+ * own lie.
+ *
+ * The PAINTER still renders no writable control (its test holds): the buttons belong to the page
+ * shell, next to the identity that arms them, so the artifact that translates model-written data
+ * into markup never grows a way to write.
  *
  * ── WHAT THIS PAGE IS HONEST ABOUT ───────────────────────────────────────────────────────────────
  *
@@ -54,14 +62,21 @@ final readonly class BoardPage
     /**
      * The complete HTML document for one session's board.
      *
-     * @param string      $session       the session identifier, exactly as `agent:board` knows it
-     * @param string      $boardEndpoint where `agent:board` is served over HTTP — the app names it
-     *                                   in `config/http.php`; the default is the derived route
-     * @param string|null $hubUrl        the PUBLIC Mercure hub URL a browser can reach, or `null`
-     *                                   when no live push is wired — the page then says so honestly
+     * @param string      $session        the session identifier, exactly as `agent:board` knows it
+     * @param string      $boardEndpoint  where `agent:board` is served over HTTP — the app names it
+     *                                    in `config/http.php`; the default is the derived route
+     * @param string|null $hubUrl         the PUBLIC Mercure hub URL a browser can reach, or `null`
+     *                                    when no live push is wired — the page then says so honestly
+     * @param string      $answerEndpoint where `agent:answer` accepts the POST — the session and the
+     *                                    answer go in the body, the token in the header, nothing in
+     *                                    the URL
      */
-    public function render(string $session, string $boardEndpoint = '/agent/board', ?string $hubUrl = null): string
-    {
+    public function render(
+        string $session,
+        string $boardEndpoint = '/agent/board',
+        ?string $hubUrl = null,
+        string $answerEndpoint = '/agent/answer',
+    ): string {
         $painter = file_get_contents(\dirname(__DIR__, 2) . '/resources/web/board-painter.js');
         if ($painter === false) {
             throw new \RuntimeException('the board painter asset is missing from this installation');
@@ -73,6 +88,10 @@ final readonly class BoardPage
         $flags = \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES
             | \JSON_HEX_TAG | \JSON_HEX_APOS | \JSON_HEX_QUOT | \JSON_HEX_AMP;
         $boardUrl = json_encode($boardEndpoint . '?session=' . rawurlencode($session), $flags);
+        // The answer endpoint carries NO query string: the session travels in the JSON body and the
+        // token in the Authorization header. A URL ends up in history, logs and referrers.
+        $answerUrl = json_encode($answerEndpoint, $flags);
+        $sessionJs = json_encode($session, $flags);
         $subscribeUrl = $hubUrl === null ? 'null' : json_encode(
             $hubUrl . '?topic=' . rawurlencode(BroadcastingEventStore::TOPIC_PREFIX . $session),
             $flags,
@@ -109,6 +128,16 @@ h1 { font-family: var(--font-heading, inherit); font-size: 1.1rem; margin: 0; }
 .milpa-card-unexplained { margin-left: auto; }
 .milpa-board-waiting { margin-bottom: var(--space-4, 1rem); }
 .milpa-board-waiting-hint { display: block; font-size: .8rem; color: var(--text-muted, #666); margin-top: .25rem; }
+/* flex-direction goes explicit: the design's .mui-card is itself a column flexbox, and without
+   the row here the token and the two buttons stack centered under each other (seen in a real
+   browser at 1440px, 2026-08-06). */
+.milpa-answer { margin-top: var(--space-4, 1rem); padding: var(--space-4, 1rem); display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--space-3, .75rem); }
+/* display:flex beats the user-agent's [hidden] rule, so hidden must win explicitly — found in a
+   real browser: the bar showed up with no question open, wearing hidden="true" (2026-08-06). */
+.milpa-answer[hidden] { display: none; }
+.milpa-answer-why { flex: 1 1 100%; margin: 0; font-size: .85rem; color: var(--text-secondary, #555); }
+.milpa-answer-token { font-family: var(--font-mono, monospace); }
+.milpa-answer-status { flex: 1 1 100%; margin: 0; font-size: .85rem; color: var(--text-muted, #666); min-height: 1.2em; }
 </style>
 </head>
 <body>
@@ -119,6 +148,18 @@ h1 { font-family: var(--font-heading, inherit); font-size: 1.1rem; margin: 0; }
 <noscript><p>This live view needs JavaScript. The same board, from the terminal:
 <code>php bin/coa agent:board --session={$sessionHtml}</code></p></noscript>
 <main id="milpa-board" aria-live="polite"></main>
+<!-- The one write on this surface. Hidden until the fold says a question is open; the buttons are
+     born disabled and wake only when a token is present. The REAL gate is server-side: agent:answer
+     refuses any non-terminal caller without a verified actor (board spec §4, criteria 3-4). -->
+<section id="milpa-answer" class="mui-card mui-card--compact milpa-answer" hidden>
+<p class="milpa-answer-why">Answering writes to the session stream, signed by whoever answers.
+Paste a token with the <code>agent:answer</code> scope to arm the buttons — it stays in this page's
+memory and travels only in the request header.</p>
+<label>token <input type="password" id="milpa-answer-token" class="milpa-answer-token" autocomplete="off"></label>
+<button type="button" id="milpa-answer-yes" class="mui-btn mui-btn--primary" disabled>sí</button>
+<button type="button" id="milpa-answer-no" class="mui-btn mui-btn--secondary" disabled>no</button>
+<p id="milpa-answer-status" class="milpa-answer-status" aria-live="polite"></p>
+</section>
 <script>{$painter}</script>
 <script>
 (function () {
@@ -126,15 +167,76 @@ h1 { font-family: var(--font-heading, inherit); font-size: 1.1rem; margin: 0; }
 
     const boardUrl = {$boardUrl};
     const subscribeUrl = {$subscribeUrl};
+    const answerUrl = {$answerUrl};
+    const session = {$sessionJs};
     const board = document.getElementById('milpa-board');
     const status = document.getElementById('milpa-board-status');
+    const answerBar = document.getElementById('milpa-answer');
+    const tokenField = document.getElementById('milpa-answer-token');
+    const yesButton = document.getElementById('milpa-answer-yes');
+    const noButton = document.getElementById('milpa-answer-no');
+    const answerStatus = document.getElementById('milpa-answer-status');
 
     function repaint() {
         return fetch(boardUrl)
             .then(function (r) { return r.json(); })
-            .then(function (data) { board.innerHTML = MilpaBoard.paintBoard(data); })
+            .then(function (data) {
+                board.innerHTML = MilpaBoard.paintBoard(data);
+                // The bar follows the FOLD, not this page's memory of what it sent: the question is
+                // open until the stream says otherwise, and closed the moment it does — even when
+                // someone else answered from the terminal.
+                answerBar.hidden = !(data && data.ok === true
+                    && typeof data.pending_question === 'string' && data.pending_question !== '');
+            })
             .catch(function () { status.textContent = 'the board endpoint is unreachable'; });
     }
+
+    // The token lives in this field and in the request header — NEVER in the URL, which ends up in
+    // history and logs, and NEVER in browser storage, which outlives the consent it was pasted for.
+    function armButtons() {
+        const armed = tokenField.value.trim() !== '';
+        yesButton.disabled = !armed;
+        noButton.disabled = !armed;
+    }
+    tokenField.addEventListener('input', armButtons);
+
+    function answer(value) {
+        yesButton.disabled = true;
+        noButton.disabled = true;
+        answerStatus.textContent = 'answering…';
+        fetch(answerUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + tokenField.value.trim(),
+            },
+            body: JSON.stringify({ session: session, answer: value }),
+        })
+            .then(function (r) {
+                return r.json().catch(function () { return null; }).then(function (data) {
+                    return { status: r.status, data: data };
+                });
+            })
+            .then(function (r) {
+                if (r.status < 300 && r.data && r.data.ok !== false) {
+                    answerStatus.textContent = 'answered: ' + value;
+                } else {
+                    // The server's refusal, VERBATIM. Rephrasing «no verified actor» into something
+                    // friendlier would hide exactly the fact the human needs in order to fix it.
+                    answerStatus.textContent = r.data && typeof r.data.error === 'string'
+                        ? r.data.error
+                        : 'refused (HTTP ' + r.status + ')';
+                }
+                armButtons();
+                scheduleRepaint();
+            })
+            .catch(function () {
+                answerStatus.textContent = 'the answer endpoint is unreachable';
+                armButtons();
+            });
+    }
+    yesButton.addEventListener('click', function () { answer('sí'); });
+    noButton.addEventListener('click', function () { answer('no'); });
 
     // Every pushed fact schedules a refetch of the fold. On purpose there is NO list here of which
     // kinds change the board: such a list would be a second copy of what the projector already

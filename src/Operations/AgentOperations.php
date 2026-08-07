@@ -269,65 +269,7 @@ class AgentOperations implements CommandProvider
         // guardarlo sería peor — el modelo lo llamaría, lo vería contestar «ok», y seguiría creyendo
         // que dejó un plan.
         // `--first=plan,todo` — the tools that must run before anything else proceeds.
-        $runFirst = [];
-        $pedidoFirst = $input['first'] ?? null;
-        foreach (\is_string($pedidoFirst) ? explode(',', $pedidoFirst) : (\is_array($pedidoFirst) ? $pedidoFirst : []) as $tool) {
-            if (\is_string($tool) && trim($tool) !== '') {
-                $runFirst[] = trim($tool);
-            }
-        }
-
-        // ── THE OBLIGATION OUTLIVES THE TURN ────────────────────────────────────────────────────
-        //
-        // `--first` used to govern only the invocation that carried it. A session paused for a
-        // confirmation and resumed came back with the obligation gone — and Q-P17-L measured what it
-        // buys: 21 plans and 14 cards moved with it, zero of both without, and zero work finished
-        // without. Something worth that much cannot depend on whoever types the resume.
-        //
-        // So it is written to the session and read back from it. Passing `--first` again REPLACES it
-        // —the standing obligation is the last one somebody with authority declared— and passing an
-        // empty one lifts it, because the same authority that set it has to be able to unset it.
-        if ($sessionId !== '' && $store !== null) {
-            if ($runFirst !== []) {
-                $store->requireFirst($sessionId, $runFirst);
-            } else {
-                $liveSession = $store->load($sessionId);
-                $runFirst = $liveSession->runFirst ?? [];
-
-                // ── THE SYSTEM RENEWS IT, so a long session does not depend on somebody retyping ──
-                //
-                // Q-P17-L, four runs, one variable moved at a time:
-                //
-                //     plan obliged + renewed every turn   6/9 work · but a new plan each turn
-                //     an innocuous obligation, renewed    1/9 work · turns without direction
-                //     plan obliged once                   0/9 · the agent calls itself done
-                //     nothing                             0/9
-                //
-                // Renewal buys TURNS; the plan buys what to do with them. Neither alone completes
-                // work, and today the renewal exists only while somebody keeps typing `--first`.
-                //
-                // So the system renews it — but never with `plan`, which is what produced six copies
-                // of the same card. It renews with `todo`: a session that already holds a plan and
-                // unfinished items is asked to move them before doing anything else. That is the
-                // push, pointed at the work that exists instead of at writing the work down again.
-                //
-                // ONLY WHEN THERE IS SOMETHING TO RESUME: a session lacking a plan has nothing to
-                // renew, and one whose items are all done is not being pushed — it is being nagged.
-                //
-                // UNMEASURED, and it says so here rather than in a commit nobody reads: the four
-                // runs measured `plan` renewed rather than `todo` renewed. This is the shape evidence
-                // points at, not a shape the evidence confirms. It has its own question to answer.
-                if ($runFirst === [] && $liveSession?->obligationDeclared === true) {
-                    $pending = array_filter(
-                        $liveSession->todos,
-                        static fn (Todo $t): bool => $t->status !== TodoStatus::Done,
-                    );
-                    if ($liveSession->plan !== null && $liveSession->plan !== '' && $pending !== []) {
-                        $runFirst = ['todo'];
-                    }
-                }
-            }
-        }
+        $runFirst = $this->standingObligation($input['first'] ?? null, $sessionId, $store);
 
         // AND IT IS TOLD, at the FRONT of the brief — both halves, or neither works.
         //
@@ -359,7 +301,7 @@ class AgentOperations implements CommandProvider
                     // La petición de ESTA corrida, no el goal de la sesión: el contrato de intención
                     // (ADR-0044) compara los argumentos contra lo que el humano acaba de pedir.
                     petition: $prompt,
-                    vigiaDeBucle: $this->vigiaDeBucle(),
+                    vigiaDeBucle: $this->sterileLoopGuard(),
                     // ── AN ORDERING OBLIGATION FOR WHOEVER RUNS THE AGENT ────────────────────
                     //
                     // Same asymmetry `deny` had: the mechanism existed and only a delegating parent
@@ -403,7 +345,7 @@ class AgentOperations implements CommandProvider
                             petition: $encargo,
                             // El hijo tiene el SUYO, nuevo: el presupuesto que gasta repitiendo es
                             // el suyo, y los fallos del padre no son los de él.
-                            vigiaDeBucle: $this->vigiaDeBucle(),
+                            vigiaDeBucle: $this->sterileLoopGuard(),
                             // LA OBLIGACIÓN DE ORDEN, ejecutada (Q-P20-I). Va por el mismo canal que
                             // corre al hijo y NO por el stream, así que sólo gobierna la vuelta que
                             // spawnea: un hijo retomado llega con la mesa abierta. Es residuo
@@ -862,6 +804,125 @@ class AgentOperations implements CommandProvider
     }
 
     /**
+     * The standing obligation this invocation runs under — declared, LIFTED, read back, or renewed.
+     *
+     * ── THE OBLIGATION OUTLIVES THE TURN ─────────────────────────────────────────────────────────
+     *
+     * `--first` used to govern only the invocation that carried it. A session paused for a
+     * confirmation and resumed came back with the obligation gone — and Q-P17-L measured what it
+     * buys: 21 plans and 14 cards moved with it, zero of both without, and zero work finished
+     * without. Something worth that much cannot depend on whoever types the resume.
+     *
+     * So it is written to the session and read back from it. Passing `--first` again REPLACES it
+     * —the standing obligation is the last one somebody with authority declared— and passing an
+     * empty one LIFTS it, because the same authority that set it has to be able to unset it.
+     *
+     * ── THE SYSTEM RENEWS IT, so a long session does not depend on somebody retyping ─────────────
+     *
+     * Q-P17-L, four runs, one variable moved at a time:
+     *
+     *     plan obliged + renewed every turn   6/9 work · but a new plan each turn
+     *     an innocuous obligation, renewed    1/9 work · turns without direction
+     *     plan obliged once                   0/9 · the agent calls itself done
+     *     nothing                             0/9
+     *
+     * Renewal buys TURNS; the plan buys what to do with them. So the system renews — but never with
+     * `plan`, which is what produced six copies of the same card. And only when there is something
+     * to resume: a session lacking a plan has nothing to renew, and one whose items are all done
+     * is not being pushed — it is being nagged.
+     *
+     * ── WHAT IT RENEWS WITH — MEASURED TWICE, DECIDED TWICE, SAME DAY ────────────────────────────
+     *
+     * The sixth arm (sexto-brazo.tsv, 2026-08-06) compared renewing with the board tool against an
+     * innocuous read, and its rematch (sexto-brazo-revancha.tsv, same day, sterile-loop guard on
+     * BOTH arms, faithful template, equalised turns) gave the clean answer the first round could
+     * not: pointing the renewal at the board buys a LIVE board — 80 card events against 22, the
+     * MANTUVO moves — and COSTS termination: 2/9 against 6/9, with the innocuous arm delivering
+     * 2 of 3 plugins in every single run. The mechanism was visible in the streams: a turn opened
+     * by bookkeeping becomes a bookkeeping turn (~1 real call per resume); a turn opened by a cheap
+     * read of the session's own state keeps its momentum. Position is a mechanism (Q-P20-E).
+     *
+     * Rod's second call, with the clean numbers (2026-08-06): the system renews with `agent_show`
+     * — orientation, not curation. The board-pointed shape stays one config key away
+     * (`agent.renewalTool`), and `false` disables system renewal entirely: that is the Q-P17-L 0/9
+     * arm, so it must be something an operator declared, never a silent state.
+     *
+     * @param mixed        $requested the raw `first` input: `null` when absent; a string or array
+     *                                when present — and PRESENT-BUT-EMPTY is the lift
+     * @param SessionStore $store     where the obligation lives; `null` (or no session) leaves
+     *                                nothing standing to write or read
+     *
+     * @return list<string> the tools that must run before anything else this turn
+     */
+    public function standingObligation(mixed $requested, string $sessionId, ?SessionStore $store): array
+    {
+        $declared = [];
+        foreach (\is_string($requested) ? explode(',', $requested) : (\is_array($requested) ? $requested : []) as $tool) {
+            if (\is_string($tool) && trim($tool) !== '') {
+                $declared[] = trim($tool);
+            }
+        }
+
+        if ($sessionId === '' || $store === null) {
+            return $declared;
+        }
+
+        if ($declared !== []) {
+            $store->requireFirst($sessionId, $declared);
+
+            return $declared;
+        }
+
+        if ($requested !== null) {
+            // AN EMPTY `--first` IS THE LIFT — appended as a fact, so the discipline ends for the
+            // SESSION, not just for this turn. The docblock promised this and the code did not do
+            // it (the sixth arm's side finding): the empty list fell through to the renewal below,
+            // which re-armed what the caller had just tried to unset.
+            $store->requireFirst($sessionId, []);
+
+            return [];
+        }
+
+        $liveSession = $store->load($sessionId);
+        $standing = $liveSession->runFirst ?? [];
+
+        if ($standing === [] && $liveSession?->obligationDeclared === true) {
+            $pending = array_filter(
+                $liveSession->todos,
+                static fn (Todo $t): bool => $t->status !== TodoStatus::Done,
+            );
+            if ($liveSession->plan !== null && $liveSession->plan !== '' && $pending !== []) {
+                return $this->renewalTool();
+            }
+        }
+
+        return $standing;
+    }
+
+    /**
+     * What the system re-arms the standing obligation with — see {@see self::standingObligation()}
+     * for the two measurements behind the default. `agent.renewalTool` names another single tool
+     * (the board shape is one key away); `false` disables system renewal — the Q-P17-L 0/9 arm,
+     * allowed only as something an operator declared.
+     *
+     * @return list<string> one tool, or nothing when an operator disabled renewal
+     */
+    private function renewalTool(): array
+    {
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $declared = $config instanceof Config ? $config->get('agent.renewalTool') : null;
+
+        if ($declared === false) {
+            return [];
+        }
+        if (\is_string($declared) && trim($declared) !== '') {
+            return [trim($declared)];
+        }
+
+        return ['agent_show'];
+    }
+
+    /**
      * Cuánto tiempo tiene un humano para contestar antes de que la sesión se declare muerta.
      *
      * Se lee de `agent.permissionWindow` como una cadena de {@see \DateInterval} —`PT4H`, `P1D`— y
@@ -939,13 +1000,6 @@ class AgentOperations implements CommandProvider
      * anterior ya traía la instrucción puesta, así que habría sido el mismo brazo dos veces.
      */
     /**
-     * Si esta app se niega a repetir una llamada que ya falló dos veces igual (Q-P19-R).
-     *
-     * `agent.sterileLoopGuard` en `config/app.php`. Apagada por default mientras la pregunta esté
-     * abierta, por la misma razón que las demás perillas de esta familia: lo que se despacha es lo
-     * ya medido, no lo que se está midiendo. Un entero fija la tolerancia; `true` usa la de casa.
-     */
-    /**
      * El fondo de pasos que el árbol comparte en esta vuelta (§5.4), o `null` para correr sin techo.
      *
      * El default es TRES VECES el techo del padre y no una constante suelta: el número que importa es
@@ -966,16 +1020,31 @@ class AgentOperations implements CommandProvider
         return $valor === false ? null : new TreeBudget($pasos * 3);
     }
 
-    private function vigiaDeBucle(): ?SterileLoopGuard
+    /**
+     * Whether this app refuses to repeat a call that already failed twice identically (Q-P19-R) —
+     * ON by default since 2026-08-06.
+     *
+     * It shipped opt-in while its question was open; the question closed with the churn-signal
+     * measurement (churn-signal.tsv): at its home tolerance the guard would have refused 81 of the
+     * sick run's 89 calls and ZERO of the healthy runs' — no false positives on anything recorded.
+     * Its design is what makes the default safe: it never cuts a call that worked, changed
+     * arguments start the count over, and one success clears the slate. Rod's call with those
+     * numbers: on by default, opt-out with `agent.sterileLoopGuard: false`; an integer sets the
+     * tolerance.
+     */
+    public function sterileLoopGuard(): ?SterileLoopGuard
     {
         $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
-        $valor = $config instanceof Config ? $config->get('agent.sterileLoopGuard') : null;
+        $declared = $config instanceof Config ? $config->get('agent.sterileLoopGuard') : null;
 
-        if (\is_int($valor) && $valor > 0) {
-            return new SterileLoopGuard($valor);
+        if ($declared === false || $declared === 0) {
+            return null;
+        }
+        if (\is_int($declared) && $declared > 0) {
+            return new SterileLoopGuard($declared);
         }
 
-        return $valor === true ? new SterileLoopGuard() : null;
+        return new SterileLoopGuard();
     }
 
     private function instruccionDePlan(): bool

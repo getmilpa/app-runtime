@@ -64,18 +64,31 @@
      */
     function paintCard(card) {
         const origin = typeof card.origin === 'string' ? card.origin : 'unknown';
-        const appearedDone = origin === 'retrospective';
+        // BOTH born-done origins are set apart: `retrospective` records work the stream can show,
+        // `unsupported` was born done with NOTHING behind it — painting either as a crossing would
+        // be the board telling a story nobody observed (found live: an unsupported card painted
+        // exactly like a planned one, 2026-08-06).
+        const appearedDone = origin === 'retrospective' || origin === 'unsupported';
         const unexplained = typeof card.unexplained === 'number' ? card.unexplained : 0;
 
         let inner = '<span class="milpa-card-text">' + escapeHtml(card.text) + '</span>';
         if (appearedDone) {
             // A label, not an animation: «appeared already done» is a fact; a crossing would be a story.
-            inner += '<span class="mui-badge mui-badge--warning milpa-card-flag">appeared already done</span>';
+            // Plain mui-badge: @milpa/design@0.9.0 ships no badge variants, and a class that names
+            // a variant the pinned version does not offer is the surface claiming a look nobody
+            // designed. The semantic class is this repo's own hook.
+            inner += '<span class="mui-badge milpa-card-flag">appeared already done</span>';
+        }
+        if (card.held_by === 'question') {
+            // Derived by the fold, said by the surface: the session is waiting for an answer, so
+            // this card is not advancing — it sits in blocked WITH its reason, distinguishable from
+            // a block the agent declared.
+            inner += '<span class="mui-badge milpa-card-flag">waiting for an answer</span>';
         }
         if (unexplained > 0) {
             // How many mutations happened after this card was last touched. It does not say the card
             // is wrong — it says that much work went unexplained, which is the invariant Q-P19-C left.
-            inner += '<span class="mui-badge mui-badge--secondary milpa-card-unexplained" title="mutations since this card was touched">'
+            inner += '<span class="mui-badge milpa-card-unexplained" title="mutations since this card was touched">'
                 + String(unexplained) + '</span>';
         }
 

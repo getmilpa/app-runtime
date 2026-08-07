@@ -45,7 +45,11 @@ final class SessionOperationsTest extends TestCase
         return new SessionStore($this->eventos);
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @param array<string, mixed> $entrada
+     *
+     * @return array<string, mixed>
+     */
     private function llamar(string $nombre, array $entrada = []): array
     {
         foreach ($this->proveedor()->operations() as $operacion) {
@@ -368,8 +372,8 @@ final class SessionOperationsTest extends TestCase
         }
 
         $decision = $almacen->load('s1')?->decisions[0] ?? [];
-        self::assertSame('actor:member:42', $decision['by']?->id);
-        self::assertTrue($decision['by']?->verified, 'hubo credencial detrás');
+        self::assertSame('actor:member:42', $decision['by']->id);
+        self::assertTrue($decision['by']->verified, 'hubo credencial detrás');
     }
 
     /**
@@ -473,8 +477,8 @@ final class SessionOperationsTest extends TestCase
 
         $decision = $almacen->load('s1')?->decisions[0] ?? [];
 
-        self::assertSame('actor:member:42', $decision['by']?->id);
-        self::assertTrue($decision['by']?->verified);
+        self::assertSame('actor:member:42', $decision['by']->id);
+        self::assertTrue($decision['by']->verified);
         self::assertSame('www-data@host', $decision['executor'], 'el proceso acompaña');
     }
 
@@ -493,8 +497,8 @@ final class SessionOperationsTest extends TestCase
 
         $decision = $almacen->load('s1')?->decisions[0] ?? [];
 
-        self::assertStringStartsWith('cli:', (string) $decision['by']?->id);
-        self::assertFalse($decision['by']?->verified);
+        self::assertStringStartsWith('cli:', (string) $decision['by']->id);
+        self::assertFalse($decision['by']->verified);
         self::assertSame('rod@laptop', $decision['executor']);
     }
 
@@ -615,7 +619,7 @@ final class SessionOperationsTest extends TestCase
                 $r = $handler([]);
 
                 self::assertFalse($r['ok'] ?? true);
-                self::assertStringContainsString('dónde guardar', (string) ($r['error'] ?? ''));
+                self::assertStringContainsString('nowhere to store', (string) ($r['error'] ?? ''));
             }
         }
     }
@@ -713,6 +717,34 @@ final class SessionOperationsTest extends TestCase
         $almacen->ask('j', new \Milpa\Agent\PendingQuestion(id: 'perm:make', question: '¿autorizas make?', options: ['sí', 'no']));
 
         self::assertSame('¿autorizas make?', $this->llamar('agent:board', ['session' => 'j'])['pending_question'] ?? null);
+    }
+
+    /**
+     * An open question HOLDS the work in flight — derived in the fold, never written.
+     *
+     * While the session waits for an answer its in-progress cards are not advancing; presenting
+     * them under `in_progress` would be the board claiming movement that is not happening. And on
+     * answer the fold releases them ALONE — zero fabricated events, zero return trip to forget.
+     */
+    public function testAnOpenQuestionHoldsTheWorkInFlightAndTheAnswerReleasesIt(): void
+    {
+        $almacen = $this->almacen();
+        $almacen->start('j', 'x');
+        $almacen->setTodo('j', new \Milpa\Agent\Todo('t1', 'wire the route', \Milpa\Agent\TodoStatus::InProgress));
+        $almacen->ask('j', new \Milpa\Agent\PendingQuestion(id: 'perm:make', question: '¿?', options: ['sí', 'no']));
+
+        $conPregunta = $this->llamar('agent:board', ['session' => 'j']);
+        self::assertSame([], $conPregunta['columns']['in_progress']);
+        self::assertSame('t1', $conPregunta['columns']['blocked'][0]['id'] ?? null);
+        self::assertSame('question', $conPregunta['columns']['blocked'][0]['held_by'] ?? null);
+
+        $almacen->answer('j', 'perm:make', 'sí');
+        $eventosTrasContestar = \count($almacen->timeline('j'));
+        $contestada = $this->llamar('agent:board', ['session' => 'j']);
+        self::assertSame('t1', $contestada['columns']['in_progress'][0]['id'] ?? null);
+        self::assertSame([], $contestada['columns']['blocked'], 'the answer releases the work — no card events written');
+        self::assertArrayNotHasKey('held_by', $contestada['columns']['in_progress'][0]);
+        self::assertCount($eventosTrasContestar, $almacen->timeline('j'), 'the fold reads the stream; it never writes it');
     }
 
     /** Y el tablero NO aprueba: mover una tarjeta y consentir un efecto no son el mismo sistema. */

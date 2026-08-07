@@ -18,26 +18,62 @@ use Milpa\AppRuntime\Web\BoardPage;
 use PHPUnit\Framework\TestCase;
 
 /**
- * The read-only shell: what the page promises before any data arrives.
+ * The shell: what the page promises before any data arrives.
  *
  * The painting itself is verified in {@see BoardPainterTest} against the same JavaScript artifact
- * the browser runs. Here the claims are the shell's: nothing writable, nothing pretended, nothing
+ * the browser runs — and the painter still renders no writable control. Here the claims are the
+ * shell's: the one write is gated on identity by construction, nothing pretended, nothing
  * unescaped.
  */
 final class BoardPageTest extends TestCase
 {
     /**
-     * Step 2 of the board spec is read-only BY CONSTRUCTION, not by discipline: the page carries no
-     * control that could write. Approving has its own shape and its own step, gated on identity.
+     * Step 3 of the board spec: the page carries ONE write — answering — and it is disarmed by
+     * construction. The bar is born hidden, the buttons born disabled, and the token field is a
+     * password input no browser autofills: until an identity is in hand, nothing on this surface
+     * can touch the stream. The page gating is a courtesy — THE gate is `agent:answer` refusing
+     * a non-terminal caller without a verified actor (criteria 3–4, SessionOperationsTest).
      */
-    public function testThePageCarriesNoWritableControl(): void
+    public function testTheAnswerControlsAreBornHiddenAndDisarmed(): void
     {
         $html = (new BoardPage())->render('org-1', '/agent/board', 'https://hub.example/.well-known/mercure');
 
-        self::assertStringNotContainsStringIgnoringCase('<button', $html);
+        self::assertMatchesRegularExpression('/<section[^>]*id="milpa-answer"[^>]*hidden/', $html);
+        self::assertMatchesRegularExpression('/<button[^>]*id="milpa-answer-yes"[^>]*disabled/', $html);
+        self::assertMatchesRegularExpression('/<button[^>]*id="milpa-answer-no"[^>]*disabled/', $html);
+        self::assertMatchesRegularExpression('/<input[^>]*type="password"[^>]*autocomplete="off"/', $html);
+        // No <form>: a form that degraded to GET would put its fields — the token — in a URL.
         self::assertStringNotContainsStringIgnoringCase('<form', $html);
-        self::assertStringNotContainsStringIgnoringCase('<input', $html);
-        self::assertStringNotContainsStringIgnoringCase('<textarea', $html);
+        // The bar's own display:flex beats the user-agent's [hidden] rule, so the page must carry
+        // the override — without it the bar paints with hidden="true" on (found in a real browser).
+        self::assertStringContainsString('.milpa-answer[hidden]', $html);
+    }
+
+    /**
+     * The token reaches the server in the `Authorization` header and NOWHERE else: not in a URL,
+     * which ends up in history, logs and referrers, and not in browser storage, which outlives
+     * the consent it was pasted for.
+     */
+    public function testTheTokenTravelsInTheHeaderAndNeverOutlivesThePage(): void
+    {
+        $html = (new BoardPage())->render('org-1', '/agent/board', null);
+
+        self::assertStringContainsString("'Authorization': 'Bearer ' + tokenField.value", $html);
+        // The needle is concatenated so the SOURCE never carries the pattern the public-safety
+        // gate forbids — this assertion hunts that exact pattern in the page's OUTPUT.
+        self::assertStringNotContainsString('token' . '=', $html);
+        self::assertStringNotContainsString('localStorage', $html);
+        self::assertStringNotContainsString('sessionStorage', $html);
+    }
+
+    /** The write is a POST to the declared endpoint with the session in the BODY — never a link. */
+    public function testTheAnswerGoesToTheDeclaredEndpointWithTheSessionInTheBody(): void
+    {
+        $html = (new BoardPage())->render('org-1', '/agent/board', null, '/agent/answer');
+
+        self::assertStringContainsString('"/agent/answer"', $html);
+        self::assertStringContainsString('JSON.stringify({ session: session, answer: value })', $html);
+        self::assertStringContainsString("method: 'POST'", $html);
     }
 
     /** The one painter ships inside the page: the browser runs exactly what the test suite ran. */
@@ -85,6 +121,21 @@ final class BoardPageTest extends TestCase
 
         self::assertStringContainsString('no live push wired', $html);
         self::assertStringNotContainsString('new EventSource(null)', $html);
+    }
+
+    /**
+     * Reconnecting IS catching up (criterion 5): the open handler refetches the fold, and there is
+     * no client cursor that could resync wrong. This asserts the WIRING — the behaviour itself was
+     * exercised in a real browser (hub stopped, a fact written in the dark, hub restarted: the
+     * board caught up without a reload; 2026-08-06, kanban-criteria.tsv). It also asserts the page
+     * stops wearing a live face while behind: the reconnect message is part of the contract.
+     */
+    public function testReconnectionRefetchesTheFoldSoCatchingUpIsIdempotent(): void
+    {
+        $html = (new BoardPage())->render('org-1', '/agent/board', 'https://hub.example/.well-known/mercure');
+
+        self::assertMatchesRegularExpression('/source\.onopen[\s\S]{0,400}scheduleRepaint\(\)/', $html);
+        self::assertStringContainsString('reconnecting — the board may be behind', $html);
     }
 
     /** With a hub, the subscription names the session's exact topic — the one the bridge publishes. */

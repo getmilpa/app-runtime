@@ -293,7 +293,7 @@ final class SessionOperations implements CommandProvider
     {
         [$almacen, $id, $error] = $this->target($input);
         if ($error !== null || $almacen === null) {
-            return $error ?? ['ok' => false, 'error' => 'esta app no tiene dónde guardar sesiones'];
+            return $error ?? ['ok' => false, 'error' => 'this app has nowhere to store sessions'];
         }
 
         $session = $almacen->load($id);
@@ -383,7 +383,7 @@ final class SessionOperations implements CommandProvider
                 continue;
             }
 
-            $columnas[$todo->status->value][] = [
+            $fila = [
                 'id' => $todo->id,
                 'text' => $todo->text,
                 // LA VERSIÓN VIAJA. Es lo que deja a quien pinta saber si una tarjeta se movió o si
@@ -395,6 +395,23 @@ final class SessionOperations implements CommandProvider
                 // se cerró». No afirma que esté mal: afirma que no se explicó.
                 'unexplained' => max(0, $session->mutations - $todo->mutationsAt),
             ];
+
+            // AN OPEN QUESTION HOLDS THE WORK IN FLIGHT (Rod, 2026-08-06): while the session waits
+            // for an answer, its in-progress cards are not advancing — presenting them under
+            // `in_progress` would be the board claiming movement that is not happening.
+            //
+            // DERIVED here, never written to the stream: emitting `todo_changed` from this gate
+            // would be the system fabricating the agent's bookkeeping, with a return trip owed at
+            // answer time. The stream already holds both facts — a card in progress, a question
+            // open — and the fold composes them. `held_by` says WHY the card sits here, so a
+            // surface can tell the derived hold from a block the agent declared.
+            $destino = $todo->status->value;
+            if ($session->question !== null && $todo->status === TodoStatus::InProgress) {
+                $destino = TodoStatus::Blocked->value;
+                $fila['held_by'] = 'question';
+            }
+
+            $columnas[$destino][] = $fila;
         }
 
         $salida = ['ok' => true, 'session' => $id, 'columns' => $columnas];
@@ -446,7 +463,7 @@ final class SessionOperations implements CommandProvider
 
         [$almacen, $id, $error] = $this->target($input);
         if ($error !== null || $almacen === null) {
-            return $error ?? ['ok' => false, 'error' => 'esta app no tiene dónde guardar sesiones'];
+            return $error ?? ['ok' => false, 'error' => 'this app has nowhere to store sessions'];
         }
 
         // EL MOTIVO ES OBLIGATORIO. Una sesión que se cierra sin decir por qué deja a quien lea el
@@ -483,7 +500,7 @@ final class SessionOperations implements CommandProvider
     {
         [$almacen, $id, $error] = $this->target($input);
         if ($error !== null || $almacen === null) {
-            return $error ?? ['ok' => false, 'error' => 'esta app no tiene dónde guardar sesiones'];
+            return $error ?? ['ok' => false, 'error' => 'this app has nowhere to store sessions'];
         }
 
         if ($almacen->load($id) === null) {
@@ -582,7 +599,7 @@ final class SessionOperations implements CommandProvider
     {
         $almacen = $this->sessions();
         if ($almacen === null) {
-            return ['ok' => false, 'error' => 'esta app no tiene dónde guardar sesiones'];
+            return ['ok' => false, 'error' => 'this app has nowhere to store sessions'];
         }
 
         $filas = [];
@@ -622,7 +639,7 @@ final class SessionOperations implements CommandProvider
     {
         [$almacen, $id, $error] = $this->target($input);
         if ($error !== null || $almacen === null) {
-            return $error ?? ['ok' => false, 'error' => 'esta app no tiene dónde guardar sesiones'];
+            return $error ?? ['ok' => false, 'error' => 'this app has nowhere to store sessions'];
         }
 
         $session = $almacen->load($id);
@@ -708,7 +725,7 @@ final class SessionOperations implements CommandProvider
 
         [$almacen, $id, $error] = $this->target($input);
         if ($error !== null || $almacen === null) {
-            return $error ?? ['ok' => false, 'error' => 'esta app no tiene dónde guardar sesiones'];
+            return $error ?? ['ok' => false, 'error' => 'this app has nowhere to store sessions'];
         }
 
         $respuesta = \is_string($input['answer'] ?? null) ? trim($input['answer']) : '';
@@ -767,7 +784,7 @@ final class SessionOperations implements CommandProvider
     {
         [$almacen, $id, $error] = $this->target($input);
         if ($error !== null || $almacen === null) {
-            return $error ?? ['ok' => false, 'error' => 'esta app no tiene dónde guardar sesiones'];
+            return $error ?? ['ok' => false, 'error' => 'this app has nowhere to store sessions'];
         }
 
         $modo = AutonomyMode::tryFrom(\is_string($input['mode'] ?? null) ? $input['mode'] : '');
@@ -821,7 +838,7 @@ final class SessionOperations implements CommandProvider
     {
         $almacen = $this->sessions();
         if ($almacen === null) {
-            return [null, '', ['ok' => false, 'error' => 'esta app no tiene dónde guardar sesiones']];
+            return [null, '', ['ok' => false, 'error' => 'this app has nowhere to store sessions']];
         }
 
         $id = \is_string($input['session'] ?? null) ? trim($input['session']) : '';

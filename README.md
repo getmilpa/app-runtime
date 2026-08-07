@@ -43,8 +43,8 @@ trigger that painting. Half the improvement landed, half didn't, and nothing sai
 | `SessionToolGate` | whether a call proceeds: permission, intent contract, sterile loop, ordering |
 | `SubAgentSpawner` | delegating to a child session and resuming it — with fresh context, not re-delegating |
 | `TreeBudget` | how many steps the *tree* spends, not each child: bounding the child does not bound the tree |
-| `SterileLoopGuard` | not repeating a call that already failed the same way twice |
-| `PrerequisiteGate` | an ordering obligation, executed: until the required thing runs, the rest does not |
+| `SterileLoopGuard` | not repeating a call that already failed the same way twice — **on by default**: at its home tolerance it would have refused 81 of a sick run's 89 calls and none of the healthy runs'. Opt out with `agent.sterileLoopGuard: false`; an integer sets the tolerance |
+| `PrerequisiteGate` | an ordering obligation, executed: until the required thing runs, the rest does not. The system **renews** a session's standing obligation with a cheap read of its own state (`agent_show`) — orientation, not curation: a turn opened by bookkeeping becomes a bookkeeping turn (measured, twice). `agent.renewalTool` names another tool; `false` disables renewal, declared — never silent |
 | `SessionOptionTable` | withdrawing a tool from a session's catalogue — forbidding, not asking |
 | `BroadcastingEventStore` · `SurfaceBroadcaster` · `MercureBroadcaster` | getting what happens to the live surfaces while it happens |
 | `SessionBookkeeping` · `SessionPlanBoard` | the session's plan and to-dos, bound to *its* id |
@@ -88,12 +88,17 @@ mutates — three times out of three. The list is worth exactly what whoever wro
 one-shot chat. `Tui\AgentScreen` renders the agent screen as text — the actor markers travel *inside*
 the text, so a painter can colour by origin and the same screen still works where there is no colour.
 
-`Web\BoardPage` renders the session's work as a **read-only Kanban board** in a browser: four
-columns, no buttons. It never folds the stream client-side — the fold is `agent:board`, shared with
-the CLI — and when the live bridge pushes a fact the page repaints the activity line and fetches the
-fold again, so reconnecting *is* catching up. A card born already done is set apart, never animated
-as if it had crossed. Serve `agent:board` over HTTP (`config/http.php`), point the page at your
-Mercure hub, and with no hub it says so instead of pretending to be live.
+`Web\BoardPage` renders the session's work as a **live Kanban board** in a browser: four columns,
+and exactly **one write** — answering the question that paused the session, through two buttons
+born disabled. They arm only when a token with the `agent:answer` scope is pasted; the token
+travels in the `Authorization` header — never in a URL, never in browser storage — and the server
+refuses any caller without a verified actor, showing the refusal verbatim. The page never folds
+the stream client-side — the fold is `agent:board`, shared with the CLI — and when the live bridge
+pushes a fact the page repaints the activity line and fetches the fold again, so reconnecting *is*
+catching up. A card born already done is set apart, never animated as if it had crossed; a card
+held by an open question sits in `blocked` saying why. Serve `agent:board` and `agent:answer` over
+HTTP (`config/http.php`), point the page at your Mercure hub, and with no hub it says so instead
+of pretending to be live.
 
 **Growing the app — `capabilities`, `capabilities:refresh`, `capabilities:enable`**
 

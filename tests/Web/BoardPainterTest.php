@@ -104,6 +104,24 @@ final class BoardPainterTest extends TestCase
     }
 
     /**
+     * `unsupported` is ALSO born done — with nothing behind it, which is more suspicious, not
+     * less. Found live: an unsupported card painted exactly like a planned one until the browser
+     * exercise said so (2026-08-06).
+     */
+    public function testACardBornDoneWithNothingBehindItIsSetApartToo(): void
+    {
+        $html = self::paint('paintBoard', self::board([
+            'done' => [
+                ['id' => 't1', 'text' => 'model the entity', 'version' => 1, 'origin' => 'unsupported', 'unexplained' => 0],
+            ],
+        ]));
+
+        self::assertIsString($html);
+        self::assertStringContainsString('data-id="t1" data-origin="unsupported" data-crossed="false"', $html);
+        self::assertStringContainsString('appeared already done', $html);
+    }
+
+    /**
      * The columns are the keys the data brings, in the order it brings them. The enum decides
      * server-side; a list written in the painter would be the second place deciding how many
      * columns exist, and a new status would be born invisible on this surface.
@@ -124,6 +142,23 @@ final class BoardPainterTest extends TestCase
         $sorted = $positions;
         sort($sorted);
         self::assertSame($sorted, $positions, 'the columns were reordered by the painter');
+    }
+
+    /**
+     * A card the fold holds behind an open question says WHY it sits in blocked — distinguishable
+     * from a block the agent declared, which carries no `held_by`.
+     */
+    public function testACardHeldByAQuestionSaysSo(): void
+    {
+        $html = self::paint('paintBoard', self::board([
+            'blocked' => [
+                ['id' => 't1', 'text' => 'wire the route', 'version' => 1, 'origin' => 'planned', 'unexplained' => 0, 'held_by' => 'question'],
+                ['id' => 't2', 'text' => 'stuck on api key', 'version' => 1, 'origin' => 'planned', 'unexplained' => 0],
+            ],
+        ]));
+
+        self::assertIsString($html);
+        self::assertSame(1, substr_count($html, 'waiting for an answer'), 'only the card held by the question carries the badge');
     }
 
     /** Card texts are written by a model. A model that writes markup must land as text. */
