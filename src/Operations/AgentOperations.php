@@ -48,6 +48,7 @@ use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Externality;
 use Milpa\Command\Effect\Mutation;
 use Milpa\Command\Effect\Reversibility;
+use Milpa\Command\Effect\Subject;
 use Milpa\Command\Operation;
 use Milpa\Console\McpProjector;
 use Milpa\Interfaces\Di\DIContainerInterface;
@@ -166,6 +167,7 @@ class AgentOperations implements CommandProvider
                     // A prompt cannot be un-sent, and this house's event streams are never rewritten.
                     Reversibility::Irreversible,
                     Authority::WriteAsUser,
+                    subject: Subject::Data,
                 ),
                 description: 'Ask the agent to do something using the operations of this app',
                 handler: fn (array $input): array => $this->run($input),

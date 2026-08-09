@@ -21,6 +21,7 @@ use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Externality;
 use Milpa\Command\Effect\Mutation;
 use Milpa\Command\Effect\Reversibility;
+use Milpa\Command\Effect\Subject;
 use Milpa\Command\Operation;
 
 /**
@@ -72,6 +73,7 @@ final readonly class FoundationOperations implements CommandProvider
                     Externality::None,
                     Reversibility::Guaranteed,
                     Authority::Read,
+                    subject: Subject::None,
                     rollbackContract: 'nothing-to-roll-back',
                 ),
                 description: 'What this app is — or, if not founded yet, how it becomes something',
@@ -93,6 +95,7 @@ final readonly class FoundationOperations implements CommandProvider
                     Reversibility::ManualRecovery,
                     // It changes WHAT THIS APP IS. Nothing else in the catalogue does that.
                     Authority::Privileged,
+                    subject: Subject::Configuration,
                     escalatesOn: ['domain'],
                 ),
                 description: 'Found this app: write its constitution and the founding acta — once',

@@ -23,6 +23,7 @@ use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Externality;
 use Milpa\Command\Effect\Mutation;
 use Milpa\Command\Effect\Reversibility;
+use Milpa\Command\Effect\Subject;
 use Milpa\Command\Operation;
 
 /**
@@ -85,6 +86,7 @@ final readonly class CapabilityOperations implements CommandProvider
                     Externality::None,
                     Reversibility::Guaranteed,
                     Authority::Read,
+                    subject: Subject::None,
                     rollbackContract: 'nothing-to-roll-back',
                 ),
                 description: 'What this app can do today, and the command that grows it',
@@ -164,6 +166,7 @@ final readonly class CapabilityOperations implements CommandProvider
                     Reversibility::Guaranteed,
                     // It changes what this app KNOWS exists — never what it can do.
                     Authority::Read,
+                    subject: Subject::Data,
                     rollbackContract: 'delete var/capability-index.json',
                 ),
                 description: 'Derive the capability index from what the registry publishes, dated',
@@ -187,6 +190,7 @@ final readonly class CapabilityOperations implements CommandProvider
                     Reversibility::ManualRecovery,
                     // It changes WHAT THIS APP CAN DO. Nothing else in the catalogue does that.
                     Authority::Privileged,
+                    subject: Subject::Executable,
                     escalatesOn: ['capability'],
                 ),
                 description: 'Install an opt-in capability by name — one step instead of three',
@@ -252,6 +256,7 @@ final readonly class CapabilityOperations implements CommandProvider
                     Externality::ThirdParty,
                     Reversibility::ManualRecovery,
                     Authority::Privileged,
+                    subject: Subject::Executable,
                     escalatesOn: ['package'],
                 ),
                 description: 'Apply one repair the diagnosis recommends, by name — and verify it landed',
