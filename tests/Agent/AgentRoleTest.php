@@ -52,7 +52,8 @@ final class AgentRoleTest extends TestCase
         $spawner = new SubAgentSpawner(
             $this->store,
             'parent',
-            static function (string $seen, string $childId, array $history, array $runFirst) use (&$brief, &$first): array {
+            function (string $seen, string $childId, array $history, array $runFirst) use (&$brief, &$first): array {
+                $this->store->recordToolCall($childId, 'plugins_list', [], 'ok', true, false);
                 $brief = $seen;
                 $first = $runFirst;
 

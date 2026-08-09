@@ -454,4 +454,104 @@ final class SubAgentSpawnerTest extends TestCase
             self::assertTrue($spawner->spawn(['brief' => "encargo {$i}"])['ok']);
         }
     }
+    /**
+     * The child is born knowing (greenhouse decisions/0007): the prologue — the unearned
+     * transition's teaching — lands FIRST in the child's recorded goal, so it reaches the
+     * stream, the window, and every resume. A spawner without a prologue changes nothing.
+     */
+    public function testThePrologueLandsFirstInTheChildsGoal(): void
+    {
+        $almacen = new SessionStore(new InMemoryEventStore());
+        $almacen->start('padre', 'x', \Milpa\Agent\AutonomyMode::Auto);
+        $spawner = new SubAgentSpawner(
+            $almacen,
+            'padre',
+            static fn (string $encargo, string $hijoId): array => ['answer' => 'ok', 'steps' => 1],
+            prologue: static fn (): ?string => 'This app is not founded yet — founding comes before building.',
+        );
+
+        $reporte = $spawner->spawn(['brief' => 'crea el plugin Agencia']);
+
+        self::assertTrue($reporte['ok']);
+        $hijo = $almacen->load($reporte['sub_session']);
+        self::assertNotNull($hijo);
+        self::assertStringStartsWith('This app is not founded yet', (string) $hijo->goal);
+        self::assertStringContainsString('crea el plugin Agencia', (string) $hijo->goal);
+    }
+    /**
+     * The hollow-scout guard (greenhouse decisions/0008): a conforming artifact from a session
+     * that called NO tools is not a report — it is silence with formatting. One teaching retry;
+     * a repeat travels to the parent MARKED, never silently trusted. Causality, not quality:
+     * the guard counts recorded calls, never words.
+     */
+    public function testAHollowScoutGetsOneTeachingRetryAndARepeatTravelsMarked(): void
+    {
+        $almacen = new SessionStore(new InMemoryEventStore());
+        $almacen->start('padre', 'x', \Milpa\Agent\AutonomyMode::Auto);
+        $vueltas = 0;
+        $spawner = new SubAgentSpawner(
+            $almacen,
+            'padre',
+            static function (string $encargo, string $hijoId) use (&$vueltas): array {
+                ++$vueltas;
+
+                return ['answer' => '{"findings": [], "searched": []}', 'steps' => 1];
+            },
+        );
+
+        $reporte = $spawner->spawn(['brief' => 'verifica el directorio del plugin', 'produces' => 'findings']);
+
+        self::assertSame(2, $vueltas);
+        self::assertTrue($reporte['ok']);
+        self::assertTrue($reporte['hollow'] ?? false);
+        self::assertStringContainsString('called no tools', (string) $reporte['report']);
+    }
+
+    /** A child that LOOKED — recorded tool calls — is untouched by the guard. */
+    public function testAScoutThatLookedIsUntouched(): void
+    {
+        $almacen = new SessionStore(new InMemoryEventStore());
+        $almacen->start('padre', 'x', \Milpa\Agent\AutonomyMode::Auto);
+        $vueltas = 0;
+        $spawner = new SubAgentSpawner(
+            $almacen,
+            'padre',
+            static function (string $encargo, string $hijoId) use (&$vueltas, $almacen): array {
+                ++$vueltas;
+                $almacen->recordToolCall($hijoId, 'plugins_list', [], '{"ok":true}', true, false);
+
+                return ['answer' => '{"findings": [{"claim": "no existe src/Plugins/Agencia", "where": "src/Plugins"}], "searched": ["src/Plugins"]}', 'steps' => 2];
+            },
+        );
+
+        $reporte = $spawner->spawn(['brief' => 'verifica el directorio del plugin', 'produces' => 'findings']);
+
+        self::assertSame(1, $vueltas);
+        self::assertTrue($reporte['ok']);
+        self::assertFalse($reporte['hollow'] ?? false);
+        self::assertStringNotContainsString('called no tools', (string) $reporte['report']);
+    }
+
+    /** No artifact contract, no guard: an errand that is not a report may legitimately not look. */
+    public function testAnErrandWithoutAnArtifactContractIsNotGuarded(): void
+    {
+        $almacen = new SessionStore(new InMemoryEventStore());
+        $almacen->start('padre', 'x', \Milpa\Agent\AutonomyMode::Auto);
+        $vueltas = 0;
+        $spawner = new SubAgentSpawner(
+            $almacen,
+            'padre',
+            static function (string $encargo, string $hijoId) use (&$vueltas): array {
+                ++$vueltas;
+
+                return ['answer' => 'hecho', 'steps' => 1];
+            },
+        );
+
+        $reporte = $spawner->spawn(['brief' => 'resume el objetivo del encargo en una línea']);
+
+        self::assertSame(1, $vueltas);
+        self::assertTrue($reporte['ok']);
+        self::assertArrayNotHasKey('hollow', $reporte);
+    }
 }

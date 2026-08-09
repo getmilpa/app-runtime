@@ -91,6 +91,43 @@ final class SessionOperations implements CommandProvider
                 description: 'The agent sessions of this app, and where each one stands',
                 handler: fn (array $input): array => $this->listar(),
                 inputSchema: ['type' => 'object', 'properties' => []],
+                // WHAT COMES BACK — because three other operations demand a `session` and nothing in
+                // the catalogue said where one comes from (evidence/0095). The chain already ran:
+                // this returns rows keyed `session` and `agent:show`, `agent:board` and
+                // `agent:timeline` ask for exactly that key. It was true and unpublished, so an
+                // agent could plan one call and never two.
+                //
+                // Declared against the command's real output, never against what the shape looks
+                // like it should be: an outputSchema that lies is worse than none, since a reader
+                // plans against it. `enum` values are the AutonomyMode cases and the three arms of
+                // the state match below — read, not guessed.
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean', 'description' => 'False when this app has nowhere to store sessions'],
+                        'total' => ['type' => 'integer', 'description' => 'How many sessions were read'],
+                        'error' => ['type' => 'string', 'description' => 'Why the listing could not be produced; absent when ok'],
+                        'sessions' => [
+                            'type' => 'array',
+                            'description' => 'One row per session, newest first as the store yields them',
+                            'items' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'session' => ['type' => 'string', 'description' => 'The session identifier — what agent:show, agent:board and agent:timeline ask for'],
+                                    'goal' => ['type' => 'string', 'description' => 'What the session was opened to achieve'],
+                                    'mode' => ['type' => 'string', 'enum' => ['ask', 'acknowledge', 'auto'], 'description' => 'How much autonomy it was granted'],
+                                    'turns' => ['type' => 'integer', 'description' => 'How many turns it has taken'],
+                                    'state' => ['type' => 'string', 'enum' => ['viva', 'esperando respuesta', 'terminada'], 'description' => 'Where it stands right now'],
+                                    'pending' => ['type' => 'integer', 'description' => 'Todos still open'],
+                                    'unexplained' => ['type' => 'integer', 'description' => 'Work done that no card explains'],
+                                ],
+                                'required' => ['session', 'goal', 'mode', 'turns', 'state', 'pending', 'unexplained'],
+                            ],
+                        ],
+                    ],
+                    // Only `ok` survives both arms: the failure arm returns `error` and no listing.
+                    'required' => ['ok'],
+                ],
                 mutating: false,
             ),
             new Operation(
@@ -107,7 +144,15 @@ final class SessionOperations implements CommandProvider
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
-                        'session' => ['type' => 'string', 'description' => 'The session identifier'],
+                        'session' => [
+                            'type' => 'string',
+                            'description' => 'The session identifier',
+                            // WHERE THIS VALUE COMES FROM, said rather than guessed (evidence/0098). Matching by name
+                            // fails exactly where it decides work — four of five chains in evidence/0097 — so the
+                            // edge is declared ON the parameter that needs it, and a verifier checks it against
+                            // the catalogue. An annotation nobody verifies is prose with better syntax.
+                            'x-milpa-source' => ['tool' => 'agent:sessions', 'path' => 'sessions', 'key' => 'session'],
+                        ],
                     ],
                     'required' => ['session'],
                 ],
@@ -129,7 +174,15 @@ final class SessionOperations implements CommandProvider
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
-                        'session' => ['type' => 'string', 'description' => 'The session identifier'],
+                        'session' => [
+                            'type' => 'string',
+                            'description' => 'The session identifier',
+                            // WHERE THIS VALUE COMES FROM, said rather than guessed (evidence/0098). Matching by name
+                            // fails exactly where it decides work — four of five chains in evidence/0097 — so the
+                            // edge is declared ON the parameter that needs it, and a verifier checks it against
+                            // the catalogue. An annotation nobody verifies is prose with better syntax.
+                            'x-milpa-source' => ['tool' => 'agent:sessions', 'path' => 'sessions', 'key' => 'session'],
+                        ],
                         'mode' => [
                             'type' => 'string',
                             'enum' => ['ask', 'acknowledge', 'auto'],
@@ -159,7 +212,15 @@ final class SessionOperations implements CommandProvider
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
-                        'session' => ['type' => 'string', 'description' => 'The session identifier'],
+                        'session' => [
+                            'type' => 'string',
+                            'description' => 'The session identifier',
+                            // WHERE THIS VALUE COMES FROM, said rather than guessed (evidence/0098). Matching by name
+                            // fails exactly where it decides work — four of five chains in evidence/0097 — so the
+                            // edge is declared ON the parameter that needs it, and a verifier checks it against
+                            // the catalogue. An annotation nobody verifies is prose with better syntax.
+                            'x-milpa-source' => ['tool' => 'agent:sessions', 'path' => 'sessions', 'key' => 'session'],
+                        ],
                         'since' => ['type' => 'integer', 'description' => 'The last sequence you already saw; 0 brings everything'],
                     ],
                     'required' => ['session'],
@@ -189,7 +250,15 @@ final class SessionOperations implements CommandProvider
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
-                        'session' => ['type' => 'string', 'description' => 'The session identifier'],
+                        'session' => [
+                            'type' => 'string',
+                            'description' => 'The session identifier',
+                            // WHERE THIS VALUE COMES FROM, said rather than guessed (evidence/0098). Matching by name
+                            // fails exactly where it decides work — four of five chains in evidence/0097 — so the
+                            // edge is declared ON the parameter that needs it, and a verifier checks it against
+                            // the catalogue. An annotation nobody verifies is prose with better syntax.
+                            'x-milpa-source' => ['tool' => 'agent:sessions', 'path' => 'sessions', 'key' => 'session'],
+                        ],
                         'answer' => ['type' => 'string', 'description' => 'Your answer — «sí» authorises the operation for this session'],
                     ],
                     'required' => ['session', 'answer'],
@@ -220,7 +289,15 @@ final class SessionOperations implements CommandProvider
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
-                        'session' => ['type' => 'string', 'description' => 'The session identifier'],
+                        'session' => [
+                            'type' => 'string',
+                            'description' => 'The session identifier',
+                            // WHERE THIS VALUE COMES FROM, said rather than guessed (evidence/0098). Matching by name
+                            // fails exactly where it decides work — four of five chains in evidence/0097 — so the
+                            // edge is declared ON the parameter that needs it, and a verifier checks it against
+                            // the catalogue. An annotation nobody verifies is prose with better syntax.
+                            'x-milpa-source' => ['tool' => 'agent:sessions', 'path' => 'sessions', 'key' => 'session'],
+                        ],
                     ],
                     'required' => ['session'],
                 ],
@@ -243,7 +320,15 @@ final class SessionOperations implements CommandProvider
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
-                        'session' => ['type' => 'string', 'description' => 'The session identifier'],
+                        'session' => [
+                            'type' => 'string',
+                            'description' => 'The session identifier',
+                            // WHERE THIS VALUE COMES FROM, said rather than guessed (evidence/0098). Matching by name
+                            // fails exactly where it decides work — four of five chains in evidence/0097 — so the
+                            // edge is declared ON the parameter that needs it, and a verifier checks it against
+                            // the catalogue. An annotation nobody verifies is prose with better syntax.
+                            'x-milpa-source' => ['tool' => 'agent:sessions', 'path' => 'sessions', 'key' => 'session'],
+                        ],
                         'because' => ['type' => 'string', 'description' => 'Why it is discarded — it stays in the stream'],
                     ],
                     'required' => ['session', 'because'],
@@ -554,7 +639,7 @@ final class SessionOperations implements CommandProvider
      * Guardar el segundo como si fuera el primero fabricaría una cadena de custodia inexistente:
      * «lo autorizó rod» cuando lo que se sabe es «lo autorizó quien tenía la máquina de rod».
      *
-     * Ver Q-P19-B: comparando con `milpa/workflow`
+     * Ver [Q-P19-B](../../../docs/library/settlement-q-p19b.md): comparando con `milpa/workflow`
      * salió que este lado no guardaba principal ninguno, y que aquél además prohíbe que el que pide
      * sea el que aprueba.
      */

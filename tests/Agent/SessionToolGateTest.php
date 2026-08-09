@@ -460,4 +460,46 @@ final class SessionToolGateTest extends TestCase
 
         self::assertNull($compuerta->refuse('make', []), 'con el plan escrito, la mesa abre');
     }
+    /**
+     * A resume is not a new petition (greenhouse decisions/0009): the intent contract compares
+     * the named target against the STANDING ask — this run's prompt OR the session's goal. The
+     * three non-converters of the rental series all died on «the petition does not name X»
+     * while the petition was literally «sigue» and the goal named X in lowercase.
+     */
+    public function testTheIntentContractReadsTheStandingGoalOnResumes(): void
+    {
+        $almacen = new SessionStore(new InMemoryEventStore());
+        $almacen->start('s1', 'construye un plugin para la agencia de viajes', AutonomyMode::Auto);
+        $sesion = $almacen->load('s1');
+        self::assertNotNull($sesion);
+
+        $compuerta = new SessionToolGate(
+            $almacen,
+            $sesion,
+            [new Operation('foundation_found', 'Funda', static fn (array $i): array => ['ok' => true], inputSchema: ['type' => 'object', 'properties' => []], mutating: true, namedTarget: 'domain')],
+            petition: 'sigue',
+        );
+
+        self::assertNull($compuerta->refuse('foundation_found', ['domain' => 'Agencia de Viajes']));
+        self::assertNull($almacen->load('s1')?->question);
+    }
+
+    /** A target named in NEITHER the prompt nor the goal still pauses — ADR-0044 lives. */
+    public function testATargetNamedNowhereStillPauses(): void
+    {
+        $almacen = new SessionStore(new InMemoryEventStore());
+        $almacen->start('s1', 'construye un plugin para la agencia de viajes', AutonomyMode::Auto);
+        $sesion = $almacen->load('s1');
+        self::assertNotNull($sesion);
+
+        $compuerta = new SessionToolGate(
+            $almacen,
+            $sesion,
+            [new Operation('foundation_found', 'Funda', static fn (array $i): array => ['ok' => true], inputSchema: ['type' => 'object', 'properties' => []], mutating: true, namedTarget: 'domain')],
+            petition: 'sigue',
+        );
+
+        self::assertNotNull($compuerta->refuse('foundation_found', ['domain' => 'Panadería Central']));
+        self::assertNotNull($almacen->load('s1')?->question);
+    }
 }

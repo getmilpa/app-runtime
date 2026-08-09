@@ -79,6 +79,12 @@ final class SubAgentSpawner
         // vocabulary does: picking a role is a decision of the DELEGATION, and an unknown name has to
         // be refusable at the door rather than discovered on the way back.
         private readonly RoleRegistry $roles = new RoleRegistry(),
+        // THE PROLOGUE (greenhouse decisions/0007): what every child must be born knowing —
+        // the unearned transition's teaching, derived at SPAWN TIME by whoever delegates. It
+        // lives here because the goal is composed here: prepending it anywhere later misses the
+        // recorded goal, and everything the child ever sees derives from the stream. `null`
+        // changes nothing, which is every delegation before this existed.
+        private readonly ?\Closure $prologue = null,
     ) {
     }
 
@@ -169,6 +175,14 @@ final class SubAgentSpawner
         $brief = \is_string($input['brief'] ?? null) ? trim($input['brief']) : '';
         if ($brief === '') {
             return ['ok' => false, 'error' => 'falta `brief`: el sub-agente no ve esta conversación, así que sin encargo no tiene nada'];
+        }
+
+        // THE CHILD IS BORN KNOWING (decisions/0007). First, not appended: position is a
+        // mechanism (Q-P20-E — first arrives 8/8, trailing arrives 1/8), and the brief was a
+        // measured context firewall (evidence/0014) until this line existed.
+        $prologo = $this->prologue !== null ? ($this->prologue)() : null;
+        if (\is_string($prologo) && trim($prologo) !== '') {
+            $brief = trim($prologo) . "\n\n" . $brief;
         }
 
         // EL CRITERIO DE TERMINADO ES OPCIONAL, Y ESO SE MIDIÓ (Q-P19-S).
@@ -657,8 +671,28 @@ final class SubAgentSpawner
         if ($contract !== null) {
             $verdict = $this->artifactCheck->check($contract, $answer);
 
+            // ── THE HOLLOW-SCOUT GUARD (greenhouse decisions/0008) ─────────────────────────────
+            //
+            // A conforming artifact from a session that called NO tools is not a report — it is
+            // silence with formatting. The worry was already written a few lines below («a
+            // conforming, hollow artifact is worse than a malformed one: nobody looks at it
+            // twice») and had no muscle: 50 of 75 children in one measured rental answered their
+            // findings artifact without a single recorded call, and the parent re-delegated into
+            // a storm (evidence/0014). Causality, not quality: the guard counts RECORDED calls
+            // in the child's session — never the words in the answer, which can be fabricated.
+            $looked = $this->sessions->load($childId)->toolCalls > 0;
+            $discrepancy = null;
             if (!$verdict['ok']) {
-                $this->sessions->recordTurn($childId, 'user', $verdict['discrepancy']);
+                $discrepancy = $verdict['discrepancy'];
+            } elseif (!$looked) {
+                $discrepancy = 'Your artifact conforms, but this session called no tools — a '
+                    . 'report without looking is silence, not a finding. Use the tools to look, '
+                    . 'then answer again in the same shape: findings anchored to places you '
+                    . 'actually opened, and `searched` listing where you looked.';
+            }
+
+            if ($discrepancy !== null) {
+                $this->sessions->recordTurn($childId, 'user', $discrepancy);
 
                 // ── THE CHILD CORRECTS ITSELF WITH ITS OWN WINDOW, NOT FROM SCRATCH ────────────
                 //
@@ -675,18 +709,28 @@ final class SubAgentSpawner
                 // the child has to correct. Same as `resume`, for the same reason — correcting is not
                 // re-delegating.
                 $childWindow = $this->sessions->load($childId)?->window() ?? [];
-                $secondTry = ($this->runChild)($verdict['discrepancy'], $childId, $childWindow, []);
+                $secondTry = ($this->runChild)($discrepancy, $childId, $childWindow, []);
                 $this->budget?->anota($secondTry['steps']);
                 $this->sessions->recordTurn($childId, 'assistant', $secondTry['answer']);
                 $report['steps'] += $secondTry['steps'];
                 $report['report'] = $secondTry['answer'];
                 $answer = $secondTry['answer'];
                 $verdict = $this->artifactCheck->check($contract, $answer);
+                $looked = $this->sessions->load($childId)->toolCalls > 0;
                 $report['artifact_retried'] = true;
             }
 
             if ($verdict['ok']) {
                 $report['artifact'] = ['kind' => $contract->kind, 'payload' => $verdict['payload']];
+
+                // A REPEAT HOLLOW TRAVELS MARKED, NEVER BLOCKED AND NEVER SILENTLY TRUSTED: the
+                // parent decides with the fact in front of it. The mark goes in the TEXT the
+                // parent reads, not only in a field a model never sees.
+                if (!$looked) {
+                    $report['hollow'] = true;
+                    $report['report'] = '[hollow report: this sub-session called no tools — what '
+                        . 'follows is claimed, not observed.]' . "\n\n" . (string) $report['report'];
+                }
             } else {
                 // NOT RETURNED AS IF IT HAD COMPLIED. An artifact that failed and arrives marked
                 // `ok` teaches the parent to read fields that are not there; the child's work is NOT

@@ -89,7 +89,66 @@ final readonly class CapabilityOperations implements CommandProvider
                 ),
                 description: 'What this app can do today, and the command that grows it',
                 handler: fn (array $input): array => Capabilities::answer(),
-                inputSchema: ['type' => 'object', 'properties' => []],
+                inputSchema: ['type' => 'object', 'properties' => [], 'required' => []],
+                // WHAT COMES BACK — and `capabilities:enable` demands a `capability` that nothing said
+                // where to get (evidence/0095, 0098). Its declared edge has pointed here since
+                // evidence/0098 and came out «unpublished» because this operation published nothing.
+                // The chain already ran; it was simply invisible.
+                //
+                // ── THE THREE COLLECTIONS DO NOT SHARE A SHAPE, AND THAT WAS MEASURED ─────────────
+                //
+                // `installed` carries an `id` and what each capability provides; `available` carries
+                // neither and carries instead the command that installs it. Declaring the second by
+                // copying the first would have invented a row — and in THIS house `available` is
+                // empty, so its shape could not be observed here at all: it was read from a newborn
+                // app under `var/lab/`, where six are available (evidence/0129).
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean', 'description' => 'False only when the catalogue itself could not be read'],
+                        'source' => ['type' => 'string', 'description' => 'Where the answer came from: the app manifest, the dated index, or the built-in list'],
+                        // DECLARED BECAUSE IT IS RETURNED (evidence/0129). The first version of this
+                        // schema left it out, and the diff against the cattle's real output exhibited
+                        // it: not a lie, since nothing was in excess, but an omission — and an agent
+                        // planning against an incomplete schema does not know the key exists.
+                        'hint' => ['type' => 'string', 'description' => 'What to do next when there is something worth suggesting; absent when there is not'],
+                        'installed' => [
+                            'type' => 'array',
+                            'description' => 'What this app can do today',
+                            'items' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'id' => ['type' => 'string', 'description' => 'The capability id this house uses in its guards, e.g. «agent-runs»'],
+                                    'package' => ['type' => 'string', 'description' => 'The composer package that ships it'],
+                                    'title' => ['type' => 'string', 'description' => 'What it is, in one line'],
+                                    'unlocks' => ['type' => 'string', 'description' => 'What becomes possible once it is present'],
+                                    'provides' => ['type' => 'string', 'description' => 'The surface it contributes'],
+                                ],
+                                'required' => ['id', 'package', 'title'],
+                            ],
+                        ],
+                        'available' => [
+                            'type' => 'array',
+                            'description' => 'What this app could do and does not yet — each with the command that grows it',
+                            'items' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'package' => ['type' => 'string', 'description' => 'The package name — what capabilities:enable asks for'],
+                                    'title' => ['type' => 'string', 'description' => 'What it is, in one line'],
+                                    'unlocks' => ['type' => 'string', 'description' => 'What becomes possible once it is installed'],
+                                    'command' => ['type' => 'string', 'description' => 'The exact command that installs it'],
+                                ],
+                                'required' => ['package', 'command'],
+                            ],
+                        ],
+                        'ports' => [
+                            'type' => 'array',
+                            'description' => 'The seams a capability can plug into, as plain names',
+                            'items' => ['type' => 'string'],
+                        ],
+                    ],
+                    'required' => ['ok'],
+                ],
                 mutating: false,
                 // EVERY SURFACE. If the agent cannot call it, the system shows the way only to
                 // whoever already knew where to look.
@@ -138,6 +197,19 @@ final readonly class CapabilityOperations implements CommandProvider
                         'capability' => [
                             'type' => 'string',
                             'description' => 'The package name `capabilities` lists under `available`',
+                            // THE PRODUCER CALLS IT `package` AND THIS ASKS FOR `capability` (evidence/0098).
+                            // No naming rule was ever going to join those two, and the description
+                            // already said so in prose: readable by a human, invisible to the graph.
+                            // Declared, the verifier reports it unpublished for as long as
+                            // `capabilities` declares no output — debt LOCATED, which is not the same
+                            // as debt paid.
+                            //
+                            // AND IT NAMES THE COLLECTION, not only the key (evidence/0099). The same
+                            // response carries `package` under `installed` AND under `available`, with
+                            // opposite meanings — what is already here versus what could be added — so
+                            // an edge saying only «key package» sent the verifier to the wrong one and
+                            // it counted nine where the answer is what the registry offers.
+                            'x-milpa-source' => ['tool' => 'capabilities', 'path' => 'available', 'key' => 'package'],
                         ],
                         'dry_run' => [
                             'type' => 'boolean',
@@ -167,7 +239,12 @@ final readonly class CapabilityOperations implements CommandProvider
                 namedTarget: 'capability',
                 surfaces: ['cli', 'tui', 'mcp'],
             ),
-            new Operation(
+            // B3 (evidence/0091): `repair` is DECLARED here — a hard dependency of every newborn —
+            // and IMPLEMENTED in `milpa/devtools`, which is opt-in. `doctor` and `make` do not
+            // escape because they live entirely in devtools; only what is split between a hard
+            // package and an optional one does. The doctrine is AgentOperations::operations()'s
+            // own: what cannot be done is not offered.
+            ...(class_exists(Repair::class) ? [new Operation(
                 name: 'repair',
                 effects: new EffectProfile(
                     Mutation::Persistent,
@@ -201,7 +278,7 @@ final readonly class CapabilityOperations implements CommandProvider
                 // escala.
                 namedTarget: 'package',
                 surfaces: ['cli', 'tui', 'mcp'],
-            ),
+            )] : []),
         ];
     }
 

@@ -75,6 +75,11 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder
         // el vigía: esta clase ya es las dos mitades —juzga antes, ve el resultado después— y una
         // compuerta aparte tendría que reconstruir la segunda.
         private readonly ?PrerequisiteGate $compuertaPrevia = null,
+        // THE ARROW (greenhouse evidence/0009), or `null` to run as before. Unlike the ordering
+        // gate it never learns from `recorded()`: it adjudicates durable STATE on every call —
+        // executing the rite does not open it; producing the state the rite was meant to
+        // demonstrate does.
+        private readonly ?TransitionGate $arrow = null,
     ) {
     }
 
@@ -101,6 +106,14 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder
         $falta = $this->compuertaPrevia?->motivoParaEsperar($tool);
         if ($falta !== null) {
             return $falta;
+        }
+
+        // THE ARROW COMES AFTER THE OBLIGATION AND BEFORE POLICY: it is a fact with a teaching,
+        // not a question — there is nothing a human must decide about a transition durable state
+        // has not earned yet. The refusal says what is missing, and with which name.
+        $closed = $this->arrow?->reasonToWait($tool);
+        if ($closed !== null) {
+            return $closed;
         }
 
         $operacion = $this->operationFor($tool);
@@ -199,7 +212,14 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder
             return null;
         }
 
-        if (mb_stripos($this->petition, trim($valor)) !== false) {
+        // A RESUME IS NOT A NEW PETITION (greenhouse decisions/0009). The prompt of a resumed
+        // run is literally «sigue», which names nothing by construction — and the series' three
+        // non-converters all died on «the petition does not name X» while the human's standing
+        // errand named X in lowercase. The target is compared against the STANDING ask: this
+        // run's prompt AND the session's goal. Still mechanical, still no model in the circuit;
+        // a target named in neither keeps pausing — ADR-0044 lives.
+        $standing = $this->petition . "\n" . (string) $this->session->goal;
+        if (mb_stripos($standing, trim($valor)) !== false) {
             return null;
         }
 
