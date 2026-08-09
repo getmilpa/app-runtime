@@ -39,7 +39,8 @@ final class ArtifactContractTest extends TestCase
         return new SubAgentSpawner(
             $this->store,
             'parent',
-            static function () use (&$turn, $answers): array {
+            function (string $brief, string $childId) use (&$turn, $answers): array {
+                $this->store->recordToolCall($childId, 'plugins_list', [], 'ok', true, false);
                 $reply = $answers[$turn] ?? ['', 0];
                 ++$turn;
 
@@ -73,7 +74,8 @@ final class ArtifactContractTest extends TestCase
         $spawner = new SubAgentSpawner(
             $this->store,
             'parent',
-            static function (string $brief) use (&$seen): array {
+            function (string $brief, string $childId) use (&$seen): array {
+                $this->store->recordToolCall($childId, 'plugins_list', [], 'ok', true, false);
                 $seen = $brief;
 
                 return ['answer' => '{"goal":"x","steps":[{"what":"read"}]}', 'steps' => 1];
@@ -153,7 +155,8 @@ final class ArtifactContractTest extends TestCase
         $spawner = new SubAgentSpawner(
             $this->store,
             'parent',
-            static function (string $brief, string $childId, array $history) use (&$turn, &$historyOnRetry): array {
+            function (string $brief, string $childId, array $history) use (&$turn, &$historyOnRetry): array {
+                $this->store->recordToolCall($childId, 'plugins_list', [], 'ok', true, false);
                 ++$turn;
                 if ($turn === 1) {
                     return ['answer' => 'I read three files and the router is the place to start.', 'steps' => 3];

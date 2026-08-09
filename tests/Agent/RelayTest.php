@@ -55,7 +55,8 @@ final class RelayTest extends TestCase
         return new RelayRunner(new SubAgentSpawner(
             $this->store,
             'parent',
-            function (string $brief) use (&$turn, $answers): array {
+            function (string $brief, string $childId) use (&$turn, $answers): array {
+                $this->store->recordToolCall($childId, 'plugins_list', [], 'ok', true, false);
                 $this->briefs[] = $brief;
 
                 return ['answer' => $answers[$turn++] ?? 'nothing', 'steps' => 1];

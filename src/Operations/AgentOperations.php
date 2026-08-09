@@ -31,6 +31,7 @@ use Milpa\AppRuntime\Agent\SessionPlanBoard;
 use Milpa\AppRuntime\Agent\StepWatcher;
 use Milpa\AppRuntime\Agent\SterileLoopGuard;
 use Milpa\AppRuntime\Agent\SubAgentSpawner;
+use Milpa\AppRuntime\Agent\TransitionGate;
 use Milpa\AppRuntime\Agent\TreeBudget;
 use Milpa\AiGateway\ToolCallGate;
 use Milpa\AiGateway\ToolCallRecorder;
@@ -117,11 +118,43 @@ class AgentOperations implements CommandProvider
         //
         // Es el mismo error que este contrato existe para no cometer: dos capacidades fundidas en una
         // guarda contestan por la que falta, no por la que hace falta.
+        // INSPECTING THE CATALOGUE IS NOT RUNNING THE AGENT — and the guard below is precisely the
+        // shape this docblock warns about, so it must not swallow this one too. An app with no model
+        // still HAS a catalogue, and what an agent would receive is exactly what an app without a
+        // model most needs to be able to show: nobody can audit a schema by reading a diff, which is
+        // how evidence/0091 had to accept B1, B2 and B3.
+        //
+        // It reads, it reaches nobody, and it changes nothing — so it costs an app that cannot run
+        // the agent nothing to be able to answer what the agent would have been handed.
+        $inspection = [
+            new Operation(
+                name: 'agent:catalogue',
+                description: 'The catalogue an agent would receive from this app, with the inputSchema of every tool',
+                handler: fn (array $input): array => $this->catalogue($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'reads' => [
+                            'type' => 'boolean',
+                            'description' => 'Show the read-only catalogue — what the agent gets when the request was classified as reads',
+                        ],
+                    ],
+                    // AN EMPTY `required` IS INFORMATION, ITS ABSENCE IS NOT (evidence/0094). Leaving
+                    // the key out does not say «everything is optional», it says «not known», and an
+                    // agent reading the schema cannot tell those apart. The handler demands nothing
+                    // — `reads` defaults to false — so this declares exactly that, and declaring it
+                    // is what the reader could not derive.
+                    'required' => [],
+                ],
+            ),
+        ];
+
         if (!Capabilities::installed('agent-runs')) {
-            return [];
+            return $inspection;
         }
 
         return [
+            ...$inspection,
             new Operation(
                 name: 'agent',
                 effects: new EffectProfile(
@@ -143,8 +176,13 @@ class AgentOperations implements CommandProvider
                         'steps' => ['type' => 'integer', 'description' => 'Ceiling on model↔tool steps; 12 when unsaid'],
                         'session' => ['type' => 'string', 'description' => 'Continúa esta sesión — sin ella, cada pregunta empieza de cero'],
                         'mode' => ['type' => 'string', 'enum' => ['ask', 'acknowledge', 'auto'], 'description' => 'Autonomía: ask pregunta antes de mutar, auto sigue sola. Ninguno se salta una firma'],
-                        'deny' => ['type' => 'string', 'description' => 'Comma-separated tools withdrawn from its catalogue. Requires --session'],
-                        'denyEffects' => ['type' => 'string', 'description' => 'Withdraw every operation in these effect classes: mutating|external|irreversible|authority. Unknown effects count as denied. Requires --session'],
+                        // B2 (evidence/0091): both say «Requires --session» and both were offered
+                        // whether or not this app can hold one. Same doctrine as above — what
+                        // cannot be done is not offered, and a schema is read by agents too.
+                        ...($this->sessionStore() !== null ? [
+                            'deny' => ['type' => 'string', 'description' => 'Comma-separated tools withdrawn from its catalogue. Requires --session'],
+                            'denyEffects' => ['type' => 'string', 'description' => 'Withdraw every operation in these effect classes: mutating|external|irreversible|authority. Unknown effects count as denied. Requires --session'],
+                        ] : []),
                         'first' => ['type' => 'string', 'description' => 'Comma-separated tools that must run before anything else proceeds — an ordering obligation, executed rather than asked'],
                     ],
                     'required' => ['prompt'],
@@ -158,6 +196,50 @@ class AgentOperations implements CommandProvider
                 // servidor es otra decisión, y esta plantilla no la toma por nadie.
                 surfaces: ['cli'],
             ),
+        ];
+    }
+
+    /**
+     * What an agent would receive from this app — the SAME registry, never a re-derivation.
+     *
+     * ── WHY THIS CALLS `toolsOfThisApp()` AND NOTHING ELSE ───────────────────────────────────────
+     *
+     * The catalogue is not the operation list. The operations that adjudicate the agent's own
+     * session are withdrawn from it, the mutating ones are filtered when the request reads, and the
+     * session notebook arrives through a separate argument rather than the registry. An artifact
+     * that walked the registered operations and assembled its own answer would print a plausible
+     * imitation, and an adversary auditing it would be auditing the imitation.
+     *
+     * So this asks the one function that builds what the agent is handed, and publishes the summary
+     * that function's registry already produces — `inputSchema` included.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array{ok: bool, reads: bool, total: int, tools: list<array<string, mixed>>, error?: string}
+     */
+    private function catalogue(array $input): array
+    {
+        $readOnly = ($input['reads'] ?? false) === true;
+
+        $registry = $this->toolsOfThisApp([], $readOnly);
+        if ($registry === null) {
+            return [
+                'ok' => false,
+                'reads' => $readOnly,
+                'total' => 0,
+                'tools' => [],
+                'error' => 'this app has no kernel, so nobody has assembled a catalogue to show yet',
+            ];
+        }
+
+        $tools = $registry->getToolSummaries();
+        usort($tools, static fn (array $a, array $b): int => strcmp((string) $a['name'], (string) $b['name']));
+
+        return [
+            'ok' => true,
+            'reads' => $readOnly,
+            'total' => \count($tools),
+            'tools' => $tools,
         ];
     }
 
@@ -314,6 +396,10 @@ class AgentOperations implements CommandProvider
                     // touched neither, not once. A board built on that source would paint stale
                     // cards as current state, which is worse than painting nothing.
                     compuertaPrevia: $runFirst === [] ? null : new PrerequisiteGate($runFirst),
+                    // The first arrow (greenhouse evidence/0009), if this host declares it:
+                    // founding precedes building, adjudicated from durable state, never from
+                    // executions.
+                    arrow: $this->foundationArrow(),
                 );
                 // ATADAS a esta sesión: el id se captura, no se le pide al modelo. Uno que el modelo
                 // pudiera nombrar es uno que puede errar, y escribirle el plan a otra sesión no es una
@@ -353,6 +439,10 @@ class AgentOperations implements CommandProvider
                             // `milpa/agent`, y la pregunta que esta rebanada contesta se mide en
                             // spawn.
                             compuertaPrevia: $primeroHijo === [] ? null : new PrerequisiteGate($primeroHijo),
+                            // THE ARROW GOVERNS THE CHILD TOO, from the same disk: delegation is
+                            // not a tunnel — a sub-agent building in an unfounded app would be the
+                            // same unearned transition under another name in the stream.
+                            arrow: $this->foundationArrow(),
                         );
                         // THE CHILD GETS THE CHANNEL AND NOTHING ELSE FROM THE SPAWNER.
                         //
@@ -414,6 +504,13 @@ class AgentOperations implements CommandProvider
                         return ['answer' => $respuestaHijo, 'steps' => $vistosHijo];
                     },
                     $presupuestoDelArbol,
+                    // THE CHILD IS BORN KNOWING (decisions/0007): the unearned transition's
+                    // teaching, derived at spawn time from the same judge as the refusal and the
+                    // frontier, prepended to every errand where the goal is COMPOSED — the first
+                    // wiring of this arm went through runChild and never reached the recorded
+                    // goal, which is what the child's window derives from. Caught by rental v5:
+                    // zero taught briefs in three runs (the arm was inert).
+                    prologue: fn (): ?string => $this->foundationArrow()?->teaching(),
                 );
                 $contabilidad[] = $spawner->operation();
                 $contabilidad[] = $spawner->resumeOperation();
@@ -628,7 +725,10 @@ class AgentOperations implements CommandProvider
                 'interrupted' => true,
                 'steps' => $vistos,
                 'tools' => \count($registry->getToolDefinitions()),
-                'session' => $sessionId !== '' ? $sessionId : null,
+                // B1 (evidence/0091): the WRITE above requires a store and the report did not, so
+                // an app holding a session id without `milpa/agent` reported a session nobody
+                // wrote. A result that names what it did not do teaches its reader a false fact.
+                'session' => ($sessionId !== '' && $store !== null) ? $sessionId : null,
                 'hint' => 'dile qué cambió y pídele que siga',
             ];
         } catch (\Throwable $e) {
@@ -934,6 +1034,32 @@ class AgentOperations implements CommandProvider
      * que nunca lo eligió. Lo que este código garantiza es que la ventana se PUEDA poner y que
      * vencerla sea un hecho declarado ({@see SessionStore::expireIfDue()}), no que exista una.
      */
+    /**
+     * The first arrow, if this host declares it (greenhouse evidence/0009).
+     *
+     * Read from `agent.transitions.foundation` as a list of tool names to hold closed until this
+     * app adjudicates `founded` — and with NO default: an absent key is the open table, which is
+     * the behaviour of every session before this existed. The knob belongs to the host because
+     * WHICH tools founding precedes is a product decision, not a constant of this file. The gate
+     * adjudicates durable state on every check: executing the rite opens nothing; producing the
+     * state the rite was meant to demonstrate does.
+     */
+    private function foundationArrow(): ?TransitionGate
+    {
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $declared = $config instanceof Config ? $config->get('agent.transitions.foundation') : null;
+        if (!\is_array($declared)) {
+            return null;
+        }
+
+        $held = array_values(array_filter(
+            $declared,
+            static fn ($t): bool => \is_string($t) && trim($t) !== '',
+        ));
+
+        return $held === [] ? null : TransitionGate::untilFounded($held);
+    }
+
     private function permissionWindow(): ?\DateInterval
     {
         $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
@@ -956,7 +1082,7 @@ class AgentOperations implements CommandProvider
      *
      * `agent.reprojectPlan` en `config/app.php`. Detrás de una perilla por la misma razón que
      * `agent.removeRefusedOptions`: es la intervención que
-     * Q-P20-B mide, y un experimento sin el brazo que
+     * [Q-P20-B](../../../../docs/library/pregunta-q-p20b.md) mide, y un experimento sin el brazo que
      * NO la tiene no se puede comparar contra nada.
      *
      * Apagada por default mientras la pregunta esté abierta: lo que se despacha es lo ya medido, no lo
@@ -1776,6 +1902,26 @@ class AgentOperations implements CommandProvider
                 static fn ($op): bool => !$op->mutating,
             ));
             $todas = [...$sinMutantes, ...$extra];
+        }
+
+        // ── THE ACTIONABLE FRONTIER (greenhouse decisions/0006) — behind its OWN knob ───────────
+        //
+        // What a declared transition holds is not OFFERED while the transition is unearned — the
+        // same judge that refuses decides what is on the table, so law and presentation cannot
+        // disagree. MEASURED AND REFUTED AS A DEFAULT (rental v4, evidence/0012): removing the
+        // held tools while leaving the rest of the catalogue silenced the teaching the refusal
+        // carried — 0/3 founded versus the arrow's 2/3, and the tenants went SHOPPING for the
+        // missing tools (capabilities read 9/4/7 times) instead of founding. Removal without
+        // teaching loses to refusal with teaching. So the law (refusal) is what
+        // `agent.transitions.foundation` enables; this presentation experiment only runs where a
+        // lab declares `agent.transitions.frontier` — until the fuller frontier earns its acta.
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $flecha = $this->foundationArrow();
+        if ($flecha !== null && $config instanceof Config && $config->get('agent.transitions.frontier') === true) {
+            $todas = array_values(array_filter(
+                $todas,
+                static fn ($op): bool => $flecha->offers(McpProjector::toolName($op->name)),
+            ));
         }
 
         // LAS OPERACIONES QUE ADJUDICAN SESIONES NO SON HERRAMIENTAS DEL ADJUDICADO.
