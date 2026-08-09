@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/getmilpa/app-runtime/compare/v0.11.1...v0.12.0) (2026-08-09)
+
+
+### Features
+
+* **effect:** every operation here declares what its change is made of ([616e224](https://github.com/getmilpa/app-runtime/commit/616e2247321d261e45da9e2cd577914b7a9db9a5))
+
 ## [0.11.1](https://github.com/getmilpa/app-runtime/compare/v0.11.0...v0.11.1) (2026-08-09)
 
 
