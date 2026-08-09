@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.1](https://github.com/getmilpa/app-runtime/compare/v0.11.0...v0.11.1) (2026-08-09)
+
+
+### Bug Fixes
+
+* **deps:** reach milpa/command ^0.7, where the effect ceiling grew its fifth dimension ([6b5969a](https://github.com/getmilpa/app-runtime/commit/6b5969a307e11d6d7238abf4fe53c2e139061e96))
+
 ## [0.11.0](https://github.com/getmilpa/app-runtime/compare/v0.10.0...v0.11.0) (2026-08-09)
 
 
