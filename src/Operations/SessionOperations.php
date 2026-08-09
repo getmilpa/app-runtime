@@ -30,6 +30,7 @@ use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Externality;
 use Milpa\Command\Effect\Mutation;
 use Milpa\Command\Effect\Reversibility;
+use Milpa\Command\Effect\Subject;
 use Milpa\Command\Operation;
 use Milpa\Interfaces\Di\DIContainerInterface;
 
@@ -86,6 +87,7 @@ final class SessionOperations implements CommandProvider
                     Externality::None,
                     Reversibility::Guaranteed,
                     Authority::Read,
+                    subject: Subject::None,
                     rollbackContract: 'nothing-to-roll-back',
                 ),
                 description: 'The agent sessions of this app, and where each one stands',
@@ -137,6 +139,7 @@ final class SessionOperations implements CommandProvider
                     Externality::None,
                     Reversibility::Guaranteed,
                     Authority::Read,
+                    subject: Subject::None,
                     rollbackContract: 'nothing-to-roll-back',
                 ),
                 description: 'Everything known about one session: goal, plan, todos, permissions and how it ended',
@@ -168,6 +171,7 @@ final class SessionOperations implements CommandProvider
                     // It raises how far the agent may act WITHOUT ASKING — it spends the human's
                     // authority over decisions that have not happened yet.
                     Authority::WriteAsUser,
+                    subject: Subject::Configuration,
                 ),
                 description: 'Change how far a session may go without asking',
                 handler: fn (array $input): array => $this->cambiarModo($input),
@@ -205,6 +209,7 @@ final class SessionOperations implements CommandProvider
                     Externality::None,
                     Reversibility::Guaranteed,
                     Authority::Read,
+                    subject: Subject::None,
                     rollbackContract: 'nothing-to-roll-back',
                 ),
                 description: 'What happened in a session, translated for a surface to paint: cards, plan and closing',
@@ -238,6 +243,7 @@ final class SessionOperations implements CommandProvider
                     Externality::None,
                     Reversibility::Irreversible,
                     Authority::WriteAsUser,
+                    subject: Subject::Data,
                 ),
                 // NO DICE «and resume it», y antes sí. Contestar apenda la respuesta y devuelve el hint
                 // para retomar; el bucle NO se vuelve a correr. La descripción prometía lo que la
@@ -282,6 +288,7 @@ final class SessionOperations implements CommandProvider
                     Externality::None,
                     Reversibility::Guaranteed,
                     Authority::Read,
+                    subject: Subject::None,
                     rollbackContract: 'nothing-to-roll-back',
                 ),
                 description: 'The work of one session as four columns, derived from its stream',
@@ -314,6 +321,7 @@ final class SessionOperations implements CommandProvider
                     Externality::None,
                     Reversibility::Irreversible,
                     Authority::WriteAsUser,
+                    subject: Subject::Data,
                 ),
                 description: 'Discard a session: it stops waiting and nothing can resume it',
                 handler: fn (array $input, ?InvocationContext $ctx = null): array => $this->descartar($input, $ctx),

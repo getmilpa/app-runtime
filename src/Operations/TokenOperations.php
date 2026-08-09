@@ -23,6 +23,7 @@ use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Externality;
 use Milpa\Command\Effect\Mutation;
 use Milpa\Command\Effect\Reversibility;
+use Milpa\Command\Effect\Subject;
 use Milpa\Command\Operation;
 use Milpa\Data\RepositoryInterface;
 use Psr\Container\ContainerInterface;
@@ -76,6 +77,7 @@ final readonly class TokenOperations implements CommandProvider
                     Externality::None,
                     Reversibility::Guaranteed,
                     Authority::Read,
+                    subject: Subject::None,
                     rollbackContract: 'nothing-to-roll-back',
                 ),
                 description: 'The API tokens of this app: who each one is and what it can do — never the secret',
@@ -97,6 +99,7 @@ final readonly class TokenOperations implements CommandProvider
                     Reversibility::Compensatable,
                     // Whoever can mint a token can mint one with every scope. Its own description says so.
                     Authority::Privileged,
+                    subject: Subject::Data,
                 ),
                 description: 'Mint a token for an actor with the scopes you name; it is printed ONCE',
                 handler: fn (array $input): array => $this->create($input),
@@ -126,6 +129,7 @@ final readonly class TokenOperations implements CommandProvider
                     // different token with a different identity.
                     Reversibility::Irreversible,
                     Authority::Privileged,
+                    subject: Subject::Data,
                     escalatesOn: ['id'],
                 ),
                 description: 'Revoke a token by its id; it stops working on the next request',
