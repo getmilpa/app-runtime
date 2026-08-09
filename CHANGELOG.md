@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.0](https://github.com/getmilpa/app-runtime/compare/v0.10.0...v0.11.0) (2026-08-09)
+
+
+### Features
+
+* capabilities and sessions publish what they return, so a caller can chain without guessing ([18aa9ee](https://github.com/getmilpa/app-runtime/commit/18aa9ee98c0a9a4bf6862906d86b7c7853427144))
+* founding is an operation, so the rite can be run and therefore measured ([ebe3db9](https://github.com/getmilpa/app-runtime/commit/ebe3db990f8cbbff7909940b6bddc7b6a8e9c5ca))
+
 ## [0.10.0](https://github.com/getmilpa/app-runtime/compare/v0.9.0...v0.10.0) (2026-08-07)
 
 
