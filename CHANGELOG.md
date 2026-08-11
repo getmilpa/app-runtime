@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/getmilpa/app-runtime/compare/v0.12.0...v0.12.1) (2026-08-11)
+
+
+### Bug Fixes
+
+* the withdrawal list asks the projector for names instead of copying its rule ([#17](https://github.com/getmilpa/app-runtime/issues/17)) ([7780b6c](https://github.com/getmilpa/app-runtime/commit/7780b6c2b9d42082c6a0fc703f431e5f1d180013))
+
 ## [0.12.0](https://github.com/getmilpa/app-runtime/compare/v0.11.1...v0.12.0) (2026-08-09)
 
 
