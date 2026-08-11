@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.2](https://github.com/getmilpa/app-runtime/compare/v0.12.1...v0.12.2) (2026-08-11)
+
+
+### Bug Fixes
+
+* require milpa/command ^0.7, the only range this package can run in ([#19](https://github.com/getmilpa/app-runtime/issues/19)) ([0cc4756](https://github.com/getmilpa/app-runtime/commit/0cc47565cd1562c0165ac0a6942ae3081ba9d8e1))
+
 ## [0.12.1](https://github.com/getmilpa/app-runtime/compare/v0.12.0...v0.12.1) (2026-08-11)
 
 
