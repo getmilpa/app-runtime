@@ -1830,18 +1830,19 @@ class AgentOperations implements CommandProvider
             }
 
             if ($matches) {
-                // EL NOMBRE LO DA EL PROYECTOR, NO UNA COPIA DE SU REGLA (greenhouse evidence/0141).
+                // THE NAME COMES FROM THE PROJECTOR, NEVER FROM A COPY OF ITS RULE (greenhouse
+                // evidence/0141).
                 //
-                // Aquí vivía `str_replace([':', '.'], '_', ...)`, una segunda implementación de la
-                // convención de nombres. Divergía de {@see McpProjector::toolName()} en tres casos que
-                // nadie prohíbe: un espacio, un carácter no ASCII, y un nombre de más de 64 caracteres
-                // —donde el proyector trunca y la copia no—.
+                // `str_replace([':', '.'], '_', ...)` lived here — a second implementation of the tool
+                // naming convention. It disagreed with {@see McpProjector::toolName()} on three inputs
+                // nobody forbids: a space, a non-ASCII character, and a name past 64 characters, where
+                // the projector truncates and the copy did not.
                 //
-                // Y esta lista es la de RETIRO: lo que sale de aquí se le quita al catálogo del agente.
-                // Un nombre que no coincide no retira nada, así que la divergencia no habría abierto la
-                // compuerta: habría dejado ofrecida la herramienta que este filtro existe para quitar,
-                // sin una sola señal. Medido inerte —0 de 34 operaciones divergían— lo que quiere decir
-                // que no mordía por suerte, no por diseño.
+                // And this is the WITHDRAWAL list: whatever leaves here is taken away from the agent's
+                // catalogue. A name that does not match withdraws nothing, so the divergence would not
+                // have opened the gate — it would have left the tool this filter exists to remove
+                // sitting in the catalogue, with no signal at all. Measured inert across all 34
+                // operations of a current app, which means it did not bite by luck, not by design.
                 $names[] = McpProjector::toolName($op->name);
                 if ($sinClasificar && !$op->mutating) {
                     ++$undeclared;
