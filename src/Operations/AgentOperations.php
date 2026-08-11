@@ -1830,7 +1830,19 @@ class AgentOperations implements CommandProvider
             }
 
             if ($matches) {
-                $names[] = str_replace([':', '.'], '_', $op->name);
+                // EL NOMBRE LO DA EL PROYECTOR, NO UNA COPIA DE SU REGLA (greenhouse evidence/0141).
+                //
+                // Aquí vivía `str_replace([':', '.'], '_', ...)`, una segunda implementación de la
+                // convención de nombres. Divergía de {@see McpProjector::toolName()} en tres casos que
+                // nadie prohíbe: un espacio, un carácter no ASCII, y un nombre de más de 64 caracteres
+                // —donde el proyector trunca y la copia no—.
+                //
+                // Y esta lista es la de RETIRO: lo que sale de aquí se le quita al catálogo del agente.
+                // Un nombre que no coincide no retira nada, así que la divergencia no habría abierto la
+                // compuerta: habría dejado ofrecida la herramienta que este filtro existe para quitar,
+                // sin una sola señal. Medido inerte —0 de 34 operaciones divergían— lo que quiere decir
+                // que no mordía por suerte, no por diseño.
+                $names[] = McpProjector::toolName($op->name);
                 if ($sinClasificar && !$op->mutating) {
                     ++$undeclared;
                 }
