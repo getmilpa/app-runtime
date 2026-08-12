@@ -49,6 +49,8 @@ final class ConfigOperations implements CommandProvider
      * works where every other provider does. And with NO catalogue the borrowed ceiling folds over
      * nothing, which GOV-05 makes the maximum of every dimension — so an instance that was told
      * nothing asks for consent rather than skipping it. Failing upwards, again.
+     *
+     * @param list<Operation> $operations the catalogue whose ceiling `config:set` borrows
      */
     public function __construct(private readonly ?string $root = null, private readonly array $operations = [])
     {
@@ -59,7 +61,16 @@ final class ConfigOperations implements CommandProvider
         return $this->root ?? Capabilities::raizDeLaApp();
     }
 
-    /** @return list<Operation> */
+    /**
+     * The two operations: read the configuration, and write one key through the governed path.
+     *
+     * Reading is free and writing is not. `config:set` carries a BORROWED ceiling — the heaviest
+     * thing the criterion it edits can permit — because whoever edits the judge does not weigh less
+     * than what the judge governs. That number is derived from the catalogue rather than written
+     * here, so it moves when the catalogue moves instead of going stale in a constant.
+     *
+     * @return list<Operation>
+     */
     public function operations(): array
     {
         return [
