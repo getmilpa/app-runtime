@@ -147,6 +147,24 @@ class AgentOperations implements CommandProvider
                     // is what the reader could not derive.
                     'required' => [],
                 ],
+                // THE OPERATION THAT PUBLISHES EVERYONE ELSE'S CEILING NEVER DECLARED ITS OWN.
+                //
+                // greenhouse evidence/0144 counted it: of the operations a newborn app offers, this
+                // was the only one leaving its profile unset — and GOV-05 makes what nobody
+                // classified carry the maximum of every dimension. Once rule S2 derives consent from
+                // the ceiling, that silence turns into an app interrupting a human to LIST A
+                // CATALOGUE.
+                //
+                // It reads. It writes nothing, it leaves the machine to reach no one, and it changes
+                // nothing that could need undoing.
+                effects: new EffectProfile(
+                    mutation: Mutation::None,
+                    externality: Externality::None,
+                    reversibility: Reversibility::Guaranteed,
+                    authority: Authority::Read,
+                    subject: Subject::None,
+                    rollbackContract: 'reads only: there is nothing to roll back',
+                ),
             ),
         ];
 
