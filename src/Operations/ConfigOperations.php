@@ -43,17 +43,39 @@ use Milpa\Command\Operation;
 final class ConfigOperations implements CommandProvider
 {
     /**
-     * Both arguments are seams, and their defaults are the safe end.
+     * NO CONSTRUCTOR, and that is the point rather than an omission.
      *
-     * The root resolves the way this family already resolves it, so a bare `new ConfigOperations()`
-     * works where every other provider does. And with NO catalogue the borrowed ceiling folds over
-     * nothing, which GOV-05 makes the maximum of every dimension — so an instance that was told
-     * nothing asks for consent rather than skipping it. Failing upwards, again.
+     * `config/operations.php` is a list of class-strings, and the dispatcher builds each provider by
+     * handing it the container. A class with no constructor takes that call and ignores it, which is
+     * exactly how `CapabilityOperations` and `FoundationOperations` are registrable. A class that
+     * declares `__construct(?string $root)` does NOT: it raises a TypeError, and the failure is not a
+     * bad ceiling — the whole catalogue stops building, so the app loses every command it has. That
+     * is what this class cost the skeleton before it was measured there.
      *
-     * @param list<Operation> $operations the catalogue whose ceiling `config:set` borrows
+     * The seams live in `para()` instead, where they are named at the call site.
      */
-    public function __construct(private readonly ?string $root = null, private readonly array $operations = [])
+    private ?string $root = null;
+
+    /** @var list<Operation> the catalogue whose ceiling `config:set` borrows */
+    private array $operations = [];
+
+    /**
+     * The seams, for a caller that has a root and a catalogue to hand — tests, and whoever
+     * eventually gives this operation the real one.
+     *
+     * The defaults are the safe end. With NO catalogue the borrowed ceiling folds over nothing,
+     * which GOV-05 makes the maximum of every dimension, so an instance that was told nothing asks
+     * for consent rather than skipping it. Failing upwards, again.
+     *
+     * @param list<Operation> $operations
+     */
+    public static function para(?string $root = null, array $operations = []): self
     {
+        $proveedor = new self();
+        $proveedor->root = $root;
+        $proveedor->operations = $operations;
+
+        return $proveedor;
     }
 
     private function raiz(): string

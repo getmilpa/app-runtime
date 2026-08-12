@@ -87,6 +87,30 @@ final class ConfigOperationsTest extends TestCase
         self::assertFalse(($handler)(['key' => 'agent.instructions', 'value' => 'hola'])['governs_the_judge']);
     }
 
+    /**
+     * THE WAY THE SKELETON'S LIST BUILDS IT — a container first, and nothing else.
+     *
+     * `config/operations.php` is a list of class-strings and the dispatcher hands each provider the
+     * container. A constructor that does not take one is not registrable there, and the failure is
+     * not a bad ceiling: the whole catalogue stops building, so an app loses every command it has.
+     * Greenhouse measured exactly that on the skeleton — twenty tests red and `coa list` refusing to
+     * print — from a provider whose first parameter was a string.
+     */
+    public function testItIsConstructibleTheWayTheOperationsListConstructsIt(): void
+    {
+        // THE ARGUMENT IS THE POINT: the dispatcher hands every provider the container, and a
+        // class with no constructor takes that call and ignores it. Building it bare would pass
+        // while the registered path still raised a TypeError, which is precisely what happened.
+        $proveedor = new ConfigOperations(new \Milpa\Container\DIContainer());
+
+        $nombres = array_map(
+            static fn (\Milpa\Command\Operation $op): string => $op->name,
+            $proveedor->operations(),
+        );
+
+        self::assertSame(['config', 'config:set'], $nombres);
+    }
+
     /** Writing one key does not evaporate the sibling nobody mentioned. */
     public function testWritingOneKeyLeavesTheOthersAlone(): void
     {
@@ -115,7 +139,7 @@ final class ConfigOperationsTest extends TestCase
             ),
         )];
 
-        foreach ((new ConfigOperations($this->root, $catalogo))->operations() as $op) {
+        foreach ((ConfigOperations::para($this->root, $catalogo))->operations() as $op) {
             if ($op->name === $nombre) {
                 return $op;
             }
