@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Operations;
 
 use Milpa\AppRuntime\Config\JudgeCeiling;
 use Milpa\AppRuntime\Support\Capabilities;
+use Milpa\AppRuntime\Support\CatalogueBorrower;
 use Milpa\AppRuntime\Config\MachineOverlay;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Effect\Authority;
@@ -40,7 +41,7 @@ use Milpa\Command\Operation;
  * different acts — the defect decisions/0018 named, a field answering how much when the question was
  * of what.
  */
-final class ConfigOperations implements CommandProvider
+final class ConfigOperations implements CommandProvider, CatalogueBorrower
 {
     /**
      * NO CONSTRUCTOR, and that is the point rather than an omission.
@@ -76,6 +77,38 @@ final class ConfigOperations implements CommandProvider
         $proveedor->operations = $operations;
 
         return $proveedor;
+    }
+
+    /**
+     * The same provider, now holding the catalogue whose ceiling `config:set` borrows.
+     *
+     * Built from `config/operations.php` this provider receives nothing, because it is built in
+     * order to PRODUCE that catalogue. `Operations::withBorrowedCeilings()` asks again once the
+     * catalogue is complete, and what it hands over excludes this provider's own operations.
+     *
+     * @param list<Operation> $catalogue
+     */
+    public function withCatalogue(array $catalogue): self
+    {
+        return self::para($this->root, $catalogue);
+    }
+
+    /**
+     * What `config:set` does on its own, before borrowing anything.
+     *
+     * It writes one key into a file this app reads at boot: a persistent change to CONFIGURATION,
+     * under the authority of whoever runs the app, and undone by writing the previous value back.
+     */
+    private static function loQueEscribeHace(): EffectProfile
+    {
+        return new EffectProfile(
+            mutation: Mutation::Persistent,
+            externality: Externality::None,
+            reversibility: Reversibility::Compensatable,
+            authority: Authority::WriteAsUser,
+            subject: Subject::Configuration,
+            rollbackContract: 'write the previous value back through the same operation',
+        );
     }
 
     private function raiz(): string
@@ -133,7 +166,14 @@ final class ConfigOperations implements CommandProvider
                 //
                 // `key` escalates: until it is known, this ceiling is provisional, and a caller can
                 // ask `unresolvedEscalators()` whether the ceiling is still the ceiling.
-                effects: JudgeCeiling::prestado($this->operations),
+                // THE LOAN IS JOINED WITH WHAT THIS ACT DOES, never substituted for it.
+                //
+                // A mild app lends a mild ceiling, and a ceiling below the act itself is a
+                // contradiction `Operation` refuses outright — this operation writes a file, so it
+                // cannot carry `Mutation::None` no matter how gentle the catalogue is. Joining also
+                // keeps the loan monotone: it can only raise this ceiling, never excuse it, which is
+                // what makes borrowing safe at all (GOV-14).
+                effects: self::loQueEscribeHace()->join(JudgeCeiling::prestado($this->operations)),
             ),
         ];
     }
