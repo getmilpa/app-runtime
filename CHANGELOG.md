@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.3](https://github.com/getmilpa/app-runtime/compare/v0.12.2...v0.12.3) (2026-08-12)
+
+
+### Bug Fixes
+
+* a name the catalogue does not carry leaves a failing status ([#21](https://github.com/getmilpa/app-runtime/issues/21)) ([27f90ee](https://github.com/getmilpa/app-runtime/commit/27f90eebb0928d209617604dcf655d7643e9a6c5))
+
 ## [0.12.2](https://github.com/getmilpa/app-runtime/compare/v0.12.1...v0.12.2) (2026-08-11)
 
 
