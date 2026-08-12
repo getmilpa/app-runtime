@@ -16,7 +16,7 @@
     "milpa/core": "^0.6.2 || ^0.7",
     "milpa/http": "^0.1.5",
     "milpa/live-tui": "^0.7",
-    "milpa/plugin": "^0.10",
+    "milpa/plugin": "^0.10 || ^0.11",
     "milpa/runtime": "^0.7.6",
     "php": "^8.3"
   },
