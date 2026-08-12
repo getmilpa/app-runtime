@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Config;
 
 use Milpa\AppRuntime\Config\AgentKeys;
+use Milpa\AppRuntime\Config\AgentKeyScan;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -55,39 +56,18 @@ final class AgentKeysAreNotStaleTest extends TestCase
         );
     }
 
-    /** @return list<string> */
+    /**
+     * @return list<string>
+     */
     private static function leidasPorElCodigo(): array
     {
-        $llaves = [];
-
-        $archivos = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator(\dirname(__DIR__, 2) . '/src', \FilesystemIterator::SKIP_DOTS),
-        );
-
-        foreach ($archivos as $archivo) {
-            if (! $archivo instanceof \SplFileInfo || $archivo->getExtension() !== 'php') {
-                continue;
-            }
-            // The declaration itself is not a reader; charging it would make this compare a list
-            // with itself and pass no matter what.
-            if ($archivo->getFilename() === 'AgentKeys.php') {
-                continue;
-            }
-
-            preg_match_all(
-                "/get\(\s*'(agent\.[A-Za-z][A-Za-z0-9.]*)'/",
-                (string) file_get_contents($archivo->getPathname()),
-                $encontradas,
-            );
-
-            foreach ($encontradas[1] as $llave) {
-                $llaves[$llave] = true;
-            }
-        }
-
-        $lista = array_keys($llaves);
-        sort($lista);
-
-        return $lista;
+        // THE CONVENTION IS CALLED, NOT COPIED (greenhouse evidence/0141, evidence/0158). This sweep
+        // used to be written out here, and the greenhouse wrote it again for the family-wide check —
+        // two copies that disagreed on whether a key may start with a digit, which is the only way
+        // that defect ever surfaces. AgentKeyScan is the one definition; both callers ask it.
+        //
+        // The declaration itself is skipped: it is not a reader, and charging it would make this
+        // compare a list with itself and pass no matter what.
+        return AgentKeyScan::en(\dirname(__DIR__, 2) . '/src', 'AgentKeys.php');
     }
 }
