@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/getmilpa/app-runtime/compare/v0.13.0...v0.14.0) (2026-08-12)
+
+
+### Features
+
+* doctor names the keys both files declare ([#27](https://github.com/getmilpa/app-runtime/issues/27)) ([e658dbb](https://github.com/getmilpa/app-runtime/commit/e658dbb3d287af1bdbbf8e23e1df313a40995c39))
+
 ## [0.13.0](https://github.com/getmilpa/app-runtime/compare/v0.12.4...v0.13.0) (2026-08-12)
 
 
