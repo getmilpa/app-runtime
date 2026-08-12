@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/getmilpa/app-runtime/compare/v0.14.0...v0.15.0) (2026-08-12)
+
+
+### Features
+
+* derive the borrowed ceiling of whoever edits the judge's criterion ([#29](https://github.com/getmilpa/app-runtime/issues/29)) ([ad7f51c](https://github.com/getmilpa/app-runtime/commit/ad7f51ca9ea97235f60aa9277bb7a029ab6e86ed))
+
 ## [0.14.0](https://github.com/getmilpa/app-runtime/compare/v0.13.0...v0.14.0) (2026-08-12)
 
 
