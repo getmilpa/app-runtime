@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.16.0](https://github.com/getmilpa/app-runtime/compare/v0.15.2...v0.16.0) (2026-08-12)
+
+
+### Features
+
+* agent configuration as a governed operation, with a borrowed ceiling ([#35](https://github.com/getmilpa/app-runtime/issues/35)) ([9efccd1](https://github.com/getmilpa/app-runtime/commit/9efccd17b3c7312a4374b8c15a338304c826736d))
+* capabilities:enable declares that its rehearsal does not weigh like the install ([#36](https://github.com/getmilpa/app-runtime/issues/36)) ([48fae67](https://github.com/getmilpa/app-runtime/commit/48fae670b8c0c3a68a8a258c5f68543544b413eb))
+* config says which keys exist, and a rail keeps that list from becoming the next stale comment ([#41](https://github.com/getmilpa/app-runtime/issues/41)) ([d981b13](https://github.com/getmilpa/app-runtime/commit/d981b1301860b50d0f4e42f02d3535942dc223cd))
+* the borrowed ceiling is derived from the real catalogue, not from an empty one ([#40](https://github.com/getmilpa/app-runtime/issues/40)) ([41d8f3f](https://github.com/getmilpa/app-runtime/commit/41d8f3f2d7531257314eb95044ecf200a6aa8945))
+* what an agent key looks like is defined once, and both sweeps call it ([#45](https://github.com/getmilpa/app-runtime/issues/45)) ([e5c139e](https://github.com/getmilpa/app-runtime/commit/e5c139e17ab392ebafe8c146ff80dee46573f148))
+
+
+### Bug Fixes
+
+* a provider with a constructor is not registrable, and the app loses every command ([#39](https://github.com/getmilpa/app-runtime/issues/39)) ([9ac0fad](https://github.com/getmilpa/app-runtime/commit/9ac0fad4efbc23faaee6c86105d08dddd49b855b))
+
 ## [0.15.2](https://github.com/getmilpa/app-runtime/compare/v0.15.1...v0.15.2) (2026-08-12)
 
 
