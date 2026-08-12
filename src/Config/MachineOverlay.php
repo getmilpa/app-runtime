@@ -71,6 +71,69 @@ final class MachineOverlay
     }
 
     /**
+     * Las llaves que los DOS declararon — lo que este diseño no puede prevenir y sí puede decir.
+     *
+     * Prohibir la edición a mano no está a nuestro alcance: nadie le quita a nadie su editor. Lo que
+     * sí se puede es no dejar que la divergencia sea invisible, y ésa es la forma que esta familia ya
+     * usa para sus actas espejadas — un duplicado sin detector es una mentira futura.
+     *
+     * La ruta se devuelve punteada (`agent.instructions`) porque es como se pide en `Config::get()`,
+     * y así lo que el reporte dice se puede copiar tal cual a la operación que lo va a corregir.
+     *
+     * @param array<string, mixed> $delHumano lo que devuelve config/app.php
+     *
+     * @return list<string> rutas punteadas, ordenadas
+     */
+    public static function divergencias(array $delHumano, string $root): array
+    {
+        $archivo = $root . self::RUTA;
+        if (! is_file($archivo)) {
+            return [];
+        }
+
+        $crudo = json_decode((string) file_get_contents($archivo), true);
+        if (! \is_array($crudo)) {
+            return [];
+        }
+
+        $rutas = self::comunes($delHumano, $crudo, '');
+        sort($rutas);
+
+        return $rutas;
+    }
+
+    /**
+     * @param array<string, mixed> $a
+     * @param array<string, mixed> $b
+     *
+     * @return list<string>
+     */
+    private static function comunes(array $a, array $b, string $prefijo): array
+    {
+        $rutas = [];
+
+        foreach ($b as $llave => $valor) {
+            if (! \array_key_exists($llave, $a)) {
+                continue;
+            }
+
+            $ruta = $prefijo === '' ? (string) $llave : $prefijo . '.' . $llave;
+
+            // Se BAJA mientras los dos sean arreglos: declarar `agent` en ambos no es divergencia si
+            // adentro tocan llaves distintas. Reportar el padre diría que chocan cuando conviven.
+            if (\is_array($valor) && \is_array($a[$llave])) {
+                $rutas = array_merge($rutas, self::comunes($a[$llave], $valor, $ruta));
+
+                continue;
+            }
+
+            $rutas[] = $ruta;
+        }
+
+        return $rutas;
+    }
+
+    /**
      * @param array<string, mixed> $base
      * @param array<string, mixed> $encima
      *
