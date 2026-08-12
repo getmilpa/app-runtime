@@ -45,7 +45,8 @@ final class MachineOverlay
      * `agent.instructions` must not erase `agent.compaction` that nobody touched. A flat
      * `array_replace` would do exactly that, and it would look like it worked.
      *
-     * @param  array<string, mixed> $delHumano lo que devuelve config/app.php
+     * @param array<string, mixed> $delHumano lo que devuelve config/app.php
+     *
      * @return array<string, mixed>
      */
     public static function sobre(array $delHumano, string $root): array
@@ -70,8 +71,9 @@ final class MachineOverlay
     }
 
     /**
-     * @param  array<string, mixed> $base
-     * @param  array<string, mixed> $encima
+     * @param array<string, mixed> $base
+     * @param array<string, mixed> $encima
+     *
      * @return array<string, mixed>
      */
     private static function fundir(array $base, array $encima): array
