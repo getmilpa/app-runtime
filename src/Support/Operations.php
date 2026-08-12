@@ -100,6 +100,50 @@ final class Operations
     }
 
     /**
+     * The second pass: hand the finished catalogue to whoever borrows its ceiling from it.
+     *
+     * A provider is built in order to PRODUCE the catalogue, so when it declares its operations the
+     * catalogue does not exist. One that borrows a ceiling therefore borrows from nothing, and
+     * GOV-05 makes that the maximum of every axis: safe, and derived from nothing at all. Here the
+     * catalogue is complete, so the borrower is asked again with it in hand.
+     *
+     * WHAT IT IS HANDED EXCLUDES ITS OWN OPERATIONS. Folding a borrower into its own loan is a fixed
+     * point that returns the maximum — its first-pass ceiling is the conservative Unknown, join() is
+     * monotone and only rises, so the answer is Unknown again, deriving nothing while looking
+     * exactly like it worked.
+     *
+     * AND ONLY THE BORROWER'S OWN OPERATIONS ARE REPLACED. A pass that rebuilt everything could
+     * leave the catalogue coincidentally identical and still look right; touching an operation
+     * nobody borrowed for is not a loan, it is a rewrite.
+     *
+     * @param list<Operation>                                    $catalogue
+     * @param list<array{0: CatalogueBorrower, 1: list<string>}> $borrowers provider, and the names it contributed
+     *
+     * @return list<Operation>
+     */
+    public static function withBorrowedCeilings(array $catalogue, array $borrowers): array
+    {
+        foreach ($borrowers as [$borrower, $mine]) {
+            $theirs = array_values(array_filter(
+                $catalogue,
+                static fn (Operation $op): bool => !\in_array($op->name, $mine, true),
+            ));
+
+            $rebuilt = [];
+            foreach ($borrower->withCatalogue($theirs)->operations() as $op) {
+                $rebuilt[$op->name] = $op;
+            }
+
+            $catalogue = array_map(
+                static fn (Operation $op): Operation => $rebuilt[$op->name] ?? $op,
+                $catalogue,
+            );
+        }
+
+        return $catalogue;
+    }
+
+    /**
      * Todas las operaciones de esta app, de todos los grupos, en un solo arreglo.
      *
      * Es el único lugar donde se decide qué sabe hacer una app Milpa. Se arma en cada llamada y no
@@ -120,6 +164,8 @@ final class Operations
 
         /** @var list<class-string<CommandProvider>> $proveedores */
         $proveedores = require $declarados;
+        /** @var list<array{0: CatalogueBorrower, 1: list<string>}> $prestatarios */
+        $prestatarios = [];
         foreach ($proveedores as $proveedor) {
             if (!class_exists($proveedor)) {
                 continue;
@@ -130,11 +176,17 @@ final class Operations
                 ? $reflexion->newInstance($kernel->container())
                 : $reflexion->newInstance();
 
+            $suyas = [];
             foreach ($instancia->operations() as $operacion) {
                 $operaciones[] = $operacion;
+                $suyas[] = $operacion->name;
+            }
+
+            if ($instancia instanceof CatalogueBorrower) {
+                $prestatarios[] = [$instancia, $suyas];
             }
         }
 
-        return $operaciones;
+        return self::withBorrowedCeilings($operaciones, $prestatarios);
     }
 }
