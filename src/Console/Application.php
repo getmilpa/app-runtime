@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Console;
 
+use Milpa\AppRuntime\Config\MachineOverlay;
 use Milpa\AppRuntime\Agent\SurfaceBroadcaster;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\DevTools\Doctor\Repair;
@@ -1062,6 +1063,13 @@ final class Application
         $boot = require $this->root . '/config/boot.php';
         /** @var array<string, mixed> $config */
         $config = require $this->root . '/config/app.php';
+
+        // Y encima, lo que la máquina escribió por el camino gobernado (greenhouse evidence/0145).
+        //
+        // `config/app.php` es del humano: lleva los comentarios y es el archivo que una persona
+        // abre. `.milpa/` es de la máquina — ya guarda la constitución, que un rito escribe y nadie
+        // edita a mano. La configuración que cambió por una operación gobernada aterriza ahí al lado.
+        $config = MachineOverlay::sobre($config, $this->root);
 
         $kernel = Kernel::boot([
             'root' => $this->root,
