@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.4](https://github.com/getmilpa/app-runtime/compare/v0.12.3...v0.12.4) (2026-08-12)
+
+
+### Bug Fixes
+
+* accept milpa/plugin ^0.11 so framework can reach it ([#23](https://github.com/getmilpa/app-runtime/issues/23)) ([94f0f99](https://github.com/getmilpa/app-runtime/commit/94f0f99fd001c9fc04955884c5b556f41fddf939))
+
 ## [0.12.3](https://github.com/getmilpa/app-runtime/compare/v0.12.2...v0.12.3) (2026-08-12)
 
 
