@@ -80,8 +80,9 @@ final class MachineOverlay
      * La ruta se devuelve punteada (`agent.instructions`) porque es como se pide en `Config::get()`,
      * y así lo que el reporte dice se puede copiar tal cual a la operación que lo va a corregir.
      *
-     * @param  array<string, mixed> $delHumano lo que devuelve config/app.php
-     * @return list<string>         rutas punteadas, ordenadas
+     * @param array<string, mixed> $delHumano lo que devuelve config/app.php
+     *
+     * @return list<string> rutas punteadas, ordenadas
      */
     public static function divergencias(array $delHumano, string $root): array
     {
@@ -102,8 +103,9 @@ final class MachineOverlay
     }
 
     /**
-     * @param  array<string, mixed> $a
-     * @param  array<string, mixed> $b
+     * @param array<string, mixed> $a
+     * @param array<string, mixed> $b
+     *
      * @return list<string>
      */
     private static function comunes(array $a, array $b, string $prefijo): array
