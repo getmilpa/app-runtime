@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/getmilpa/app-runtime/compare/v0.12.4...v0.13.0) (2026-08-12)
+
+
+### Features
+
+* what the machine wrote lays over what the human wrote ([#25](https://github.com/getmilpa/app-runtime/issues/25)) ([668202c](https://github.com/getmilpa/app-runtime/commit/668202c7911d1136f89e9ca87338165f698a0e76))
+
 ## [0.12.4](https://github.com/getmilpa/app-runtime/compare/v0.12.3...v0.12.4) (2026-08-12)
 
 
