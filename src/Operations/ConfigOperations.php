@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Operations;
 
 use Milpa\AppRuntime\Config\JudgeCeiling;
+use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Config\MachineOverlay;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Effect\Authority;
@@ -41,8 +42,21 @@ use Milpa\Command\Operation;
  */
 final class ConfigOperations implements CommandProvider
 {
-    public function __construct(private readonly string $root, private readonly array $operations = [])
+    /**
+     * Both arguments are seams, and their defaults are the safe end.
+     *
+     * The root resolves the way this family already resolves it, so a bare `new ConfigOperations()`
+     * works where every other provider does. And with NO catalogue the borrowed ceiling folds over
+     * nothing, which GOV-05 makes the maximum of every dimension — so an instance that was told
+     * nothing asks for consent rather than skipping it. Failing upwards, again.
+     */
+    public function __construct(private readonly ?string $root = null, private readonly array $operations = [])
     {
+    }
+
+    private function raiz(): string
+    {
+        return $this->root ?? Capabilities::raizDeLaApp();
     }
 
     /** @return list<Operation> */
@@ -94,13 +108,13 @@ final class ConfigOperations implements CommandProvider
     /** @return array<string, mixed> */
     private function show(): array
     {
-        $delHumano = \is_array($c = @include $this->root . '/config/app.php') ? $c : [];
+        $delHumano = \is_array($c = @include $this->raiz() . '/config/app.php') ? $c : [];
 
         return [
             'ok' => true,
-            'config' => MachineOverlay::sobre($delHumano, $this->root)['agent'] ?? [],
-            'declared_twice' => MachineOverlay::divergencias($delHumano, $this->root),
-            'written_by_the_machine' => is_file($this->root . MachineOverlay::RUTA),
+            'config' => MachineOverlay::sobre($delHumano, $this->raiz())['agent'] ?? [],
+            'declared_twice' => MachineOverlay::divergencias($delHumano, $this->raiz()),
+            'written_by_the_machine' => is_file($this->raiz() . MachineOverlay::RUTA),
         ];
     }
 
@@ -116,7 +130,7 @@ final class ConfigOperations implements CommandProvider
             return ['ok' => false, 'error' => 'a key is required — the dotted path Config::get asks for'];
         }
 
-        $archivo = $this->root . MachineOverlay::RUTA;
+        $archivo = $this->raiz() . MachineOverlay::RUTA;
         $actual = is_file($archivo) ? json_decode((string) file_get_contents($archivo), true) : [];
         $actual = \is_array($actual) ? $actual : [];
 
