@@ -19,6 +19,7 @@ use Milpa\AppRuntime\Support\CapabilityIndex;
 use Milpa\DevTools\Doctor\Repair;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Effect\Authority;
+use Milpa\Command\Effect\Descent;
 use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Externality;
 use Milpa\Command\Effect\Mutation;
@@ -192,6 +193,32 @@ final readonly class CapabilityOperations implements CommandProvider
                     Authority::Privileged,
                     subject: Subject::Executable,
                     escalatesOn: ['capability'],
+                    // EL ENSAYO NO ES LA COSA (greenhouse decisions/0029).
+                    //
+                    // Sin esto, `--dry-run` cargaba el techo de la instalación real y S2 le pedía
+                    // consentimiento a alguien para NO hacer nada — y de paso el prompt caía donde el
+                    // llamador esperaba JSON.
+                    //
+                    // Las dos mitades están medidas, no argumentadas: evidence/0146 comparó la huella
+                    // del disco antes y después —mismos archivos, mismo lock— y evidence/0149 lo corrió
+                    // en un espacio de nombres SIN RED con la caché de composer fría: la instalación
+                    // real falla ahí y el ensayo pasa. Por eso `Externality` puede bajar también.
+                    descents: [new Descent(
+                        argument: 'dry_run',
+                        whenValue: true,
+                        to: new EffectProfile(
+                            Mutation::None,
+                            Externality::None,
+                            Reversibility::Guaranteed,
+                            Authority::Read,
+                            subject: Subject::None,
+                            rollbackContract: 'nothing ran, so there is nothing to undo',
+                        ),
+                        because: 'the handler returns the composer command it WOULD run without running it: '
+                            . 'measured leaving the disk untouched (greenhouse evidence/0146) and succeeding '
+                            . 'inside an empty network namespace on a cold cache, where the real install fails '
+                            . '(greenhouse evidence/0149)',
+                    )],
                 ),
                 description: 'Install an opt-in capability by name — one step instead of three',
                 handler: fn (array $input): array => $this->enable($input),
