@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1](https://github.com/getmilpa/app-runtime/compare/v0.15.0...v0.15.1) (2026-08-12)
+
+
+### Bug Fixes
+
+* the catalogue declares its own ceiling ([#31](https://github.com/getmilpa/app-runtime/issues/31)) ([a838a2e](https://github.com/getmilpa/app-runtime/commit/a838a2ef074578fc53f34ccedad50e42a8d6994a))
+
 ## [0.15.0](https://github.com/getmilpa/app-runtime/compare/v0.14.0...v0.15.0) (2026-08-12)
 
 
