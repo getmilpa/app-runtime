@@ -104,6 +104,40 @@ final class MachineOverlayTest extends TestCase
         self::assertSame($delHumano, MachineOverlay::sobre($delHumano, $this->root));
     }
 
+    /** 6 · the same key in both files is divergence, and it gets named by its dotted path. */
+    public function testAKeyDeclaredInBothPlacesIsReported(): void
+    {
+        $this->machineWrote(['agent' => ['permissionWindow' => 'PT1H']]);
+
+        self::assertSame(
+            ['agent.permissionWindow'],
+            MachineOverlay::divergencias(['agent' => ['permissionWindow' => 'P3D']], $this->root),
+        );
+    }
+
+    /**
+     * 7 · THE CONTROL FOR THE DETECTOR: sharing a parent section is not divergence.
+     *
+     * Both files declaring `agent` while touching different keys inside is exactly how this layer is
+     * meant to be used. A detector that reported the parent would fire on every healthy app and be
+     * ignored within a week — which is worse than no detector, because it also grants confidence.
+     */
+    public function testSharingAParentSectionIsNotDivergence(): void
+    {
+        $this->machineWrote(['agent' => ['instructions' => 'mine']]);
+
+        self::assertSame(
+            [],
+            MachineOverlay::divergencias(['agent' => ['compaction' => ['maxTurns' => 40]]], $this->root),
+        );
+    }
+
+    /** 8 · no machine file, nothing to diverge from. */
+    public function testWithoutTheFileThereIsNoDivergence(): void
+    {
+        self::assertSame([], MachineOverlay::divergencias(['agent' => ['instructions' => 'mine']], $this->root));
+    }
+
     /** @param array<string, mixed> $valores */
     private function machineWrote(array $valores): void
     {

@@ -816,6 +816,25 @@ final class Application
         $this->line('coa doctor · ' . \count($clases) . ' plugin(s) declared');
         $this->line('');
 
+        // LO QUE LOS DOS ARCHIVOS DECLARAN A LA VEZ (greenhouse evidence/0145).
+        //
+        // `.milpa/agent.json` gana sobre `config/app.php`, así que una llave declarada en ambos deja
+        // de tener efecto en el archivo que la persona abre — y sin esto se entera cambiando el valor
+        // y viendo que no pasa nada. Prohibir la edición a mano no está a nuestro alcance; que la
+        // divergencia sea invisible sí lo estaba.
+        $enAmbos = MachineOverlay::divergencias(
+            \is_array($delApp = @include $this->root . '/config/app.php') ? $delApp : [],
+            $this->root,
+        );
+
+        foreach ($enAmbos as $ruta) {
+            $this->line("  ! «{$ruta}» está en config/app.php Y en .milpa/agent.json — gana el segundo");
+        }
+
+        if ($enAmbos !== []) {
+            $this->line('');
+        }
+
         foreach ($reporte->unreadable as $ilegible) {
             $this->line('  ✗ ' . $ilegible);
         }
