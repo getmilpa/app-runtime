@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.2](https://github.com/getmilpa/app-runtime/compare/v0.15.1...v0.15.2) (2026-08-12)
+
+
+### Bug Fixes
+
+* accept milpa/console ^0.8 so the wired S2 reaches an app ([#33](https://github.com/getmilpa/app-runtime/issues/33)) ([4b9ff7c](https://github.com/getmilpa/app-runtime/commit/4b9ff7cfd9e3ec1fdbc737cd7bf876a9da6bfc1c))
+
 ## [0.15.1](https://github.com/getmilpa/app-runtime/compare/v0.15.0...v0.15.1) (2026-08-12)
 
 
