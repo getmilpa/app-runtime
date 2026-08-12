@@ -410,10 +410,21 @@ final class Application
 
         $operacion = $this->find($comando);
         if ($operacion === null) {
-            $this->line("✗ no existe el comando «{$comando}»");
+            $this->line("✗ no such command «{$comando}»");
             $this->line('');
+            $this->help();
 
-            return $this->help();
+            // A NAME THAT IS NOT THERE HAS TO LEAVE A FAILING STATUS BEHIND IT.
+            //
+            // The catalogue still prints, because showing what DOES exist is the useful answer. What
+            // this used to return was `help()`'s zero, so the sentence above was the only trace the
+            // failure left: text, and nothing a shell, a Makefile, a CI step or an agent chaining
+            // `coa a && coa b` can read. `set -e` does not catch a success.
+            //
+            // It matters more here than in most runtimes, because this one's whole claim is that an
+            // agent can drive it. Asking for a name the app does not carry got told so in prose and
+            // told everything was fine by the exit code, and those two answers disagreed.
+            return 1;
         }
 
         $resto = \array_slice($argv, 2);
