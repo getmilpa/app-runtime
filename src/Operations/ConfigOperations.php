@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Operations;
 
+use Milpa\AppRuntime\Config\AgentKeys;
 use Milpa\AppRuntime\Config\JudgeCeiling;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\CatalogueBorrower;
@@ -188,6 +189,12 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
             'config' => MachineOverlay::sobre($delHumano, $this->raiz())['agent'] ?? [],
             'declared_twice' => MachineOverlay::divergencias($delHumano, $this->raiz()),
             'written_by_the_machine' => is_file($this->raiz() . MachineOverlay::RUTA),
+
+            // WHICH KEYS EXIST, because an agent that cannot see the knobs is being asked to know
+            // the architecture — the same thing scaffolding exists to remove. greenhouse
+            // evidence/0155: the code reads seventeen, the template documents four, and a newborn
+            // ships two, none of them the agent's.
+            'keys' => AgentKeys::todas(),
         ];
     }
 
@@ -222,12 +229,25 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
         @mkdir(\dirname($archivo), 0o777, true);
         file_put_contents($archivo, json_encode($actual, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE) . "\n");
 
-        return [
+        $respuesta = [
             'ok' => true,
             'key' => $llave,
             'written_to' => MachineOverlay::RUTA,
             'governs_the_judge' => JudgeCeiling::esCriterioDelJuez($llave),
             'hint' => 'run `coa config` to see it, and `coa doctor` if config/app.php declares it too',
         ];
+
+        // AN UNKNOWN KEY IS REPORTED AND STILL WRITTEN, and that is a decision rather than an
+        // omission (greenhouse evidence/0155). This runtime speaks only for its own keys: a plugin
+        // declares its own and this list cannot know them, so refusing would break a legitimate app
+        // in order to punish a typo — and the write is already governed by consent, so what is
+        // missing here is not another lock but the caller knowing what exists.
+        if (! AgentKeys::conocida($llave)) {
+            $respuesta['unknown_key'] = true;
+            $respuesta['hint'] = 'this runtime does not declare that key — it was written anyway, '
+                . 'since a plugin may. Run `coa config` for the ones it does declare.';
+        }
+
+        return $respuesta;
     }
 }
