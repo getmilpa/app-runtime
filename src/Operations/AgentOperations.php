@@ -749,6 +749,11 @@ class AgentOperations implements CommandProvider
         $vigia = $vigia instanceof StepWatcher ? $vigia : null;
 
         try {
+            // Lo que ESTA sesión ya consintió, puesto donde `ask()` lo lee sin cambiar su firma:
+            // `ask()` es protected y el esqueleto lo sobrescribe, así que crecerle parámetros lo rompe.
+            $this->permisosDeLaSesion = $permisosDeSesion;
+            $this->sesionDeLosPermisos = $sessionId !== '' ? $sessionId : null;
+
             $respuesta = $this->ask(
                 $prompt,
                 $pasos,
@@ -765,8 +770,6 @@ class AgentOperations implements CommandProvider
                 $table,
                 $grabadora,
                 $this->tableroDePlan($sessionId, $store),
-                // Lo que ESTA sesión ya consintió, para que la compuerta de abajo lo vea.
-                permisos: $permisosDeSesion
             );
         } catch (RunInterrupted $e) {
             // INTERRUMPIR NO ES FALLAR. El trabajo hecho hasta aquí ya está en el stream —cada llamada
@@ -864,6 +867,27 @@ class AgentOperations implements CommandProvider
      *                                                             como corría antes de P16.1
      * @param list<string>                               $permisos operaciones que ESTA sesión ya consintió
      */
+    /**
+     * LOS PERMISOS NO VIAJAN EN LA FIRMA DE `ask()`, y eso es compatibilidad, no estilo.
+     *
+     * `ask()` es `protected` y el esqueleto lo SOBRESCRIBE: agregarle parámetros rompió su override
+     * con un fatal en cada corrida — «Declaration of … ::ask() must be compatible». Un punto de
+     * extensión que viaja en `composer create-project` no puede crecer parámetros sin romper a quien
+     * ya lo extendió, y esa lección la pagó v0.28.0.
+     *
+     * @var list<string>
+     *
+     * @param array<int, array<string, mixed>> $history
+     */
+    private array $permisosDeLaSesion = [];
+
+    private ?string $sesionDeLosPermisos = null;
+
+    /**
+     * Una vuelta del agente contra el modelo, con sus herramientas y su compuerta.
+     *
+     * @param array<int, array<string, mixed>> $history lo que ya se dijo en esta sesión
+     */
     protected function ask(
         string $prompt,
         int $pasos,
@@ -877,8 +901,6 @@ class AgentOperations implements CommandProvider
         ?OptionTable $mesa = null,
         ?ToolCallRecorder $recorder = null,
         ?PlanBoard $tablero = null,
-        array $permisos = [],
-        ?string $sesion = null,
     ): string {
         $modeloRemoto = new LlmService(
             $llave,
@@ -900,9 +922,10 @@ class AgentOperations implements CommandProvider
         // deja de ser el contrato.
         //
         // `provenance` dice CÓMO se ganó, para que ningún consumidor tenga que volver a ganarlo.
-        if ($permisos !== []) {
+        if ($this->permisosDeLaSesion !== []) {
             $ahora = new \DateTimeImmutable();
             $quien = (getenv('USER') ?: 'desconocido') . '@' . gethostname();
+            $enQueSesion = $this->sesionDeLosPermisos;
 
             $cliente->setContext(new ToolContext(
                 channel: 'cli',
@@ -914,11 +937,11 @@ class AgentOperations implements CommandProvider
                         static fn (string $concedido): ConsentGrant => new ConsentGrant(
                             operation: new OperationId($concedido),
                             principal: 'cli:' . $quien,
-                            session: $sesion,
+                            session: $enQueSesion,
                             grantedAt: $ahora,
                             provenance: 'session.question_answered',
                         ),
-                        $permisos,
+                        $this->permisosDeLaSesion,
                     ),
                 ],
             ));
