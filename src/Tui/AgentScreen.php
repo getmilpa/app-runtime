@@ -1165,7 +1165,7 @@ final class AgentScreen implements SurfaceBroadcaster
         // Va detrás de una variable de entorno porque es un instrumento, no una función: un humano
         // no tiene por qué ver índices, y un instrumento que se cuela en la pantalla de todos deja
         // de ser instrumento y pasa a ser ruido.
-        if (getenv('MILPA_TUI_DEBUG') !== false && getenv('MILPA_TUI_DEBUG') !== '') {
+        if (TuiProbe::pedida()) {
             $hijos[] = new TuiNode('sel-sonda', 'text', props: [
                 'text' => sprintf(
                     '  [sonda] cursor=%d ventana=%d..%d caben=%d total=%d',
