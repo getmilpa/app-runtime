@@ -18,6 +18,7 @@ use Milpa\AiGateway\AgentOrchestrator;
 use Milpa\AiGateway\PlanBoard;
 use Milpa\AiGateway\RunInterrupted;
 use Milpa\AppRuntime\Agent\ArchitectureSummaryProjector;
+use Milpa\AppRuntime\Config\AgentEndpoint;
 use Milpa\Attributes\PluginMetadata;
 use Milpa\Plugin\Runtime\MetadataGraphResolver;
 use Milpa\Resolver\Report\ResolutionReport;
@@ -1722,15 +1723,11 @@ class AgentOperations implements CommandProvider
      */
     private function baseUrl(): ?string
     {
-        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
-        $declarado = $config instanceof Config ? $config->get('agent.baseUrl') : null;
-        if (\is_string($declarado) && $declarado !== '') {
-            return $declarado;
-        }
-
-        $entorno = getenv('MILPA_AGENT_BASE_URL');
-
-        return \is_string($entorno) && $entorno !== '' ? $entorno : null;
+        // La precedencia vive en UN lugar (greenhouse evidence/0166): estaba escrita aquí y otra vez
+        // en el banner del chat, y las dos copias no coincidían.
+        return AgentEndpoint::baseUrl(
+            $this->container->has(Config::class) && ($c = $this->container->get(Config::class)) instanceof Config ? $c : null,
+        );
     }
 
     /**
@@ -1772,7 +1769,7 @@ class AgentOperations implements CommandProvider
             return [
                 'openai',
                 \is_string($llaveLocal) && $llaveLocal !== '' ? $llaveLocal : 'local',
-                \is_string($modeloDeclarado) ? $modeloDeclarado : (getenv('MILPA_AGENT_MODEL') ?: 'qwen3-coder:30b'),
+                    AgentEndpoint::model($config instanceof Config ? $config : null) ?? 'qwen3-coder:30b',
             ];
         }
 
