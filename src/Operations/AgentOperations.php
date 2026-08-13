@@ -899,7 +899,18 @@ class AgentOperations implements CommandProvider
         if ($permisos !== []) {
             $cliente->setContext(new ToolContext(
                 channel: 'cli',
-                extra: ['session.granted' => $permisos],
+                // LAS DOS ORTOGRAFÍAS DEL MISMO ACTO. El permiso se registra con el nombre de la
+                // OPERACIÓN —`config:set`— y la herramienta se llama `config_set`: mismo acto, dos
+                // grafías, y la compuerta comparaba cadenas. El humano decía que sí y el sí no
+                // encajaba con nada (greenhouse evidence/0176).
+                //
+                // La traducción vive AQUÍ y no en `tool-runtime`: que dos puntos y guión bajo sean
+                // lo mismo es una convención de esta familia, y el runtime de herramientas no tiene
+                // por qué conocerla.
+                extra: ['session.granted' => array_values(array_unique(array_merge(
+                    $permisos,
+                    array_map(static fn (string $p): string => str_replace(':', '_', $p), $permisos),
+                )))],
             ));
         }
 
