@@ -867,7 +867,12 @@ class AgentOperations implements CommandProvider
 
         return $orquestador->run(
             $prompt,
-            $this->systemPrompt(),
+            // LO QUE VIAJA DE VERDAD, no lo que el catálogo cree: el prompt se arma con los nombres
+            // que este registro va a mandar, para que no ordene lo que no dio.
+            $this->systemPrompt(array_map(
+                static fn (\Milpa\ToolRuntime\ToolDefinition $d): string => $d->name,
+                $registry->getToolDefinitions(),
+            )),
             $history,
             $onStep,
         );
@@ -1194,11 +1199,29 @@ class AgentOperations implements CommandProvider
         return new SterileLoopGuard();
     }
 
-    private function instruccionDePlan(): bool
+    /**
+     * @param list<string> $herramientas los nombres que de verdad viajan en esta corrida
+     */
+    private function instruccionDePlan(array $herramientas): bool
     {
         $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
 
-        return ($config instanceof Config ? $config->get('agent.planInstruction') : null) !== false;
+        if (($config instanceof Config ? $config->get('agent.planInstruction') : null) === false) {
+            return false;
+        }
+
+        // NO LE ORDENES LO QUE NO LE DISTE.
+        //
+        // Estos tres renglones le mandan escribir un plan con `plan` y un pendiente con `todo`, y en
+        // un app donde esas herramientas no se registran NO VIAJAN — medido en el cable, 28
+        // herramientas y ninguna de las dos (greenhouse evidence/0172). El agente quedaba con una
+        // orden imposible, y la medición lo describía como desobediente: cero planes en veinte
+        // llamadas, cuando la causa era que no podía.
+        //
+        // Es MILPA-G002 del lado del agente: una instrucción no se cumple por estar escrita, y aquí
+        // ni siquiera había con qué. Se calla, que es lo correcto y no lo cómodo — inventar las
+        // herramientas para toda app es decisión de producto y no de este arreglo.
+        return \in_array('plan', $herramientas, true) && \in_array('todo', $herramientas, true);
     }
 
     /**
@@ -1502,7 +1525,10 @@ class AgentOperations implements CommandProvider
      * salir a la red. Un prompt de sistema que nadie puede leer se convierte en el lugar donde se
      * acumulan afirmaciones que ya no son ciertas.
      */
-    protected function systemPrompt(): string
+    /**
+     * @param list<string> $herramientas los nombres que de verdad viajan en esta corrida
+     */
+    protected function systemPrompt(array $herramientas = []): string
     {
         $partes = [
             'Eres el agente de esta app Milpa. Usa las herramientas para responder; no inventes '
@@ -1532,7 +1558,7 @@ class AgentOperations implements CommandProvider
         // hay una ironía que vale la pena dejar escrita donde vive: el tercer renglón le pide seguir un
         // plan que **el bucle nunca le enseña** — `AgentOrchestrator` no conocía `Todo` hasta que
         // apareció {@see \Milpa\AiGateway\PlanBoard}. Ésa es la pregunta entera en una frase.
-        if ($this->instruccionDePlan()) {
+        if ($this->instruccionDePlan($herramientas)) {
             $partes[] = "Cuando el trabajo lleve más de dos o tres pasos:\n"
                 . "- Escribe un plan con `plan` ANTES de empezar, y agrega un pendiente con `todo` por cada parte.\n"
                 . "- Marca `todo` con status `done` EN CUANTO termines cada una, no al final.\n"
