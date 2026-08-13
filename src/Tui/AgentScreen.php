@@ -120,6 +120,22 @@ final class AgentScreen implements SurfaceBroadcaster
     private bool $rehidratada = false;
 
     /** Si la pantalla está en el selector de `/sessions`. */
+    /**
+     * How many rows the reader has scrolled UP from the bottom of the transcript.
+     *
+     * Zero means the newest is on screen, which is where a conversation belongs. greenhouse
+     * evidence/0167: the screen announced how many rows were above and no key reached them, so a
+     * long answer's opening was unreachable forever — a notice that leads nowhere, which teaches
+     * the human that something is lost and that their terminal does not answer.
+     */
+    private int $desplazamiento = 0;
+
+    /** Rows the transcript can show right now — what a page step is worth. */
+    private int $alturaTranscript = 0;
+
+    /** Rows the whole conversation occupies, so the scroll knows where the top is. */
+    private int $filasTotales = 0;
+
     private bool $eligiendoSesion = false;
 
     /** Cuál fila del selector está marcada. */
@@ -481,8 +497,50 @@ final class AgentScreen implements SurfaceBroadcaster
         return $hijo === null ? null : $hijo['options'];
     }
 
+    /**
+     * Move the reading window, and report whether the key did anything at all.
+     *
+     * Returning false when nothing moved is what keeps the control honest: a scroll that swallows a
+     * key at the top of the transcript looks exactly like one that works, and the human loses the
+     * key without learning they are already at the edge.
+     */
+    private function desplazar(int $a): bool
+    {
+        if ($a === $this->desplazamiento) {
+            return false;
+        }
+
+        $this->desplazamiento = $a;
+        $this->loop->repintarTodo();
+
+        return true;
+    }
+
     private function handleKey(string $key, RetainedTuiLoop $loop): bool
     {
+        // LEER HACIA ARRIBA, que es lo que la pantalla llevaba anunciando sin permitir.
+        //
+        // Va ANTES del selector de sesiones a propósito: cuando el selector está abierto, up/down
+        // son suyas y este bloque no debe robárselas — por eso pregunta primero si está cerrado.
+        if (! $this->eligiendoSesion && $this->alturaTranscript > 0) {
+            $paso = max(1, $this->alturaTranscript - 1);
+            $tope = max(0, $this->filasTotales - $this->alturaTranscript);
+
+            $movido = match ($key) {
+                'up' => $this->desplazar(min($tope, $this->desplazamiento + 1)),
+                'down' => $this->desplazar(max(0, $this->desplazamiento - 1)),
+                'pageup' => $this->desplazar(min($tope, $this->desplazamiento + $paso)),
+                'pagedown' => $this->desplazar(max(0, $this->desplazamiento - $paso)),
+                'home' => $this->desplazar($tope),
+                'end' => $this->desplazar(0),
+                default => null,
+            };
+
+            if ($movido !== null) {
+                return $movido;
+            }
+        }
+
         // ESC EN REPOSO LIMPIA LO ESCRITO.
         //
         // Su trabajo grande es interrumpir, y eso pasa mientras el agente trabaja —lo lee
@@ -631,6 +689,9 @@ final class AgentScreen implements SurfaceBroadcaster
             return;
         }
 
+        // PREGUNTAR DEVUELVE LA VISTA AL FINAL. Es una conversación, no un archivo: quien acaba de
+        // preguntar quiere ver la respuesta, y el aviso paga el costo diciendo qué quedó arriba.
+        $this->desplazamiento = 0;
         $this->conversation[] = ['quien' => 'tú', 'texto' => $pregunta];
         $this->entrada = '';
 
@@ -1249,6 +1310,22 @@ final class AgentScreen implements SurfaceBroadcaster
         $chrome = 6 + $fieldHeight + (($sesion?->question !== null || $deHijo !== null) ? 3 : 0) + $altoTabla;
         $presupuesto = max(3, $this->height - \count($hijos) - $chrome);
 
+        // LAS TECLAS NECESITAN SABER CUÁNTO CABE Y CUÁNTO HAY. Sin esto, «una página» sería un
+        // número inventado y el tope del desplazamiento no existiría: se podría subir para siempre
+        // por encima del principio de la conversación (greenhouse evidence/0167).
+        $this->alturaTranscript = $presupuesto;
+        $this->filasTotales = 0;
+        foreach ($lineas as [$idT, $textoT, $vozT]) {
+            $this->filasTotales += $this->heightOf($vozT === 'agente'
+                ? new TuiNode($idT, 'markdown', props: ['content' => $textoT, 'wrap' => true, 'paddingX' => 2])
+                : new TuiNode($idT, 'text', props: ['text' => $textoT]));
+        }
+        $this->desplazamiento = min($this->desplazamiento, max(0, $this->filasTotales - $presupuesto));
+
+        // Lo que el lector dejó abajo al subir: se salta desde el final antes de empezar a llenar.
+        $porSaltar = $this->desplazamiento;
+        $rowsBelow = 0;
+
         // ── UNA CONVERSACIÓN SE DESPLAZA; NO SE REPARTE ────────────────────────────────────────
         //
         // El presupuesto era de ENTRADAS y el motor repartía el alto en partes iguales entre ellas,
@@ -1268,6 +1345,21 @@ final class AgentScreen implements SurfaceBroadcaster
         $spent = 0;
         $allFits = true;
         foreach (array_reverse($lineas) as [$id, $texto, $voz]) {
+            // SE SALTA LO QUE EL LECTOR DEJÓ ABAJO. Va aquí y no en un `array_slice` previo
+            // porque el salto se cuenta en RENGLONES pintados, no en entradas: una respuesta del
+            // modelo es UNA entrada y puede medir media pantalla.
+            $altoSalto = $this->heightOf($voz === 'agente'
+                ? new TuiNode($id, 'markdown', props: ['content' => $texto, 'wrap' => true, 'paddingX' => 2])
+                : new TuiNode($id, 'text', props: ['text' => $texto]));
+
+            if ($porSaltar > 0) {
+                $porSaltar -= $altoSalto;
+                $rowsBelow += $altoSalto;
+                $allFits = false;
+
+                continue;
+            }
+
             $nodo = $voz === 'agente'
                 // `markdown` y no `text`: el modelo escribe con negritas, listas y bloques de
                 // código, y pintarlo plano descarta información que él sí puso.
@@ -1342,9 +1434,24 @@ final class AgentScreen implements SurfaceBroadcaster
                     : new TuiNode($id, 'text', props: ['text' => $texto]));
             }
         }
-        if ($rowsAbove > 0) {
+        // EL AVISO DICE LAS DOS DIRECCIONES, y ahora nombra la tecla que lo resuelve.
+        //
+        // Mientras no se podía subir, «N más arriba» era toda la verdad porque siempre estabas al
+        // final. En cuanto se puede, callar lo de abajo deja al humano sin saber que se está
+        // perdiendo lo más nuevo — y un aviso que no dice cómo llegar es el defecto que este slice
+        // vino a quitar, sólo que en su otra mitad (greenhouse evidence/0167).
+        if ($rowsAbove > 0 || $rowsBelow > 0) {
+            $partes = [];
+            if ($rowsAbove > 0) {
+                $partes[] = sprintf('↑ %d renglón(es) más arriba', $rowsAbove);
+            }
+            if ($rowsBelow > 0) {
+                $partes[] = sprintf('↓ %d más abajo', $rowsBelow);
+            }
+            $partes[] = $rowsBelow > 0 ? '[End] al final' : '[↑] subir';
+
             $hijos[] = new TuiNode('conv-arriba', 'text', props: [
-                'text' => sprintf('  ↑ %d renglón(es) más arriba', $rowsAbove),
+                'text' => '  ' . implode(' · ', $partes),
                 'height' => 1,
             ]);
         }
