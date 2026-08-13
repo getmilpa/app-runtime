@@ -19,6 +19,7 @@ use Milpa\AiGateway\PlanBoard;
 use Milpa\AiGateway\RunInterrupted;
 use Milpa\AppRuntime\Agent\ArchitectureSummaryProjector;
 use Milpa\AppRuntime\Config\AgentEndpoint;
+use Milpa\ToolRuntime\Contracts\ToolContext;
 use Milpa\Attributes\PluginMetadata;
 use Milpa\Plugin\Runtime\MetadataGraphResolver;
 use Milpa\Resolver\Report\ResolutionReport;
@@ -407,10 +408,13 @@ class AgentOperations implements CommandProvider
 
         $compuerta = null;
         $contabilidad = [];
+        /** @var list<string> $permisosDeSesion lo que ESTA sesión ya consintió */
+        $permisosDeSesion = [];
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
         if ($sessionId !== '' && $store !== null && $kernel instanceof Kernel) {
             $viva = $store->load($sessionId);
             if ($viva !== null) {
+                $permisosDeSesion = $viva->permissions;
                 $compuerta = new SessionToolGate(
                     $store,
                     $viva,
@@ -743,10 +747,25 @@ class AgentOperations implements CommandProvider
         $vigia = $vigia instanceof StepWatcher ? $vigia : null;
 
         try {
-            $respuesta = $this->ask($prompt, $pasos, $registry, $proveedor, $llave, $modelo, function () use (&$vistos, $vigia): void {
-                ++$vistos;
-                $vigia?->paso($vistos);
-            }, $historial, $compuerta, $table, $grabadora, $this->tableroDePlan($sessionId, $store));
+            $respuesta = $this->ask(
+                $prompt,
+                $pasos,
+                $registry,
+                $proveedor,
+                $llave,
+                $modelo,
+                function () use (&$vistos, $vigia): void {
+                    ++$vistos;
+                    $vigia?->paso($vistos);
+                },
+                $historial,
+                $compuerta,
+                $table,
+                $grabadora,
+                $this->tableroDePlan($sessionId, $store),
+                // Lo que ESTA sesión ya consintió, para que la compuerta de abajo lo vea.
+                permisos: $permisosDeSesion
+            );
         } catch (RunInterrupted $e) {
             // INTERRUMPIR NO ES FALLAR. El trabajo hecho hasta aquí ya está en el stream —cada llamada
             // se apenda al ocurrir— así que la sesión sigue viva y retomable. Decirlo como error
@@ -838,9 +857,10 @@ class AgentOperations implements CommandProvider
      * dejar la mitad del archivo sin medir y enterarse en producción.
      *
      * @param callable():void                            $onStep
-     * @param list<array{role: string, content: string}> $history lo que ya se dijo en esta sesión —
-     *                                                            vacío cuando no hay sesión, que es
-     *                                                            como corría antes de P16.1
+     * @param list<array{role: string, content: string}> $history  lo que ya se dijo en esta sesión —
+     *                                                             vacío cuando no hay sesión, que es
+     *                                                             como corría antes de P16.1
+     * @param list<string>                               $permisos operaciones que ESTA sesión ya consintió
      */
     protected function ask(
         string $prompt,
@@ -855,6 +875,7 @@ class AgentOperations implements CommandProvider
         ?OptionTable $mesa = null,
         ?ToolCallRecorder $recorder = null,
         ?PlanBoard $tablero = null,
+        array $permisos = [],
     ): string {
         $modeloRemoto = new LlmService(
             $llave,
@@ -865,6 +886,22 @@ class AgentOperations implements CommandProvider
             extraHeaders: $this->extraHeaders(),
         );
         $cliente = new McpClientService($registry, $gate, $recorder ?? ($gate instanceof ToolCallRecorder ? $gate : null), $mesa);
+
+        // EL PERMISO DE LA SESIÓN VIAJA HASTA LA COMPUERTA, o el sí del humano no llega a nada.
+        //
+        // `SessionToolGate` preguntaba, el humano contestaba, el permiso quedaba escrito en la
+        // sesión… y `PolicyGate` no miraba ahí: exigía firma y rechazaba igual. La app hacía una
+        // pregunta cuya respuesta no servía, y por `cli` el bucle no podía ejecutar NADA que pidiera
+        // confirmación (greenhouse evidence/0176, medido de punta a punta).
+        //
+        // `setContext()` existía y NADIE la llamaba — un setter sin llamador es la misma forma que
+        // evidence/0152 nombró: el campo no es el mecanismo.
+        if ($permisos !== []) {
+            $cliente->setContext(new ToolContext(
+                channel: 'cli',
+                extra: ['session.granted' => $permisos],
+            ));
+        }
 
         // EL PARÁMETRO SÓLO SE PASA CUANDO HAY TABLERO, y no es estilo: es defensa.
         //
