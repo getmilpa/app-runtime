@@ -1325,6 +1325,8 @@ final class AgentScreen implements SurfaceBroadcaster
         // Lo que el lector dejó abajo al subir: se salta desde el final antes de empezar a llenar.
         $porSaltar = $this->desplazamiento;
         $rowsBelow = 0;
+        /** @var list<string> $saltados */
+        $saltados = [];
 
         // ── UNA CONVERSACIÓN SE DESPLAZA; NO SE REPARTE ────────────────────────────────────────
         //
@@ -1355,6 +1357,7 @@ final class AgentScreen implements SurfaceBroadcaster
             if ($porSaltar > 0) {
                 $porSaltar -= $altoSalto;
                 $rowsBelow += $altoSalto;
+                $saltados[] = $id;
                 $allFits = false;
 
                 continue;
@@ -1424,6 +1427,14 @@ final class AgentScreen implements SurfaceBroadcaster
             $placed = [];
             foreach ($visible as $node) {
                 $placed[$node->id] = true;
+            }
+            // LO DE ABAJO NO CUENTA COMO DE ARRIBA. Este bucle contaba TODO lo que no se pintó, y al
+            // subir del todo eso incluye lo que quedó por debajo del lector: el aviso decía «103
+            // arriba · 103 abajo» estando en el principio, donde arriba no queda nada. Un número
+            // correcto bajo el nombre equivocado se lee sin levantar sospecha, que es justo lo que
+            // este contador ya había hecho dos veces con su sustantivo.
+            foreach ($saltados as $idSaltado) {
+                $placed[$idSaltado] = true;
             }
             foreach ($lineas as [$id, $texto, $voz]) {
                 if (isset($placed[$id])) {
