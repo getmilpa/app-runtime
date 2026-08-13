@@ -1155,7 +1155,14 @@ final class AgentScreen implements SurfaceBroadcaster
             $hijos[] = new TuiNode('sel-arriba', 'text', props: ['text' => sprintf('  ↑ %d más arriba', $desde)]);
         }
 
-        foreach (\array_slice($filas, $desde, $caben, true) as $i => $fila) {
+        // SIN `preserve_keys`, y el índice real se suma. Conservar las claves parecía lo correcto
+        // —el cursor cuenta sobre la lista entera— y dejó el marcador SIN PINTAR: `$filas` no viene
+        // indexada 0..n, así que `$i` no era un entero comparable con el cursor. Se veía como una
+        // lista sin nada seleccionado, que es peor que el defecto que esto vino a arreglar.
+        //
+        // Lo cazó el ganado, no la suite: 407 pruebas verdes y el marcador ausente en la pantalla.
+        foreach (\array_slice($filas, $desde, $caben) as $j => $fila) {
+            $i = $desde + $j;
             $marca = $i === $this->cursorSesiones ? '›' : ' ';
             $objetivo = (string) $fila['goal'];
             $hijos[] = new TuiNode("sel:{$i}", 'text', props: [
