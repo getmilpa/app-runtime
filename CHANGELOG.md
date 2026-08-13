@@ -1,5 +1,74 @@
 # Changelog
 
+
+## [0.20.0](https://github.com/getmilpa/app-runtime/releases/tag/v0.20.0) (2026-08-12)
+
+**`AgentKeyScan`: what an agent configuration key looks like, defined once.**
+
+The rule was written twice and the two copies disagreed — the only way this defect ever shows up. Greenhouse `evidence/0158` planted a key beginning with a digit and the narrower copy did not see it: a rail meant to remove a blind spot had one.
+
+The pattern now lives in one constant and the sweep in one method. This package's staleness rail calls it, and so does the greenhouse's family-wide rail, which reads the class out of a cattle app's vendor tree.
+
+## [0.19.0](https://github.com/getmilpa/app-runtime/releases/tag/v0.19.0) (2026-08-12)
+
+**`config` says which keys exist.**
+
+The code reads seventeen agent keys, the template's comment documents four, and a newborn app ships two — neither of them the agent's. `config` now names every key with its type and what it decides.
+
+A hand-written catalogue with nothing confronting it is the same debt better dressed, so the declaration is checked against the `Config::get('agent.*')` call sites derived from this package's own source, in **both** directions: a key read and undeclared teaches nobody, and a key declared and never read is a knob that does not exist.
+
+**An unknown key is reported and still written.** This runtime speaks only for its own keys — a plugin declares its own — so refusing would break a legitimate app to punish a typo. The write is already governed by consent; what was missing is not another lock but the caller knowing what exists.
+
+## [0.18.0](https://github.com/getmilpa/app-runtime/releases/tag/v0.18.0) (2026-08-12)
+
+**The borrowed ceiling is derived from the real catalogue.**
+
+A provider is built in order to *produce* the catalogue, so when it declares its operations the catalogue does not exist yet. `ConfigOperations` received nothing, borrowed from an empty catalogue, and GOV-05 made that the maximum of every axis — safe, and derived from nothing.
+
+`Operations::all()` now runs a second pass once the catalogue is complete, handing it to whoever declares the new `CatalogueBorrower`. What a borrower is handed **excludes its own operations**: folding a borrower into its own loan is a fixed point that returns the maximum.
+
+The loan is **joined** with what the act intrinsically does rather than substituted for it. A mild app lends a mild ceiling, and a ceiling below the act itself is a contradiction `Operation` refuses — `config:set` writes a file and cannot carry `Mutation::None`. Joining also keeps the loan monotone: it can only raise a ceiling, never excuse it.
+
+This does not change whether `config:set` asks for consent. What changes is the honesty of the number — a derived ceiling drops when the app is milder, and a conservative one never drops.
+
+## [0.17.1](https://github.com/getmilpa/app-runtime/releases/tag/v0.17.1) (2026-08-12)
+
+`ConfigOperations` is registrable in `config/operations.php`.
+
+The dispatcher builds each provider by handing it the container, and v0.17.0 declared `__construct(?string $root)` — so the registered path raised a TypeError. The failure is not a bad ceiling: **the whole catalogue stops building**, and the app loses every command it has.
+
+It now declares no constructor, like `CapabilityOperations` and `FoundationOperations`; the seams move to `ConfigOperations::para()`. The regression test passes a container on purpose, because building the provider bare would pass while the registered path still raised.
+
+## [0.17.0](https://github.com/getmilpa/app-runtime/releases/tag/v0.17.0) (2026-08-12)
+
+**Agent configuration as a governed operation.**
+
+`config` reads what the app runs on and names the keys two files declare at once. `config:set` writes one key through the governed path instead of a hand edit of `config/app.php`.
+
+Writing carries a **borrowed ceiling**: the heaviest thing the criterion it edits can permit, because whoever edits the judge does not weigh less than what the judge governs (greenhouse `decisions/0027`). The number is derived from the catalogue rather than written by hand, so it moves when the catalogue moves instead of going stale in a constant.
+
+Told nothing, it borrows from an empty catalogue — which GOV-05 makes the maximum of every dimension, so an instance that knows nothing asks for consent rather than skipping it.
+
+## [0.16.1](https://github.com/getmilpa/app-runtime/releases/tag/v0.16.1) (2026-08-12)
+
+Accepts `milpa/console ^0.9`, which resolves an operation's ceiling for the **call** rather than for the operation in the abstract — the change that makes the descent declared here on `capabilities:enable` actually take effect.
+
+## [0.16.0](https://github.com/getmilpa/app-runtime/releases/tag/v0.16.0) (2026-08-12)
+
+**`capabilities:enable` declares that its rehearsal does not weigh like the install.**
+
+Wiring S2 (`console v0.8.0`) made `capabilities:enable --dry-run --json` ask for consent, and the prompt landed where JSON was expected. S2 judges the *operation*, not the *invocation* — a rehearsal carried the same ceiling as the real thing.
+
+`command v0.8.0` adds the descent field for exactly this, and this is the first declaration:
+
+```
+dry_run=true → Mutation::None · Externality::None · Reversibility::Guaranteed · Authority::Read · Subject::None
+```
+
+Both halves of the reason are measurements, not adjectives: it leaves the disk untouched, and it succeeds inside an empty network namespace on a cold cache where the real install fails. That second one is why `Externality` comes down too — without it only `Mutation` could have, and the rehearsal would still ask permission over an axis nobody had checked.
+
+Also accepts `milpa/command ^0.8`.
+
 ## [0.15.2](https://github.com/getmilpa/app-runtime/compare/v0.15.1...v0.15.2) (2026-08-12)
 
 
