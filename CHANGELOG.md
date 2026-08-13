@@ -1,6 +1,29 @@
 # Changelog
 
 
+## [0.21.0](https://github.com/getmilpa/app-runtime/compare/v0.20.0...v0.21.0) (2026-08-13)
+
+
+### Features
+
+* the first turn can plan too ([#59](https://github.com/getmilpa/app-runtime/issues/59)) ([4998113](https://github.com/getmilpa/app-runtime/commit/4998113e4a606b4126b9e733edf32dfa6f532d15))
+* the host produces the fact, not a list of strings ([#65](https://github.com/getmilpa/app-runtime/issues/65)) ([9b9b495](https://github.com/getmilpa/app-runtime/commit/9b9b4952f02f2c9f4e673922e22faaf951b9cb59))
+* the session selector can say where it is ([#53](https://github.com/getmilpa/app-runtime/issues/53)) ([bd818d1](https://github.com/getmilpa/app-runtime/commit/bd818d1a6db889e1990eff64b7904150a0a713bf))
+* the session's permission reaches the gate, so the human's yes means something ([#61](https://github.com/getmilpa/app-runtime/issues/61)) ([ef3d926](https://github.com/getmilpa/app-runtime/commit/ef3d926562f797e9c31458efecb9244e2258cc06))
+* the transcript can be read, and the notice says both directions ([#49](https://github.com/getmilpa/app-runtime/issues/49)) ([aef79b6](https://github.com/getmilpa/app-runtime/commit/aef79b6d341452949772b756e7444121939c54ac))
+
+
+### Bug Fixes
+
+* ask() keeps its signature, because the skeleton overrides it ([#67](https://github.com/getmilpa/app-runtime/issues/67)) ([6b8fb72](https://github.com/getmilpa/app-runtime/commit/6b8fb72ff8ee3d651686e2c67da04e4c7c0fff19))
+* do not order what you did not give ([#57](https://github.com/getmilpa/app-runtime/issues/57)) ([d06a9b1](https://github.com/getmilpa/app-runtime/commit/d06a9b1420667d7a72625ea9fcd9d8933bd2022e))
+* the banner loses the right to resolve, so the screen and the wire say the same thing ([#47](https://github.com/getmilpa/app-runtime/issues/47)) ([6be8263](https://github.com/getmilpa/app-runtime/commit/6be826370108b273baf76c1f89fdea01d20c15b1))
+* the guard's YAML was invalid, so the guard never ran ([#55](https://github.com/getmilpa/app-runtime/issues/55)) ([8c915ec](https://github.com/getmilpa/app-runtime/commit/8c915ec09103e1dddb332f39cd92379bac7088c9))
+* the same act arrives with two spellings, and the gate compared strings ([#63](https://github.com/getmilpa/app-runtime/issues/63)) ([7ef7362](https://github.com/getmilpa/app-runtime/commit/7ef73620f4ebb8b8e1f4313511ecb70bd97984c8))
+* the selector marker is painted again — preserve_keys made the index uncomparable ([#52](https://github.com/getmilpa/app-runtime/issues/52)) ([b30790b](https://github.com/getmilpa/app-runtime/commit/b30790b91bba71f71c6448924da5d1eccf21c83e))
+* the selector shows what Enter would open, and an answer that granted nothing says so ([#51](https://github.com/getmilpa/app-runtime/issues/51)) ([96fd1ed](https://github.com/getmilpa/app-runtime/commit/96fd1edfb7ee43b74aa47aa4475c4aff7a785c65))
+* what is below does not count as above ([#50](https://github.com/getmilpa/app-runtime/issues/50)) ([b121df6](https://github.com/getmilpa/app-runtime/commit/b121df6fbb9dc6317ab790f0e1d4b82ca0b2352d))
+
 ## [0.20.0](https://github.com/getmilpa/app-runtime/releases/tag/v0.20.0) (2026-08-12)
 
 **`AgentKeyScan`: what an agent configuration key looks like, defined once.**
