@@ -52,11 +52,14 @@ jobs:
 
           echo "::error::$TAG apunta a un commit que no pasó ($verdes verdes, $malos no verdes de $total checks)"
           gh release edit "$TAG" --repo "$REPO" --draft
+          cuerpo=$(printf '%s\n' \
+            "\`$TAG\` apunta a \`$sha\`, con $verdes check(s) relevantes en verde y $malos sin pasar, de $total." \
+            "" \
+            "Se pasó a **borrador** en vez de borrarlo: sale de la lista pública y de Packagist, y se deshace con un clic si esto es un falso positivo." \
+            "" \
+            "Publicar no pasa por la protección de rama — greenhouse evidence/0171.")
+
           gh issue create --repo "$REPO" \
             --title "Release $TAG pasado a borrador: su commit no está verde" \
-            --body "\`$TAG\` apunta a \`$sha\`, que tiene $verdes check(s) relevantes en verde y $malos sin pasar, sobre $total en total.
-
-Se pasó a **borrador** en vez de borrarlo: sale de la lista pública y de Packagist, y se deshace con un clic si esto es un falso positivo.
-
-Publicar no pasa por la protección de rama — greenhouse \`evidence/0171\`."
+            --body "$cuerpo"
           exit 1
