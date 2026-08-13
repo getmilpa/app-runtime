@@ -1155,6 +1155,29 @@ final class AgentScreen implements SurfaceBroadcaster
             $hijos[] = new TuiNode('sel-arriba', 'text', props: ['text' => sprintf('  ↑ %d más arriba', $desde)]);
         }
 
+        // LA SONDA: el estado interno, en una línea, y sólo si alguien lo pide.
+        //
+        // Medir esta pantalla desde una captura no funcionó. El marcador es un carácter que `grep`
+        // no encontraba, la captura plana escondía y `cat -A` sí mostraba, y tres corridas dieron
+        // tres respuestas que no concordaban (greenhouse evidence/0169). No se puede afirmar que la
+        // ventana sigue al cursor mirando píxeles: hay que poder LEER el cursor.
+        //
+        // Va detrás de una variable de entorno porque es un instrumento, no una función: un humano
+        // no tiene por qué ver índices, y un instrumento que se cuela en la pantalla de todos deja
+        // de ser instrumento y pasa a ser ruido.
+        if (getenv('MILPA_TUI_DEBUG') !== false && getenv('MILPA_TUI_DEBUG') !== '') {
+            $hijos[] = new TuiNode('sel-sonda', 'text', props: [
+                'text' => sprintf(
+                    '  [sonda] cursor=%d ventana=%d..%d caben=%d total=%d',
+                    $this->cursorSesiones,
+                    $desde,
+                    min($desde + $caben - 1, max(0, \count($filas) - 1)),
+                    $caben,
+                    \count($filas),
+                ),
+            ]);
+        }
+
         // SIN `preserve_keys`, y el índice real se suma. Conservar las claves parecía lo correcto
         // —el cursor cuenta sobre la lista entera— y dejó el marcador SIN PINTAR: `$filas` no viene
         // indexada 0..n, así que `$i` no era un entero comparable con el cursor. Se veía como una
