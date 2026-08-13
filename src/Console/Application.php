@@ -26,6 +26,8 @@ use Milpa\Console\Rendering\JsonCliRenderer;
 use Milpa\Console\Rendering\PlainTextCliRenderer;
 use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\AppRuntime\Operations\AgentOperations;
+use Milpa\AppRuntime\Config\AgentEndpoint;
+use Milpa\Runtime\Config;
 use Milpa\AppRuntime\Tui\AgentScreen;
 use Milpa\Agent\Session;
 use Milpa\DevTools\Doctor\AppDoctor;
@@ -137,20 +139,32 @@ final class Application
      */
     private function modeloDelAgente(): string
     {
-        $base = getenv('MILPA_AGENT_BASE_URL');
-        $modelo = getenv('MILPA_AGENT_MODEL');
+        // THE BANNER DOES NOT RESOLVE ANY MORE, and that is the fix rather than a refactor.
+        //
+        // It used to read getenv() and nothing else, while the call itself read the governed
+        // configuration first. A human who configured their agent through `config:set` opened this
+        // screen and was told they had configured nothing, while the request went exactly where
+        // they had asked — measured on the wire in greenhouse evidence/0165. A lie on the first
+        // screen is worse than a wrong value: it teaches that the governed path does not work.
+        return AgentEndpoint::describe($this->configDelAgente());
+    }
 
-        if (\is_string($base) && $base !== '') {
-            return 'local · ' . (\is_string($modelo) && $modelo !== '' ? $modelo : 'sin MILPA_AGENT_MODEL');
-        }
-        if (getenv('ANTHROPIC_API_KEY')) {
-            return 'anthropic · ' . (\is_string($modelo) && $modelo !== '' ? $modelo : 'default del proveedor');
-        }
-        if (getenv('OPENAI_API_KEY')) {
-            return 'openai · ' . (\is_string($modelo) && $modelo !== '' ? $modelo : 'default del proveedor');
+    /** The configuration the agent resolves against, or null before the kernel can answer. */
+    private function configDelAgente(): ?Config
+    {
+        try {
+            $contenedor = $this->kernel()->container();
+        } catch (\Throwable) {
+            return null;
         }
 
-        return 'sin credencial — el agente no va a poder correr';
+        if (! $contenedor->has(Config::class)) {
+            return null;
+        }
+
+        $config = $contenedor->get(Config::class);
+
+        return $config instanceof Config ? $config : null;
     }
 
     /** El almacén de sesiones de esta app, o `null` si el paquete no está. */
