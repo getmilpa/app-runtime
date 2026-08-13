@@ -45,6 +45,8 @@ use Milpa\Agent\SessionStore;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\StderrLogger;
 use Milpa\Command\CommandProvider;
+use Milpa\Command\Consent\OperationId;
+use Milpa\Command\Consent\ConsentGrant;
 use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Externality;
@@ -876,6 +878,7 @@ class AgentOperations implements CommandProvider
         ?ToolCallRecorder $recorder = null,
         ?PlanBoard $tablero = null,
         array $permisos = [],
+        ?string $sesion = null,
     ): string {
         $modeloRemoto = new LlmService(
             $llave,
@@ -887,30 +890,37 @@ class AgentOperations implements CommandProvider
         );
         $cliente = new McpClientService($registry, $gate, $recorder ?? ($gate instanceof ToolCallRecorder ? $gate : null), $mesa);
 
-        // EL PERMISO DE LA SESIÓN VIAJA HASTA LA COMPUERTA, o el sí del humano no llega a nada.
+        // EL HECHO, NO LA LISTA. `SessionToolGate` pregunta, el humano contesta, y eso PRODUCE un
+        // hecho: un principal respondió una pregunta concreta, para un acto concreto, bajo un
+        // contexto concreto. Antes se mandaba una lista de cadenas y la compuerta comparaba
+        // ortografías — o sea, comparaba UI (greenhouse decisions/0030).
         //
-        // `SessionToolGate` preguntaba, el humano contestaba, el permiso quedaba escrito en la
-        // sesión… y `PolicyGate` no miraba ahí: exigía firma y rechazaba igual. La app hacía una
-        // pregunta cuya respuesta no servía, y por `cli` el bucle no podía ejecutar NADA que pidiera
-        // confirmación (greenhouse evidence/0176, medido de punta a punta).
+        // Se manda un `ConsentGrant` por permiso concedido. La identidad la compara el grant; esta
+        // capa ya no traduce grafías, y la normalización textual que `v0.27.1` metió como parche
+        // deja de ser el contrato.
         //
-        // `setContext()` existía y NADIE la llamaba — un setter sin llamador es la misma forma que
-        // evidence/0152 nombró: el campo no es el mecanismo.
+        // `provenance` dice CÓMO se ganó, para que ningún consumidor tenga que volver a ganarlo.
         if ($permisos !== []) {
+            $ahora = new \DateTimeImmutable();
+            $quien = (getenv('USER') ?: 'desconocido') . '@' . gethostname();
+
             $cliente->setContext(new ToolContext(
                 channel: 'cli',
-                // LAS DOS ORTOGRAFÍAS DEL MISMO ACTO. El permiso se registra con el nombre de la
-                // OPERACIÓN —`config:set`— y la herramienta se llama `config_set`: mismo acto, dos
-                // grafías, y la compuerta comparaba cadenas. El humano decía que sí y el sí no
-                // encajaba con nada (greenhouse evidence/0176).
-                //
-                // La traducción vive AQUÍ y no en `tool-runtime`: que dos puntos y guión bajo sean
-                // lo mismo es una convención de esta familia, y el runtime de herramientas no tiene
-                // por qué conocerla.
-                extra: ['session.granted' => array_values(array_unique(array_merge(
-                    $permisos,
-                    array_map(static fn (string $p): string => str_replace(':', '_', $p), $permisos),
-                )))],
+                extra: [
+                    // TODOS los sí de esta sesión, no el último. Mandarlos de uno en uno pisaba el
+                    // contexto y sólo sobrevivía el más reciente — con dos autorizaciones una se
+                    // perdía en silencio (tool-runtime v0.10.1).
+                    'consent.grants' => array_map(
+                        static fn (string $concedido): ConsentGrant => new ConsentGrant(
+                            operation: new OperationId($concedido),
+                            principal: 'cli:' . $quien,
+                            session: $sesion,
+                            grantedAt: $ahora,
+                            provenance: 'session.question_answered',
+                        ),
+                        $permisos,
+                    ),
+                ],
             ));
         }
 
