@@ -304,6 +304,21 @@ class AgentOperations implements CommandProvider
         // agente al que se le pregunta algo y uno con el que se trabaja un rato.
         $store = $this->sessions();
         $sessionId = \is_string($input['session'] ?? null) ? trim($input['session']) : '';
+
+        // SIN SESIÓN NO HAY CONTABILIDAD, Y SIN CONTABILIDAD EL PRIMER TURNO NO PUEDE PLANEAR.
+        //
+        // `plan` y `todo` se registran atadas a una sesión del almacén, así que una corrida sin
+        // `--session` no las llevaba: 28 herramientas contra 34 — medido en el cable, greenhouse
+        // evidence/0172. Y el prompt le pedía justamente ahí «escribe un plan ANTES de empezar»,
+        // en el único turno donde `plan` no existía. El segundo turno ya la tenía, cuando el plan
+        // que importaba ya no se escribió.
+        //
+        // Se acuña una. Rod, 2026-08-13: toda app debe traer `plan` y `todo`. El costo es que cada
+        // corrida deja sesión en el almacén — y eso es lo que la vuelve inspeccionable con
+        // `agent:sessions`, que existe para eso.
+        if ($sessionId === '' && $store !== null) {
+            $sessionId = 'run-' . date('md-His') . '-' . substr(bin2hex(random_bytes(3)), 0, 4);
+        }
         $historial = [];
 
         if ($sessionId !== '' && $store !== null) {
