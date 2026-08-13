@@ -10,7 +10,7 @@
     }
   ],
   "require": {
-    "milpa/command": "^0.7 || ^0.8",
+    "milpa/command": "^0.7 || ^0.8 || ^0.9",
     "milpa/console": "^0.7.7 || ^0.8 || ^0.9",
     "milpa/container": "^0.1",
     "milpa/core": "^0.6.2 || ^0.7",
