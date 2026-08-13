@@ -626,7 +626,18 @@ final class AgentScreen implements SurfaceBroadcaster
                     default => trim($this->entrada),
                 };
 
+                // NO SE CALLA. Antes esta rama devolvía true y no pasaba absolutamente nada: ni
+                // avanzaba, ni avisaba, ni marcaba error, y el humano pulsaba Enter tres veces
+                // creyendo que la terminal se había colgado (greenhouse evidence/0165).
                 if ($eleccion === '') {
+                    $this->conversation[] = [
+                        'quien' => 'agente',
+                        'voz' => 'sistema',
+                        'texto' => '· escribe tu respuesta antes de Enter, o elige «' . ($abierta[0] ?? 'sí')
+                            . '» o «' . ($abierta[1] ?? 'no') . '» con ← →',
+                    ];
+                    $this->loop->repintarTodo();
+
                     return true;
                 }
 
@@ -708,11 +719,34 @@ final class AgentScreen implements SurfaceBroadcaster
                 return;
             }
 
+            $concedido = $eco['granted'] ?? null;
+
             $this->conversation[] = [
                 'quien' => 'agente',
                 'voz' => 'sistema',
-                'texto' => '✓ contestado' . (($eco['granted'] ?? null) !== null ? ' · autorizado: ' . $eco['granted'] : ''),
+                'texto' => $concedido !== null
+                    ? '✓ contestado · autorizado: ' . $concedido
+                    : '✓ contestado — pero tu respuesta NO autorizó ninguna operación',
             ];
+
+            // UNA RESPUESTA QUE NO CONCEDIÓ NADA NO SE VUELVE A CORRER. Retomar el objetivo con la
+            // compuerta igual de cerrada devuelve LA MISMA pregunta, palabra por palabra — medido
+            // tres veces seguidas en greenhouse evidence/0165, y sin nada en pantalla que dijera por
+            // qué. Un bucle que no se explica se lee como que la app no escucha.
+            //
+            // Se para y se dice qué haría avanzar. El texto queda contestado —el agente lo tiene
+            // como contexto— y la decisión de autorizar sigue siendo del humano, que es el punto.
+            if ($concedido === null) {
+                $this->conversation[] = [
+                    'quien' => 'agente',
+                    'voz' => 'sistema',
+                    'texto' => '· para autorizarla, elige «' . ($sesion->question->options[0] ?? 'sí')
+                        . '» con ← → y Enter; para seguir sin ella, pide otra cosa',
+                ];
+                $this->loop->repintarTodo();
+
+                return;
+            }
 
             // ── Y SIGUE SOLO, QUE ES LO QUE CONTESTAR SIGNIFICA ─────────────────────────────────
             //
@@ -1108,7 +1142,20 @@ final class AgentScreen implements SurfaceBroadcaster
             $hijos[] = new TuiNode('sel-vacio', 'text', props: ['text' => '  (ninguna todavía — la de ahora es la primera)']);
         }
 
-        foreach (\array_slice($filas, 0, max(3, $this->height - 8)) as $i => $fila) {
+        // LA VENTANA SIGUE AL CURSOR. Antes se cortaba SIEMPRE desde la primera fila, así que al
+        // bajar más allá de la última visible el marcador salía de pantalla: no se veía nada
+        // seleccionado y Enter abría una sesión que el humano NUNCA VIO (greenhouse evidence/0165).
+        //
+        // Es el mismo defecto que el transcript acababa de tener, en la pantalla de al lado: una
+        // lista que se puede recorrer y no se puede ver.
+        $caben = max(3, $this->height - 8);
+        $desde = max(0, min($this->cursorSesiones - intdiv($caben - 1, 2), \count($filas) - $caben));
+
+        if ($desde > 0) {
+            $hijos[] = new TuiNode('sel-arriba', 'text', props: ['text' => sprintf('  ↑ %d más arriba', $desde)]);
+        }
+
+        foreach (\array_slice($filas, $desde, $caben, true) as $i => $fila) {
             $marca = $i === $this->cursorSesiones ? '›' : ' ';
             $objetivo = (string) $fila['goal'];
             $hijos[] = new TuiNode("sel:{$i}", 'text', props: [
