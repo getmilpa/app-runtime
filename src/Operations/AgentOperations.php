@@ -22,7 +22,6 @@ use Milpa\AppRuntime\Support\ContratoInstalado;
 use Milpa\AppRuntime\Agent\ArchitectureSummaryProjector;
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Config\AgentEndpoint;
-use Milpa\ToolRuntime\Contracts\ToolContext;
 use Milpa\Attributes\PluginMetadata;
 use Milpa\Plugin\Runtime\MetadataGraphResolver;
 use Milpa\Resolver\Report\ResolutionReport;
