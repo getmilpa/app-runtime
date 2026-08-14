@@ -18,7 +18,6 @@ use Milpa\Agent\SessionStore;
 use Milpa\Agent\Todo;
 use Milpa\Agent\TodoStatus;
 use Milpa\Command\Operation;
-
 /**
  * Las herramientas con las que el agente escribe su propio plan y mueve sus pendientes (P16.3).
  *
@@ -42,6 +41,13 @@ use Milpa\Command\Operation;
  * y una compuerta que se pide también para eso se aprueba sin leer, que es como se pierde la que sí
  * importaba.
  */
+use Milpa\Command\Effect\Authority;
+use Milpa\Command\Effect\EffectProfile;
+use Milpa\Command\Effect\Externality;
+use Milpa\Command\Effect\Mutation;
+use Milpa\Command\Effect\Reversibility;
+use Milpa\Command\Effect\Subject;
+
 final readonly class SessionBookkeeping
 {
     public function __construct(
@@ -83,6 +89,30 @@ final readonly class SessionBookkeeping
                     'required' => ['plan'],
                 ],
                 mutating: true,
+                // ── EL CUADERNO DICE LO QUE ES, y por eso la compuerta lo deja pasar ────────────
+                //
+                // Esto llevaba tiempo escrito arriba, en prosa: «pedir permiso para anotar un plan es
+                // pedir permiso para ser legible». Nunca fue DATO, y S2 —que exige consentimiento a
+                // todo lo que nadie clasificó, porque premiar el silencio volvería opcional cualquier
+                // techo (greenhouse decisions/0028)— las alcanzaba. El agente NO PODÍA PLANEAR, que
+                // es lo único que la autoridad declaró no negociable.
+                //
+                // Se clasifica en vez de eximir. `SessionToolGate` ya las exime POR NOMBRE, y una
+                // compuerta que se abre por lista de nombres deja de ser una regla y se vuelve un
+                // directorio: el siguiente que necesite lo mismo pedirá que lo agreguen. Declarado el
+                // perfil, S2 deja de alcanzarlas POR LA REGLA, y cualquier bitácora futura hereda el
+                // trato sin que nadie toque nada.
+                //
+                // `Compensatable` y no `Guaranteed`: un pendiente se mueve o se reemplaza, pero un
+                // apéndice no se des-apenda. `Guaranteed` es el único nivel que compra MENOS
+                // escrutinio y habría sido la mentira cómoda (greenhouse evidence/0189).
+                effects: new EffectProfile(
+                    mutation: Mutation::Persistent,
+                    externality: Externality::None,
+                    reversibility: Reversibility::Compensatable,
+                    authority: Authority::None,
+                    subject: Subject::Data,
+                ),
                 // Fuera de HTTP: escriben en la sesión que está corriendo, y no hay una corriendo
                 // detrás de una petición web.
                 surfaces: ['mcp'],
@@ -106,6 +136,30 @@ final readonly class SessionBookkeeping
                     'required' => [],
                 ],
                 mutating: true,
+                // ── EL CUADERNO DICE LO QUE ES, y por eso la compuerta lo deja pasar ────────────
+                //
+                // Esto llevaba tiempo escrito arriba, en prosa: «pedir permiso para anotar un plan es
+                // pedir permiso para ser legible». Nunca fue DATO, y S2 —que exige consentimiento a
+                // todo lo que nadie clasificó, porque premiar el silencio volvería opcional cualquier
+                // techo (greenhouse decisions/0028)— las alcanzaba. El agente NO PODÍA PLANEAR, que
+                // es lo único que la autoridad declaró no negociable.
+                //
+                // Se clasifica en vez de eximir. `SessionToolGate` ya las exime POR NOMBRE, y una
+                // compuerta que se abre por lista de nombres deja de ser una regla y se vuelve un
+                // directorio: el siguiente que necesite lo mismo pedirá que lo agreguen. Declarado el
+                // perfil, S2 deja de alcanzarlas POR LA REGLA, y cualquier bitácora futura hereda el
+                // trato sin que nadie toque nada.
+                //
+                // `Compensatable` y no `Guaranteed`: un pendiente se mueve o se reemplaza, pero un
+                // apéndice no se des-apenda. `Guaranteed` es el único nivel que compra MENOS
+                // escrutinio y habría sido la mentira cómoda (greenhouse evidence/0189).
+                effects: new EffectProfile(
+                    mutation: Mutation::Persistent,
+                    externality: Externality::None,
+                    reversibility: Reversibility::Compensatable,
+                    authority: Authority::None,
+                    subject: Subject::Data,
+                ),
                 surfaces: ['mcp'],
             ),
         ];

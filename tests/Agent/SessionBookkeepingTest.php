@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Agent;
 
 use Milpa\AppRuntime\Agent\SessionBookkeeping;
+use Milpa\Command\Effect\Mutation;
 use Milpa\AppRuntime\Agent\SessionToolGate;
 use Milpa\Agent\Session;
 use Milpa\Agent\SessionStore;
@@ -169,5 +170,46 @@ final class SessionBookkeepingTest extends TestCase
     public function testASessionWithNothingToShowRendersNothing(): void
     {
         self::assertNull((new Session('s1', 'x'))->stateBriefing());
+    }
+
+    // ── EL CUADERNO DICE LO QUE ES (greenhouse evidence/0189) ──────────────────────────────────
+    //
+    // `plan` y `todo` declaraban `mutating: true` y NINGÚN perfil de efecto. Esta casa cableó S2 de
+    // modo que lo no clasificado exige consentimiento —premiar el silencio volvería opcional todo
+    // techo (decisions/0028)— así que la compuerta las negaba y el agente no podía planear. Probado
+    // mutando: con perfil declarado, el pendiente aterriza.
+    //
+    // La doctrina llevaba tiempo escrita en el docblock de esta clase: «pedir permiso para anotar un
+    // plan es pedir permiso para ser legible». Lo que faltaba era que fuera DATO.
+
+    /** @return list<\Milpa\Command\Operation> */
+    private function operaciones(): array
+    {
+        return (new SessionBookkeeping(new SessionStore(new InMemoryEventStore()), 's1'))->operations();
+    }
+
+    public function testTheNotebookDeclaresWhatItDoes(): void
+    {
+        foreach ($this->operaciones() as $op) {
+            self::assertNotNull($op->effects, "«{$op->name}» declara su perfil");
+        }
+    }
+
+    /** Un perfil que se declarara sin mutación sería la mentira cómoda: compra menos escrutinio. */
+    public function testItDoesNotBuyLessScrutinyByLyingAboutMutating(): void
+    {
+        foreach ($this->operaciones() as $op) {
+            self::assertTrue($op->mutating, "«{$op->name}» apenda, y sigue diciéndolo");
+            self::assertNotSame(Mutation::None, $op->effects?->mutation, "«{$op->name}» no finge que no muta");
+        }
+    }
+
+    /** Lo que este cuaderno NO es: nada suyo sale de la app ni pide privilegio. */
+    public function testItsReachStopsAtItsOwnSession(): void
+    {
+        foreach ($this->operaciones() as $op) {
+            self::assertSame(\Milpa\Command\Effect\Externality::None, $op->effects?->externality, "«{$op->name}»");
+            self::assertSame(\Milpa\Command\Effect\Authority::None, $op->effects?->authority, "«{$op->name}»");
+        }
     }
 }
