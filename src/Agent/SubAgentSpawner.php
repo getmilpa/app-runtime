@@ -26,6 +26,7 @@ use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Externality;
 use Milpa\Command\Effect\Mutation;
 use Milpa\Command\Effect\Reversibility;
+use Milpa\Command\Effect\Subject;
 use Milpa\AiGateway\AgentOrchestrator;
 use Milpa\AiGateway\RunInterrupted;
 use Milpa\Command\Operation;
@@ -160,6 +161,33 @@ final class SubAgentSpawner
             // categoría («¿autorizas delegar?») en vez de la intención («¿autorizas ESTE make?»),
             // que es exactamente el orden que la política evita.
             mutating: false,
+            // ── EL TECHO DE DELEGAR, declarado (greenhouse evidence/0190) ─────────────────────
+            //
+            // Corría SIN perfil, así que `unclassified` lo pinaba en el máximo de los cinco ejes y
+            // la compuerta lo negaba — el agente no podía delegar y nadie sabía por qué. Un techo
+            // no se puede DERIVAR de lo que nadie clasificó (decisions/0032), así que esto es lo
+            // que hace derivable la mitad de delegación.
+            //
+            // Se declara lo que es y no lo que conviene: `WriteAsUser` porque delegar NO escala —
+            // el hijo corre como el mismo principal y su techo está acotado por el del padre
+            // (decisions/0143), así que llamarlo `Privileged` sería inflarlo para recuperar por el
+            // eje equivocado un escrutinio que se decide abajo. `Executable` porque lo que arranca
+            // es una corrida, no un dato. `Irreversible` porque el trabajo de un hijo no se
+            // des-hace.
+            //
+            // Y COMO ESE TECHO HONESTO NO DISPARA S2 —`WriteAsUser` pesa menos que `Privileged`—
+            // la confirmación se DECLARA aparte, en vez de heredarse de no haber declarado nada.
+            // Delegar gasta presupuesto y corre trabajo arbitrario: que un humano lo autorice una
+            // vez por sesión es una decisión de producto, y ahora está dicha en vez de ser un
+            // efecto secundario del silencio.
+            requiresConfirmation: true,
+            effects: new EffectProfile(
+                Mutation::Persistent,
+                Externality::None,
+                Reversibility::Irreversible,
+                Authority::WriteAsUser,
+                subject: Subject::Executable,
+            ),
         );
     }
 
@@ -481,6 +509,14 @@ final class SubAgentSpawner
                 // The stream is append-only by doctrine: a message once said is not withdrawn.
                 Reversibility::Irreversible,
                 Authority::WriteAsUser,
+                // EL SUJETO FALTABA, y sin él este techo salía `unknown` COMPLETO aunque los otros
+                // cuatro ejes estuvieran declarados. Declarar un perfil y clasificarlo entero no son
+                // lo mismo, y el conteo de «operaciones sin perfil» no ve la diferencia: ésta tenía
+                // perfil y no estaba clasificada (greenhouse evidence/0190).
+                //
+                // Escribe en la bitácora de OTRA sesión — de ahí `WriteAsUser` arriba — pero lo que
+                // escribe son datos, no código ni configuración.
+                subject: Subject::Data,
             ),
             namedTarget: 'to',
         );
@@ -561,6 +597,37 @@ final class SubAgentSpawner
             // Misma razón que el spawn: retomar sólo corre la vuelta; cada mutación del hijo la
             // juzga SU compuerta con el techo del linaje, en cada llamada.
             mutating: false,
+            // ── EL TECHO DE RETOMAR, y es el mismo que el de delegar ──────────────────────────
+            //
+            // Retomar corre al hijo con su propio historial: la misma clase de acto que arrancarlo,
+            // con el mismo techo. Declararlo más bajo porque «ya se había autorizado antes» sería
+            // confundir la autorización de UNA corrida con la de la siguiente.
+            //
+            // Corría SIN perfil, así que `unclassified` lo pinaba en el máximo de los cinco ejes y
+            // la compuerta lo negaba — el agente no podía delegar y nadie sabía por qué. Un techo
+            // no se puede DERIVAR de lo que nadie clasificó (decisions/0032), así que esto es lo
+            // que hace derivable la mitad de delegación.
+            //
+            // Se declara lo que es y no lo que conviene: `WriteAsUser` porque delegar NO escala —
+            // el hijo corre como el mismo principal y su techo está acotado por el del padre
+            // (decisions/0143), así que llamarlo `Privileged` sería inflarlo para recuperar por el
+            // eje equivocado un escrutinio que se decide abajo. `Executable` porque lo que arranca
+            // es una corrida, no un dato. `Irreversible` porque el trabajo de un hijo no se
+            // des-hace.
+            //
+            // Y COMO ESE TECHO HONESTO NO DISPARA S2 —`WriteAsUser` pesa menos que `Privileged`—
+            // la confirmación se DECLARA aparte, en vez de heredarse de no haber declarado nada.
+            // Delegar gasta presupuesto y corre trabajo arbitrario: que un humano lo autorice una
+            // vez por sesión es una decisión de producto, y ahora está dicha en vez de ser un
+            // efecto secundario del silencio.
+            requiresConfirmation: true,
+            effects: new EffectProfile(
+                Mutation::Persistent,
+                Externality::None,
+                Reversibility::Irreversible,
+                Authority::WriteAsUser,
+                subject: Subject::Executable,
+            ),
         );
     }
 
