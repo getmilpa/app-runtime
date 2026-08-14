@@ -412,15 +412,12 @@ class AgentOperations implements CommandProvider
 
         $compuerta = null;
         $contabilidad = [];
-        /** @var list<string> $permisosDeSesion lo que ESTA sesión ya consintió */
-        $permisosDeSesion = [];
         /** @var list<array<string, mixed>> $decisionesDeSesion cada sí, con la operación y los argumentos que el humano vio */
         $decisionesDeSesion = [];
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
         if ($sessionId !== '' && $store !== null && $kernel instanceof Kernel) {
             $viva = $store->load($sessionId);
             if ($viva !== null) {
-                $permisosDeSesion = $viva->permissions;
                 $decisionesDeSesion = ContratoInstalado::arreglo($viva, 'decisions');
                 $compuerta = new SessionToolGate(
                     $store,
@@ -756,7 +753,6 @@ class AgentOperations implements CommandProvider
         try {
             // Lo que ESTA sesión ya consintió, puesto donde `ask()` lo lee sin cambiar su firma:
             // `ask()` es protected y el esqueleto lo sobrescribe, así que crecerle parámetros lo rompe.
-            $this->permisosDeLaSesion = $permisosDeSesion;
             $this->decisionesDeLaSesion = $decisionesDeSesion;
             $this->sesionDeLosPermisos = $sessionId !== '' ? $sessionId : null;
 
@@ -880,13 +876,7 @@ class AgentOperations implements CommandProvider
      * con un fatal en cada corrida — «Declaration of … ::ask() must be compatible». Un punto de
      * extensión que viaja en `composer create-project` no puede crecer parámetros sin romper a quien
      * ya lo extendió, y esa lección la pagó v0.28.0.
-     *
-     * @var list<string>
-     *
-     * @param array<int, array<string, mixed>> $history
      */
-    private array $permisosDeLaSesion = [];
-
     /**
      * Los sí de esta sesión, como hechos con sus argumentos exactos.
      *

@@ -70,7 +70,7 @@ final class ConsentBridge extends McpClientService
         string $channel = 'cli',
     ) {
         parent::__construct($registry, $gate, $recorder, $table);
-        $this->grants = array_values($grants);
+        $this->grants = $grants;
         $this->channel = $channel;
     }
 
