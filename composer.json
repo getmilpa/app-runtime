@@ -11,13 +11,13 @@
   ],
   "require": {
     "php": "^8.3",
-    "milpa/command": "^0.7 || ^0.8 || ^0.9",
-    "milpa/console": "^0.7.7 || ^0.8 || ^0.9",
+    "milpa/command": ">=0.7 <1.0",
+    "milpa/console": ">=0.7.7 <1.0",
     "milpa/container": "^0.1",
-    "milpa/core": "^0.6.2 || ^0.7 || ^0.8",
+    "milpa/core": ">=0.6.2 <1.0",
     "milpa/http": "^0.1.5",
     "milpa/live-tui": "^0.7",
-    "milpa/plugin": "^0.10 || ^0.11",
+    "milpa/plugin": ">=0.10 <1.0",
     "milpa/runtime": "^0.7.6"
   },
   "require-dev": {
