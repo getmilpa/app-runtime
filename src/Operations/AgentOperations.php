@@ -94,6 +94,9 @@ use Psr\Log\NullLogger;
  */
 class AgentOperations implements CommandProvider
 {
+    /** El techo de pasos cuando nadie lo dice. Vivía como un `12` suelto en dos lugares. */
+    private const PASOS_POR_DEFECTO = 12;
+
     public function __construct(private readonly DIContainerInterface $container)
     {
     }
@@ -137,13 +140,21 @@ class AgentOperations implements CommandProvider
             new Operation(
                 name: 'agent:catalogue',
                 description: 'The catalogue an agent would receive from this app, with the inputSchema of every tool',
-                handler: fn (array $input): array => $this->catalogue($input),
+                handler: fn (array $input): array => $this->catalogueFor($input),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
                         'reads' => [
                             'type' => 'boolean',
                             'description' => 'Show the read-only catalogue — what the agent gets when the request was classified as reads',
+                        ],
+                        // SIN ESTO EL COMANDO MENTÍA POR SEIS (greenhouse evidence/0187). Enseñaba
+                        // 22 herramientas mientras un agente en sesión recibe 28, y las que faltaban
+                        // eran las de sesión: planear, anotar pendientes y delegar. `--session` ya se
+                        // pasaba y se IGNORABA EN SILENCIO, así que quien la usaba creía que servía.
+                        'session' => [
+                            'type' => 'string',
+                            'description' => 'Show the catalogue an agent IN THIS SESSION receives — six session tools only exist inside one',
                         ],
                     ],
                     // AN EMPTY `required` IS INFORMATION, ITS ABSENCE IS NOT (evidence/0094). Leaving
@@ -243,18 +254,87 @@ class AgentOperations implements CommandProvider
      *
      * @return array{ok: bool, reads: bool, total: int, tools: list<array<string, mixed>>, error?: string}
      */
-    private function catalogue(array $input): array
+    /**
+     * El catálogo que un agente recibe — y de CUÁL mundo, dicho en voz alta.
+     *
+     * Se anunciaba como «el catálogo que un agente recibiría» y enseñaba 22 herramientas mientras un
+     * agente en sesión recibe 28, medido del cable con un proxy y no del código (greenhouse
+     * `evidence/0186`). Las seis que faltaban son las de sesión —`plan`, `todo` y las de delegación—,
+     * que sólo existen dentro de una. Y `--session` se ignoraba en silencio.
+     *
+     * **Un depurador que enseña un subconjunto callándoselo es peor que uno que falla**: deja
+     * depurando el mundo equivocado con confianza. Y es el único instrumento que esta casa ofrece
+     * para ver lo que ve el agente.
+     *
+     * Sin sesión NO se inventan las seis —una app sin sesión de verdad no las ofrece, y decir que sí
+     * sería el mismo defecto en espejo— pero se NOMBRAN aparte, para que quien abra el comando por
+     * costumbre sepa qué le falta.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    public function catalogueFor(array $input): array
     {
         $readOnly = ($input['reads'] ?? false) === true;
+        $sessionId = \is_string($input['session'] ?? null) ? trim($input['session']) : '';
+        $store = $this->sessionStore();
 
-        $registry = $this->toolsOfThisApp([], $readOnly);
+        // UNA SESIÓN QUE NO EXISTE SE DICE. Devolver el catálogo pelón sería contestar otra pregunta
+        // y dejar creer que se contestó la que se hizo.
+        if ($sessionId !== '' && ($store === null || $store->load($sessionId) === null)) {
+            return [
+                'ok' => false,
+                'session' => $sessionId,
+                'error' => $store === null
+                    ? 'esta app no guarda sesiones, así que no hay ninguna que mostrar'
+                    : "no existe la sesión «{$sessionId}»",
+                'hint' => 'córrela con `coa agent "…" --session=' . $sessionId . '`',
+            ];
+        }
+
+        $deSesion = $store === null ? [] : $this->herramientasDeLaSesion($store, $sessionId);
+
+        // LO QUE UNA SESIÓN AGREGARÍA se calcula ANTES de mirar el kernel, porque no depende de él:
+        // depende de que esta app guarde sesiones. Calcularlo después dejaba a una app sin kernel
+        // callándose las seis, que es el mismo silencio que este cambio vino a quitar.
+        $masConSesion = [];
+        if ($sessionId === '') {
+            // EN LA ORTOGRAFÍA DEL AGENTE, que es de quien es esta vista. Los nombres crudos
+            // mezclaban las dos —`agent:roles` junto a `agent_message`— y quien leyera esta lista
+            // para pedir una herramienta habría pedido una que no existe con ese nombre.
+            //
+            // La convención SE LLAMA, no se copia (evidence/0141): reimplementarla aquí con un
+            // `str_replace` es exactamente el defecto que esa acta cerró.
+            $nombres = array_values(array_filter(array_map(
+                static fn (object $op): string => class_exists(McpProjector::class)
+                    ? McpProjector::toolName((string) ($op->name ?? ''))
+                    : (string) ($op->name ?? ''),
+                $deSesion,
+            )));
+            sort($nombres);
+            $masConSesion = [
+                'withSession' => [
+                    'more' => \count($nombres),
+                    'tools' => $nombres,
+                    'why' => 'sólo existen dentro de una sesión: son cierres atados a ella',
+                ],
+                'hint' => $nombres === []
+                    ? 'esta app no guarda sesiones, así que este catálogo es el completo'
+                    : 'pasa --session=<id> para ver el catálogo que recibe un agente en sesión',
+            ];
+        }
+
+        $registry = $this->toolsOfThisApp($sessionId === '' ? [] : $deSesion, $readOnly);
         if ($registry === null) {
             return [
                 'ok' => false,
                 'reads' => $readOnly,
+                'session' => $sessionId === '' ? null : $sessionId,
                 'total' => 0,
                 'tools' => [],
                 'error' => 'this app has no kernel, so nobody has assembled a catalogue to show yet',
+                ...$masConSesion,
             ];
         }
 
@@ -264,9 +344,49 @@ class AgentOperations implements CommandProvider
         return [
             'ok' => true,
             'reads' => $readOnly,
+            'session' => $sessionId === '' ? null : $sessionId,
             'total' => \count($tools),
             'tools' => $tools,
+            ...$masConSesion,
         ];
+    }
+
+    /**
+     * Las herramientas que SÓLO existen dentro de una sesión, ensambladas en UN solo lugar.
+     *
+     * `plan`, `todo` y las cuatro de delegación son cierres atados a una sesión concreta: el id se
+     * captura, no se le pide al modelo. Vivían armadas únicamente dentro de `run()`, así que el
+     * catálogo —que corre sin sesión— nunca las veía y reportaba seis de menos sin decirlo.
+     *
+     * El corredor del hijo NO se pasa aquí: quien sólo quiere el catálogo necesita la FORMA de esas
+     * operaciones, no su ejecución. Se le da un corredor que revienta si alguien lo llama, porque un
+     * corredor de mentiras que devuelve algo plausible sería peor que uno que falta.
+     *
+     * @return list<object>
+     */
+    private function herramientasDeLaSesion(SessionStore $store, string $sessionId, ?\Closure $corredor = null): array
+    {
+        // Un id sintético alcanza para ENUMERAR: los nombres y esquemas no dependen de qué sesión
+        // sea. Lo que no se hace nunca es meterlas al catálogo como si la app las ofreciera sin una.
+        $id = $sessionId !== '' ? $sessionId : '·enumerando·';
+
+        $ops = (new SessionBookkeeping($store, $id))->operations();
+
+        if (!class_exists(SubAgentSpawner::class)) {
+            return $ops;
+        }
+
+        $spawner = new SubAgentSpawner(
+            $store,
+            $id,
+            $corredor ?? static function (): array {
+                throw new \LogicException('este spawner se armó para enumerar el catálogo, no para correr un hijo');
+            },
+            $this->presupuestoDelArbol(self::PASOS_POR_DEFECTO),
+            prologue: fn (): ?string => $this->foundationArrow()?->teaching(),
+        );
+
+        return [...$ops, $spawner->operation(), $spawner->resumeOperation(), $spawner->messageOperation(), $spawner->rolesOperation()];
     }
 
     /**
@@ -302,7 +422,7 @@ class AgentOperations implements CommandProvider
 
         [$proveedor, $llave, $modelo] = $credencial;
 
-        $pasos = \is_int($input['steps'] ?? null) && $input['steps'] > 0 ? $input['steps'] : 12;
+        $pasos = \is_int($input['steps'] ?? null) && $input['steps'] > 0 ? $input['steps'] : self::PASOS_POR_DEFECTO;
 
         // LA SESIÓN (P16.1). Sin `session`, esto sigue siendo lo que era: una pregunta con una
         // respuesta. Con ella, la conversación sobrevive al proceso — que es la diferencia entre un
