@@ -168,4 +168,43 @@ final class AgentOperationsTest extends TestCase
             'false is the declared opt-out — the 0/9 arm, never a silent state',
         );
     }
+
+    // ── EL CATÁLOGO DICE QUÉ MUNDO ESTÁ ENSEÑANDO (greenhouse evidence/0187) ────────────────────
+    //
+    // Se anunciaba como «el catálogo que un agente recibiría» y enseñaba 22 mientras viajaban 28.
+    // Las seis que faltaban eran las de sesión —planear, anotar, delegar—, y `--session` se ignoraba
+    // en silencio, así que quien la pasaba creía que la había usado.
+
+    /** Un esquema lo leen los agentes también: lo que no se declara, no se puede pedir. */
+    public function testTheCatalogueDeclaresThatItTakesASession(): void
+    {
+        $esquema = null;
+        foreach ($this->operations->operations() as $op) {
+            if ($op->name === 'agent:catalogue') {
+                $esquema = $op->inputSchema;
+            }
+        }
+
+        self::assertNotNull($esquema, 'agent:catalogue existe');
+        self::assertArrayHasKey('session', $esquema['properties'] ?? [], 'y declara que toma una sesión');
+    }
+
+    /** Una sesión que no existe se DICE. Devolver el catálogo pelón es contestar otra pregunta. */
+    public function testAnUnknownSessionIsSaidRatherThanIgnored(): void
+    {
+        $r = $this->operations->catalogueFor(['session' => 'no-existe']);
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('no-existe', (string) ($r['error'] ?? ''));
+    }
+
+    /** Sin sesión, dice CUÁNTAS más habría con una — o sigue enseñando un mundo sin decirlo. */
+    public function testWithoutASessionItSaysWhatASessionWouldAdd(): void
+    {
+        $r = $this->operations->catalogueFor([]);
+
+        self::assertNull($r['session'], 'ninguna sesión, y se dice');
+        self::assertArrayHasKey('withSession', $r, 'y se dice qué agregaría una');
+        self::assertNotSame([], $r['withSession']['tools'] ?? [], 'nombrándolas, no contándolas nada más');
+    }
 }
