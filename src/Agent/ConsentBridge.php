@@ -104,9 +104,22 @@ final class ConsentBridge extends McpClientService
         // Before this, `consent.arguments` was never populated at all, so a grant with no arguments
         // covered anything the operation name matched. That was not a rule with a hole — it was a
         // rule that had never been given anything to compare.
+        // SE PARTE DEL CONTEXTO POR DEFECTO, Y ESO NO ES UN DETALLE — fue una regresión.
+        //
+        // Cuando nadie pone contexto, `ToolRegistry::call()` usa `ToolContext::cli()`, que otorga
+        // `scopes: ['*']`. La primera versión de este puente construía uno DESDE CERO para poder
+        // cargar el consentimiento, y con eso le quitaba en silencio TODOS los scopes a TODAS las
+        // herramientas: `plugins_simulate`, `plugins_list` y sus hermanas empezaron a fallar con
+        // «Missing required scope», publicado en v0.29.0 y vivo hasta v0.32.0.
+        //
+        // *Poner un contexto donde no había uno no es agregar información: es reemplazar un default
+        // que sí decía algo.* Lo que este puente tiene que hacer es AÑADIR el consentimiento, no
+        // redefinir quién llama.
+        $base = ToolContext::cli();
         $this->setContext(new ToolContext(
-            principal: $this->grants[0]->principal ?? null,
+            principal: $this->grants[0]->principal ?? $base->principal,
             channel: $this->channel,
+            scopes: $base->scopes,
             extra: [
                 'consent.grants' => $this->grants,
                 'consent.arguments' => $args,
