@@ -90,14 +90,21 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder
      */
     public function refuse(string $tool, array $arguments): ?string
     {
-        // La contabilidad de la propia sesión —escribir el plan, mover un pendiente— NO se gatea.
-        // Apenda, y lo declara, pero su efecto es exclusivamente sobre la bitácora de esta sesión: no
-        // toca un archivo, una base ni un plugin. Pedir permiso para anotar un plan es pedir permiso
-        // para ser legible, y una compuerta que se pide también para eso se aprueba sin leer — que es
-        // como se pierde la que sí importaba.
-        if ($this->esContabilidad($tool)) {
-            return null;
-        }
+        // LA EXENCIÓN POR NOMBRE SE RETIRÓ AQUÍ, y lo que la sustituye es la regla.
+        //
+        // Decía —con razón— que pedir permiso para anotar un plan es pedir permiso para ser legible.
+        // Pero lo decía por LISTA DE NOMBRES, y una compuerta que se abre así deja de ser una regla y
+        // se vuelve un directorio: el siguiente que necesite lo mismo pide que lo agreguen, y mientras
+        // dos mecanismos sostienen el mismo caso nadie sabe cuál lo está sosteniendo.
+        //
+        // Desde que `SessionBookkeeping` declara su `EffectProfile` (greenhouse evidence/0189), la
+        // política decide por el TECHO y las deja pasar sola. Verificado por ejecución antes de
+        // quitarla, con el control que separa las dos explicaciones posibles:
+        //
+        //   clasificadas   + sin exención → el pendiente aterriza
+        //   SIN clasificar + sin exención → no aterriza      ← la exención SÍ era lo que las pasaba
+        //
+        // Sin ese segundo caso esto habría sido quitar algo que ya sobraba y llamarlo arreglo.
 
         // LA OBLIGACIÓN DE ORDEN VA ANTES QUE TODO LO DEMÁS, y por eso queda debajo de la
         // contabilidad y encima de la operación: lo obligado suele SER contabilidad —«planea antes de
