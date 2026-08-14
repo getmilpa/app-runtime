@@ -917,7 +917,7 @@ final class SessionOperations implements CommandProvider
      */
     private function esAfirmativa(string $respuesta): bool
     {
-        return \in_array(mb_strtolower($respuesta), ['sí', 'si', 'yes', 'y', 's'], true);
+        return \Milpa\AppRuntime\Agent\AffirmativeAnswer::is($respuesta);
     }
 
     /**
