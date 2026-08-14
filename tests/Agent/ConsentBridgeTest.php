@@ -212,6 +212,30 @@ final class ConsentBridgeTest extends TestCase
         }
     }
 
+    // ── LA REGRESIÓN QUE ESTE PUENTE CAUSÓ, y su prueba ─────────────────────────────────────────
+    //
+    // Sin contexto, `ToolRegistry::call()` usa `ToolContext::cli()`, que otorga `scopes: ['*']`. La
+    // primera versión construía uno desde cero y con eso le quitaba TODOS los scopes a TODAS las
+    // herramientas. Publicado en v0.29.0 y vivo hasta v0.32.0: `plugins_simulate` y sus hermanas
+    // fallaban con «Missing required scope» en cualquier app.
+
+    public function testItDoesNotStripTheScopesTheDefaultContextGrants(): void
+    {
+        $registro = new ToolRegistry(new NullLogger());
+        $registro->register(
+            'plugins_simulate',
+            'lo que pasaría, sin que pase',
+            ['type' => 'object'],
+            static fn (array $args): array => ['simulated' => true],
+            new ToolOptions(scopes: ['plugins:read']),
+        );
+
+        $resultado = $this->puente($registro, [])->callTool('plugins_simulate', []);
+
+        self::assertIsArray($resultado);
+        self::assertTrue($resultado['simulated'] ?? false, 'una herramienta con scope sigue corriendo');
+    }
+
     // ── utilidades que tocan el almacén real, porque su TTL no es inyectable ─────────────────────
 
     private function almacen(ToolRegistry $registro): object
