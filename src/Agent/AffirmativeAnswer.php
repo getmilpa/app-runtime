@@ -22,6 +22,7 @@ final class AffirmativeAnswer
     /** @var list<string> */
     private const SÍ = ['sí', 'si', 'yes', 'y', 's'];
 
+    /** Does this typed reply mean yes? Case and surrounding space are the surface's noise, not the answer. */
     public static function is(string $answer): bool
     {
         return \in_array(mb_strtolower(trim($answer)), self::SÍ, true);

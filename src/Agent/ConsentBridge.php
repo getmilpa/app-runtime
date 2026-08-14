@@ -74,6 +74,15 @@ final class ConsentBridge extends McpClientService
         $this->channel = $channel;
     }
 
+    /**
+     * Run a tool, and — if it comes back asking for a confirmation the human already gave — continue
+     * the attempt that was waiting for exactly that authority.
+     *
+     * Everything else travels untouched: a plain result, a refusal, a failure. A bridge that reshapes
+     * what it carries is not a bridge.
+     *
+     * @param array<string, mixed> $args
+     */
     public function callTool(string $name, array $args): mixed
     {
         // THE SAME EXACTNESS, ONE LAYER EARLIER. `PolicyGate` decides on a `ConsentGrant` too, and it
