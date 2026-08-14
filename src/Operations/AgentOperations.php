@@ -17,9 +17,11 @@ namespace Milpa\AppRuntime\Operations;
 use Milpa\AiGateway\AgentOrchestrator;
 use Milpa\AiGateway\PlanBoard;
 use Milpa\AiGateway\RunInterrupted;
+use Milpa\AppRuntime\Agent\AffirmativeAnswer;
+use Milpa\AppRuntime\Support\ContratoInstalado;
 use Milpa\AppRuntime\Agent\ArchitectureSummaryProjector;
+use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Config\AgentEndpoint;
-use Milpa\ToolRuntime\Contracts\ToolContext;
 use Milpa\Attributes\PluginMetadata;
 use Milpa\Plugin\Runtime\MetadataGraphResolver;
 use Milpa\Resolver\Report\ResolutionReport;
@@ -410,13 +412,13 @@ class AgentOperations implements CommandProvider
 
         $compuerta = null;
         $contabilidad = [];
-        /** @var list<string> $permisosDeSesion lo que ESTA sesión ya consintió */
-        $permisosDeSesion = [];
+        /** @var list<array<string, mixed>> $decisionesDeSesion cada sí, con la operación y los argumentos que el humano vio */
+        $decisionesDeSesion = [];
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
         if ($sessionId !== '' && $store !== null && $kernel instanceof Kernel) {
             $viva = $store->load($sessionId);
             if ($viva !== null) {
-                $permisosDeSesion = $viva->permissions;
+                $decisionesDeSesion = ContratoInstalado::arreglo($viva, 'decisions');
                 $compuerta = new SessionToolGate(
                     $store,
                     $viva,
@@ -751,7 +753,7 @@ class AgentOperations implements CommandProvider
         try {
             // Lo que ESTA sesión ya consintió, puesto donde `ask()` lo lee sin cambiar su firma:
             // `ask()` es protected y el esqueleto lo sobrescribe, así que crecerle parámetros lo rompe.
-            $this->permisosDeLaSesion = $permisosDeSesion;
+            $this->decisionesDeLaSesion = $decisionesDeSesion;
             $this->sesionDeLosPermisos = $sessionId !== '' ? $sessionId : null;
 
             $respuesta = $this->ask(
@@ -874,12 +876,56 @@ class AgentOperations implements CommandProvider
      * con un fatal en cada corrida — «Declaration of … ::ask() must be compatible». Un punto de
      * extensión que viaja en `composer create-project` no puede crecer parámetros sin romper a quien
      * ya lo extendió, y esa lección la pagó v0.28.0.
-     *
-     * @var list<string>
-     *
-     * @param array<int, array<string, mixed>> $history
      */
-    private array $permisosDeLaSesion = [];
+    /**
+     * Los sí de esta sesión, como hechos con sus argumentos exactos.
+     *
+     * **Sólo cuentan las decisiones que guardaron el hecho estructurado.** Una sesión vieja trae el
+     * `why` como el JSON pelón de los argumentos, sin decir de qué operación son, y de ahí no se
+     * puede reconstruir a qué dijo que sí el humano sin leer el TEXTO de la pregunta. Esa sesión
+     * vuelve a preguntar, y eso es lo correcto: fallar hacia arriba es la única falla que esta
+     * familia se puede permitir en este eje (greenhouse decisions/0029).
+     *
+     * @return list<ConsentGrant>
+     */
+    private function grantsDeLaSesion(): array
+    {
+        if ($this->decisionesDeLaSesion === []) {
+            return [];
+        }
+
+        $ahora = new \DateTimeImmutable();
+        $quien = 'cli:' . (getenv('USER') ?: 'desconocido') . '@' . gethostname();
+        $grants = [];
+
+        foreach ($this->decisionesDeLaSesion as $decision) {
+            if (($decision['reason'] ?? null) !== 'permission') {
+                continue;
+            }
+            if (! AffirmativeAnswer::is((string) ($decision['answer'] ?? ''))) {
+                continue;
+            }
+            $hecho = json_decode(\is_string($decision['why'] ?? null) ? $decision['why'] : '', true);
+            if (! \is_array($hecho) || ! \is_string($hecho['operation'] ?? null)) {
+                continue;
+            }
+
+            $grants[] = new ConsentGrant(
+                operation: new OperationId($hecho['operation']),
+                principal: $quien,
+                session: $this->sesionDeLosPermisos,
+                grantedAt: $ahora,
+                // Cómo se ganó, para que ningún consumidor tenga que volver a ganarlo.
+                provenance: 'session.question_answered',
+                arguments: \is_array($hecho['arguments'] ?? null) ? $hecho['arguments'] : [],
+            );
+        }
+
+        return $grants;
+    }
+
+    /** @var list<array<string, mixed>> lo que ESTA sesión ya decidió, con su hecho adentro */
+    private array $decisionesDeLaSesion = [];
 
     private ?string $sesionDeLosPermisos = null;
 
@@ -910,42 +956,23 @@ class AgentOperations implements CommandProvider
             baseUrl: $this->baseUrl(),
             extraHeaders: $this->extraHeaders(),
         );
-        $cliente = new McpClientService($registry, $gate, $recorder ?? ($gate instanceof ToolCallRecorder ? $gate : null), $mesa);
+        $cliente = new ConsentBridge(
+            $registry,
+            $this->grantsDeLaSesion(),
+            $gate,
+            $recorder ?? ($gate instanceof ToolCallRecorder ? $gate : null),
+            $mesa,
+        );
 
-        // EL HECHO, NO LA LISTA. `SessionToolGate` pregunta, el humano contesta, y eso PRODUCE un
-        // hecho: un principal respondió una pregunta concreta, para un acto concreto, bajo un
-        // contexto concreto. Antes se mandaba una lista de cadenas y la compuerta comparaba
-        // ortografías — o sea, comparaba UI (greenhouse decisions/0030).
+        // EL PUENTE SE QUEDA CON EL CONTEXTO, y no se arma aquí.
         //
-        // Se manda un `ConsentGrant` por permiso concedido. La identidad la compara el grant; esta
-        // capa ya no traduce grafías, y la normalización textual que `v0.27.1` metió como parche
-        // deja de ser el contrato.
+        // Antes esta capa ponía `consent.grants` una vez por corrida. Pero `PolicyGate` compara el
+        // grant contra `consent.arguments` —los argumentos de LA LLAMADA que está juzgando— y esos
+        // cambian en cada paso, así que un contexto puesto una sola vez nunca podía traerlos: iban
+        // vacíos, y un grant sin argumentos cubría cualquier llamada cuyo nombre coincidiera.
         //
-        // `provenance` dice CÓMO se ganó, para que ningún consumidor tenga que volver a ganarlo.
-        if ($this->permisosDeLaSesion !== []) {
-            $ahora = new \DateTimeImmutable();
-            $quien = (getenv('USER') ?: 'desconocido') . '@' . gethostname();
-            $enQueSesion = $this->sesionDeLosPermisos;
-
-            $cliente->setContext(new ToolContext(
-                channel: 'cli',
-                extra: [
-                    // TODOS los sí de esta sesión, no el último. Mandarlos de uno en uno pisaba el
-                    // contexto y sólo sobrevivía el más reciente — con dos autorizaciones una se
-                    // perdía en silencio (tool-runtime v0.10.1).
-                    'consent.grants' => array_map(
-                        static fn (string $concedido): ConsentGrant => new ConsentGrant(
-                            operation: new OperationId($concedido),
-                            principal: 'cli:' . $quien,
-                            session: $enQueSesion,
-                            grantedAt: $ahora,
-                            provenance: 'session.question_answered',
-                        ),
-                        $this->permisosDeLaSesion,
-                    ),
-                ],
-            ));
-        }
+        // No era una regla con un hueco. Era una regla a la que nunca se le dio nada que comparar.
+        // `ConsentBridge` lo pone por llamada, que es la única capa que sabe cuál es (decisions/0031).
 
         // EL PARÁMETRO SÓLO SE PASA CUANDO HAY TABLERO, y no es estilo: es defensa.
         //

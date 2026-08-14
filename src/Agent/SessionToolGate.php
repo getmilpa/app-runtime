@@ -169,8 +169,17 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder
 
         return match ($decision) {
             PolicyDecision::Allow => null,
+            // EL «why» SE GUARDA ESTRUCTURADO, igual que el de la pregunta de intención (:254).
+            // `SessionPolicy` lo escribe como el JSON pelón de los argumentos, y así el operativo
+            // que después quiera saber QUÉ autorizó el humano tendría que sacar la operación del
+            // TEXTO de la pregunta. Un consentimiento que sólo se puede reconstruir leyendo prosa no
+            // es un hecho: es una redacción (greenhouse decisions/0031).
             PolicyDecision::AskPermission => $this->pause(
-                $this->policy->permissionQuestion($operacion->name, $arguments, $this->vence()),
+                $this->conElHechoAdentro(
+                    $this->policy->permissionQuestion($operacion->name, $arguments, $this->vence()),
+                    $operacion->name,
+                    $arguments,
+                ),
             ),
             PolicyDecision::RequireSignature => $this->pause(
                 $this->policy->signatureQuestion($operacion->name, $arguments),
@@ -238,7 +247,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder
             if (($decision['reason'] ?? null) !== 'target_not_named') {
                 continue;
             }
-            if ($decision['answer'] !== 'sí') {
+            if (! AffirmativeAnswer::is((string) $decision['answer'])) {
                 continue;
             }
             $why = json_decode(\is_string($decision['why'] ?? null) ? $decision['why'] : '', true);
@@ -332,13 +341,52 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder
     }
 
     /** Apenda la pregunta —la sesión queda esperando— y devuelve lo que se le dice a quien preguntó. */
+    /** Lo que un humano necesita leer de un hecho que trae más de lo que le importa. */
+    private static function conQué(?string $why): string
+    {
+        $hecho = json_decode((string) $why, true);
+        if (! \is_array($hecho) || ! \array_key_exists('arguments', $hecho)) {
+            return (string) $why;
+        }
+
+        return json_encode($hecho['arguments'], \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES)
+            ?: (string) $why;
+    }
+
+    /**
+     * La misma pregunta, con la operación y los argumentos guardados como dato.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function conElHechoAdentro(
+        \Milpa\Agent\PendingQuestion $pregunta,
+        string $operacion,
+        array $arguments,
+    ): \Milpa\Agent\PendingQuestion {
+        return new \Milpa\Agent\PendingQuestion(
+            id: $pregunta->id,
+            question: $pregunta->question,
+            options: $pregunta->options,
+            why: json_encode(
+                ['operation' => $operacion, 'arguments' => $arguments],
+                \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES,
+            ) ?: $pregunta->why,
+            expiresAt: $pregunta->expiresAt,
+            reason: $pregunta->reason,
+        );
+    }
+
     private function pause(\Milpa\Agent\PendingQuestion $pregunta): string
     {
         $this->sessions->ask($this->session->id, $pregunta);
 
         $linea = $pregunta->question;
         if ($pregunta->why !== null) {
-            $linea .= "\n  con: " . $pregunta->why;
+            // LA PROYECCIÓN LEE EL ÁTOMO, no lo escupe. `why` guarda el hecho —operación y
+            // argumentos— para que nadie tenga que reconstruirlo del texto; lo que el humano
+            // necesita ver es CON QUÉ, no el sobre en el que viaja. Volcar el JSON entero convertía
+            // una pregunta legible en un dump, que es la proyección comiéndose al átomo.
+            $linea .= "\n  con: " . self::conQué($pregunta->why);
         }
         // AQUÍ NO SE DICE CÓMO CONTESTAR, y antes sí: la línea `contesta con: coa agent:answer …`
         // viajaba dentro del texto de la pausa, así que aparecía TAMBIÉN dentro del TUI — una
