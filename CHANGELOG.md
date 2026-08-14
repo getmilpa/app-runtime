@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [0.29.0](https://github.com/getmilpa/app-runtime/compare/v0.28.1...v0.29.0) (2026-08-14)
+
+
+### Features
+
+* the caller closes the confirm/cancel round trip ([#71](https://github.com/getmilpa/app-runtime/issues/71)) ([80293a6](https://github.com/getmilpa/app-runtime/commit/80293a640456ddfa3d372365a775f2e09387387e))
+
+
+### Bug Fixes
+
+* the catalogue says which world it is showing ([#73](https://github.com/getmilpa/app-runtime/issues/73)) ([b6ec9ba](https://github.com/getmilpa/app-runtime/commit/b6ec9ba4fc2d925ace998eb0beb6d337e18b30a1))
+
 ## [0.20.0](https://github.com/getmilpa/app-runtime/releases/tag/v0.20.0) (2026-08-12)
 
 **`AgentKeyScan`: what an agent configuration key looks like, defined once.**
