@@ -73,6 +73,51 @@ final class SessionToolGateTest extends TestCase
         self::assertFalse($r['truncated'], 'el log no corta; el que recorta es la ventana');
     }
 
+    /**
+     * A CALL THAT ONLY ASKED IS RECORDED AS HAVING ASKED.
+     *
+     * The gate holds the tool's answer, so it is where the distinction can be made — and it asks the
+     * protocol's own predicate rather than reading `requires_confirmation` a second time here. Two
+     * readers of one rule disagree the day either changes.
+     */
+    public function testACallThatOnlyAskedForConfirmationIsRecordedAsAsking(): void
+    {
+        $eventos = new InMemoryEventStore();
+        $almacen = new SessionStore($eventos);
+        $compuerta = $this->compuerta($almacen, 's1');
+
+        $compuerta->recorded('make', ['what' => 'entity'], (string) json_encode([
+            'requires_confirmation' => true,
+            'confirm_token' => 'fc6c5582',
+        ]), true);
+        $compuerta->recorded('make', ['what' => 'entity', 'confirm_token' => 'fc6c5582'], (string) json_encode([
+            'ok' => true,
+        ]), true);
+
+        $ll = SessionObservation::of($eventos, 's1')->answers['called']['value'];
+
+        self::assertTrue($ll[0]['awaitingConfirmation'], 'la primera sólo pidió');
+        self::assertFalse($ll[1]['awaitingConfirmation'], 'la segunda hizo');
+    }
+
+    /** Y la cuenta que gobierna el consentimiento da UNA, no dos. */
+    public function testCountingCompletedMutationsGivesOneForOneWrite(): void
+    {
+        $eventos = new InMemoryEventStore();
+        $almacen = new SessionStore($eventos);
+        $compuerta = $this->compuerta($almacen, 's1');
+
+        $compuerta->recorded('make', [], '{"requires_confirmation":true,"confirm_token":"x"}', true);
+        $compuerta->recorded('make', ['confirm_token' => 'x'], '{"ok":true}', true);
+
+        $consumadas = array_filter(
+            SessionObservation::of($eventos, 's1')->answers['called']['value'],
+            static fn (array $l): bool => $l['mutating'] === true && $l['awaitingConfirmation'] !== true,
+        );
+
+        self::assertCount(1, $consumadas);
+    }
+
     /** Y lo chico llega igual: el cambio es de dónde vive el tope, no de cuánto se guarda. */
     public function testAResultThatFitIsNotReportedAsCut(): void
     {

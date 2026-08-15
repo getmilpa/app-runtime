@@ -11,7 +11,7 @@
   ],
   "require": {
     "php": "^8.3",
-    "milpa/agent": ">=0.14 <1.0",
+    "milpa/agent": ">=0.15 <1.0",
     "milpa/command": ">=0.7 <1.0",
     "milpa/console": ">=0.7.7 <1.0",
     "milpa/container": ">=0.1 <1.0",
@@ -19,7 +19,8 @@
     "milpa/http": ">=0.1.5 <1.0",
     "milpa/live-tui": ">=0.7 <1.0",
     "milpa/plugin": ">=0.10 <1.0",
-    "milpa/runtime": ">=0.7.6 <1.0"
+    "milpa/runtime": ">=0.7.6 <1.0",
+    "milpa/tool-runtime": ">=0.11 <1.0"
   },
   "require-dev": {
     "friendsofphp/php-cs-fixer": "^3.75",

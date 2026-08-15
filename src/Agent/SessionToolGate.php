@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Agent;
 
+use Milpa\ToolRuntime\ToolResult;
 use Milpa\AppRuntime\Support\ContratoInstalado;
 use Milpa\Agent\PolicyDecision;
 use Milpa\Agent\Session;
@@ -356,6 +357,18 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder
             $ok,
             $operacion instanceof Operation && $operacion->mutating,
             mb_strlen($result),
+            // PEDIR NO ES HABER HECHO, y esta compuerta tiene la respuesta delante.
+            //
+            // Una petición de confirmación y una escritura consumada vuelven las dos con éxito, así
+            // que sobre una operación que muta se graban idénticas: `ok` y `mutating`, y las dos
+            // cosas son ciertas en ambas. Quien cuente mutaciones desde el stream contaba DOS donde
+            // hubo UNA — la cuenta que gobierna el consentimiento (greenhouse evidence/0200).
+            //
+            // SE LE PREGUNTA AL PROTOCOLO, no se relee aquí. `requires_confirmation` es suyo, y un
+            // segundo lector discrepa con el primero el día que cualquiera de los dos cambie
+            // (evidence/0141). El predicado además distingue una petición de un PLAN, que lleva la
+            // misma llave anidada para decir qué requeriría confirmarse sin estar pidiéndolo.
+            ToolResult::asksForConfirmation($result),
         );
     }
 
