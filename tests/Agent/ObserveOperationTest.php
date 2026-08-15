@@ -79,23 +79,28 @@ final class ObserveOperationTest extends TestCase
     }
 
     /**
-     * IT SAYS WHAT IT CANNOT SAY, and that is not decoration.
+     * IT SAYS WHERE IT LOOKED, and that is not decoration.
      *
-     * Nobody declared an omission on this run, so the surface reports the question as unanswered
-     * rather than printing a zero. A partial view that does not declare itself partial leaves its
-     * reader debugging the wrong world with confidence — which is the failure this whole slice was
-     * built to make impossible.
+     * This test used to assert the opposite — that `omitted` was reported as unanswerable — and it
+     * was right until the slice that gave the question an answer: the withdrawal was already a fact
+     * of the stream and the view simply was not reading it. What survives is the property underneath,
+     * which never depended on the question being open: an answer carries its own scope, because a
+     * partial view that does not declare itself partial leaves its reader debugging the wrong world
+     * with confidence.
      */
-    public function testItNamesTheQuestionsItCannotAnswer(): void
+    public function testEveryAnswerCarriesItsOwnScope(): void
     {
         $eventos = new InMemoryEventStore();
         $this->conUnaCorridaObservada($eventos);
 
         $r = $this->correr($this->operations($eventos), ['session' => 's1']);
 
-        self::assertContains('omitted', $r['result']['cannotSay']);
-        self::assertFalse($r['result']['answers']['omitted']['answered']);
-        self::assertNotSame('', $r['result']['answers']['omitted']['because']);
+        self::assertTrue($r['result']['answers']['omitted']['answered']);
+        self::assertSame(
+            'session.option_removed',
+            $r['result']['answers']['omitted']['value']['readFrom'],
+            'the answer names the fact it was read from, so its limits travel with it',
+        );
     }
 
     /**
