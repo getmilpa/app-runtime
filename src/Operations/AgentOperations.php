@@ -26,6 +26,7 @@ use Milpa\Attributes\PluginMetadata;
 use Milpa\Plugin\Runtime\MetadataGraphResolver;
 use Milpa\Resolver\Report\ResolutionReport;
 use Milpa\AiGateway\LlmService;
+use Milpa\AppRuntime\Agent\IntakeObserver;
 use Milpa\AiGateway\McpClientService;
 use Milpa\AiGateway\OptionTable;
 use Milpa\AiGateway\SecondOpinionGate;
@@ -1075,6 +1076,15 @@ class AgentOperations implements CommandProvider
             new NullLogger(),
             baseUrl: $this->baseUrl(),
             extraHeaders: $this->extraHeaders(),
+            // LA ENTRADA DEL AGENTE, GRABADA DONDE SE SERIALIZA.
+            //
+            // Sin este cable el stream sigue guardando sólo lo que el agente HIZO, y `agent:observe`
+            // reporta con toda razón que nadie observó lo que le DIERON — para siempre. Es el paso
+            // que convierte dos extremos probados en una cadena.
+            //
+            // Sólo cuando hay sesión: una corrida sin sesión no tiene dónde apendar, y grabar en
+            // ningún lado con tal de grabar sería peor que no grabar.
+            channelObserver: $this->observadorDeEntrada(),
         );
         $cliente = new ConsentBridge(
             $registry,
@@ -1642,6 +1652,25 @@ class AgentOperations implements CommandProvider
             baseUrl: $this->baseUrl(),
             extraHeaders: $this->extraHeaders(),
         );
+    }
+
+    /**
+     * El observador de la entrada, cuando hay sesión donde apendarla.
+     *
+     * Devuelve `null` sin sesión, y eso NO es una degradación silenciosa: `agent:observe` distingue
+     * «nadie grabó la entrada» de «no se le ofreció nada», así que una corrida sin observar se lee
+     * como lo que es en vez de parecer un agente al que no le dieron herramientas.
+     */
+    protected function observadorDeEntrada(): ?IntakeObserver
+    {
+        $sesion = $this->sesionDeLosPermisos;
+        if ($sesion === null) {
+            return null;
+        }
+
+        $almacen = $this->sessions();
+
+        return $almacen === null ? null : new IntakeObserver($almacen, $sesion);
     }
 
     protected function sessions(): ?SessionStore
