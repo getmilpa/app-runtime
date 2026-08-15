@@ -759,10 +759,20 @@ final class AgentScreen implements SurfaceBroadcaster
             // cambia es ESTA pantalla, que sí sabe qué venía después — es la misma distinción de
             // siempre entre el primitivo y la superficie que lo usa.
             //
-            // Se retoma con el objetivo de la sesión y no con lo que acabas de teclear: «sí» no es una
-            // instrucción, es un consentimiento, y mandarlo como prompt le pediría al agente que
-            // interprete un monosílabo.
-            $this->correrVuelta($sesion->goal !== '' ? $sesion->goal : 'continúa con lo que estabas haciendo');
+            // Se retoma con LA PETICIÓN QUE LA COMPUERTA INTERRUMPIÓ, y no con lo que acabas de
+            // teclear: «sí» no es una instrucción, es un consentimiento, y mandarlo como prompt le
+            // pediría al agente que interprete un monosílabo.
+            //
+            // Y TAMPOCO CON EL `goal`, QUE ES LO QUE HACÍA. El goal es el PRIMER prompt de la sesión,
+            // así que autorizar una mutación en el segundo turno reinyectaba la petición de apertura:
+            // el agente rehacía el trabajo del primer turno antes de volver a lo pendiente. Medido en
+            // una sesión real —la primera pregunta viajando dos veces en la ventana y `plugins_list`
+            // corriendo dos veces byte por byte— y reportado como DOS hallazgos separados hasta que
+            // se encontró esta línea (greenhouse evidence/0206).
+            //
+            // En una sesión de un turno las dos cadenas son la misma y el defecto es invisible. Desde
+            // el segundo divergen. El «sí» no compite: `agent:answer` no lo graba como turno.
+            $this->correrVuelta($this->peticionInterrumpida($sesion));
 
             return;
         }
@@ -1239,6 +1249,23 @@ final class AgentScreen implements SurfaceBroadcaster
     }
 
     /** La sesión ahora mismo, o `null` si esta pantalla no corre sobre una. */
+    /**
+     * La petición que la compuerta interrumpió: el último turno del usuario.
+     *
+     * Cae al `goal` sólo si la sesión no tiene turnos —una que se pausó antes de decir nada— y a una
+     * frase neutra si tampoco hay goal. El orden importa: el goal es un respaldo, no la respuesta.
+     */
+    private function peticionInterrumpida(Session $sesion): string
+    {
+        foreach (array_reverse($sesion->turns) as $turno) {
+            if ($turno['role'] === 'user' && $turno['content'] !== '') {
+                return (string) $turno['content'];
+            }
+        }
+
+        return $sesion->goal !== '' ? $sesion->goal : 'continúa con lo que estabas haciendo';
+    }
+
     private function sesionActual(): ?Session
     {
         if ($this->sesion === null) {
