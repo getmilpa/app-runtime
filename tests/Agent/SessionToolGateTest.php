@@ -6,6 +6,7 @@ namespace Milpa\AppRuntime\Tests\Agent;
 
 use Milpa\AppRuntime\Agent\SessionToolGate;
 use Milpa\Agent\AutonomyMode;
+use Milpa\Agent\SessionObservation;
 use Milpa\Agent\SessionStore;
 use Milpa\Command\Operation;
 use Milpa\EventStore\InMemoryEventStore;
@@ -42,6 +43,45 @@ final class SessionToolGateTest extends TestCase
         self::assertNotNull($sesion);
 
         return new SessionToolGate($almacen, $sesion, $this->operaciones(), permissionWindow: $ventana);
+    }
+
+    /**
+     * WHOEVER CUTS DECLARES HOW LONG IT REALLY WAS.
+     *
+     * This gate shortens a result before recording it, because the window is what runs out on a long
+     * session. After that `mb_substr` nobody in the system can tell six hundred of six hundred from
+     * six hundred of two thousand — so the length is declared here, where the whole string still
+     * exists. Measured on cattle before this test existed: `capabilities` answered 2026 characters
+     * and the log kept 600, with the stored value no longer decoding as JSON.
+     */
+    public function testACutResultIsRecordedWithItsRealLength(): void
+    {
+        $eventos = new InMemoryEventStore();
+        $almacen = new SessionStore($eventos);
+        $compuerta = $this->compuerta($almacen, 's1');
+
+        $compuerta->recorded('plugins_list', [], str_repeat('x', 2026), true);
+
+        $r = SessionObservation::of($eventos, 's1')->answers['returned']['value'][0];
+
+        self::assertSame(2026, $r['resultChars'], 'lo que la herramienta contestó');
+        self::assertTrue($r['truncated']);
+        self::assertLessThan(2026, $r['chars'], 'lo guardado es más corto, y por eso hay que decirlo');
+    }
+
+    /** Y lo que cabe entero no se reporta como cortado: el campo distingue, no adorna. */
+    public function testAResultThatFitIsNotReportedAsCut(): void
+    {
+        $eventos = new InMemoryEventStore();
+        $almacen = new SessionStore($eventos);
+        $compuerta = $this->compuerta($almacen, 's1');
+
+        $compuerta->recorded('plugins_list', [], 'ok: dos plugins', true);
+
+        $r = SessionObservation::of($eventos, 's1')->answers['returned']['value'][0];
+
+        self::assertFalse($r['truncated']);
+        self::assertSame(15, $r['resultChars']);
     }
 
     /** Leer pasa, y no deja nada apendado: preguntar por una consulta gastaría la atención en lo que no importa. */

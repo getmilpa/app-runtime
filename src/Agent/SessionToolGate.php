@@ -337,6 +337,16 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder
         // nada sobre las mutaciones, porque como mutaciones son invisibles.
         $operacion = $this->operationFor($tool);
 
+        // QUIEN CORTA, DECLARA. Este es el único punto del sistema donde la cadena entera existe:
+        // después de este `mb_substr` nadie puede distinguir 600 de 600 de 600 de 2026, y calcularlo
+        // sería inventarlo.
+        //
+        // Medido sobre ganado: `capabilities` contestó 2026 caracteres y el log guardó 600 — el 70%
+        // perdido, con el valor guardado ya sin decodificar como JSON, y `agent:observe` sirviéndolo
+        // como «lo que regresó» sin una llave que lo dijera (greenhouse evidence/0201).
+        //
+        // El recorte NO cambia: la ventana es lo que escasea al retomar y ése era su motivo. Lo que
+        // cambia es que deja de ser silencioso.
         $this->sessions->recordToolCall(
             $this->session->id,
             $tool,
@@ -344,6 +354,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder
             mb_substr($result, 0, self::MAX_RESULT),
             $ok,
             $operacion instanceof Operation && $operacion->mutating,
+            mb_strlen($result),
         );
     }
 
