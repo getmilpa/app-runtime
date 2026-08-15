@@ -47,6 +47,23 @@ final class AgentKeysTest extends TestCase
         self::assertCount(17, $r['keys']);
     }
 
+    /**
+     * THE PATH IT REPORTS HAS TO BE A PATH THAT EXISTS.
+     *
+     * Measured in a real chat session on cattle: the human was told the change was saved to
+     * `/.milpa/agent.json`, which sends them to the filesystem root. The write was correct — the file
+     * is under the app — and only the sentence was wrong, which is the worst kind of wrong: it looks
+     * like help and costs a search (greenhouse evidence/0199).
+     */
+    public function testItReportsAPathThatExists(): void
+    {
+        /** @var array{written_to: string} $r */
+        $r = ($this->op('config:set')->handler)(['key' => 'agent.treeBudget', 'value' => 7]);
+
+        self::assertStringStartsNotWith('/', $r['written_to'], 'no es absoluta, así que no se anuncia como si lo fuera');
+        self::assertFileExists($this->root . '/' . $r['written_to'], 'lo que dice tiene que estar ahí');
+    }
+
     /** 2 · a known key is written and nothing extra is said about it. */
     public function testAKnownKeyIsWrittenWithoutComment(): void
     {

@@ -255,6 +255,19 @@ final class Application
             return $this->help();
         }
 
+        // PEDIR AYUDA DE UN COMANDO NO PUEDE CORRER EL COMANDO.
+        //
+        // `--help` sólo se atendía cuando ERA el comando, así que `coa chat --help` caía en el
+        // despacho de `chat` y metía a quien preguntaba dentro de una sesión interactiva — en una
+        // terminal eso no es ayuda, es una trampa (greenhouse evidence/0199). Y no era sólo `chat`:
+        // cualquier `coa <lo que sea> --help` corría la cosa.
+        //
+        // Quien necesite pasar el texto `--help` como VALOR lo hace con `--clave=--help`, que es la
+        // forma con la que ya viajan los valores.
+        if (\in_array('--help', $argv, true) || \in_array('-h', $argv, true)) {
+            return $this->help();
+        }
+
         // ANTES DE BOOTEAR, y ésa es toda la razón de que viva aquí y no en `config/operations.php`.
         // Una operación se despacha con el kernel arriba; si el grafo de capacidades no cierra, el
         // kernel no arranca y NINGUNA operación corre — incluidas las de diagnóstico. Medido en esta
