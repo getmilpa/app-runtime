@@ -1664,9 +1664,13 @@ class AgentOperations implements CommandProvider
     protected function observadorDeEntrada(): ?IntakeObserver
     {
         $sesion = $this->sesionDeLosPermisos;
-        $almacen = $sesion === null ? null : $this->sessions();
+        if ($sesion === null) {
+            return null;
+        }
 
-        return $almacen === null || $sesion === null ? null : new IntakeObserver($almacen, $sesion);
+        $almacen = $this->sessions();
+
+        return $almacen === null ? null : new IntakeObserver($almacen, $sesion);
     }
 
     protected function sessions(): ?SessionStore

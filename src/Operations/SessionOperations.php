@@ -622,18 +622,6 @@ final class SessionOperations implements CommandProvider
     }
 
     /**
-     * Lo que pasó en una sesión, traducido — la misma respuesta para las tres superficies.
-     *
-     * No arma nada: le pide al almacén el `timeline()`, que a su vez usa el proyector. Que la terminal,
-     * el navegador y el agente reciban veredictos distintos del mismo hecho es un falsificador que
-     * este repositorio ya vio dispararse hoy —`ci-check` y la CI publicada difirieron tres veces— y la
-     * defensa es que haya un solo camino, no tres cuidadosos.
-     *
-     * @param array<string, mixed> $input
-     *
-     * @return array{ok: bool, session?: string, since?: int, events?: list<array<string, mixed>>, error?: string, hint?: string}
-     */
-    /**
      * La proyección de máquina de la observación: los mismos hechos, sin una palabra más.
      *
      * @param array<string, mixed> $input
@@ -659,6 +647,18 @@ final class SessionOperations implements CommandProvider
         return ['ok' => true, 'result' => $observacion->toArray()];
     }
 
+    /**
+     * Lo que pasó en una sesión, traducido — la misma respuesta para las tres superficies.
+     *
+     * No arma nada: le pide al almacén el `timeline()`, que a su vez usa el proyector. Que la terminal,
+     * el navegador y el agente reciban veredictos distintos del mismo hecho es un falsificador que
+     * este repositorio ya vio dispararse hoy —`ci-check` y la CI publicada difirieron tres veces— y la
+     * defensa es que haya un solo camino, no tres cuidadosos.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array{ok: bool, session?: string, since?: int, events?: list<array<string, mixed>>, error?: string, hint?: string}
+     */
     private function linea(array $input): array
     {
         [$almacen, $id, $error] = $this->target($input);
