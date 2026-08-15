@@ -44,9 +44,6 @@ use Milpa\Console\McpProjector;
  */
 final class SessionToolGate implements ToolCallGate, ToolCallRecorder
 {
-    /** Cuánto de lo que contestó una herramienta se guarda en la bitácora de la sesión. */
-    private const MAX_RESULT = 600;
-
     /**
      * @param list<Operation> $operations las de esta app — de ahí salen `mutating` y
      *                                    `requiresConfirmation`, que son declaraciones de la operación
@@ -337,21 +334,25 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder
         // nada sobre las mutaciones, porque como mutaciones son invisibles.
         $operacion = $this->operationFor($tool);
 
-        // QUIEN CORTA, DECLARA. Este es el único punto del sistema donde la cadena entera existe:
-        // después de este `mb_substr` nadie puede distinguir 600 de 600 de 600 de 2026, y calcularlo
-        // sería inventarlo.
+        // EL LOG GUARDA LO QUE LA HERRAMIENTA CONTESTÓ. El recorte vive en `Session::window()`,
+        // que es el único consumidor con escasez de espacio.
         //
-        // Medido sobre ganado: `capabilities` contestó 2026 caracteres y el log guardó 600 — el 70%
-        // perdido, con el valor guardado ya sin decodificar como JSON, y `agent:observe` sirviéndolo
-        // como «lo que regresó» sin una llave que lo dijera (greenhouse evidence/0201).
+        // Aquí se cortaba antes, y así un solo `mb_substr` le servía a dos consumidores con
+        // necesidades opuestas: la ventana lo quiere corto porque el contexto es lo que se acaba en
+        // una sesión larga, y una superficie lo quiere entero para ARMAR la vista del dato. La
+        // ventana obtenía lo suyo y la superficie pagaba la cuenta — medido sobre ganado:
+        // `capabilities` contestó 2004 caracteres, el log guardó 600, el valor dejó de parsear y el
+        // humano no vio tabla ninguna, en la misma sesión donde una llamada más chica sí la tuvo
+        // (greenhouse evidence/0203).
         //
-        // El recorte NO cambia: la ventana es lo que escasea al retomar y ése era su motivo. Lo que
-        // cambia es que deja de ser silencioso.
+        // `resultChars` se sigue mandando: hoy iguala el largo guardado, y ese es el punto. Es el
+        // mecanismo que declararía cualquier tope futuro —uno de disco, que es otra escasez y otro
+        // tope— y no se quita porque haya dejado de tener algo que confesar (evidence/0202).
         $this->sessions->recordToolCall(
             $this->session->id,
             $tool,
             $arguments,
-            mb_substr($result, 0, self::MAX_RESULT),
+            $result,
             $ok,
             $operacion instanceof Operation && $operacion->mutating,
             mb_strlen($result),

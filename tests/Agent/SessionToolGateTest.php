@@ -46,15 +46,19 @@ final class SessionToolGateTest extends TestCase
     }
 
     /**
-     * WHOEVER CUTS DECLARES HOW LONG IT REALLY WAS.
+     * THE LOG KEEPS WHAT THE TOOL ANSWERED, and says how long that was.
      *
-     * This gate shortens a result before recording it, because the window is what runs out on a long
-     * session. After that `mb_substr` nobody in the system can tell six hundred of six hundred from
-     * six hundred of two thousand — so the length is declared here, where the whole string still
-     * exists. Measured on cattle before this test existed: `capabilities` answered 2026 characters
-     * and the log kept 600, with the stored value no longer decoding as JSON.
+     * This test used to assert the opposite half — that a big result arrived shortened — and it was
+     * right until the cap moved to the window, which is the consumer whose space is actually scarce.
+     * A surface builds its data view from this value, and a half JSON is a text rather than a table:
+     * measured on cattle, `capabilities` answered 2004 characters, the log kept 600, and the human
+     * saw no table at all.
+     *
+     * What survives from that slice is the declaration itself. It now equals the stored length, and
+     * that is the point: it is the mechanism that would confess any future cap, kept because it
+     * stopped having something to confess rather than removed for it.
      */
-    public function testACutResultIsRecordedWithItsRealLength(): void
+    public function testABigResultReachesTheLogWholeWithItsLength(): void
     {
         $eventos = new InMemoryEventStore();
         $almacen = new SessionStore($eventos);
@@ -65,11 +69,11 @@ final class SessionToolGateTest extends TestCase
         $r = SessionObservation::of($eventos, 's1')->answers['returned']['value'][0];
 
         self::assertSame(2026, $r['resultChars'], 'lo que la herramienta contestó');
-        self::assertTrue($r['truncated']);
-        self::assertLessThan(2026, $r['chars'], 'lo guardado es más corto, y por eso hay que decirlo');
+        self::assertSame(2026, $r['chars'], 'y lo que el log guardó');
+        self::assertFalse($r['truncated'], 'el log no corta; el que recorta es la ventana');
     }
 
-    /** Y lo que cabe entero no se reporta como cortado: el campo distingue, no adorna. */
+    /** Y lo chico llega igual: el cambio es de dónde vive el tope, no de cuánto se guarda. */
     public function testAResultThatFitIsNotReportedAsCut(): void
     {
         $eventos = new InMemoryEventStore();
