@@ -26,6 +26,7 @@ use Milpa\Attributes\PluginMetadata;
 use Milpa\Plugin\Runtime\MetadataGraphResolver;
 use Milpa\Resolver\Report\ResolutionReport;
 use Milpa\AiGateway\LlmService;
+use Milpa\AppRuntime\Agent\EffectClasses;
 use Milpa\AppRuntime\Agent\IntakeObserver;
 use Milpa\AiGateway\McpClientService;
 use Milpa\AiGateway\OptionTable;
@@ -219,7 +220,10 @@ class AgentOperations implements CommandProvider
                         // cannot be done is not offered, and a schema is read by agents too.
                         ...($this->sessionStore() !== null ? [
                             'deny' => ['type' => 'string', 'description' => 'Comma-separated tools withdrawn from its catalogue. Requires --session'],
-                            'denyEffects' => ['type' => 'string', 'description' => 'Withdraw every operation in these effect classes: mutating|external|irreversible|authority. Unknown effects count as denied. Requires --session'],
+                            // LA DESCRIPCION SE ARMA DE LA LISTA, no se copia junto a ella. Estas
+                            // cuatro vivían escritas aquí Y en el `match` que resuelve, y dos copias
+                            // discrepan el día que alguien cambia una (greenhouse evidence/0141).
+                            'denyEffects' => ['type' => 'string', 'description' => EffectClasses::describe()],
                         ] : []),
                         'first' => ['type' => 'string', 'description' => 'Comma-separated tools that must run before anything else proceeds — an ordering obligation, executed rather than asked'],
                     ],
@@ -754,6 +758,24 @@ class AgentOperations implements CommandProvider
         // through the catalogue this resolves against. `plan` and `todo` declare `mutating: true` and
         // it is true — they append — but their effect is confined to this session's log. Taking the
         // notebook away from a contained agent does not make it safer, it makes it illegible.
+        // UNA CLASE QUE NADIE DEFINIO SE RECHAZA POR NOMBRE, y con la lista de las reales.
+        //
+        // Medido sobre ganado: `--denyEffects=mutates` retiraba cero, fallaba cero y decía cero, así
+        // que quien lo tecleó pedía retirar una clase entera y creía que había pasado — contenía
+        // menos de lo que creía, sin una palabra (greenhouse evidence/0197). Una bandera que acepta
+        // lo que no entiende es ley sin mecanismo.
+        //
+        // Se rechaza ANTES de retirar: aceptar la mitad buena y callar la inventada sería peor, con
+        // el operador viendo ALGUN retiro y concluyendo que la instrucción entera aterrizó.
+        $clasesInventadas = EffectClasses::unknownIn($input['denyEffects'] ?? null);
+        if ($clasesInventadas !== []) {
+            return [
+                'ok' => false,
+                'error' => EffectClasses::refusal($clasesInventadas),
+                'hint' => 'name the tools with --deny instead, or use one of the classes above',
+            ];
+        }
+
         $undeclared = 0;
         $catalogue = 0;
         foreach ($this->operationsMatchingEffects($input['denyEffects'] ?? null, $undeclared, $catalogue) as $tool) {
