@@ -232,7 +232,14 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
         $respuesta = [
             'ok' => true,
             'key' => $llave,
-            'written_to' => MachineOverlay::RUTA,
+            // RELATIVA A LA RAÍZ DE LA APP, y sin la diagonal de adelante.
+            //
+            // `MachineOverlay::RUTA` es un fragmento que se concatena a la raíz, y anunciarlo tal cual
+            // dice `/.milpa/agent.json` — que se lee como absoluta y manda a buscar a la raíz del
+            // SISTEMA. Medido en una sesión de chat real: la escritura estuvo bien y la frase mal, que
+            // es la peor forma de estar mal porque parece ayuda y cuesta una búsqueda
+            // (greenhouse evidence/0199).
+            'written_to' => ltrim(MachineOverlay::RUTA, '/'),
             'governs_the_judge' => JudgeCeiling::esCriterioDelJuez($llave),
             'hint' => 'run `coa config` to see it, and `coa doctor` if config/app.php declares it too',
         ];
