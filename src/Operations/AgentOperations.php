@@ -26,6 +26,7 @@ use Milpa\Attributes\PluginMetadata;
 use Milpa\Plugin\Runtime\MetadataGraphResolver;
 use Milpa\Resolver\Report\ResolutionReport;
 use Milpa\AiGateway\LlmService;
+use Milpa\AppRuntime\Agent\AgentTable;
 use Milpa\AppRuntime\Agent\EffectClasses;
 use Milpa\AppRuntime\Agent\IntakeObserver;
 use Milpa\AiGateway\McpClientService;
@@ -2144,6 +2145,20 @@ class AgentOperations implements CommandProvider
 
         $names = [];
         foreach (Operations::all($kernel, $kernel->root()) as $op) {
+            // RETIRAR DE LA MESA QUE EXISTE, no del catálogo entero.
+            //
+            // Medido sobre ganado: esto declaraba TRECE retiros mientras OCHO herramientas dejaban de
+            // viajar, porque iteraba todas las operaciones y apendaba un retiro por cada una que
+            // casara — incluidas las que nunca estuvieron en la mesa del agente. Quien leyera la
+            // observación entendía que el agente había perdido trece capacidades (greenhouse
+            // evidence/0198).
+            //
+            // La regla ya existía y estaba partida en dos; aquí no se llamaba ninguna de las dos. No
+            // era un problema de orden: era la misma app decidiendo dos veces qué está en la mesa.
+            if (!AgentTable::offers($op)) {
+                continue;
+            }
+
             ++$catalogue;
             $e = $op->effectCeiling();
             $sinClasificar = !$e->isFullyClassified();
@@ -2290,11 +2305,11 @@ class AgentOperations implements CommandProvider
         // `agent:discard` entra a esta lista el día que nace, y no después: cierra una sesión, y un
         // padre que pudiera cerrar a su hijo pausado haría desaparecer la pregunta que el humano tenía
         // que ver. No otorga nada — vuelve invisible lo que existía para ser visto.
-        $adjudican = ['agent:answer', 'agent:mode', 'agent:discard'];
-        $todas = array_values(array_filter(
-            $todas,
-            static fn ($op): bool => !\in_array($op->name, $adjudican, true),
-        ));
+        // LA MISMA REGLA, LLAMADA. La lista vivía aquí y quien resolvía el retiro no se enteraba,
+        // que es como una app termina decidiendo dos veces qué está en su mesa (greenhouse
+        // evidence/0198). El proyector sigue aplicando el opt-in de superficie más abajo; esto sólo
+        // deja de ser la segunda copia de la mitad que faltaba.
+        $todas = array_values(array_filter($todas, static fn ($op): bool => AgentTable::offers($op)));
 
         // Sólo lo que TODAVÍA no está. Proyectar dos veces sobre el mismo registro lanza
         // `ToolAlreadyRegisteredException`, y eso convertía la segunda llamada al agente —en el mismo
