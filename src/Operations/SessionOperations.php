@@ -236,6 +236,50 @@ final class SessionOperations implements CommandProvider
                 // deciden —contestar, cambiar el modo— siguen fuera de la web.
                 surfaces: ['cli', 'tui', 'mcp', 'http'],
             ),
+            // ── LA SUPERFICIE DEL PUESTO DE DESARROLLADOR ───────────────────────────────────────
+            //
+            // No hay tres usuarios: hay dos —el humano y el agente— y un PUESTO TRANSVERSAL que a
+            // veces ocupa uno y a veces el otro. Lo que lo define no es quién lo llena sino que
+            // necesita LAS DOS VISTAS A LA VEZ: lo que el sistema mostró y lo que de verdad ocurrió.
+            //
+            // Por eso esto no es una tercera verdad. Es UNA fuente y dos proyecciones: la de máquina
+            // sale de aquí como hecho, la humana la pinta la consola con el mismo hecho. Dos
+            // implementaciones podrían discrepar; una fuente no.
+            //
+            // Y por eso DICE lo que no puede decir. Ocho veces en una jornada un instrumento enseñó
+            // un subconjunto callándoselo —un catálogo de 22 de 28, un cursor que no dice cuántos
+            // eventos deja fuera—, y cada vez costó una vuelta entera de diagnóstico. Una vista
+            // parcial que no declara ser parcial es más peligrosa que una vista pequeña.
+            new Operation(
+                name: 'agent:observe',
+                effects: new EffectProfile(
+                    Mutation::None,
+                    Externality::None,
+                    Reversibility::Guaranteed,
+                    Authority::Read,
+                    subject: Subject::None,
+                    rollbackContract: 'nothing-to-roll-back',
+                ),
+                description: 'What the agent was given and what it did with it, from the same source — including what this view cannot say',
+                handler: fn (array $input): array => $this->observar($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'session' => [
+                            'type' => 'string',
+                            'description' => 'The session identifier',
+                            'x-milpa-source' => ['tool' => 'agent:sessions', 'path' => 'sessions', 'key' => 'session'],
+                        ],
+                    ],
+                    'required' => ['session'],
+                ],
+                mutating: false,
+                // EN TODAS LAS SUPERFICIES, incluida la web: leer lo que ya pasó no autoriza nada, y
+                // el puesto lo ocupa un agente tan seguido como un humano. Dejarla fuera de `mcp`
+                // sería documentar que el puesto existe y no atenderlo — el siguiente agente
+                // tendría que volver a fabricarse un proxy.
+                surfaces: ['cli', 'tui', 'mcp', 'http'],
+            ),
             new Operation(
                 name: 'agent:answer',
                 effects: new EffectProfile(
@@ -589,6 +633,32 @@ final class SessionOperations implements CommandProvider
      *
      * @return array{ok: bool, session?: string, since?: int, events?: list<array<string, mixed>>, error?: string, hint?: string}
      */
+    /**
+     * La proyección de máquina de la observación: los mismos hechos, sin una palabra más.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function observar(array $input): array
+    {
+        [$almacen, $id, $error] = $this->target($input);
+        if ($error !== null || $almacen === null) {
+            return $error ?? ['ok' => false, 'error' => 'this app has nowhere to store sessions'];
+        }
+
+        $observacion = $almacen->observation($id);
+
+        // UNA SESIÓN QUE NO EXISTE NO SE ENSEÑA VACÍA. Ceros por todos lados y «no existe» mandan a
+        // lugares opuestos —a revisar la app, o a revisar el identificador— y son indistinguibles si
+        // los dos se pintan igual.
+        if (!$observacion->exists) {
+            return ['ok' => false, 'error' => "no existe la sesión «{$id}»"];
+        }
+
+        return ['ok' => true, 'result' => $observacion->toArray()];
+    }
+
     private function linea(array $input): array
     {
         [$almacen, $id, $error] = $this->target($input);
