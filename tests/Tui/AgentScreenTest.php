@@ -100,6 +100,104 @@ final class AgentScreenTest extends TestCase
         self::assertStringContainsString('ANTHROPIC_API_KEY', $texto);
     }
 
+    /**
+     * Una pantalla con una pregunta abierta, y el contrato que hay que modelar para llegar a ella.
+     *
+     * ── LO QUE COSTÓ DESCUBRIR, Y POR ESO VIVE AQUÍ ─────────────────────────────────────────────
+     *
+     * Contestar y RETOMAR son dos hechos, y el segundo sólo ocurre si el primero CONCEDIÓ algo: la
+     * pantalla lee `granted` de lo que devuelve `agent:answer`. Una falsa que sólo devuelve
+     * `['ok' => true]` contesta y no retoma — y se ve exactamente igual que un banco que no alcanza
+     * el código, que fue la conclusión equivocada que costó una rebanada entera (evidence/0206).
+     *
+     * *El banco nunca faltó. Faltaba modelar el contrato, y eso se escribe donde el siguiente lo lee.*
+     *
+     * @param list<array{role: string, content: string, seq: int}> $turnos
+     */
+    private function conPreguntaAbierta(array $turnos, ?string $concede, ?string &$pedido): AgentScreen
+    {
+        $sesion = new Session(
+            id: 's1',
+            goal: 'lista los plugins instalados',
+            turns: $turnos,
+            question: new PendingQuestion(
+                id: 'perm:config:set',
+                question: '¿lo autorizas?',
+                options: ['sí', 'no'],
+                reason: 'permission',
+            ),
+        );
+
+        return new AgentScreen(
+            static function (string $q) use (&$pedido): array {
+                $pedido = $q;
+
+                return ['ok' => true, 'answer' => 'hecho'];
+            },
+            static fn (): Session => $sesion,
+            static fn (string $r): array => $concede === null
+                ? ['ok' => true]
+                : ['ok' => true, 'granted' => $concede],
+            74,
+            16,
+            false,
+        );
+    }
+
+    /**
+     * RETOMAR SIGUE LA PETICIÓN INTERRUMPIDA, NO LA DE APERTURA.
+     *
+     * Autorizar reinyectaba el `goal` de la sesión —el PRIMER prompt— así que desde el segundo turno
+     * el agente rehacía el trabajo de apertura antes de volver a lo pendiente. Medido en una sesión
+     * real: la primera pregunta viajaba dos veces en la ventana y `plugins_list` corría dos veces
+     * byte por byte, reportados como dos hallazgos hasta que resultaron ser esta línea
+     * (greenhouse evidence/0206).
+     */
+    public function testResumingAfterAGrantFollowsTheInterruptedRequest(): void
+    {
+        $pedido = null;
+        $pantalla = $this->conPreguntaAbierta([
+            ['role' => 'user', 'content' => 'lista los plugins instalados', 'seq' => 1],
+            ['role' => 'assistant', 'content' => 'son tres', 'seq' => 2],
+            ['role' => 'user', 'content' => 'usa config_set para poner agent.treeBudget en 7', 'seq' => 3],
+        ], 'config:set', $pedido);
+
+        $pantalla->press('enter');
+
+        self::assertSame('usa config_set para poner agent.treeBudget en 7', $pedido);
+        self::assertNotSame('lista los plugins instalados', $pedido, 'la de apertura ya se contestó');
+    }
+
+    /** Sin turnos que retomar cae al objetivo, que para eso está: es respaldo, no respuesta. */
+    public function testWithNoTurnsItFallsBackToTheGoal(): void
+    {
+        $pedido = null;
+        $pantalla = $this->conPreguntaAbierta([], 'config:set', $pedido);
+
+        $pantalla->press('enter');
+
+        self::assertSame('lista los plugins instalados', $pedido);
+    }
+
+    /**
+     * UNA RESPUESTA QUE NO CONCEDIÓ NADA NO SE VUELVE A CORRER.
+     *
+     * Retomar con la compuerta igual de cerrada devuelve LA MISMA pregunta palabra por palabra — se
+     * midió tres veces seguidas (evidence/0165). La rama existía sin prueba, y es la que hace que
+     * una falsa incompleta se vea idéntica a un banco roto.
+     */
+    public function testAnAnswerThatGrantedNothingDoesNotResume(): void
+    {
+        $pedido = null;
+        $pantalla = $this->conPreguntaAbierta([
+            ['role' => 'user', 'content' => 'usa config_set', 'seq' => 1],
+        ], null, $pedido);
+
+        $pantalla->press('enter');
+
+        self::assertNull($pedido, 'contestar y correr son dos hechos, y el segundo pide autorización');
+    }
+
     /** Enter con el campo vacío no le pregunta nada a nadie. */
     public function testEnterOnAnEmptyPromptAsksNobody(): void
     {
