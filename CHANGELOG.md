@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [0.43.0](https://github.com/getmilpa/app-runtime/compare/v0.42.1...v0.43.0) (2026-08-17)
+
+
+### Features
+
+* expose catalogue effect declarations ([#96](https://github.com/getmilpa/app-runtime/issues/96)) ([78ba831](https://github.com/getmilpa/app-runtime/commit/78ba83184881ca660b9ccf162251729f1b055eda))
+
+
+### Bug Fixes
+
+* an effect's authority comes from the grant, not from the path it took ([#95](https://github.com/getmilpa/app-runtime/issues/95)) ([37ad92c](https://github.com/getmilpa/app-runtime/commit/37ad92ce2a8cdf42db73def5fae318316b8b4f4b))
+
 ## [0.42.1](https://github.com/getmilpa/app-runtime/compare/v0.42.0...v0.42.1) (2026-08-17)
 
 
