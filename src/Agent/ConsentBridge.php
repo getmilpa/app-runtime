@@ -66,18 +66,18 @@ final class ConsentBridge extends McpClientService
     /** @var list<array{principal: ?string, operation: string, tool: string, arguments: array<string, mixed>, confirm_token: string, provenance: string, session: ?string}> */
     private array $chain = [];
 
-    /**
-     * @param list<ConsentGrant> $grants every yes this session has already collected — not the last
-     *                                   one. Passing them one at a time overwrote the context and
-     *                                   only the most recent survived, so with two authorisations one
-     *                                   was lost in silence (tool-runtime v0.10.1).
-     */
     private ToolRegistry $catalogue;
 
     private ?ExecutionRecorder $executions;
 
     private ObservedExecutor $executor;
 
+    /**
+     * @param list<ConsentGrant> $grants every yes this session has already collected — not the last
+     *                                   one. Passing them one at a time overwrote the context and
+     *                                   only the most recent survived, so with two authorisations one
+     *                                   was lost in silence (tool-runtime v0.10.1).
+     */
     public function __construct(
         ToolRegistry $registry,
         array $grants = [],
