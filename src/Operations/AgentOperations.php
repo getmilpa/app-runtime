@@ -145,7 +145,7 @@ class AgentOperations implements CommandProvider
         $inspection = [
             new Operation(
                 name: 'agent:catalogue',
-                description: 'The catalogue an agent would receive from this app, with the inputSchema of every tool',
+                description: 'The catalogue an agent would receive from this app, with each tool\'s inputSchema and declared effects',
                 handler: fn (array $input): array => $this->catalogueFor($input),
                 inputSchema: [
                     'type' => 'object',
@@ -334,7 +334,8 @@ class AgentOperations implements CommandProvider
             ];
         }
 
-        $registry = $this->toolsOfThisApp($sessionId === '' ? [] : $deSesion, $readOnly);
+        $declarations = [];
+        $registry = $this->toolsOfThisApp($sessionId === '' ? [] : $deSesion, $readOnly, declarations: $declarations);
         if ($registry === null) {
             return [
                 'ok' => false,
@@ -347,7 +348,7 @@ class AgentOperations implements CommandProvider
             ];
         }
 
-        $tools = $registry->getToolSummaries();
+        $tools = $this->catalogueTools($registry, $declarations);
         usort($tools, static fn (array $a, array $b): int => strcmp((string) $a['name'], (string) $b['name']));
 
         return [
@@ -358,6 +359,70 @@ class AgentOperations implements CommandProvider
             'tools' => $tools,
             ...$masConSesion,
         ];
+    }
+
+    /**
+     * Add only the effect declarations carried by the channel that produced these tools.
+     *
+     * The registry's flat definition cannot distinguish an omitted boolean from `false`: both are
+     * stored as `false`. Operations do preserve the declaration that was projected, so their tools
+     * can honestly publish both boolean values and the profile they carry. A tool registered through
+     * another path has no such provenance here. For that tool, `true` is still evidence because it
+     * cannot be the registry default; `false` is not, and the missing declaration is named in
+     * `cannotSay` rather than turned into a reassuring answer nobody gave.
+     *
+     * @param list<Operation> $declarations the exact operations selected by {@see toolsOfThisApp()}
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function catalogueTools(ToolRegistry $registry, array $declarations): array
+    {
+        /** @var array<string, Operation|null> $byTool */
+        $byTool = [];
+        foreach ($declarations as $operation) {
+            $name = McpProjector::toolName($operation->name);
+            // Two operation names can normalize to one MCP name. That collision carries no honest
+            // answer about which declaration produced the registered tool, so keep it unknown.
+            $byTool[$name] = \array_key_exists($name, $byTool) ? null : $operation;
+        }
+
+        $tools = [];
+        foreach ($registry->getToolSummaries() as $tool) {
+            $name = (string) $tool['name'];
+            $definition = $registry->getDefinition($name);
+            $operation = $byTool[$name] ?? null;
+            $cannotSay = [];
+
+            if ($operation instanceof Operation && $definition !== null) {
+                $tool['mutating'] = $definition->mutating;
+                $tool['requiresConfirmation'] = $definition->requiresConfirmation;
+            } else {
+                if ($definition?->mutating === true) {
+                    $tool['mutating'] = true;
+                } else {
+                    $cannotSay[] = 'mutating';
+                }
+
+                if ($definition?->requiresConfirmation === true) {
+                    $tool['requiresConfirmation'] = true;
+                } else {
+                    $cannotSay[] = 'requiresConfirmation';
+                }
+            }
+
+            if ($operation?->effects !== null) {
+                $tool['effects'] = $operation->effects->toArray();
+            } else {
+                $cannotSay[] = 'effects';
+            }
+
+            if ($cannotSay !== []) {
+                $tool['cannotSay'] = $cannotSay;
+            }
+            $tools[] = $tool;
+        }
+
+        return $tools;
     }
 
     /**
@@ -2251,11 +2316,21 @@ class AgentOperations implements CommandProvider
     }
 
     /**
-     * @param list<Operation> $extra operations that exist only for this run — today, the ones tying
-     *                               the plan and the pending items to the session in flight
+     * @param list<Operation>      $extra        operations that exist only for this run — today, the
+     *                                           ones tying the plan and the pending items to the session
+     *                                           in flight
+     * @param list<Operation>|null $declarations out: the exact operations selected for projection;
+     *                                           null when the caller does not inspect provenance
+     *
+     * @param-out list<Operation> $declarations
      */
-    private function toolsOfThisApp(array $extra = [], bool $soloLectura = false, bool $registroPropio = false): ?ToolRegistry
-    {
+    private function toolsOfThisApp(
+        array $extra = [],
+        bool $soloLectura = false,
+        bool $registroPropio = false,
+        ?array &$declarations = null,
+    ): ?ToolRegistry {
+        $declarations = [];
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
         if (!$kernel instanceof Kernel) {
             return null;
@@ -2357,6 +2432,7 @@ class AgentOperations implements CommandProvider
         // evidence/0198). El proyector sigue aplicando el opt-in de superficie más abajo; esto sólo
         // deja de ser la segunda copia de la mitad que faltaba.
         $todas = array_values(array_filter($todas, static fn ($op): bool => AgentTable::offers($op)));
+        $declarations = $todas;
 
         // Sólo lo que TODAVÍA no está. Proyectar dos veces sobre el mismo registro lanza
         // `ToolAlreadyRegisteredException`, y eso convertía la segunda llamada al agente —en el mismo
