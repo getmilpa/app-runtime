@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Agent;
 
 use Milpa\AiGateway\McpClientService;
 use Milpa\Command\Consent\ConsentGrant;
+use Milpa\Command\Consent\OperationId;
 use Milpa\AiGateway\OptionTable;
 use Milpa\AiGateway\ToolCallGate;
 use Milpa\AiGateway\ToolCallRecorder;
@@ -65,6 +66,12 @@ final class ConsentBridge extends McpClientService
     /** @var list<array{principal: ?string, operation: string, tool: string, arguments: array<string, mixed>, confirm_token: string, provenance: string, session: ?string}> */
     private array $chain = [];
 
+    private ToolRegistry $catalogue;
+
+    private ?ExecutionRecorder $executions;
+
+    private ObservedExecutor $executor;
+
     /**
      * @param list<ConsentGrant> $grants every yes this session has already collected — not the last
      *                                   one. Passing them one at a time overwrote the context and
@@ -78,10 +85,19 @@ final class ConsentBridge extends McpClientService
         ?ToolCallRecorder $recorder = null,
         ?OptionTable $table = null,
         string $channel = 'cli',
+        ?ExecutionRecorder $executions = null,
+        ?ObservedExecutor $executor = null,
     ) {
         parent::__construct($registry, $gate, $recorder, $table);
         $this->grants = $grants;
         $this->channel = $channel;
+        $this->catalogue = $registry;
+        $this->executions = $executions;
+        // THE EXECUTOR IS RECEIVED, NEVER FETCHED. This class does not ask the environment who is
+        // running: whoever composed it observed that once, when the run began, and handed it over.
+        // Reading it here would move the observation closer to the write and further from the act,
+        // and the whole point is that a durable fact does not change author according to who reads it.
+        $this->executor = $executor ?? ObservedExecutor::unknown();
     }
 
     /**
@@ -132,6 +148,14 @@ final class ConsentBridge extends McpClientService
         // refusal, a failure — travels untouched, because a bridge that reshapes what it carries is
         // not a bridge.
         if (! \is_array($result) || ($result['requires_confirmation'] ?? false) !== true) {
+            // IT RAN, SO IT IS DECLARED — even though no consent was consulted for it.
+            //
+            // An operation that demands no token never reaches `grantThatCovers()`, so the attribution
+            // chain below stays empty for exactly the effects nobody authorised at that moment — the
+            // ones an audit needs most (measured: greenhouse evidence/0212). Saying `authorized_by:
+            // null` is a statement; not writing the fact at all would be a silence.
+            $this->declareIfEffect($name, $args, null);
+
             return $result;
         }
 
@@ -178,7 +202,69 @@ final class ConsentBridge extends McpClientService
             'session' => $grant->session,
         ];
 
+        $this->declareIfEffect($name, $args, $grant);
+
         return $executed;
+    }
+
+    /**
+     * Writes down that an effect happened — and only when one did.
+     *
+     * READING IS NOT AN EFFECT. A record of every call is a record of nothing: the value of this fact
+     * comes from meaning that something changed, so a tool the catalogue does not call mutating leaves
+     * nothing behind.
+     *
+     * And an ATTEMPT IS NOT A FACT. Both callers below sit after something actually ran; the call that
+     * merely minted a token never reaches either, which is the difference `session.tool_called` cannot
+     * express — it reports success for asking, so counting effects from it counts two where there was
+     * one (greenhouse evidence/0210).
+     *
+     * @param array<string, mixed> $args
+     */
+    private function declareIfEffect(string $tool, array $args, ?ConsentGrant $grant): void
+    {
+        if ($this->executions === null || $this->catalogue->getDefinition($tool)?->mutating !== true) {
+            return;
+        }
+
+        $this->executions->executed(
+            // THE IDENTITY, NOT THE SPELLING. `config_set`, `config:set` and `config.set` are three
+            // projections of one operation; the surfaces may keep their spelling, the durable fact
+            // may not (greenhouse evidence/0208, decisions/0037).
+            (new OperationId($tool))->canonical,
+            $this->executor->principal,
+            $this->executor->source,
+            $grant === null ? null : [
+                'principal' => $grant->principal,
+                'provenance' => $grant->provenance,
+                'session' => $grant->session,
+            ],
+            self::digest($args),
+        );
+    }
+
+    /**
+     * A reference to the arguments, not a second copy of them.
+     *
+     * The arguments the human was shown already travel structured in `session.question_asked.why`;
+     * writing them again here would be a second inventory of the same truth. Keys are sorted so the
+     * same call gives the same digest regardless of the order a caller happened to build them in —
+     * otherwise two identical acts would look like two different ones.
+     *
+     * @param array<string, mixed> $args
+     */
+    private static function digest(array $args): string
+    {
+        $canonical = static function (mixed $value) use (&$canonical): mixed {
+            if (! \is_array($value)) {
+                return $value;
+            }
+            \ksort($value);
+
+            return \array_map($canonical, $value);
+        };
+
+        return 'sha256:' . \hash('sha256', (string) \json_encode($canonical($args)));
     }
 
     /**
