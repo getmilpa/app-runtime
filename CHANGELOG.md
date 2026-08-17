@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.42.0](https://github.com/getmilpa/app-runtime/compare/v0.41.1...v0.42.0) (2026-08-17)
+
+
+### Features
+
+* declare who ran the effect, and stop letting the reader own the authority ([#91](https://github.com/getmilpa/app-runtime/issues/91)) ([0c8684f](https://github.com/getmilpa/app-runtime/commit/0c8684f505bdf5e477d1d80930b01b98f81ff1b4))
+
 ## [0.20.0](https://github.com/getmilpa/app-runtime/releases/tag/v0.20.0) (2026-08-12)
 
 **`AgentKeyScan`: what an agent configuration key looks like, defined once.**
