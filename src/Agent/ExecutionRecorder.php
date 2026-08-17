@@ -29,6 +29,11 @@ use Milpa\Agent\Principal;
 interface ExecutionRecorder
 {
     /**
+     * Writes down that an operation was materialised, with the two identities kept apart.
+     *
+     * It is called only when something actually ran — never for a call that merely asked for
+     * confirmation, because an attempt recorded as a fact is worse than an unrecorded one.
+     *
      * @param string                                                           $operation       the canonical operation identity, never a surface spelling
      * @param ?Principal                                                       $executedBy      observed when the effect happened; `null` is an honest gap
      * @param string                                                           $executorSource  where that observation came from, so a reader can weigh it

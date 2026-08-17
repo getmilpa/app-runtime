@@ -312,35 +312,6 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      *
      * @param array<string, mixed> $arguments
      */
-    /**
-     * Writes down that an operation was materialised — a different question from the one above.
-     *
-     * {@see self::recorded()} is told about a CALL after it returned, and everything it receives
-     * describes the call: what it was, what it got back, whether it failed. This one is told about a
-     * FACT, and carries the two identities that fact needs to be auditable a year from now.
-     *
-     * This class only writes them; it neither observes the executor nor decides the authority. Both
-     * arrive already established from the frame that was present when the effect happened, because a
-     * gate that filled in an identity here would be filling it in AFTER the act — which is the defect
-     * this event exists to remove (greenhouse decisions/0037).
-     */
-    public function executed(
-        string $operation,
-        ?Principal $executedBy,
-        string $executorSource,
-        ?array $authorizedBy,
-        string $argumentsDigest,
-    ): void {
-        $this->sessions->recordExecution(
-            $this->session->id,
-            $operation,
-            $executedBy,
-            $executorSource,
-            $authorizedBy,
-            $argumentsDigest,
-        );
-    }
-
     public function recorded(string $tool, array $arguments, string $result, bool $ok): void
     {
         // La contabilidad NO se apunta como llamada. Su efecto ya está en el stream con su propio
@@ -399,6 +370,35 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             // (evidence/0141). El predicado además distingue una petición de un PLAN, que lleva la
             // misma llave anidada para decir qué requeriría confirmarse sin estar pidiéndolo.
             ToolResult::asksForConfirmation($result),
+        );
+    }
+
+    /**
+     * Writes down that an operation was materialised — a different question from the one above.
+     *
+     * {@see self::recorded()} is told about a CALL after it returned, and everything it receives
+     * describes the call: what it was, what it got back, whether it failed. This one is told about a
+     * FACT, and carries the two identities that fact needs to be auditable a year from now.
+     *
+     * This class only writes them; it neither observes the executor nor decides the authority. Both
+     * arrive already established from the frame that was present when the effect happened, because a
+     * gate that filled in an identity here would be filling it in AFTER the act — which is the defect
+     * this event exists to remove (greenhouse decisions/0037).
+     */
+    public function executed(
+        string $operation,
+        ?Principal $executedBy,
+        string $executorSource,
+        ?array $authorizedBy,
+        string $argumentsDigest,
+    ): void {
+        $this->sessions->recordExecution(
+            $this->session->id,
+            $operation,
+            $executedBy,
+            $executorSource,
+            $authorizedBy,
+            $argumentsDigest,
         );
     }
 
