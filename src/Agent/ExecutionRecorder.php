@@ -29,14 +29,14 @@ use Milpa\Agent\Principal;
 interface ExecutionRecorder
 {
     /**
-     * @param string     $operation      the canonical operation identity, never a surface spelling
-     * @param ?Principal $executedBy     observed when the effect happened; `null` is an honest gap
-     * @param string     $executorSource where that observation came from, so a reader can weigh it
+     * @param string                                                           $operation       the canonical operation identity, never a surface spelling
+     * @param ?Principal                                                       $executedBy      observed when the effect happened; `null` is an honest gap
+     * @param string                                                           $executorSource  where that observation came from, so a reader can weigh it
      * @param ?array{principal: ?string, provenance: string, session: ?string} $authorizedBy
-     *                                   the authority that covered this call, or `null` — which says
-     *                                   plainly that none did, and saying it is not the same as
-     *                                   staying silent
-     * @param string     $argumentsDigest a reference to the arguments, not a second copy of them
+     *                                                                                          the authority that covered this call, or `null` — which says
+     *                                                                                          plainly that none did, and saying it is not the same as
+     *                                                                                          staying silent
+     * @param string                                                           $argumentsDigest a reference to the arguments, not a second copy of them
      */
     public function executed(
         string $operation,

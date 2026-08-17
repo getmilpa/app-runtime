@@ -53,7 +53,7 @@ final class ExecutionFactTest extends TestCase
 
     private function testigo(): ExecutionRecorder
     {
-        return new class($this->hechos) implements ExecutionRecorder {
+        return new class ($this->hechos) implements ExecutionRecorder {
             /** @param list<array<string, mixed>> $hechos */
             public function __construct(public array &$hechos)
             {
