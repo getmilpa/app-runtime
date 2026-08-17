@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Operations;
 use Milpa\AiGateway\AgentOrchestrator;
 use Milpa\AiGateway\PlanBoard;
 use Milpa\AiGateway\RunInterrupted;
+use Milpa\Agent\Principal;
 use Milpa\AppRuntime\Agent\AffirmativeAnswer;
 use Milpa\AppRuntime\Support\ContratoInstalado;
 use Milpa\AppRuntime\Agent\ArchitectureSummaryProjector;
@@ -28,6 +29,8 @@ use Milpa\Resolver\Report\ResolutionReport;
 use Milpa\AiGateway\LlmService;
 use Milpa\AppRuntime\Agent\AgentTable;
 use Milpa\AppRuntime\Agent\EffectClasses;
+use Milpa\AppRuntime\Agent\ExecutionRecorder;
+use Milpa\AppRuntime\Agent\ObservedExecutor;
 use Milpa\AppRuntime\Agent\IntakeObserver;
 use Milpa\AiGateway\McpClientService;
 use Milpa\AiGateway\OptionTable;
@@ -1039,7 +1042,6 @@ class AgentOperations implements CommandProvider
         }
 
         $ahora = new \DateTimeImmutable();
-        $quien = 'cli:' . (getenv('USER') ?: 'desconocido') . '@' . gethostname();
         $grants = [];
 
         foreach ($this->decisionesDeLaSesion as $decision) {
@@ -1054,9 +1056,25 @@ class AgentOperations implements CommandProvider
                 continue;
             }
 
+            // QUIÉN LO AUTORIZÓ SE LEE DEL REGISTRO, NO DEL ENTORNO.
+            //
+            // Esto se armaba con `getenv('USER')` y `gethostname()`, o sea con la identidad de quien
+            // estuviera corriendo AHORA. Como el consentimiento no se guarda sino que se re-deriva
+            // cada vez, el mismo sí grabado volvía a nombre de otra persona según quién retomara la
+            // sesión: medido en ganado —rod contestó, impostor retomó, la operación corrió— y el
+            // registro sólo nombraba a rod (greenhouse evidence/0209).
+            //
+            // Leer el `by` grabado NO lo asciende: llega `verified:false` y se queda `verified:false`.
+            // Lo único que cambia es que la autoridad deja de pertenecerle al lector.
+            //
+            // Y donde no hay `by` —streams escritos antes de que la respuesta lo cargara— queda
+            // `null`. Un registro con un hueco es peor de ver y más verdadero que uno rellenado con
+            // quien pasaba por ahí, que es exactamente el defecto que esto viene a quitar.
+            $concedio = ($decision['by'] ?? null) instanceof Principal ? $decision['by'] : null;
+
             $grants[] = new ConsentGrant(
                 operation: new OperationId($hecho['operation']),
-                principal: $quien,
+                principal: $concedio?->id,
                 session: $this->sesionDeLosPermisos,
                 grantedAt: $ahora,
                 // Cómo se ganó, para que ningún consumidor tenga que volver a ganarlo.
@@ -1115,6 +1133,19 @@ class AgentOperations implements CommandProvider
             $gate,
             $recorder ?? ($gate instanceof ToolCallRecorder ? $gate : null),
             $mesa,
+            executions: $gate instanceof ExecutionRecorder ? $gate : null,
+            // WHO IS RUNNING, OBSERVED HERE AND WRITTEN ONCE.
+            //
+            // The expression looks like the one in `grantsDeLaSesion()`, and the difference is
+            // everything. There the environment is read to REBUILD an authority somebody else already
+            // granted, which makes an old fact change author depending on who reads it. Here it is
+            // read to DECLARE who is materialising the effect now, and it is written down once. Same
+            // reading, different moment, different destination (greenhouse evidence/0209,
+            // decisions/0037).
+            executor: new ObservedExecutor(
+                Principal::fromTerminal(getenv('USER') ?: null, gethostname() ?: null),
+                ObservedExecutor::TERMINAL,
+            ),
         );
 
         // EL PUENTE SE QUEDA CON EL CONTEXTO, y no se arma aquí.
