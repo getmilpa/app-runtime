@@ -1217,7 +1217,23 @@ class AgentOperations implements CommandProvider
         $recientes = 12;
         if (\is_array($ajustes)) {
             $maximo = \is_int($ajustes['maxTurns'] ?? null) ? $ajustes['maxTurns'] : $maximo;
-            $recientes = \is_int($ajustes['keepRecent'] ?? null) ? $ajustes['keepRecent'] : $recientes;
+            // `keepLast` ES EL NOMBRE DEL CONTRATO, y este puente leía `keepRecent`.
+            //
+            // `keepRecent` es el parámetro del `Compactor` —legítimo en su librería— y este renglón lo
+            // usaba para leer la CONFIGURACIÓN, cuyo nombre `AgentKeys` declara como `keepLast` y
+            // `coa config` le imprime a quien configura la app. Así que la llave documentada no hacía
+            // nada y `keepRecent` se quedaba en 12.
+            //
+            // No era cosmético: `shouldCompact()` exige `maxTurns > keepRecent`, de modo que bajar
+            // `maxTurns` por debajo de 12 APAGABA LA COMPACTACIÓN EN SILENCIO. Medido sobre ganado
+            // (greenhouse evidence/0218): con la llave documentada, cero compactaciones en catorce
+            // turnos; con la que se leía, cuatro. Nada falla y nada avisa — la ventana crece hasta que
+            // el proveedor la rechaza, que es la muerte a media jornada que este código evita.
+            //
+            // Gana el nombre público (greenhouse decisions/0038): cambiarlo para acomodar la
+            // implementación sería dejar que el defecto legisle. Y NO se aceptan las dos: dos
+            // ortografías para una decisión terminan siendo dos contratos (evidence/0141).
+            $recientes = \is_int($ajustes['keepLast'] ?? null) ? $ajustes['keepLast'] : $recientes;
         }
 
         return new Compactor($maximo, $recientes);
