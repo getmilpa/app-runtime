@@ -251,4 +251,81 @@ final class ExecutionFactTest extends TestCase
         self::assertSame($this->hechos[0]['digest'], $this->hechos[1]['digest']);
         self::assertStringStartsWith('sha256:', $this->hechos[0]['digest']);
     }
+
+    /**
+     * 7 · F-1 OF `decisions/0041` — the run that graduates it.
+     *
+     * Same principal, same consent over the operation, same execution semantics, DIFFERENT effect
+     * profile and therefore a different path: `config_set` demands a token, `capabilities_refresh`
+     * does not. The authority must come out identical.
+     *
+     * `evidence/0230` measured what happens when it does not: 12 of 13 mutating operations filed
+     * their effect under `authorized_by: null`, and the only one that kept its author was the one
+     * declaring nothing about its effects. Declaring your effects honestly must never buy less
+     * traceability.
+     */
+    public function testTheAuthorityIsTheSameWhicheverPathTheEffectProfileChose(): void
+    {
+        $registro = $this->registro();
+        $puente = $this->puente($registro, [
+            $this->grant('config_set', ['key' => 'a', 'value' => true]),
+            $this->grant('capabilities_refresh', []),
+        ]);
+
+        $puente->callTool('config_set', ['key' => 'a', 'value' => true]);
+        $puente->callTool('capabilities_refresh', []);
+
+        self::assertCount(2, $this->hechos, 'two effects, two facts');
+        [$conToken, $sinToken] = $this->hechos;
+
+        self::assertSame('config.set', $conToken['operation']);
+        self::assertSame('capabilities.refresh', $sinToken['operation']);
+        self::assertSame(
+            $conToken['authorizedBy'],
+            $sinToken['authorizedBy'],
+            'the effect profile may change the enforcement, never the provenance of the consent',
+        );
+        self::assertSame('cli:rod@casa', $sinToken['authorizedBy']['principal'] ?? null);
+    }
+
+    /**
+     * 8 · F-2 OF `decisions/0041` — the authority survives the executor, on the SHORT path too.
+     *
+     * A grant by A, materialised by process B: `authorized_by` stays A and `executed_by` may be B.
+     * Test 1 already pinned this for the token path; if it does not hold where no token exists, then
+     * «who said yes» and «who did it» are still one variable wearing two names.
+     */
+    public function testTheGrantsAuthorityOutlivesWhoeverMaterialisedItWithoutAToken(): void
+    {
+        $registro = $this->registro();
+        $puente = $this->puente(
+            $registro,
+            [$this->grant('capabilities_refresh', [])],
+            new ObservedExecutor(new Principal('cli:otro@otra-maquina'), 'terminal-environment'),
+        );
+
+        $puente->callTool('capabilities_refresh', []);
+
+        self::assertCount(1, $this->hechos);
+        self::assertSame('cli:rod@casa', $this->hechos[0]['authorizedBy']['principal'] ?? null, 'A said yes');
+        self::assertSame('cli:otro@otra-maquina', $this->hechos[0]['executedBy'], 'B did it');
+    }
+
+    /**
+     * 9 · AND THE NULL STILL MEANS SOMETHING — the control that stops 7 and 8 from being vacuous.
+     *
+     * With no grant covering it, the fact must still be written and its authority must still be
+     * absent. If filling it were unconditional, the two tests above would pass on a bridge that
+     * attributes every effect to whoever happens to be around.
+     */
+    public function testWithoutACoveringGrantTheAuthorityStaysAbsent(): void
+    {
+        $registro = $this->registro();
+        $puente = $this->puente($registro, [$this->grant('config_set', ['key' => 'a', 'value' => true])]);
+
+        $puente->callTool('capabilities_refresh', []);
+
+        self::assertCount(1, $this->hechos);
+        self::assertNull($this->hechos[0]['authorizedBy'], 'a grant for another operation covers nothing');
+    }
 }

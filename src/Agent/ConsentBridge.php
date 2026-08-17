@@ -148,13 +148,19 @@ final class ConsentBridge extends McpClientService
         // refusal, a failure — travels untouched, because a bridge that reshapes what it carries is
         // not a bridge.
         if (! \is_array($result) || ($result['requires_confirmation'] ?? false) !== true) {
-            // IT RAN, SO IT IS DECLARED — even though no consent was consulted for it.
+            // IT RAN WITHOUT A TOKEN, AND ITS AUTHORITY IS STILL ASKED FOR (greenhouse decisions/0041).
             //
-            // An operation that demands no token never reaches `grantThatCovers()`, so the attribution
-            // chain below stays empty for exactly the effects nobody authorised at that moment — the
-            // ones an audit needs most (measured: greenhouse evidence/0212). Saying `authorized_by:
-            // null` is a statement; not writing the fact at all would be a silence.
-            $this->declareIfEffect($name, $args, null);
+            // This used to declare `null` here on the grounds that an operation demanding no token was
+            // an effect nobody authorised. `evidence/0230` measured the price of that reasoning: 12 of
+            // 13 mutating operations filed their effect saying no authority covered it — including
+            // `foundation.found`, which writes the app's constitution — and the ONLY one that kept its
+            // author was the one declaring nothing about its effects. The incentive was backwards: a
+            // more precise declaration of effects bought less traceability.
+            //
+            // The token was never the authority. It binds an attempt — this operation, these
+            // arguments, once, before it expires (`decisions/0031`, untouched). The authority is the
+            // grant, and the grant is just as durable whichever path the effect profile chose.
+            $this->declareIfEffect($name, $args, $this->grantThatCovers($name, $args));
 
             return $result;
         }
