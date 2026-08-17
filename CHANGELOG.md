@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.42.1](https://github.com/getmilpa/app-runtime/compare/v0.42.0...v0.42.1) (2026-08-17)
+
+
+### Bug Fixes
+
+* compaction reads the key the app declares, not the library's parameter name ([#93](https://github.com/getmilpa/app-runtime/issues/93)) ([fc7d8ea](https://github.com/getmilpa/app-runtime/commit/fc7d8eaa38e2ca381cc05c93ff78cda4d298ee83))
+
 ## [0.42.0](https://github.com/getmilpa/app-runtime/compare/v0.41.1...v0.42.0) (2026-08-17)
 
 
