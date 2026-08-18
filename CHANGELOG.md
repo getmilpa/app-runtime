@@ -1,6 +1,17 @@
 # Changelog
 
 
+## [0.45.0](https://github.com/getmilpa/app-runtime/compare/v0.44.1...v0.45.0) (2026-08-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* `capabilities:enable --dry-run` no longer runs without consent. Add `--sign`. The descent that granted the exemption was switched off in v0.44.1 because no instrument could verify its claim about the network (greenhouse decisions/0049).
+
+### Bug Fixes
+
+* state that --dry-run needs a signature ([#104](https://github.com/getmilpa/app-runtime/issues/104)) ([b4b2d3b](https://github.com/getmilpa/app-runtime/commit/b4b2d3b97d9548c3fb3c1ead66c3f0f622bafc3f))
+
 ## [0.44.1](https://github.com/getmilpa/app-runtime/compare/v0.44.0...v0.44.1) (2026-08-18)
 
 
