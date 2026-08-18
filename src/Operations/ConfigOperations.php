@@ -152,7 +152,7 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
                     'type' => 'object',
                     'properties' => [
                         'key' => ['type' => 'string', 'description' => 'Dotted path, as Config::get asks for it — e.g. agent.instructions'],
-                        'value' => ['description' => 'The value to write. Anything JSON can carry.'],
+                        'value' => ['description' => 'The value to write. Declared agent keys enforce the type shown by `coa config`.'],
                     ],
                     'required' => ['key', 'value'],
                 ],
@@ -210,24 +210,45 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
             return ['ok' => false, 'error' => 'a key is required — the dotted path Config::get asks for'];
         }
 
-        $archivo = $this->raiz() . MachineOverlay::RUTA;
-        $actual = is_file($archivo) ? json_decode((string) file_get_contents($archivo), true) : [];
-        $actual = \is_array($actual) ? $actual : [];
-
-        // The dotted path becomes nesting, and nothing else in the file is touched: writing
-        // agent.instructions must not evaporate the agent.compaction nobody mentioned.
-        $ref = &$actual;
-        foreach (explode('.', $llave) as $parte) {
-            if (! isset($ref[$parte]) || ! \is_array($ref[$parte])) {
-                $ref[$parte] = [];
-            }
-            $ref = &$ref[$parte];
+        try {
+            // AgentKeys is the type authority for both the catalogue and this write. A second map
+            // here would let the displayed contract and the persisted value drift independently.
+            $value = AgentKeys::coerceDeclaredValue($llave, $input['value'] ?? null);
+        } catch (\InvalidArgumentException $error) {
+            return ['ok' => false, 'error' => $error->getMessage()];
         }
-        $ref = $input['value'] ?? null;
-        unset($ref);
+
+        $archivo = $this->raiz() . MachineOverlay::RUTA;
+        $decoded = is_file($archivo) ? json_decode((string) file_get_contents($archivo)) : null;
+        $actual = $decoded instanceof \stdClass ? $decoded : new \stdClass();
+
+        // Decode the document as objects so an untouched `{}` cannot silently become `[]` when a
+        // sibling is written. The dotted path changes only its leaf.
+        $parts = explode('.', $llave);
+        $leaf = (string) array_pop($parts);
+        $cursor = $actual;
+        foreach ($parts as $part) {
+            if (!isset($cursor->{$part}) || !$cursor->{$part} instanceof \stdClass) {
+                $cursor->{$part} = new \stdClass();
+            }
+            $cursor = $cursor->{$part};
+        }
+        $cursor->{$leaf} = $value;
+
+        try {
+            $encoded = json_encode(
+                $actual,
+                \JSON_THROW_ON_ERROR | \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE,
+            );
+        } catch (\JsonException $error) {
+            return [
+                'ok' => false,
+                'error' => "Configuration key '{$llave}' cannot be written as JSON: {$error->getMessage()}",
+            ];
+        }
 
         @mkdir(\dirname($archivo), 0o777, true);
-        file_put_contents($archivo, json_encode($actual, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE) . "\n");
+        file_put_contents($archivo, $encoded . "\n");
 
         $respuesta = [
             'ok' => true,

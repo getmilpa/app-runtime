@@ -38,85 +38,144 @@ final class AgentKeys
     /**
      * Every key this runtime reads, with the type it expects and what it decides.
      *
+     * The printable type is derived from the executable declaration below. Reading the catalogue
+     * and enforcing a write therefore consult the same object rather than parallel type tables.
+     *
      * @return array<string, array{type: string, does: string}>
      */
     public static function todas(): array
     {
-        return [
-            'agent.instructions' => [
-                'type' => 'string',
-                'does' => 'The app\'s own instructions, prepended to what the agent already knows',
-            ],
-            'agent.model' => [
-                'type' => 'string',
-                'does' => 'Which model this app talks to',
-            ],
-            'agent.baseUrl' => [
-                'type' => 'string',
-                'does' => 'Where that model lives, when it is not the default endpoint',
-            ],
-            'agent.permissionWindow' => [
-                'type' => 'string (ISO-8601 duration, e.g. PT1H)',
-                'does' => 'How long a paused question waits for its answer before it dies',
-            ],
-            'agent.compaction' => [
-                'type' => 'array{maxTurns?: int, keepLast?: int}',
-                'does' => 'When a long session gets compacted, and how much of the tail survives it',
-            ],
-            'agent.treeBudget' => [
-                'type' => 'int',
-                'does' => 'How many nodes of the project tree the agent is shown',
-            ],
-            'agent.architectureSummary' => [
-                'type' => "true | 'pointer' | 'summary' | false",
-                'does' => 'Whether the agent is handed a summary of the architecture, a pointer to it, or nothing',
-            ],
-            'agent.planInstruction' => [
-                'type' => 'bool',
-                'does' => 'Whether the agent is told to plan before acting (on unless declared false)',
-            ],
-            'agent.reprojectPlan' => [
-                'type' => 'bool',
-                'does' => 'Whether a plan is reprojected as the session advances (off unless declared true)',
-            ],
-            'agent.conditionalCatalog' => [
-                'type' => 'bool',
-                'does' => 'Whether the catalogue shown narrows to what the current step can use (off unless true)',
-            ],
-            'agent.observableAlternatives' => [
-                'type' => 'array<string, list<string>>',
-                'does' => 'For an operation that was refused, which other ones are worth offering instead',
-            ],
-            'agent.removeRefusedOptions' => [
-                'type' => "bool | 'record-only'",
-                'does' => 'Whether a refused option disappears from the catalogue or is only recorded',
-            ],
-            'agent.renewalTool' => [
-                'type' => 'bool',
-                'does' => 'Whether the agent may ask for its own permission window to be renewed',
-            ],
-            'agent.secondOpinion' => [
-                'type' => 'array',
-                'does' => 'When a second judgement is asked for before an operation runs',
-            ],
-            'agent.sterileLoopGuard' => [
-                'type' => 'bool | array',
-                'does' => 'Stops a session that keeps trying without changing anything',
-            ],
-            'agent.transitions.foundation' => [
-                'type' => 'list<string>',
-                'does' => 'THE JUDGE\'S CRITERION: what must hold before the founding rite may run',
-            ],
-            'agent.transitions.frontier' => [
-                'type' => 'list<string>',
-                'does' => 'THE JUDGE\'S CRITERION: what must hold before frontier work may run',
-            ],
-        ];
+        $catalogue = [];
+        foreach (self::declarations() as $key => $declaration) {
+            $catalogue[$key] = [
+                'type' => $declaration['type']->description(),
+                'does' => $declaration['does'],
+            ];
+        }
+
+        return $catalogue;
+    }
+
+    /**
+     * Conform a value to the type this key declares.
+     *
+     * Unknown keys belong to plugins this runtime cannot type, so their values remain untouched.
+     *
+     * @throws \InvalidArgumentException when a declared key receives a value of another type
+     */
+    public static function coerceDeclaredValue(string $key, mixed $value): mixed
+    {
+        $declaration = self::declarations()[$key] ?? null;
+        if ($declaration === null) {
+            return $value;
+        }
+
+        try {
+            return $declaration['type']->coerce($value);
+        } catch (\InvalidArgumentException $error) {
+            throw new \InvalidArgumentException(
+                "Configuration key '{$key}' declares {$declaration['type']->description()}, but its value does not conform: "
+                . $error->getMessage(),
+                previous: $error,
+            );
+        }
     }
 
     /** Does this runtime declare that key? A plugin's key is not this list's to know. */
     public static function conocida(string $llave): bool
     {
-        return isset(self::todas()[$llave]);
+        return isset(self::declarations()[$llave]);
+    }
+
+    /** @return array<string, array{type: DeclaredType, does: string}> */
+    private static function declarations(): array
+    {
+        return [
+            'agent.instructions' => [
+                'type' => DeclaredType::text(),
+                'does' => 'The app\'s own instructions, prepended to what the agent already knows',
+            ],
+            'agent.model' => [
+                'type' => DeclaredType::text(),
+                'does' => 'Which model this app talks to',
+            ],
+            'agent.baseUrl' => [
+                'type' => DeclaredType::text(),
+                'does' => 'Where that model lives, when it is not the default endpoint',
+            ],
+            'agent.permissionWindow' => [
+                'type' => DeclaredType::text('ISO-8601 duration, e.g. PT1H'),
+                'does' => 'How long a paused question waits for its answer before it dies',
+            ],
+            'agent.compaction' => [
+                'type' => DeclaredType::shape([
+                    'maxTurns' => ['type' => DeclaredType::integer(), 'optional' => true],
+                    'keepLast' => ['type' => DeclaredType::integer(), 'optional' => true],
+                ]),
+                'does' => 'When a long session gets compacted, and how much of the tail survives it',
+            ],
+            'agent.treeBudget' => [
+                'type' => DeclaredType::integer(),
+                'does' => 'How many nodes of the project tree the agent is shown',
+            ],
+            'agent.architectureSummary' => [
+                'type' => DeclaredType::union(
+                    DeclaredType::literal(true),
+                    DeclaredType::literal('pointer'),
+                    DeclaredType::literal('summary'),
+                    DeclaredType::literal(false),
+                ),
+                'does' => 'Whether the agent is handed a summary of the architecture, a pointer to it, or nothing',
+            ],
+            'agent.planInstruction' => [
+                'type' => DeclaredType::boolean(),
+                'does' => 'Whether the agent is told to plan before acting (on unless declared false)',
+            ],
+            'agent.reprojectPlan' => [
+                'type' => DeclaredType::boolean(),
+                'does' => 'Whether a plan is reprojected as the session advances (off unless declared true)',
+            ],
+            'agent.conditionalCatalog' => [
+                'type' => DeclaredType::boolean(),
+                'does' => 'Whether the catalogue shown narrows to what the current step can use (off unless true)',
+            ],
+            'agent.observableAlternatives' => [
+                'type' => DeclaredType::mapOf(
+                    DeclaredType::text(),
+                    DeclaredType::listOf(DeclaredType::text()),
+                ),
+                'does' => 'For an operation that was refused, which other ones are worth offering instead',
+            ],
+            'agent.removeRefusedOptions' => [
+                'type' => DeclaredType::union(
+                    DeclaredType::boolean(),
+                    DeclaredType::literal('record-only'),
+                ),
+                'does' => 'Whether a refused option disappears from the catalogue or is only recorded',
+            ],
+            'agent.renewalTool' => [
+                'type' => DeclaredType::boolean(),
+                'does' => 'Whether the agent may ask for its own permission window to be renewed',
+            ],
+            'agent.secondOpinion' => [
+                'type' => DeclaredType::anyArray(),
+                'does' => 'When a second judgement is asked for before an operation runs',
+            ],
+            'agent.sterileLoopGuard' => [
+                'type' => DeclaredType::union(
+                    DeclaredType::boolean(),
+                    DeclaredType::anyArray(),
+                ),
+                'does' => 'Stops a session that keeps trying without changing anything',
+            ],
+            'agent.transitions.foundation' => [
+                'type' => DeclaredType::listOf(DeclaredType::text()),
+                'does' => 'THE JUDGE\'S CRITERION: what must hold before the founding rite may run',
+            ],
+            'agent.transitions.frontier' => [
+                'type' => DeclaredType::listOf(DeclaredType::text()),
+                'does' => 'THE JUDGE\'S CRITERION: what must hold before frontier work may run',
+            ],
+        ];
     }
 }
