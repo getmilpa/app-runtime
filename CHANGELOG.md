@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.44.1](https://github.com/getmilpa/app-runtime/compare/v0.44.0...v0.44.1) (2026-08-18)
+
+
+### Bug Fixes
+
+* switch off the descent whose envelope cannot hold it up ([#102](https://github.com/getmilpa/app-runtime/issues/102)) ([ff7a89d](https://github.com/getmilpa/app-runtime/commit/ff7a89dc303256dfa99fa2dc6f1dd0c0a76147d5))
+
 ## [0.44.0](https://github.com/getmilpa/app-runtime/compare/v0.43.1...v0.44.0) (2026-08-18)
 
 
