@@ -33,6 +33,7 @@ use Milpa\Command\Effect\Reversibility;
 use Milpa\Command\Effect\Subject;
 use Milpa\Command\Operation;
 use Milpa\Interfaces\Di\DIContainerInterface;
+use Milpa\ToolRuntime\Identity\GrantedAuthorization;
 
 /**
  * El otro lado de la pausa: ver las sesiones, leer una, y CONTESTARLE (P16.4/P16.5).
@@ -390,6 +391,49 @@ final class SessionOperations implements CommandProvider
                 // verificado en todo canal que prometa identidad.
                 scopes: ['agent:answer'],
                 surfaces: ['cli', 'tui', 'mcp', 'http'],
+            ),
+            new Operation(
+                name: 'session:own',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    // Append-only stream: ownership is a fact once asserted, and facts are not
+                    // withdrawn — revocation is its own governed act, undecided on purpose
+                    // (greenhouse decisions/0056).
+                    Reversibility::Irreversible,
+                    // It binds the HUMAN'S identity to the session: everything the authority judge
+                    // later grants those facts is spent on this signature's account.
+                    Authority::WriteAsUser,
+                    subject: Subject::Configuration,
+                ),
+                description: 'Own this session: store the signed assertion that names its owner — verifiably',
+                handler: fn (array $input): array => $this->adueniar($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'session' => [
+                            'type' => 'string',
+                            'description' => 'The session identifier this signature will be bound to',
+                            'x-milpa-source' => ['tool' => 'agent:sessions', 'path' => 'sessions', 'key' => 'session'],
+                        ],
+                    ],
+                    'required' => ['session'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean', 'description' => 'False when nothing was stored — the error says why'],
+                        'session' => ['type' => 'string', 'description' => 'The session that now carries the assertion'],
+                        'owner' => ['type' => 'string', 'description' => 'The verified signer, as key:<fingerprint> — never the terminal user'],
+                        'note' => ['type' => 'string', 'description' => 'What was stored, and what every consumer must still do'],
+                        'error' => ['type' => 'string', 'description' => 'Why owning did not happen; absent when ok'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                mutating: true,
+                // THE SIGNATURE IS THE ACT, not a formality around it: the signed payload IS the
+                // assertion this operation stores. Without --sign there is nothing to store.
+                requiresConfirmation: true,
             ),
         ];
     }
@@ -1030,6 +1074,70 @@ final class SessionOperations implements CommandProvider
      * sesiones son dos lugares donde pueden dejar de coincidir, y el día que dejaran de hacerlo
      * `agent:answer` contestaría en una sesión que `agent` no está leyendo.
      */
+    /**
+     * Own a session: persist the signed authorization as its ownership assertion.
+     *
+     * The GrantedAuthorization arrives through the container because the verdict used to die at the
+     * banner — CliRunner printed «authorized by …» and dropped the verified signer (greenhouse
+     * decisions/0056). What is stored is the EXACT signed bytes, because every consumer re-verifies
+     * them live (evidence/0254: a stored grade was forged; a re-checked signature was not).
+     *
+     * The binding check looks redundant — the runner just signed THIS call — and stays on purpose:
+     * this handler also runs from surfaces that are not the CLI runner, and a defence that depends
+     * on who called it is not a defence.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function adueniar(array $input): array
+    {
+        $session = \is_string($input['session'] ?? null) ? trim($input['session']) : '';
+        if ($session === '') {
+            return ['ok' => false, 'error' => 'which session? `session` is required — agent:sessions lists them'];
+        }
+
+        $concedida = $this->container->has(GrantedAuthorization::class)
+            ? $this->container->get(GrantedAuthorization::class)
+            : null;
+        if (! $concedida instanceof GrantedAuthorization) {
+            return [
+                'ok' => false,
+                'error' => 'owning a session requires the signature that names its owner; re-run with --sign — '
+                    . 'the signed payload IS the assertion this operation stores',
+            ];
+        }
+
+        if (
+            $concedida->authorization->operation !== 'session:own'
+            || ($concedida->authorization->arguments['session'] ?? null) !== $session
+        ) {
+            return [
+                'ok' => false,
+                'error' => 'the granted signature does not cover owning THIS session — nothing was stored',
+            ];
+        }
+
+        $sesiones = $this->sessions();
+        if ($sesiones === null) {
+            return ['ok' => false, 'error' => 'this app has nowhere to store sessions'];
+        }
+
+        $sesiones->assertOwnership($session, [
+            'payload' => $concedida->payload,
+            'signature' => $concedida->signature,
+            'fingerprint' => $concedida->signer->fingerprint,
+            'uid' => $concedida->signer->uid,
+        ]);
+
+        return [
+            'ok' => true,
+            'session' => $session,
+            'owner' => 'key:' . $concedida->signer->fingerprint,
+            'note' => 'the signed assertion is stored; every consumer re-verifies it live before trusting it',
+        ];
+    }
+
     private function sessions(): ?SessionStore
     {
         if (!class_exists(SessionStore::class)) {
