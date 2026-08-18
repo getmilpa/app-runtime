@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.43.1](https://github.com/getmilpa/app-runtime/compare/v0.43.0...v0.43.1) (2026-08-18)
+
+
+### Bug Fixes
+
+* preserve declared config value types ([#98](https://github.com/getmilpa/app-runtime/issues/98)) ([9e39986](https://github.com/getmilpa/app-runtime/commit/9e399864963bc6d02eb3cb7f64f39fbdf31b2db4))
+
 ## [0.43.0](https://github.com/getmilpa/app-runtime/compare/v0.42.1...v0.43.0) (2026-08-17)
 
 
