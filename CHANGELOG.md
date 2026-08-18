@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.44.0](https://github.com/getmilpa/app-runtime/compare/v0.43.1...v0.44.0) (2026-08-18)
+
+
+### Features
+
+* record declared session window classes ([#100](https://github.com/getmilpa/app-runtime/issues/100)) ([8baa34d](https://github.com/getmilpa/app-runtime/commit/8baa34d8b96bd2d500be83f2ef891a2136a7387d))
+
 ## [0.43.1](https://github.com/getmilpa/app-runtime/compare/v0.43.0...v0.43.1) (2026-08-18)
 
 
