@@ -130,6 +130,29 @@ Optional packages widen what it offers, and their absence is handled rather than
 doctor`, `coa repair` and `coa update`. Without them those surfaces are simply not offered — the app
 never promises what it cannot do.
 
+## Upgrading
+
+### 0.45.0 — `capabilities:enable --dry-run` requires a signature
+
+`--dry-run` used to run without consent. It no longer does: the rehearsal now carries the full
+operation's ceiling, so it asks like any other governed effect.
+
+```bash
+# before
+coa capabilities:enable milpa/devtools --dry-run
+
+# now
+coa capabilities:enable milpa/devtools --dry-run --sign
+```
+
+The exemption came from a **descent** — a declaration that the rehearsal reaches no further than the
+disk — and it was switched off because nothing could check it. The claim rests on the network, and
+the network here is observed by difference, which cannot tell *does not reach out* from *reaches out
+and swallows the error*. A ceiling lowered by a promise nobody can verify is worse than the nuisance
+of asking. The descent returns when it can be certified.
+
+`--dry-run` still does exactly what it did; only the exemption is gone.
+
 ## License
 
 Apache-2.0 · © Rodrigo Vicente — TeamX Agency
