@@ -19,7 +19,6 @@ use Milpa\AppRuntime\Support\CapabilityIndex;
 use Milpa\DevTools\Doctor\Repair;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Effect\Authority;
-use Milpa\Command\Effect\Descent;
 use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Externality;
 use Milpa\Command\Effect\Mutation;
@@ -193,32 +192,27 @@ final readonly class CapabilityOperations implements CommandProvider
                     Authority::Privileged,
                     subject: Subject::Executable,
                     escalatesOn: ['capability'],
-                    // EL ENSAYO NO ES LA COSA (greenhouse decisions/0029).
+                    // EL DESCENSO ESTÁ APAGADO (greenhouse decisions/0049), y su razón se conserva.
                     //
-                    // Sin esto, `--dry-run` cargaba el techo de la instalación real y S2 le pedía
-                    // consentimiento a alguien para NO hacer nada — y de paso el prompt caía donde el
-                    // llamador esperaba JSON.
+                    // `decisions/0029` permitió que un argumento baje el techo, y este `--dry-run` fue
+                    // el caso que lo forzó: sin él, S2 le pedía consentimiento a alguien para NO hacer
+                    // nada. La declaración que estaba aquí era la mejor que esta casa ha visto — citaba
+                    // dos mediciones, `evidence/0146` para el disco y `0149` para una corrida en un
+                    // espacio de nombres sin red con la caché fría.
                     //
-                    // Las dos mitades están medidas, no argumentadas: evidence/0146 comparó la huella
-                    // del disco antes y después —mismos archivos, mismo lock— y evidence/0149 lo corrió
-                    // en un espacio de nombres SIN RED con la caché de composer fría: la instalación
-                    // real falla ahí y el ensayo pasa. Por eso `Externality` puede bajar también.
-                    descents: [new Descent(
-                        argument: 'dry_run',
-                        whenValue: true,
-                        to: new EffectProfile(
-                            Mutation::None,
-                            Externality::None,
-                            Reversibility::Guaranteed,
-                            Authority::Read,
-                            subject: Subject::None,
-                            rollbackContract: 'nothing ran, so there is nothing to undo',
-                        ),
-                        because: 'the handler returns the composer command it WOULD run without running it: '
-                            . 'measured leaving the disk untouched (greenhouse evidence/0146) and succeeding '
-                            . 'inside an empty network namespace on a cold cache, where the real install fails '
-                            . '(greenhouse evidence/0149)',
-                    )],
+                    // Y no alcanza, por una distinción que sólo se vio al construir el instrumento:
+                    // esas dos miden que el ensayo NO NECESITA la red, no que NO LA TOQUE. El
+                    // observador diferencial (`evidence/0242`) tiene el mismo techo — no distingue «no
+                    // sale» de «sale y se traga el error»— así que el certificado de `evidence/0245`
+                    // cubre `mutation` y declara que NO cubre `externality`, que es justo lo que este
+                    // descenso prometía.
+                    //
+                    // Lo que falta no es honestidad de quien lo declaró: es un instrumento. Vuelve
+                    // encendido cuando exista observador de red con un control que sepa matar, y
+                    // vuelve CERTIFICÁNDOSE, que es como `decisions/0045` dijo que un descenso se gana.
+                    //
+                    // Mientras tanto `--dry-run` carga el techo entero y pide firma. Preferimos una
+                    // molestia visible a un privilegio invisible.
                 ),
                 description: 'Install an opt-in capability by name — one step instead of three',
                 handler: fn (array $input): array => $this->enable($input),
