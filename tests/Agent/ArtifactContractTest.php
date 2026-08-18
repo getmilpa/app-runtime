@@ -151,17 +151,25 @@ final class ArtifactContractTest extends TestCase
     public function testTheCorrectionReachesTheChildWithItsOwnWorkStillInSight(): void
     {
         $historyOnRetry = null;
+        $declarationOnRetry = null;
         $turn = 0;
         $spawner = new SubAgentSpawner(
             $this->store,
             'parent',
-            function (string $brief, string $childId, array $history) use (&$turn, &$historyOnRetry): array {
+            function (
+                string $brief,
+                string $childId,
+                array $history,
+                array $first,
+                array $declaration,
+            ) use (&$turn, &$historyOnRetry, &$declarationOnRetry): array {
                 $this->store->recordToolCall($childId, 'plugins_list', [], 'ok', true, false);
                 ++$turn;
                 if ($turn === 1) {
                     return ['answer' => 'I read three files and the router is the place to start.', 'steps' => 3];
                 }
                 $historyOnRetry = $history;
+                $declarationOnRetry = $declaration;
 
                 return ['answer' => '{"goal":"start with the router","steps":[{"what":"read it"}]}', 'steps' => 2];
             },
@@ -176,6 +184,15 @@ final class ArtifactContractTest extends TestCase
         self::assertIsString($seen);
         self::assertStringContainsString('plan the work', $seen, 'its original brief is still there');
         self::assertStringContainsString('the router is the place to start', $seen, 'and so is what it found');
+        self::assertIsArray($declarationOnRetry);
+        self::assertSame(
+            $historyOnRetry,
+            array_map(
+                static fn (array $message): array => ['role' => $message['role'], 'content' => $message['content']],
+                $declarationOnRetry,
+            ),
+            'the retry receives both projections of the same child-composed window',
+        );
     }
 
     /**

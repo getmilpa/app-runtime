@@ -30,12 +30,18 @@ use Milpa\AiGateway\ChannelObserver;
  * Un grabador que truena convertiría un agente que funciona en uno roto en el momento en que alguien
  * pide verlo, y la falla se leería como del agente y no del instrumento. Así que una escritura mala
  * pierde la observación y nada más.
+ *
+ * The wire payload and the declared session window remain separate facts. The first says what the
+ * provider received after gateway composition; the second says why each Session-composed history
+ * message existed. Joining them here by index or content would turn this reader into the classifier.
  */
 final class IntakeObserver implements ChannelObserver
 {
+    /** @param list<array{role: string, content: string, class: string}>|null $window */
     public function __construct(
         private readonly SessionStore $sessions,
         private readonly string $session,
+        private readonly ?array $window = null,
     ) {
     }
 
@@ -43,7 +49,11 @@ final class IntakeObserver implements ChannelObserver
     public function observe(string $uri, array $payload): void
     {
         try {
-            $this->sessions->recordModelCall($this->session, ModelCallIntake::fromChannelPayload($uri, $payload));
+            $this->sessions->recordModelCall($this->session, ModelCallIntake::fromChannelPayload(
+                $uri,
+                $payload,
+                window: $this->window,
+            ));
         } catch (\Throwable) {
             // Se pierde la observación, no la corrida. Observar no puede cambiar lo observado, y eso
             // incluye no poder tumbarlo.

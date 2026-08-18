@@ -22,11 +22,11 @@
     "milpa/tool-runtime": ">=0.11 <1.0"
   },
   "conflict": {
-    "milpa/agent": "<0.16"
+    "milpa/agent": "<0.18"
   },
   "require-dev": {
     "friendsofphp/php-cs-fixer": "^3.75",
-    "milpa/agent": ">=0.16 <1.0",
+    "milpa/agent": ">=0.18 <1.0",
     "milpa/ai-gateway": ">=0.8 <1.0",
     "milpa/auth": ">=0.3.8 <1.0",
     "milpa/data": ">=0.2.2 <1.0",
