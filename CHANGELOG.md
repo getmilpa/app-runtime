@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.46.0](https://github.com/getmilpa/app-runtime/compare/v0.45.0...v0.46.0) (2026-08-18)
+
+
+### Features
+
+* session:own stores the signed owner, and the admission re-verifies it live ([#106](https://github.com/getmilpa/app-runtime/issues/106)) ([1922aef](https://github.com/getmilpa/app-runtime/commit/1922aefa4b993ac44f11b311991fac72b845fac6))
+
 ## [0.45.0](https://github.com/getmilpa/app-runtime/compare/v0.44.1...v0.45.0) (2026-08-18)
 
 
