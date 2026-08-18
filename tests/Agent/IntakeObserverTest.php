@@ -48,6 +48,46 @@ final class IntakeObserverTest extends TestCase
         self::assertSame('qwen3-coder:30b', $o->answers['context_received']['value']['model']);
     }
 
+    public function testTheDeclaredWindowReachesTheStreamWithoutEnteringTheProviderPayload(): void
+    {
+        $events = new InMemoryEventStore();
+        $store = new SessionStore($events);
+        $store->start('s1', 'continue the work');
+        $store->setPlan('s1', '1. Inspect 2. Change 3. Verify');
+        $session = $store->load('s1') ?? self::fail('the session must exist');
+        $declaredWindow = $session->classifiedWindow();
+        $providerPayload = [
+            'model' => 'qwen3-coder:30b',
+            'messages' => [
+                ['role' => 'system', 'content' => 'you are an agent'],
+                ...$session->window(),
+                ['role' => 'user', 'content' => 'continue'],
+            ],
+        ];
+
+        foreach ($providerPayload['messages'] as $message) {
+            self::assertArrayNotHasKey('class', $message);
+        }
+
+        (new IntakeObserver($store, 's1', $declaredWindow))->observe(
+            'https://llama.local/v1/chat/completions',
+            $providerPayload,
+        );
+
+        $recorded = null;
+        foreach ($events->replay(SessionStore::PREFIX . 's1') as $event) {
+            if ($event->type === 'session.model_called') {
+                $recorded = $event->payload;
+            }
+        }
+
+        self::assertNotNull($recorded);
+        self::assertSame($declaredWindow, $recorded['window']);
+        foreach ($recorded['messages'] as $message) {
+            self::assertArrayNotHasKey('class', $message);
+        }
+    }
+
     /**
      * OBSERVING MAY NOT BREAK WHAT IT OBSERVES.
      *

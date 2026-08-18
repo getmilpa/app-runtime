@@ -133,8 +133,17 @@ final class SubAgentResumeTest extends TestCase
         $this->almacen->answer('padre.sub-c3', 'perm:make', 'sí', new \Milpa\Agent\Principal('cli:prueba'), 'prueba');
 
         $historial = null;
-        $op = $this->spawner(static function (string $e, string $h, array $hist) use (&$historial): array {
+        $declaredWindow = null;
+        $expectedDeclaration = $this->almacen->load('padre.sub-c3')?->classifiedWindow();
+        $op = $this->spawner(static function (
+            string $e,
+            string $h,
+            array $hist,
+            array $first,
+            array $declaration,
+        ) use (&$historial, &$declaredWindow): array {
             $historial = $hist;
+            $declaredWindow = $declaration;
 
             return ['answer' => 'seguí y terminé', 'steps' => 3];
         })->resumeOperation();
@@ -146,5 +155,6 @@ final class SubAgentResumeTest extends TestCase
         self::assertSame('seguí y terminé', $r['report']);
         self::assertIsArray($historial);
         self::assertNotSame([], $historial, 'retomar no es re-delegar: llega con su ventana');
+        self::assertSame($expectedDeclaration, $declaredWindow, 'the same composer declares the resumed window');
     }
 }

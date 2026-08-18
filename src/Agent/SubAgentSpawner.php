@@ -57,11 +57,7 @@ use Milpa\Command\Operation;
 final class SubAgentSpawner
 {
     /**
-     * @param \Closure(string, string, array<int, array{role: string, content: string}>, list<string>): array{answer: string, steps: int} $runChild corre la vuelta del hijo: recibe el encargo, el id de la
-     *                                                                                                                                              sesión hija y el historial que el hijo debe ver — vacío al
-     *                                                                                                                                              spawnear (§5.1), SU ventana al retomar. El cableado —gate con
-     *                                                                                                                                              techo, catálogo sin spawn ni resume— lo pone quien construye
-     *                                                                                                                                              esto, porque es quien tiene el kernel y la credencial
+     * @param \Closure(string, string, array<int, array{role: string, content: string}>, list<string>, list<array{role: string, content: string, class: string}>): array{answer: string, steps: int} $runChild Runs one child turn with its brief, id, provider history, prerequisites, and the composer-owned declaration of that history. Fresh children receive two empty windows; resumed children receive both projections of their own Session.
      */
     public function __construct(
         private readonly SessionStore $sessions,
@@ -411,7 +407,7 @@ final class SubAgentSpawner
         }
 
         // HISTORIAL VACÍO A PROPÓSITO (§5.1): el contexto fresco es la razón de ser del spawn.
-        return $this->correr($childId, $brief, [], $runFirst, $contract);
+        return $this->correr($childId, $brief, [], $runFirst, $contract, []);
     }
 
     /**
@@ -672,16 +668,18 @@ final class SubAgentSpawner
             'La pregunta que te pausó ya fue contestada — la decisión está en tu historial. Continúa '
             . 'con tu encargo hasta terminar y entrega tu reporte.',
             $child->window(),
+            declaredWindow: $child->classifiedWindow(),
         );
     }
 
     /**
      * La vuelta del hijo y su reporte: una sola verdad para spawn y resume.
      *
-     * @param array<int, array{role: string, content: string}> $history
-     * @param list<string>                                     $runFirst lo que el hijo tiene que
-     *                                                                   correr antes que cualquier
-     *                                                                   otra cosa
+     * @param array<int, array{role: string, content: string}>          $history
+     * @param list<string>                                              $runFirst       lo que el hijo tiene que
+     *                                                                                  correr antes que cualquier
+     *                                                                                  otra cosa
+     * @param list<array{role: string, content: string, class: string}> $declaredWindow
      *
      * @return array<string, mixed>
      */
@@ -691,11 +689,12 @@ final class SubAgentSpawner
         array $history,
         array $runFirst = [],
         ?ArtifactContract $contract = null,
+        array $declaredWindow = [],
     ): array {
         $this->sessions->recordTurn($childId, 'user', $brief);
 
         try {
-            $run = ($this->runChild)($brief, $childId, $history, $runFirst);
+            $run = ($this->runChild)($brief, $childId, $history, $runFirst, $declaredWindow);
         } catch (RunInterrupted $e) {
             // La interrupción del humano NO se traga: para el árbol completo. Convertirla en un
             // reporte de fallo dejaría al padre seguir trabajando después de que el humano dijo alto.
@@ -775,8 +774,10 @@ final class SubAgentSpawner
                 // has already been written: `window()` includes that attempt, which is precisely what
                 // the child has to correct. Same as `resume`, for the same reason — correcting is not
                 // re-delegating.
-                $childWindow = $this->sessions->load($childId)?->window() ?? [];
-                $secondTry = ($this->runChild)($discrepancy, $childId, $childWindow, []);
+                $child = $this->sessions->load($childId);
+                $childWindow = $child?->window() ?? [];
+                $declaredChildWindow = $child?->classifiedWindow() ?? [];
+                $secondTry = ($this->runChild)($discrepancy, $childId, $childWindow, [], $declaredChildWindow);
                 $this->budget?->anota($secondTry['steps']);
                 $this->sessions->recordTurn($childId, 'assistant', $secondTry['answer']);
                 $report['steps'] += $secondTry['steps'];

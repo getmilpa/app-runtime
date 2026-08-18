@@ -519,6 +519,8 @@ class AgentOperations implements CommandProvider
             $sessionId = 'run-' . date('md-His') . '-' . substr(bin2hex(random_bytes(3)), 0, 4);
         }
         $historial = [];
+        /** @var list<array{role: string, content: string, class: string}>|null $declaredWindow */
+        $declaredWindow = null;
 
         if ($sessionId !== '' && $store !== null) {
             // CADUCAR ANTES DE MIRAR. Una pregunta vencida deja la sesión sin poder correr para
@@ -540,6 +542,7 @@ class AgentOperations implements CommandProvider
                 // Se abre con el primer prompt como objetivo: continuar una sesión que no existe es
                 // empezarla, y negarse obligaría a dos comandos para lo que es una intención.
                 $store->start($sessionId, $prompt, $modo ?? AutonomyMode::Ask);
+                $declaredWindow = $store->load($sessionId)?->classifiedWindow();
             } elseif (!$sesion->isRunnable()) {
                 // Una sesión con una pregunta abierta o ya terminada NO se sigue por accidente: se
                 // contesta o se abre otra. Seguirla sería contestar por el humano que no contestó.
@@ -576,8 +579,12 @@ class AgentOperations implements CommandProvider
                 }
 
                 $historial = $sesion?->window() ?? $historial;
+                $declaredWindow = $sesion?->classifiedWindow();
             }
 
+            // Both representations come from the same immutable Session. Capture them before the
+            // current prompt becomes a turn: the gateway adds that prompt separately, so claiming it
+            // as part of this declaration would say Session::window() composed something it did not.
             $store->recordTurn($sessionId, 'user', $prompt);
         }
 
@@ -653,7 +660,13 @@ class AgentOperations implements CommandProvider
                 $spawner = new SubAgentSpawner(
                     $store,
                     $sessionId,
-                    function (string $encargo, string $hijoId, array $historialHijo, array $primeroHijo = []) use ($store, $kernel, $pasos, $proveedor, $llave, $modelo, $presupuestoDelArbol): array {
+                    function (
+                        string $encargo,
+                        string $hijoId,
+                        array $historialHijo,
+                        array $primeroHijo = [],
+                        array $declaredWindowHijo = [],
+                    ) use ($store, $kernel, $pasos, $proveedor, $llave, $modelo, $presupuestoDelArbol): array {
                         $hijo = $store->load($hijoId);
                         if ($hijo === null) {
                             return ['answer' => 'la sesión hija no se pudo abrir', 'steps' => 0];
@@ -718,26 +731,40 @@ class AgentOperations implements CommandProvider
                         // EL TECHO DEL HIJO SALE DEL FONDO: el suyo, o lo que quede si es menos. La
                         // negativa por fondo agotado ya la dio el spawner antes de llegar aquí, así
                         // que esto sólo recorta al último hijo que todavía alcanza a trabajar.
-                        $respuestaHijo = $this->ask(
-                            $encargo,
-                            $presupuestoDelArbol?->techoParaElSiguiente($pasos) ?? $pasos,
-                            $registroHijo,
-                            $proveedor,
-                            $llave,
-                            $modelo,
-                            function () use (&$vistosHijo): void {
-                                ++$vistosHijo;
-                            },
-                            $historialHijo,
-                            $compuertaHijo,
-                            // LA MESA DEL HIJO, que antes iba en `null` y por eso una opción retirada
-                            // no salía de su catálogo. Es lo que vuelve ejecutable el `deny` de
-                            // `agent_spawn`: sin ella, prohibirle una herramienta sería otra frase
-                            // más — y Q-P20-G midió cuánto valen las frases (0/8).
-                            new SessionOptionTable($store, $hijoId),
-                            $compuertaHijo,
-                            $this->tableroDePlan($hijoId, $store),
-                        );
+                        // The observer is created inside ask(), so its session and declaration must
+                        // follow the nested call and then return to the parent. Leaving parent state
+                        // here would append the child's intake to the wrong stream; reloading later
+                        // would classify a different window from the one the spawner supplied.
+                        $parentIntakeSession = $this->intakeSession;
+                        $parentDeclaredWindow = $this->declaredWindow;
+                        $this->intakeSession = $hijoId;
+                        $this->declaredWindow = $declaredWindowHijo;
+
+                        try {
+                            $respuestaHijo = $this->ask(
+                                $encargo,
+                                $presupuestoDelArbol?->techoParaElSiguiente($pasos) ?? $pasos,
+                                $registroHijo,
+                                $proveedor,
+                                $llave,
+                                $modelo,
+                                function () use (&$vistosHijo): void {
+                                    ++$vistosHijo;
+                                },
+                                $historialHijo,
+                                $compuertaHijo,
+                                // LA MESA DEL HIJO, que antes iba en `null` y por eso una opción retirada
+                                // no salía de su catálogo. Es lo que vuelve ejecutable el `deny` de
+                                // `agent_spawn`: sin ella, prohibirle una herramienta sería otra frase
+                                // más — y Q-P20-G midió cuánto valen las frases (0/8).
+                                new SessionOptionTable($store, $hijoId),
+                                $compuertaHijo,
+                                $this->tableroDePlan($hijoId, $store),
+                            );
+                        } finally {
+                            $this->intakeSession = $parentIntakeSession;
+                            $this->declaredWindow = $parentDeclaredWindow;
+                        }
 
                         return ['answer' => $respuestaHijo, 'steps' => $vistosHijo];
                     },
@@ -967,6 +994,8 @@ class AgentOperations implements CommandProvider
             // `ask()` es protected y el esqueleto lo sobrescribe, así que crecerle parámetros lo rompe.
             $this->decisionesDeLaSesion = $decisionesDeSesion;
             $this->sesionDeLosPermisos = $sessionId !== '' ? $sessionId : null;
+            $this->intakeSession = $sessionId !== '' ? $sessionId : null;
+            $this->declaredWindow = $declaredWindow;
 
             $respuesta = $this->ask(
                 $prompt,
@@ -1155,6 +1184,11 @@ class AgentOperations implements CommandProvider
     private array $decisionesDeLaSesion = [];
 
     private ?string $sesionDeLosPermisos = null;
+
+    private ?string $intakeSession = null;
+
+    /** @var list<array{role: string, content: string, class: string}>|null */
+    private ?array $declaredWindow = null;
 
     /**
      * Una vuelta del agente contra el modelo, con sus herramientas y su compuerta.
@@ -1798,14 +1832,14 @@ class AgentOperations implements CommandProvider
      */
     protected function observadorDeEntrada(): ?IntakeObserver
     {
-        $sesion = $this->sesionDeLosPermisos;
+        $sesion = $this->intakeSession;
         if ($sesion === null) {
             return null;
         }
 
         $almacen = $this->sessions();
 
-        return $almacen === null ? null : new IntakeObserver($almacen, $sesion);
+        return $almacen === null ? null : new IntakeObserver($almacen, $sesion, $this->declaredWindow);
     }
 
     protected function sessions(): ?SessionStore
