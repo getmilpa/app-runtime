@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.48.0](https://github.com/getmilpa/app-runtime/compare/v0.47.0...v0.48.0) (2026-08-19)
+
+
+### Features
+
+* the gate records the composition receipt when it lowers a ceiling ([#110](https://github.com/getmilpa/app-runtime/issues/110)) ([c66393a](https://github.com/getmilpa/app-runtime/commit/c66393a3cfa1b98a6adaab2c4073a73c29c755b0))
+
 ## [0.47.0](https://github.com/getmilpa/app-runtime/compare/v0.46.0...v0.47.0) (2026-08-19)
 
 
