@@ -117,6 +117,11 @@ final class IntakeObserverTest extends TestCase
             {
                 return [];
             }
+
+            public function replayAll(): array
+            {
+                return [];
+            }
         };
 
         (new IntakeObserver(new SessionStore($discoLleno), 's1'))->observe('https://x/y', ['model' => 'm', 'messages' => []]);

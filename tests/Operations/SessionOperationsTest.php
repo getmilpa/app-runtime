@@ -13,6 +13,8 @@ use Milpa\Agent\TodoStatus;
 use Milpa\Command\InvocationContext;
 use Milpa\Command\Operation;
 use Milpa\Container\DIContainer;
+use Milpa\EventStore\Event;
+use Milpa\EventStore\EventStoreInterface;
 use Milpa\EventStore\InMemoryEventStore;
 use PHPUnit\Framework\TestCase;
 
@@ -781,5 +783,81 @@ final class SessionOperationsTest extends TestCase
     public function testDiscardWithoutASessionSaysWhatIsMissing(): void
     {
         self::assertFalse($this->llamar('agent:discard', ['because' => 'x'])['ok']);
+    }
+
+    /**
+     * `agent:sessions` lista TODAS las sesiones leyendo el log UNA vez, no una vez por sesión.
+     *
+     * Es la propiedad cuyo defecto colgaba `/sessions`: `listar()` llamaba a `load()` por sesión, y
+     * cada `load()` reproducía el log entero — O(sesiones × eventos). El instrumento es un almacén que
+     * cuenta lecturas, con su control positivo aparte ({@see SessionStoreTest}): aquí basta con
+     * exigir que listar tres sesiones toque el log una sola vez.
+     */
+    public function testAgentSessionsReadsTheLogOnceNotOncePerSession(): void
+    {
+        $contador = new class (new InMemoryEventStore()) implements EventStoreInterface {
+            public int $replay = 0;
+            public int $replayAll = 0;
+
+            public function __construct(private EventStoreInterface $inner)
+            {
+            }
+
+            public function append(Event $e): void
+            {
+                $this->inner->append($e);
+            }
+
+            public function replay(string $streamId): array
+            {
+                ++$this->replay;
+
+                return $this->inner->replay($streamId);
+            }
+
+            public function nextSeq(): int
+            {
+                return $this->inner->nextSeq();
+            }
+
+            public function streams(): array
+            {
+                return $this->inner->streams();
+            }
+
+            public function replayAll(): array
+            {
+                ++$this->replayAll;
+
+                return $this->inner->replayAll();
+            }
+        };
+
+        $almacen = new SessionStore($contador);
+        $almacen->start('a', 'una');
+        $almacen->start('b', 'dos');
+        $almacen->start('c', 'tres');
+
+        $contenedor = new DIContainer();
+        $contenedor->registerService(SessionStore::class, $almacen);
+        $ops = new SessionOperations($contenedor);
+
+        $handler = null;
+        foreach ($ops->operations() as $operacion) {
+            if ($operacion->name === 'agent:sessions') {
+                $handler = $operacion->handler;
+            }
+        }
+        self::assertIsCallable($handler);
+
+        $contador->replay = 0;
+        $contador->replayAll = 0;
+        /** @var array<string, mixed> $r */
+        $r = $handler([]);
+
+        self::assertTrue($r['ok'] ?? false);
+        self::assertCount(3, $r['sessions'] ?? [], 'las tres sesiones se enumeran');
+        self::assertSame(1, $contador->replayAll, 'listar N sesiones lee el log una sola vez');
+        self::assertSame(0, $contador->replay, 'y no cae en el replay-por-sesión que colgaba /sessions');
     }
 }
