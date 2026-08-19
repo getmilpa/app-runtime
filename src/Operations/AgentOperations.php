@@ -50,6 +50,7 @@ use Milpa\AiGateway\ToolCallGate;
 use Milpa\AiGateway\ToolCallRecorder;
 use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\Compactor;
+use Milpa\Agent\Session;
 use Milpa\Agent\Todo;
 use Milpa\Agent\TodoStatus;
 use Milpa\Agent\SessionStore;
@@ -625,42 +626,16 @@ class AgentOperations implements CommandProvider
                 // THE APP'S DECLARED POLICY, so the gate can read the composed ceiling of a call —
                 // its owner's authority and its certified descents (greenhouse decisions/0058). Null
                 // when the app declares none, and then the gate decides by the flag as it always did.
-                [$policyProvider, $sessionIdentity] = $this->policyAndIdentity($kernel->root());
                 $decisionesDeSesion = ContratoInstalado::arreglo($viva, 'decisions');
-                $compuerta = new SessionToolGate(
-                    $store,
-                    $viva,
-                    Operations::all($kernel, $kernel->root()),
-                    permissionWindow: $this->permissionWindow(),
-                    // La petición de ESTA corrida, no el goal de la sesión: el contrato de intención
-                    // (ADR-0044) compara los argumentos contra lo que el humano acaba de pedir.
-                    petition: $prompt,
-                    vigiaDeBucle: $this->sterileLoopGuard(),
-                    // ── AN ORDERING OBLIGATION FOR WHOEVER RUNS THE AGENT ────────────────────
-                    //
-                    // Same asymmetry `deny` had: the mechanism existed and only a delegating parent
-                    // could reach it. `PrerequisiteGate` is measured — Q-P20-I: `must` delivers the
-                    // sentence 8/8 and is obeyed 0/8; closing the table until the required call runs
-                    // is what makes it a fact instead of a request.
-                    //
-                    // The reason it matters here and not only in delegation: `plan` and `todo` ask
-                    // in prose today —«do it BEFORE starting anything long»— and 32 measured runs
-                    // touched neither, not once. A board built on that source would paint stale
-                    // cards as current state, which is worse than painting nothing.
-                    compuertaPrevia: $runFirst === [] ? null : new PrerequisiteGate($runFirst),
-                    // The first arrow (greenhouse evidence/0009), if this host declares it:
-                    // founding precedes building, adjudicated from durable state, never from
-                    // executions.
-                    arrow: $this->foundationArrow(),
-                    // THE COMPOSED CEILING NEEDS ITS PRODUCERS ON THE MAIN GATE TOO (greenhouse
-                    // decisions/0058, 0059). The child gate got them and this one did not — measured
-                    // by the pin's own method (evidence/0257→0258): a session owned by a real
-                    // signature never saw its authority descend, because the top-level gate had no
-                    // policy and no identity, so `hechosDelDuenio()` answered null. A unit test that
-                    // builds the gate by hand cannot catch a wiring the constructor makes optional.
-                    policyProvider: $policyProvider,
-                    identity: $sessionIdentity,
-                );
+                // ONE BUILDER, so a collaborator cannot be forgotten in one gate and remembered in
+                // another (greenhouse decisions/0058, 0059). It was: the pin's own method caught a
+                // gate wired without policy or identity, so a session owned by a real signature never
+                // saw its authority descend (evidence/0259). A unit test that builds the gate by hand
+                // cannot catch a wiring the constructor makes optional — so the wiring lives in ONE
+                // place, `nuevaCompuerta`, and both the main session and the sub-agent pass through
+                // it. What varies — the session, the human's petition, the ordering obligation —
+                // travels as an argument; everything else is the same producers for everyone.
+                $compuerta = $this->nuevaCompuerta($store, $kernel, $viva, $prompt, $runFirst);
                 // ATADAS a esta sesión: el id se captura, no se le pide al modelo. Uno que el modelo
                 // pudiera nombrar es uno que puede errar, y escribirle el plan a otra sesión no es una
                 // equivocación recuperable — quien la lea mañana verá un plan que su agente no escribió.
@@ -687,31 +662,13 @@ class AgentOperations implements CommandProvider
                             return ['answer' => 'la sesión hija no se pudo abrir', 'steps' => 0];
                         }
 
-                        $compuertaHijo = new SessionToolGate(
-                            $store,
-                            $hijo,
-                            Operations::all($kernel, $kernel->root()),
-                            permissionWindow: $this->permissionWindow(),
-                            // El contrato de intención del hijo compara contra SU encargo: lo que el
-                            // padre le pidió es, para el hijo, lo que el humano es para el padre.
-                            petition: $encargo,
-                            // El hijo tiene el SUYO, nuevo: el presupuesto que gasta repitiendo es
-                            // el suyo, y los fallos del padre no son los de él.
-                            vigiaDeBucle: $this->sterileLoopGuard(),
-                            // LA OBLIGACIÓN DE ORDEN, ejecutada (Q-P20-I). Va por el mismo canal que
-                            // corre al hijo y NO por el stream, así que sólo gobierna la vuelta que
-                            // spawnea: un hijo retomado llega con la mesa abierta. Es residuo
-                            // declarado, no descuido — persistirlo pide un evento nuevo en
-                            // `milpa/agent`, y la pregunta que esta rebanada contesta se mide en
-                            // spawn.
-                            compuertaPrevia: $primeroHijo === [] ? null : new PrerequisiteGate($primeroHijo),
-                            // THE ARROW GOVERNS THE CHILD TOO, from the same disk: delegation is
-                            // not a tunnel — a sub-agent building in an unfounded app would be the
-                            // same unearned transition under another name in the stream.
-                            arrow: $this->foundationArrow(),
-                            policyProvider: ($ppHijo = $this->policyAndIdentity($kernel->root()))[0],
-                            identity: $ppHijo[1],
-                        );
+                        // The SAME builder as the main session (greenhouse decisions/0059): the
+                        // child's intent contract compares against ITS petition — what the parent
+                        // asked is, to the child, what the human is to the parent — and its ordering
+                        // obligation governs only the turn that spawns it. Everything else, the arrow
+                        // and the composed-ceiling producers included, is what the main gate gets,
+                        // because delegation is not a tunnel.
+                        $compuertaHijo = $this->nuevaCompuerta($store, $kernel, $hijo, $encargo, $primeroHijo);
                         // THE CHILD GETS THE CHANNEL AND NOTHING ELSE FROM THE SPAWNER.
                         //
                         // A `SubAgentSpawner` is built with ITS id as the subject and only
@@ -1376,6 +1333,39 @@ class AgentOperations implements CommandProvider
         $identity = $provider === null ? null : new SessionIdentity(new GnupgSignatureVerifier(), $provider);
 
         return [$provider, $identity];
+    }
+
+    /**
+     * The ONE place a session's gate is built (greenhouse decisions/0059), so every collaborator —
+     * the composed-ceiling producers most of all — reaches every gate. Both the main session and a
+     * sub-agent pass through here; only the session, the human's petition, and the ordering
+     * obligation vary, and they travel as arguments. A gate built any other way could omit a
+     * producer and pass a green suite, which is exactly the wiring the pin's method caught
+     * (evidence/0259).
+     *
+     * @param list<string> $runFirst the standing ordering obligation for THIS turn, or [] for none
+     */
+    private function nuevaCompuerta(
+        SessionStore $store,
+        Kernel $kernel,
+        Session $session,
+        string $petition,
+        array $runFirst,
+    ): SessionToolGate {
+        [$policyProvider, $identity] = $this->policyAndIdentity($kernel->root());
+
+        return new SessionToolGate(
+            $store,
+            $session,
+            Operations::all($kernel, $kernel->root()),
+            permissionWindow: $this->permissionWindow(),
+            petition: $petition,
+            vigiaDeBucle: $this->sterileLoopGuard(),
+            compuertaPrevia: $runFirst === [] ? null : new PrerequisiteGate($runFirst),
+            arrow: $this->foundationArrow(),
+            policyProvider: $policyProvider,
+            identity: $identity,
+        );
     }
 
     /** The session store this app writes to, or null when it has nowhere to keep sessions. */
