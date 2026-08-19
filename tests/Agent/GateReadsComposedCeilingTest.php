@@ -178,6 +178,53 @@ final class GateReadsComposedCeilingTest extends TestCase
         );
     }
 
+    /** 5 · F-1 of decisions/0059: composing a lowered ceiling records the receipt as a fact. */
+    public function testALoweredCeilingIsRecorded(): void
+    {
+        $eventos = new InMemoryEventStore();
+        $almacen = new SessionStore($eventos);
+        $almacen->start('s-1', 'goal', AutonomyMode::Ask);
+        $sesion = $almacen->load('s-1');
+        self::assertNotNull($sesion);
+        $gate = new SessionToolGate($almacen, $sesion, [$this->probe(false)]);
+
+        $gate->refuse('probe', ['dry_run' => true]);
+
+        $recibos = $this->composiciones($eventos);
+        self::assertCount(1, $recibos);
+        self::assertSame('probe', $recibos[0]['operation']);
+        self::assertNotEmpty($recibos[0]['reductions']);
+    }
+
+    /** 6 · F-2 of decisions/0059: a call with no reduction records nothing. */
+    public function testACallThatLowersNothingRecordsNothing(): void
+    {
+        $eventos = new InMemoryEventStore();
+        $almacen = new SessionStore($eventos);
+        $almacen->start('s-1', 'goal', AutonomyMode::Ask);
+        $sesion = $almacen->load('s-1');
+        self::assertNotNull($sesion);
+        $gate = new SessionToolGate($almacen, $sesion, [$this->probe(false)]);
+
+        // No rehearsal argument, so no descent triggers, so nothing was lowered.
+        $gate->refuse('probe', []);
+
+        self::assertSame([], $this->composiciones($eventos));
+    }
+
+    /** @return list<array<string, mixed>> The composition receipts, read RAW from the stream (not projected). */
+    private function composiciones(InMemoryEventStore $eventos): array
+    {
+        $out = [];
+        foreach ($eventos->replay('agent-session:s-1') as $e) {
+            if ($e->type === 'session.ceiling_composed') {
+                $out[] = $e->payload['composition'];
+            }
+        }
+
+        return $out;
+    }
+
     private function gate(AutonomyMode $modo, bool $forgeSignature = false): SessionToolGate
     {
         $almacen = new SessionStore(new InMemoryEventStore());
