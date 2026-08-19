@@ -24,6 +24,7 @@ use Milpa\Agent\SessionStore;
 use Milpa\AiGateway\ToolCallGate;
 use Milpa\AiGateway\ToolCallRecorder;
 use Milpa\AppRuntime\Policy\PolicyProvider;
+use Milpa\Command\Effect\AxisReduction;
 use Milpa\Command\Effect\CallSubject;
 use Milpa\Command\Effect\ContextFacts;
 use Milpa\Command\Effect\Mutation;
@@ -520,8 +521,26 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             $this->policyProvider?->authorityPolicy(),
             $this->hechosDelDuenio(),
         );
+        $composicion = $operacion->effectCeiling()->composeForCall($arguments, $subject);
 
-        return $operacion->effectCeiling()->forCall($arguments, $subject)->mutation !== Mutation::None;
+        // WHEN THE COMPOSITION LOWERED THE CEILING, THE RECEIPT BECOMES A FACT (greenhouse
+        // decisions/0059). Only when a descent actually reduced something: a call that changed no
+        // axis is not a line worth keeping. The receipt is what the human audits later — why the
+        // agent did not have to ask — read from the stream, cited, not reconstructed.
+        if ($composicion->reductions !== []) {
+            $this->sessions->recordCeilingComposition($this->session->id, [
+                'operation' => $operacion->name,
+                'reductions' => array_map(static fn (AxisReduction $r): array => [
+                    'axis' => $r->axis,
+                    'from' => $r->from,
+                    'to' => $r->to,
+                    'producer' => $r->producer,
+                    'provenance' => $r->provenance,
+                ], $composicion->reductions),
+            ]);
+        }
+
+        return $composicion->effective->mutation !== Mutation::None;
     }
 
     /**
