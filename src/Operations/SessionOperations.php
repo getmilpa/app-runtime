@@ -810,12 +810,12 @@ final class SessionOperations implements CommandProvider
         }
 
         $filas = [];
-        foreach ($almacen->ids() as $id) {
-            $session = $almacen->load($id);
-            if ($session === null) {
-                continue;
-            }
 
+        // UNA sola lectura del log, no una por sesión. `load()` en un bucle sobre `ids()` reproducía
+        // el log entero por cada sesión —O(sesiones × eventos)—, y con ~2000 sesiones eso colgaba
+        // `/sessions` por minutos. `loadAll()` lee el log una vez y reduce cada stream (greenhouse:
+        // «el /sessions colgado»).
+        foreach ($almacen->loadAll() as $id => $session) {
             $filas[] = [
                 'session' => $id,
                 'goal' => $session->goal,

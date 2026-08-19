@@ -283,6 +283,11 @@ final class AlmacenQueSeNiega implements \Milpa\EventStore\EventStoreInterface
     {
         return [];
     }
+
+    public function replayAll(): array
+    {
+        return [];
+    }
 }
 
 /** @internal */

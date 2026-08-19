@@ -124,4 +124,11 @@ final readonly class BroadcastingEventStore implements EventStoreInterface
     {
         return $this->inner->streams();
     }
+
+    /** @return array<string, list<Event>> */
+    /** Cada stream de una sola pasada — delegado tal cual al almacén que envuelve. */
+    public function replayAll(): array
+    {
+        return $this->inner->replayAll();
+    }
 }

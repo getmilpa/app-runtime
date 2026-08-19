@@ -22,16 +22,17 @@
     "milpa/tool-runtime": ">=0.12 <1.0"
   },
   "conflict": {
-    "milpa/agent": "<0.18"
+    "milpa/agent": "<0.21",
+    "milpa/event-store": "<0.3"
   },
   "require-dev": {
     "friendsofphp/php-cs-fixer": "^3.75",
-    "milpa/agent": ">=0.20 <1.0",
+    "milpa/agent": ">=0.21 <1.0",
     "milpa/ai-gateway": ">=0.8 <1.0",
     "milpa/auth": ">=0.3.8 <1.0",
     "milpa/data": ">=0.2.2 <1.0",
     "milpa/devtools": ">=0.14 <1.0",
-    "milpa/event-store": ">=0.1 <1.0",
+    "milpa/event-store": ">=0.3 <1.0",
     "phpstan/phpdoc-parser": "^2.3",
     "phpstan/phpstan": "^2.1",
     "phpunit/phpunit": "^11.5"
