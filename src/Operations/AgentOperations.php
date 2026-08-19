@@ -1370,6 +1370,7 @@ class AgentOperations implements CommandProvider
         return [$provider, $identity];
     }
 
+    /** The session store this app writes to, or null when it has nowhere to keep sessions. */
     public function sessionStore(): ?SessionStore
     {
         return $this->sessions();
