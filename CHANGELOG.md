@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.47.0](https://github.com/getmilpa/app-runtime/compare/v0.46.0...v0.47.0) (2026-08-19)
+
+
+### Features
+
+* the agent's gate decides by the composed ceiling, not by the flag ([#108](https://github.com/getmilpa/app-runtime/issues/108)) ([bcdb16e](https://github.com/getmilpa/app-runtime/commit/bcdb16e96af11edbd1440ef1d7f484b73088765b))
+
 ## [0.46.0](https://github.com/getmilpa/app-runtime/compare/v0.45.0...v0.46.0) (2026-08-18)
 
 
