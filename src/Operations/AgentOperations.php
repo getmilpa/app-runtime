@@ -652,6 +652,14 @@ class AgentOperations implements CommandProvider
                     // founding precedes building, adjudicated from durable state, never from
                     // executions.
                     arrow: $this->foundationArrow(),
+                    // THE COMPOSED CEILING NEEDS ITS PRODUCERS ON THE MAIN GATE TOO (greenhouse
+                    // decisions/0058, 0059). The child gate got them and this one did not — measured
+                    // by the pin's own method (evidence/0257→0258): a session owned by a real
+                    // signature never saw its authority descend, because the top-level gate had no
+                    // policy and no identity, so `hechosDelDuenio()` answered null. A unit test that
+                    // builds the gate by hand cannot catch a wiring the constructor makes optional.
+                    policyProvider: $policyProvider,
+                    identity: $sessionIdentity,
                 );
                 // ATADAS a esta sesión: el id se captura, no se le pide al modelo. Uno que el modelo
                 // pudiera nombrar es uno que puede errar, y escribirle el plan a otra sesión no es una
