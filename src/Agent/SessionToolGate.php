@@ -23,6 +23,10 @@ use Milpa\Agent\SessionPolicy;
 use Milpa\Agent\SessionStore;
 use Milpa\AiGateway\ToolCallGate;
 use Milpa\AiGateway\ToolCallRecorder;
+use Milpa\AppRuntime\Policy\PolicyProvider;
+use Milpa\Command\Effect\CallSubject;
+use Milpa\Command\Effect\ContextFacts;
+use Milpa\Command\Effect\Mutation;
 use Milpa\Command\Operation;
 use Milpa\Console\McpProjector;
 
@@ -70,6 +74,12 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // ANTES (`refuse`) y ve su resultado DESPUÉS (`recorded`). Una compuerta aparte tendría que
         // reconstruir la segunda mitad, y serían dos verdades sobre lo mismo.
         private readonly ?SterileLoopGuard $vigiaDeBucle = null,
+        // WHAT PRODUCES THE AXES THE COMPOSED CEILING NEEDS (greenhouse decisions/0058). Both are
+        // optional and default to «this app declares none»: with neither, composition still applies
+        // certified mutation descents (a rehearsal), and authority simply never descends — the gate
+        // behaves exactly as it did before it learned to read the composed ceiling.
+        private readonly ?PolicyProvider $policyProvider = null,
+        private readonly ?SessionIdentity $identity = null,
         // LA COMPUERTA DE ORDEN (Q-P20-I), o `null` para correr como antes. Va aquí por lo mismo que
         // el vigía: esta clase ya es las dos mitades —juzga antes, ve el resultado después— y una
         // compuerta aparte tendría que reconstruir la segunda.
@@ -161,10 +171,15 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             return $bucle;
         }
 
+        // THE GATE DECIDES BY THE COMPOSED CEILING OF THIS CALL, not by the declared flag
+        // (greenhouse decisions/0058). A rehearsal whose certified descent drops mutation to None is
+        // not a mutation, so the session does not pause for it — while the same operation without the
+        // rehearsal still does. Composition can only LOWER a ceiling, never raise it, so this can
+        // only ever ask LESS, and only when a producer authorised the descent — never by a flag.
         $decision = $this->policy->decide(
             $this->session,
             $operacion->name,
-            $operacion->mutating,
+            $this->efectivamenteMuta($operacion, $arguments),
             $operacion->requiresConfirmation,
             // El techo se pide AQUÍ, por llamada, y no se guarda en el constructor: si el padre baja
             // a `ask` a media corrida del hijo, la siguiente herramienta ya lo siente. Un techo
@@ -480,6 +495,52 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      * las dejaría pasar TODAS en silencio. Preguntarle al proyector es lo que impide que una
      * convención duplicada se desincronice sin ruido.
      */
+    /**
+     * Does THIS call really change the world, once its ceiling is composed (greenhouse decisions/0058)?
+     *
+     * It STARTS from the declared flag and only ever LOWERS it: a declared read stays a read
+     * (composition can only descend, never raise, so a read never becomes a mutation — and an
+     * operation with no EffectProfile carries the conservative maximum, which must not turn its
+     * honest `mutating: false` into a pause). A declared mutation becomes a read only when a certified
+     * rehearsal descends it to None. The certificate produces the observed axes; the app's policy and
+     * the session's OWNER produce authority, but a mutation descent needs only a valid signed
+     * certificate, so this works even before an owner exists.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function efectivamenteMuta(Operation $operacion, array $arguments): bool
+    {
+        if (! $operacion->mutating) {
+            return false;
+        }
+
+        $subject = new CallSubject(
+            $operacion->name,
+            $operacion->handlerDigest(),
+            $this->policyProvider?->authorityPolicy(),
+            $this->hechosDelDuenio(),
+        );
+
+        return $operacion->effectCeiling()->forCall($arguments, $subject)->mutation !== Mutation::None;
+    }
+
+    /**
+     * The verified facts of the session's owner, admitted live — or null when it has no owner.
+     *
+     * greenhouse decisions/0056: what the session stores is the signed assertion, and the grade is
+     * produced by re-verifying it here, each time. Without an owner there are no facts, and authority
+     * does not descend — the gate behaves exactly as it did before this existed.
+     */
+    private function hechosDelDuenio(): ?ContextFacts
+    {
+        $asercion = $this->session->ownershipAssertion();
+        if ($asercion === null || $this->identity === null) {
+            return null;
+        }
+
+        return $this->identity->admit($asercion, $this->session->id);
+    }
+
     private function operationFor(string $tool): ?Operation
     {
         foreach ($this->operations as $operacion) {

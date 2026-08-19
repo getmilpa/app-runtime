@@ -22,6 +22,9 @@ use Milpa\AppRuntime\Agent\AffirmativeAnswer;
 use Milpa\AppRuntime\Support\ContratoInstalado;
 use Milpa\AppRuntime\Agent\ArchitectureSummaryProjector;
 use Milpa\AppRuntime\Agent\ConsentBridge;
+use Milpa\AppRuntime\Agent\SessionIdentity;
+use Milpa\AppRuntime\Policy\PolicyConfig;
+use Milpa\ToolRuntime\Identity\GnupgSignatureVerifier;
 use Milpa\AppRuntime\Config\AgentEndpoint;
 use Milpa\Attributes\PluginMetadata;
 use Milpa\Plugin\Runtime\MetadataGraphResolver;
@@ -619,6 +622,10 @@ class AgentOperations implements CommandProvider
         if ($sessionId !== '' && $store !== null && $kernel instanceof Kernel) {
             $viva = $store->load($sessionId);
             if ($viva !== null) {
+                // THE APP'S DECLARED POLICY, so the gate can read the composed ceiling of a call —
+                // its owner's authority and its certified descents (greenhouse decisions/0058). Null
+                // when the app declares none, and then the gate decides by the flag as it always did.
+                [$policyProvider, $sessionIdentity] = $this->policyAndIdentity($kernel->root());
                 $decisionesDeSesion = ContratoInstalado::arreglo($viva, 'decisions');
                 $compuerta = new SessionToolGate(
                     $store,
@@ -694,6 +701,8 @@ class AgentOperations implements CommandProvider
                             // not a tunnel — a sub-agent building in an unfounded app would be the
                             // same unearned transition under another name in the stream.
                             arrow: $this->foundationArrow(),
+                            policyProvider: ($ppHijo = $this->policyAndIdentity($kernel->root()))[0],
+                            identity: $ppHijo[1],
                         );
                         // THE CHILD GETS THE CHANNEL AND NOTHING ELSE FROM THE SPAWNER.
                         //
@@ -1346,6 +1355,22 @@ class AgentOperations implements CommandProvider
      * coincidir, y el día que lo hicieran `agent:answer` contestaría en una sesión que `agent` no
      * está leyendo.
      */
+    /**
+     * The app's declared PolicyProvider and the identity admission built on it — greenhouse
+     * decisions/0058. Null provider when the app declares no `config/policy.php`, and then the gate
+     * decides by the flag as it always did.
+     *
+     * @return array{0: ?\Milpa\AppRuntime\Policy\PolicyProvider, 1: ?SessionIdentity}
+     */
+    private function policyAndIdentity(string $root): array
+    {
+        $provider = PolicyConfig::load($root);
+        $identity = $provider === null ? null : new SessionIdentity(new GnupgSignatureVerifier(), $provider);
+
+        return [$provider, $identity];
+    }
+
+    /** The session store this app writes to, or null when it has nowhere to keep sessions. */
     public function sessionStore(): ?SessionStore
     {
         return $this->sessions();
