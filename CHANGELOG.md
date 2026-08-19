@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.48.1](https://github.com/getmilpa/app-runtime/compare/v0.48.0...v0.48.1) (2026-08-19)
+
+
+### Bug Fixes
+
+* the main agent gate gets the policy and identity, not only the child ([#112](https://github.com/getmilpa/app-runtime/issues/112)) ([2e7053e](https://github.com/getmilpa/app-runtime/commit/2e7053eff4a27d42e90f39d77939f08b4f017ca8))
+
 ## [0.48.0](https://github.com/getmilpa/app-runtime/compare/v0.47.0...v0.48.0) (2026-08-19)
 
 
