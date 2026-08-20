@@ -742,7 +742,14 @@ final class AgentScreen implements SurfaceBroadcaster
                 'voz' => 'sistema',
                 'texto' => '✓ contraoferta enviada — el agente la re-propone, y volverá a pedirte permiso',
             ];
-            $this->correrVuelta($this->peticionInterrumpida($sesion));
+            // NO con la petición interrumpida: ésa es la intención VIEJA («…en 7»), y re-inyectarla
+            // CONTRADICE la contraoferta. Medido en ganado con el agente de verdad: reanudar con
+            // «…en 7» hace que re-proponga 7; reanudar neutro hace que re-proponga el 5 que el humano
+            // pidió (greenhouse evidence/0267). La contraoferta ya está sembrada como turno por
+            // `agent:answer`; el agente la atiende si no se le vuelve a mandar la intención que ella
+            // reemplazó. Es la diferencia entre otorgar (completa lo interrumpido) y negociar (crea
+            // otra intención) — decisions/0065.
+            $this->correrVuelta('continúa');
 
             return;
         }
