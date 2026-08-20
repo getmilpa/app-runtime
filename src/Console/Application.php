@@ -102,11 +102,10 @@ final class Application
 
         $ultima = null;
         $masReciente = -1;
-        foreach ($almacen->ids() as $id) {
-            $sesion = $almacen->load($id);
-            if ($sesion === null) {
-                continue;
-            }
+        // ONE read of the log, not one per session — the same quadratic as the /sessions selector
+        // (greenhouse evidence/0265). `coa chat --continue` runs this at startup, so a many-session
+        // store made even opening the last chat hang.
+        foreach ($almacen->loadAll() as $id => $sesion) {
             // UNA HIJA NO ES UNA CONVERSACIÓN QUE ALGUIEN TUVO, y por eso no se retoma.
             //
             // Visto manejando el TUI el 2026-08-04: `coa chat --continue` abrió
@@ -194,12 +193,13 @@ final class Application
             return [];
         }
 
+        // ONE read of the log, not one per session. `load()` in a loop over `ids()` replayed the whole
+        // log per session — O(sessions × events), which froze the `/sessions` selector in the TUI even
+        // after the same fix landed in the `agent:sessions` operation. `loadAll()` reads it once
+        // (greenhouse evidence/0265: the CLI and the TUI selector were two paths, and only the pin's
+        // terminal method caught the one left behind).
         $filas = [];
-        foreach ($almacen->ids() as $id) {
-            $sesion = $almacen->load($id);
-            if ($sesion === null) {
-                continue;
-            }
+        foreach ($almacen->loadAll() as $id => $sesion) {
             $filas[] = [
                 'id' => $id,
                 'goal' => $sesion->goal,
