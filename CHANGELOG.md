@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.49.1](https://github.com/getmilpa/app-runtime/compare/v0.49.0...v0.49.1) (2026-08-20)
+
+
+### Bug Fixes
+
+* a counter resumes neutrally, so the agent re-proposes the counter not the original ([36d86e2](https://github.com/getmilpa/app-runtime/commit/36d86e273239003312d45e9f592bc607888576a6))
+* a counter resumes neutrally, so the agent re-proposes the counter, not the original ([e702f08](https://github.com/getmilpa/app-runtime/commit/e702f08debe4ac2f6f459d5b14a022dc22d5e605))
+
 ## [0.49.0](https://github.com/getmilpa/app-runtime/compare/v0.48.3...v0.49.0) (2026-08-20)
 
 
