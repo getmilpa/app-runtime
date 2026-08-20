@@ -1254,8 +1254,10 @@ final class AgentScreenTest extends TestCase
     {
         $sesion = new Session('s1', 'cobrarle al cliente', question: new PendingQuestion('perm:charge', '¿autorizas charge(250)?', ['sí', 'no']));
         $llamadas = ['answer' => 0, 'counter' => 0, 'run' => 0];
-        $responder = function (string $q) use (&$llamadas): array {
+        $promptDeReCorrida = null;
+        $responder = function (string $q) use (&$llamadas, &$promptDeReCorrida): array {
             ++$llamadas['run'];
+            $promptDeReCorrida = $q;
 
             return ['ok' => true, 'answer' => 'hecho'];
         };
@@ -1281,5 +1283,8 @@ final class AgentScreenTest extends TestCase
         self::assertSame(1, $llamadas['counter'], 'la opción «la tuya» CONTRAOFERTA');
         self::assertSame(0, $llamadas['answer'], 'no pasa por contestar — no otorga ni veta');
         self::assertSame(1, $llamadas['run'], 'y RE-CORRE para que el agente re-proponga — no se para');
+        // Y RE-CORRE NEUTRO, no con la petición interrumpida: re-inyectar la intención vieja
+        // («cobrarle al cliente») la haría re-proponer LO MISMO en vez de la contraoferta (evidence/0267).
+        self::assertSame('continúa', $promptDeReCorrida, 'el re-run es neutro — no la intención que la contraoferta reemplazó');
     }
 }
