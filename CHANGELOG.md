@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.49.0](https://github.com/getmilpa/app-runtime/compare/v0.48.3...v0.49.0) (2026-08-20)
+
+
+### Features
+
+* the human can COUNTER a gate, not only refuse it ([e7ec354](https://github.com/getmilpa/app-runtime/commit/e7ec35400f89e8077da7a9557c5f9c8f7aa8a96e))
+* the human can COUNTER a gate, not only refuse it ([ee0fdbb](https://github.com/getmilpa/app-runtime/commit/ee0fdbb2ea63ec125d38a77ce6cfcd952659eff2))
+
 ## [0.48.3](https://github.com/getmilpa/app-runtime/compare/v0.48.2...v0.48.3) (2026-08-20)
 
 
