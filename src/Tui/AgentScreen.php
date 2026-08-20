@@ -74,6 +74,9 @@ final class AgentScreen implements SurfaceBroadcaster
      */
     private int $opcionPregunta = 0;
 
+    /** La próxima respuesta es una CONTRAOFERTA (la opción «la tuya»), no una respuesta que otorga. */
+    private bool $contraofertando = false;
+
     private readonly RetainedTuiLoop $loop;
 
     private string $entrada = '';
@@ -200,6 +203,14 @@ final class AgentScreen implements SurfaceBroadcaster
          * @var \Closure(string, string): array{ok: bool, granted?: string|null, error?: string}|null
          */
         private readonly ?\Closure $contestarHijo = null,
+        /**
+         * Cómo se CONTRAOFERTA una pregunta abierta: el texto libre del humano se manda como `counter`
+         * — no autoriza, re-encola para que el agente re-proponga con esa restricción (decisions/0064).
+         * `null` hace que la opción «la tuya» caiga a `contestar` como antes.
+         *
+         * @var \Closure(string): array{ok: bool, countered?: string, granted?: string|null, error?: string}|null
+         */
+        private readonly ?\Closure $contraofertar = null,
     ) {
         $this->loop = new RetainedTuiLoop(
             new RetainedTuiRenderer(new SimpleTuiLayoutEngine(), self::renderers()),
@@ -641,6 +652,8 @@ final class AgentScreen implements SurfaceBroadcaster
                     return true;
                 }
 
+                // La opción «la tuya» (2) es una CONTRAOFERTA; «sí»/«no» (0/1) son respuestas.
+                $this->contraofertando = $this->opcionPregunta === 2;
                 $this->entrada = $eleccion;
                 $this->opcionPregunta = 0;
                 $this->preguntar();
@@ -710,6 +723,30 @@ final class AgentScreen implements SurfaceBroadcaster
         // agente devolvería «está esperando una respuesta» y habría que salirse del TUI a correr
         // `coa agent:answer`. El lugar natural para contestar es donde te la están preguntando.
         $sesion = $this->sesionActual();
+        $esContra = $this->contraofertando;
+        $this->contraofertando = false;
+
+        // CONTRAOFERTAR: el texto libre (la opción «la tuya») no autoriza —correcto— pero YA NO se
+        // pierde. Se manda como `counter`: no otorga, siembra la restricción, y RE-CORRE para que el
+        // agente re-proponga con ella (decisions/0064). La diferencia con una respuesta que no
+        // concedió nada: aquélla se paraba; ésta sigue, porque el humano SÍ pidió algo concreto.
+        if ($sesion?->question !== null && $esContra && $this->contraofertar !== null) {
+            $eco = ($this->contraofertar)($pregunta);
+            if (!$eco['ok']) {
+                $this->conversation[] = ['quien' => 'agente', 'voz' => 'sistema', 'texto' => '✗ ' . ($eco['error'] ?? '')];
+
+                return;
+            }
+            $this->conversation[] = [
+                'quien' => 'agente',
+                'voz' => 'sistema',
+                'texto' => '✓ contraoferta enviada — el agente la re-propone, y volverá a pedirte permiso',
+            ];
+            $this->correrVuelta($this->peticionInterrumpida($sesion));
+
+            return;
+        }
+
         if ($sesion?->question !== null && $this->contestar !== null) {
             $eco = ($this->contestar)($pregunta);
 
