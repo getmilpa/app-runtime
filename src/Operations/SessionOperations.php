@@ -311,8 +311,9 @@ final class SessionOperations implements CommandProvider
                             'x-milpa-source' => ['tool' => 'agent:sessions', 'path' => 'sessions', 'key' => 'session'],
                         ],
                         'answer' => ['type' => 'string', 'description' => 'Your answer — «sí» authorises the operation for this session'],
+                        'counter' => ['type' => 'string', 'description' => 'A COUNTER instead of answer: your constraint (e.g. «use 200, not 250»). It grants nothing — it re-queues the session so the agent re-proposes the call with your constraint, and that call re-faces the gate. Mutually exclusive with `answer`.'],
                     ],
-                    'required' => ['session', 'answer'],
+                    'required' => ['session'],
                 ],
                 mutating: true,
                 // POR HTTP TAMBIÉN, ahora que la identidad llega entera. El comentario anterior decía
@@ -936,8 +937,12 @@ final class SessionOperations implements CommandProvider
         }
 
         $respuesta = \is_string($input['answer'] ?? null) ? trim($input['answer']) : '';
-        if ($respuesta === '') {
-            return ['ok' => false, 'error' => 'falta `answer`: qué le contestas'];
+        $contra = \is_string($input['counter'] ?? null) ? trim($input['counter']) : '';
+        if ($respuesta === '' && $contra === '') {
+            return ['ok' => false, 'error' => 'falta `answer` o `counter`: qué le contestas, o qué contraofertas'];
+        }
+        if ($respuesta !== '' && $contra !== '') {
+            return ['ok' => false, 'error' => '`answer` y `counter` son excluyentes: o autorizas/niegas, o contraofertas'];
         }
 
         $session = $almacen->load($id);
@@ -956,6 +961,38 @@ final class SessionOperations implements CommandProvider
         }
 
         $pregunta = $session->question;
+
+        // CONTRAOFERTAR ES RE-PROPONER, NO OTORGAR (decisions/0064). Esta rama no puede alcanzar
+        // `grant()`: resuelve la pregunta —la sesión vuelve corrible—, siembra la restricción del
+        // humano como un turno que el agente leerá para RE-PROPONER, y devuelve `granted: null`. El
+        // valor nunca es un permiso; la llamada re-propuesta re-pasa la compuerta desde cero, así que
+        // un `200` y un `2_000_000` reciben el MISMO escrutinio fresco. Es lo que hace que una
+        // contraoferta no pueda subir autoridad: no tiene poder de otorgar.
+        if ($contra !== '') {
+            $almacen->answer(
+                $id,
+                $pregunta->id,
+                '⟲ contraoferta: ' . $contra,
+                $this->quienContesta($ctx),
+                $ctx instanceof InvocationContext && $ctx->executor !== null ? $ctx->executor : $this->procesoLocal(),
+            );
+            $almacen->recordTurn(
+                $id,
+                'user',
+                'Contraoferta a «' . $pregunta->question . '»: ' . $contra
+                    . '. Vuelve a proponer la operación con eso; seguirá requiriendo mi permiso.',
+            );
+
+            return [
+                'ok' => true,
+                'session' => $id,
+                'answered' => $pregunta->id,
+                'countered' => $contra,
+                'granted' => null,
+                'hint' => 'retoma con `coa agent "sigue" --session=' . $id . '`',
+            ];
+        }
+
         $almacen->answer(
             $id,
             $pregunta->id,

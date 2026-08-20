@@ -406,6 +406,7 @@ final class Application
                 },
                 preguntaDeHijo: $this->preguntaDeHijoPausado(...),
                 contestarHijo: $this->contestarAlHijo(...),
+                contraofertar: $this->contraofertarEnElChat(...),
             );
 
             // THE SCREEN REGISTERS AS A SURFACE, which is how it receives what the agent does while
@@ -713,6 +714,20 @@ final class Application
     {
         /** @var array{ok: bool, granted?: string|null, error?: string} $r */
         $r = $this->correr('agent:answer', ['session' => $this->sesionDelChatId, 'answer' => $respuesta])
+            ?? ['ok' => false, 'error' => 'esta app no declara la operación `agent:answer`'];
+
+        return $r;
+    }
+
+    /**
+     * Cómo contraoferta el chat: el texto libre va como `counter`, no como `answer` (decisions/0064).
+     *
+     * @return array{ok: bool, countered?: string, granted?: string|null, error?: string}
+     */
+    private function contraofertarEnElChat(string $contra): array
+    {
+        /** @var array{ok: bool, countered?: string, granted?: string|null, error?: string} $r */
+        $r = $this->correr('agent:answer', ['session' => $this->sesionDelChatId, 'counter' => $contra])
             ?? ['ok' => false, 'error' => 'esta app no declara la operación `agent:answer`'];
 
         return $r;

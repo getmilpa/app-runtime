@@ -192,6 +192,53 @@ final class SessionOperationsTest extends TestCase
     }
 
     /**
+     * CONTRAOFERTAR es re-proponer, no otorgar (decisions/0064).
+     *
+     * El humano ve `charge(250)`, quiere 200 y hoy sólo puede vetar. Una contraoferta resuelve la
+     * pregunta (la sesión vuelve a ser corrible), NO otorga nada, y siembra la restricción como un
+     * turno que el agente leerá para re-proponer — que re-pasará la compuerta desde cero. El 200 nunca
+     * es un permiso; es una petición que vuelve a la frontera.
+     */
+    public function testACounterResolvesTheQuestionWithoutGrantingAndSteersTheAgent(): void
+    {
+        $almacen = $this->almacen();
+        $almacen->start('s1', 'cobrarle al cliente');
+        $almacen->ask('s1', new PendingQuestion('perm:charge', '¿autorizas charge(250)?', ['sí', 'no']));
+
+        $r = $this->llamar('agent:answer', ['session' => 's1', 'counter' => 'usa amount=200, no 250']);
+
+        self::assertTrue($r['ok']);
+        self::assertNull($r['granted'], 'una contraoferta NO otorga: cero poder de grant');
+        self::assertSame('usa amount=200, no 250', $r['countered'] ?? null);
+
+        $sesion = $almacen->load('s1');
+        self::assertNotNull($sesion);
+        self::assertTrue($sesion->isRunnable(), 'la sesión vuelve a ser corrible: la pregunta se resolvió');
+        self::assertFalse($sesion->allows('charge'), 'y NO se otorgó charge — el valor re-compuerta, no autoriza');
+        self::assertStringContainsString('200', (string) json_encode($sesion->turns), 'la contraoferta llegó como turno que el agente re-propondrá');
+    }
+
+    /**
+     * EL NEGATIVO ASESINO: una contraoferta que SUBIRÍA no otorga nada — re-compuerta como cualquiera.
+     *
+     * `counter=2000000` no es distinto de `counter=200` para la rama: ninguna otorga. Lo que corra
+     * saldrá de una llamada que el agente re-proponga y que vuelva a pausar. La autoridad no sube por
+     * la respuesta porque la respuesta no tiene poder de otorgar.
+     */
+    public function testACounterThatWouldRaiseGrantsNothingEither(): void
+    {
+        $almacen = $this->almacen();
+        $almacen->start('s1', 'cobrarle al cliente');
+        $almacen->ask('s1', new PendingQuestion('perm:charge', '¿autorizas charge(250)?', ['sí', 'no']));
+
+        $r = $this->llamar('agent:answer', ['session' => 's1', 'counter' => 'usa amount=2000000']);
+
+        self::assertTrue($r['ok']);
+        self::assertNull($r['granted'], 'subir tampoco otorga: la rama counter no puede llegar a grant()');
+        self::assertFalse($almacen->load('s1')?->allows('charge'));
+    }
+
+    /**
      * Cualquier respuesta que no sea un sí explícito NO autoriza.
      *
      * Interpretar de más en la pieza que otorga permisos es exactamente donde no se quiere ser listo:

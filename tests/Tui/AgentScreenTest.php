@@ -1242,4 +1242,44 @@ final class AgentScreenTest extends TestCase
 
         self::assertNull($contestado, 'una respuesta vacía no es una respuesta');
     }
+
+    /**
+     * LA OPCIÓN «LA TUYA» CONTRAOFERTA, no responde (decisions/0064).
+     *
+     * El texto libre no autoriza —correcto— pero ya no se pierde: va como `counter`, no como `answer`,
+     * y la pantalla RE-CORRE para que el agente re-proponga con esa restricción. «sí»/«no» (0/1) siguen
+     * siendo respuestas; sólo la tercera afordancia —escribir la tuya— es la contraoferta.
+     */
+    public function testTheFreeTextOptionCountersAndReRunsInsteadOfAnswering(): void
+    {
+        $sesion = new Session('s1', 'cobrarle al cliente', question: new PendingQuestion('perm:charge', '¿autorizas charge(250)?', ['sí', 'no']));
+        $llamadas = ['answer' => 0, 'counter' => 0, 'run' => 0];
+        $responder = function (string $q) use (&$llamadas): array {
+            ++$llamadas['run'];
+
+            return ['ok' => true, 'answer' => 'hecho'];
+        };
+        $contestar = function (string $a) use (&$llamadas): array {
+            ++$llamadas['answer'];
+
+            return ['ok' => true, 'granted' => null];
+        };
+        $contraofertar = function (string $c) use (&$llamadas): array {
+            ++$llamadas['counter'];
+
+            return ['ok' => true, 'countered' => $c, 'granted' => null];
+        };
+
+        $pantalla = new AgentScreen($responder, static fn (): Session => $sesion, $contestar, 74, 24, false, contraofertar: $contraofertar);
+        $pantalla->loop()->dispatchKey('right');   // 0 (sí) -> 1 (no)
+        $pantalla->loop()->dispatchKey('right');   // 1 (no) -> 2 (la tuya)
+        foreach (str_split('usa 200') as $c) {
+            $pantalla->loop()->dispatchKey($c);
+        }
+        $pantalla->loop()->dispatchKey("\r");
+
+        self::assertSame(1, $llamadas['counter'], 'la opción «la tuya» CONTRAOFERTA');
+        self::assertSame(0, $llamadas['answer'], 'no pasa por contestar — no otorga ni veta');
+        self::assertSame(1, $llamadas['run'], 'y RE-CORRE para que el agente re-proponga — no se para');
+    }
 }
