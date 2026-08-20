@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.48.3](https://github.com/getmilpa/app-runtime/compare/v0.48.2...v0.48.3) (2026-08-20)
+
+
+### Bug Fixes
+
+* the /sessions selector and --continue read the log once, not once per session ([35d2db8](https://github.com/getmilpa/app-runtime/commit/35d2db81d14361521cb53d5f796def000e17a151))
+* the /sessions selector reads the log once, not once per session ([705ce99](https://github.com/getmilpa/app-runtime/commit/705ce999b72a3a289c4ac9c4821506297d3cab5f))
+
 ## [0.48.2](https://github.com/getmilpa/app-runtime/compare/v0.48.1...v0.48.2) (2026-08-19)
 
 
