@@ -82,9 +82,41 @@ final class TrialAwareRegistry extends ToolRegistry
             ],
         ];
 
-        return $run->ok()
-            ? ToolResult::success($run->output, 'ran in a disposable trial workspace', $meta)
-            : ToolResult::error($run->stderr !== '' ? $run->stderr : 'the trial did not succeed', $run->output, $meta);
+        if (! $run->ok()) {
+            return ToolResult::error($run->stderr !== '' ? $run->stderr : 'the trial did not succeed', $run->output, $meta);
+        }
+
+        // THE RESULT IS SELF-DESCRIBING, and that is not decoration — it is the difference between a
+        // trial that gets promoted and one silently dropped. Measured on llama.local (greenhouse
+        // evidence/0274): given the bare operation output, the agent reported «done» and never
+        // promoted, so nothing reached the host. The result now TELLS the agent it ran in a trial,
+        // WHAT it changed, and the exact call that applies it — the house guides the flow, the model
+        // does not have to infer it.
+        $changed = array_map(static fn (array $info): string => $info['status'], $run->report);
+        $ws = $plan->workspace->id;
+
+        $data = [
+            'ran_in_trial' => true,
+            'applied' => false,
+            'workspace' => $ws,
+            'changed' => $changed,
+            'output' => $run->output,
+        ];
+        if ($changed === []) {
+            $data['note'] = 'This ran in a disposable trial and changed nothing on disk; there is nothing to apply.';
+
+            return ToolResult::success($data, 'ran in a trial; it changed nothing', $meta);
+        }
+
+        $data['to_apply'] = ['operation' => 'sandbox:promote', 'arguments' => ['workspace' => $ws]];
+        $data['to_discard'] = ['operation' => 'sandbox:discard', 'arguments' => ['workspace' => $ws]];
+        $data['note'] = sprintf(
+            'This ran in a disposable TRIAL and is NOT applied to the app yet. To apply the change, '
+            . 'call sandbox:promote with {"workspace":"%s"}. To throw it away, call sandbox:discard.',
+            $ws,
+        );
+
+        return ToolResult::success($data, 'ran in a trial — call sandbox:promote to apply it, or sandbox:discard to throw it away', $meta);
     }
 
     /** Forwards to the wrapped registry. */

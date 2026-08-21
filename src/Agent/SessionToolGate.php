@@ -375,6 +375,32 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // nada sobre las mutaciones, porque como mutaciones son invisibles.
         $operacion = $this->operationFor($tool);
 
+        // LA COMPUERTA GRABA `trial_promoted`, porque el agente promueve con un workspace y SIN id de
+        // sesión —no conoce la suya (greenhouse decisions/0069 §7)—. Este es el único observador de la
+        // ejecución que sí sabe la sesión; lee las rutas promovidas del resultado y apenda el hecho de
+        // frontera. Se guarda con la AUSENCIA del argumento `session`: quien pasó su propia sesión ya
+        // lo grabó en el handler, y grabarlo aquí lo contaría dos veces.
+        if ($ok
+            && $operacion instanceof Operation
+            && $operacion->name === 'sandbox:promote'
+            && ! isset($arguments['session'])
+            && \is_string($arguments['workspace'] ?? null)
+            && $arguments['workspace'] !== ''
+        ) {
+            $decodificado = json_decode($result, true);
+            $rutas = \is_array($decodificado) && \is_array($decodificado['promoted'] ?? null)
+                ? array_values($decodificado['promoted'])
+                : null;
+            if ($rutas !== null && ($decodificado['ok'] ?? null) !== false) {
+                $this->sessions->recordTrialPromotion($this->session->id, [
+                    'workspace' => $arguments['workspace'],
+                    'paths' => $rutas,
+                    'diff_digest' => hash('sha256', (string) json_encode($rutas, \JSON_UNESCAPED_SLASHES)),
+                    'by' => 'agent',
+                ]);
+            }
+        }
+
         // EL LOG GUARDA LO QUE LA HERRAMIENTA CONTESTÓ. El recorte vive en `Session::window()`,
         // que es el único consumidor con escasez de espacio.
         //
