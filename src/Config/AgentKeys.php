@@ -118,6 +118,11 @@ final class AgentKeys
                 'type' => DeclaredType::integer(),
                 'does' => 'How many nodes of the project tree the agent is shown',
             ],
+            'agent.trialWorkspace' => [
+                'type' => DeclaredType::boolean(),
+                'does' => 'Whether a confinable mutation is rehearsed in a disposable copy before it may '
+                    . 'touch the house (off unless declared true; promoting is the only door in)',
+            ],
             'agent.architectureSummary' => [
                 'type' => DeclaredType::union(
                     DeclaredType::literal(true),

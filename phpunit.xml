@@ -26,10 +26,21 @@
       El hueco está declarado en el tablero: una regresión en estas tres la caza la plantilla, no
       este repositorio. Si algún día el paquete trae su propio fixture arrancable, esto se borra.
     -->
+    <!--
+      Y UNA CUARTA, POR LA MISMA RAZÓN CON OTRO NOMBRE: el sandbox no está en el CI.
+
+      `Agent/TrialRunner.php` corre una operación bajo `bwrap` en un namespace de usuario sin
+      privilegios. El runner de GitHub no ofrece ese namespace, así que `available()` da falso y el
+      EJECUTOR nunca corre —sus pruebas se marcan «skipped», no fallan—. Medirlo aquí bajaría el piso
+      por un hueco que sólo un host con namespaces puede llenar. Se ejercita bajo bwrap REAL en la
+      medición de ganado del invernadero (greenhouse evidence/0273), igual que las tres de arriba se
+      ejercitan en `milpa/framework`. Si algún día el CI corre con namespaces, esto se borra.
+    -->
     <exclude>
       <file>src/Console/Application.php</file>
       <file>src/Operations/AgentOperations.php</file>
       <file>src/Support/Operations.php</file>
+      <file>src/Agent/TrialRunner.php</file>
     </exclude>
   </source>
 </phpunit>

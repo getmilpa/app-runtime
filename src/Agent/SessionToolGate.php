@@ -91,6 +91,10 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // executing the rite does not open it; producing the state the rite was meant to
         // demonstrate does.
         private readonly ?TransitionGate $arrow = null,
+        // THE ONE source that decides whether THIS call goes to trial (greenhouse decisions/0069). With
+        // it, a confinable mutation composes down to Ephemeral and runs without a pause when it fits
+        // the trial ceiling; without it, or without a sandbox, the gate behaves exactly as before.
+        private readonly ?TrialRouter $trialRouter = null,
     ) {
     }
 
@@ -195,6 +199,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             // la clase de defecto que Q-P20-B midió (la foto contra el estado vigente).
             $this->sessions->ceilingFor($this->session->id),
             composed: $composicion?->effective,
+            composition: $composicion,
         );
 
         return match ($decision) {
@@ -544,6 +549,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             $operacion->handlerDigest(),
             $this->policyProvider?->authorityPolicy(),
             $this->hechosDelDuenio(),
+            $this->trialRouter?->planFor($operacion, $arguments)?->confinement,
         );
         $composicion = $operacion->effectCeiling()->composeForCall($arguments, $subject);
 

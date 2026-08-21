@@ -14,6 +14,9 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Operations;
 
+use Milpa\AppRuntime\Agent\TrialRunner;
+use Milpa\AppRuntime\Agent\TrialRouter;
+use Milpa\AppRuntime\Agent\TrialAwareRegistry;
 use Milpa\AiGateway\AgentOrchestrator;
 use Milpa\AiGateway\PlanBoard;
 use Milpa\AiGateway\RunInterrupted;
@@ -957,6 +960,20 @@ class AgentOperations implements CommandProvider
             return ['ok' => false, 'error' => 'esta app no expuso ninguna operación como herramienta'];
         }
 
+        // WHEN TRIALS ARE ON, the registry the model calls through runs a confined mutation in a
+        // disposable copy instead of on the host — the SAME router the gate used to compose the call,
+        // so the plan the gate judged is the plan the executor runs (greenhouse decisions/0069).
+        $trialRouter = $this->trialRouter($kernel);
+        if ($trialRouter !== null) {
+            $registry = new TrialAwareRegistry(
+                $registry,
+                $trialRouter,
+                Operations::all($kernel, $kernel->root()),
+                $store,
+                $sessionId !== '' ? $sessionId : null,
+            );
+        }
+
         $vistos = 0;
         // EL VIGÍA MIRA EL TECLADO ENTRE PASOS, si la app registró uno. Sin él esto corre igual que
         // antes: una app sin terminal no tiene a quién preguntarle si quiere parar.
@@ -1164,6 +1181,11 @@ class AgentOperations implements CommandProvider
     /** @var list<array{role: string, content: string, class: string}>|null */
     private ?array $declaredWindow = null;
 
+    // THE ONE trial router for this invocation (greenhouse decisions/0069): built once, shared by the
+    // gate and the trial-aware registry so «this call is confined» has a single source. `false` means
+    // «not resolved yet», `null` means «resolved to none» — the leaf is off, or there is no sandbox.
+    private TrialRouter|null|false $trialRouterMemo = false;
+
     /**
      * Una vuelta del agente contra el modelo, con sus herramientas y su compuerta.
      *
@@ -1336,6 +1358,34 @@ class AgentOperations implements CommandProvider
     }
 
     /**
+     * The trial router for this invocation, or `null` when trials are off or no sandbox is available.
+     *
+     * Off by default (greenhouse decisions/0069): only when the app declares `agent.trialWorkspace`
+     * true does a router exist, and only when {@see TrialRunner::available()} confirms an unprivileged
+     * namespace — fail closed, never a claimed confinement. Memoised so the gate and the registry
+     * share ONE instance: the gate plans the call during composition, the executor reuses that plan.
+     */
+    private function trialRouter(Kernel $kernel): ?TrialRouter
+    {
+        if ($this->trialRouterMemo !== false) {
+            return $this->trialRouterMemo;
+        }
+
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $on = $config instanceof Config && $config->get('agent.trialWorkspace') === true;
+        if (! $on) {
+            return $this->trialRouterMemo = null;
+        }
+
+        $runner = new TrialRunner();
+        if (! $runner->available()) {
+            return $this->trialRouterMemo = null;
+        }
+
+        return $this->trialRouterMemo = new TrialRouter($kernel->root(), $runner, \dirname(__DIR__, 2) . '/resources/trial-run.php');
+    }
+
+    /**
      * The ONE place a session's gate is built (greenhouse decisions/0059), so every collaborator —
      * the composed-ceiling producers most of all — reaches every gate. Both the main session and a
      * sub-agent pass through here; only the session, the human's petition, and the ordering
@@ -1365,6 +1415,7 @@ class AgentOperations implements CommandProvider
             arrow: $this->foundationArrow(),
             policyProvider: $policyProvider,
             identity: $identity,
+            trialRouter: $this->trialRouter($kernel),
         );
     }
 
