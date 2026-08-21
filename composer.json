@@ -11,7 +11,7 @@
   ],
   "require": {
     "php": "^8.3",
-    "milpa/command": ">=0.15 <1.0",
+    "milpa/command": ">=0.17 <1.0",
     "milpa/console": ">=0.12 <1.0",
     "milpa/container": ">=0.1 <1.0",
     "milpa/core": ">=0.6.2 <1.0",
@@ -22,12 +22,13 @@
     "milpa/tool-runtime": ">=0.12 <1.0"
   },
   "conflict": {
-    "milpa/agent": "<0.21",
+    "milpa/agent": "<0.22",
+    "milpa/command": "<0.17",
     "milpa/event-store": "<0.3"
   },
   "require-dev": {
     "friendsofphp/php-cs-fixer": "^3.75",
-    "milpa/agent": ">=0.21 <1.0",
+    "milpa/agent": ">=0.22 <1.0",
     "milpa/ai-gateway": ">=0.8 <1.0",
     "milpa/auth": ">=0.3.8 <1.0",
     "milpa/data": ">=0.2.2 <1.0",

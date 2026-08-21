@@ -312,6 +312,23 @@ final class SessionOperations implements CommandProvider
                         ],
                         'answer' => ['type' => 'string', 'description' => 'Your answer — «sí» authorises the operation for this session'],
                         'counter' => ['type' => 'string', 'description' => 'A COUNTER instead of answer: your constraint (e.g. «use 200, not 250»). It grants nothing — it re-queues the session so the agent re-proposes the call with your constraint, and that call re-faces the gate. Mutually exclusive with `answer`.'],
+                        // THE STRUCTURAL COUNTER (greenhouse decisions/0067): tighten the EFFECT ENVELOPE
+                        // the proposed call may run under — the five axes, nothing else. A key that is
+                        // not an axis is a change of target, and that is `counter`. `guaranteed` is not
+                        // offered: it needs a producer-backed rollback contract, never a click.
+                        'envelope' => [
+                            'type' => 'object',
+                            'description' => 'Tighten instead of answer: the effect envelope the proposed call is allowed to run under, as the axes you want LOWERED (e.g. {"reversibility":"compensatable"}). Granted at the gate as meet(declared ceiling, yours) — it can only lower, never widen — and the SAME call runs if it fits. Mutually exclusive with `answer` and `counter`.',
+                            'properties' => [
+                                'mutation' => ['type' => 'string', 'enum' => ['none', 'ephemeral', 'persistent']],
+                                'externality' => ['type' => 'string', 'enum' => ['none', 'same_principal', 'third_party', 'public']],
+                                'reversibility' => ['type' => 'string', 'enum' => ['compensatable', 'manual_recovery', 'irreversible']],
+                                'authority' => ['type' => 'string', 'enum' => ['none', 'read', 'write_as_user', 'privileged']],
+                                'subject' => ['type' => 'string', 'enum' => ['none', 'data', 'configuration', 'executable']],
+                            ],
+                            'additionalProperties' => false,
+                            'minProperties' => 1,
+                        ],
                     ],
                     'required' => ['session'],
                 ],
@@ -938,11 +955,13 @@ final class SessionOperations implements CommandProvider
 
         $respuesta = \is_string($input['answer'] ?? null) ? trim($input['answer']) : '';
         $contra = \is_string($input['counter'] ?? null) ? trim($input['counter']) : '';
-        if ($respuesta === '' && $contra === '') {
-            return ['ok' => false, 'error' => 'falta `answer` o `counter`: qué le contestas, o qué contraofertas'];
+        $sobre = \is_array($input['envelope'] ?? null) ? $input['envelope'] : null;
+        $dados = ($respuesta !== '' ? 1 : 0) + ($contra !== '' ? 1 : 0) + ($sobre !== null ? 1 : 0);
+        if ($dados === 0) {
+            return ['ok' => false, 'error' => 'falta `answer`, `counter` o `envelope`: qué contestas, qué contraofertas, o qué aprietas'];
         }
-        if ($respuesta !== '' && $contra !== '') {
-            return ['ok' => false, 'error' => '`answer` y `counter` son excluyentes: o autorizas/niegas, o contraofertas'];
+        if ($dados > 1) {
+            return ['ok' => false, 'error' => '`answer`, `counter` y `envelope` son excluyentes: o autorizas/niegas, o contraofertas el valor, o aprietas el sobre'];
         }
 
         $session = $almacen->load($id);
@@ -961,6 +980,13 @@ final class SessionOperations implements CommandProvider
         }
 
         $pregunta = $session->question;
+
+        // APRETAR EL SOBRE: la contraoferta ESTRUCTURAL (greenhouse decisions/0067). No cambia la
+        // llamada —eso sería un `counter`—; cambia cuánto se le permite ser, y se adjudica AQUÍ, sin
+        // volver al agente, porque el sistema puede demostrar que el sobre es un meet seguro del techo.
+        if ($sobre !== null) {
+            return $this->apretar($almacen, $id, $pregunta, $sobre, $ctx);
+        }
 
         // CONTRAOFERTAR ES RE-PROPONER, NO OTORGAR (decisions/0064). Esta rama no puede alcanzar
         // `grant()`: resuelve la pregunta —la sesión vuelve corrible—, siembra la restricción del
@@ -1015,6 +1041,100 @@ final class SessionOperations implements CommandProvider
             'session' => $id,
             'answered' => $pregunta->id,
             'granted' => $otorgado,
+            'hint' => 'retoma con `coa agent "sigue" --session=' . $id . '`',
+        ];
+    }
+
+    /**
+     * Adjudica una contraoferta ESTRUCTURAL en la compuerta: otorga la operación bajo `meet(B, P_h)`.
+     *
+     * ── LO QUE ESTO DEMUESTRA, MECÁNICAMENTE (greenhouse decisions/0067) ────────────────────────
+     *
+     * `B` es el techo DECLARADO de la operación, escrito en el `why` de la pausa por la compuerta
+     * —un hecho del sistema en el stream—, nunca el payload del humano. `P_h` son las hachas que el
+     * humano nombró (`fromPartial`: las demás quedan en `Unknown`, el tope, así el meet las deja en B).
+     * `E = meet(B, P_h)` sólo puede bajar; y ANTES de apendar se re-verifica `E ≤ B` sobre el valor
+     * concreto —el tripwire—: si alguna vez no se cumple, nada se otorga. Por transitividad, toda
+     * llamada que luego quepa en `E` cabía en `B`: un sobre jamás ensancha un «sí» pelón.
+     *
+     * La llamada que corre sigue siendo la que el agente propuso; el sobre sólo la filtra. Un sobre
+     * que no baja ninguna hacha es un «sí», y se dice así en vez de fingir un apriete.
+     *
+     * @param array<string, mixed> $sobre las hachas que el humano aprieta, p.ej. ['reversibility' => 'compensatable']
+     *
+     * @return array<string, mixed>
+     */
+    private function apretar(SessionStore $almacen, string $id, \Milpa\Agent\PendingQuestion $pregunta, array $sobre, ?InvocationContext $ctx): array
+    {
+        if (!str_starts_with($pregunta->id, 'perm:')) {
+            return ['ok' => false, 'error' => 'un `envelope` sólo aprieta una pregunta de PERMISO; ésta es «' . $pregunta->id . '»'];
+        }
+
+        /** @var array<string, mixed> $hecho */
+        $hecho = json_decode((string) $pregunta->why, true) ?: [];
+        $operacion = \is_string($hecho['operation'] ?? null) ? $hecho['operation'] : '';
+        $argumentos = \is_array($hecho['arguments'] ?? null) ? $hecho['arguments'] : [];
+        if ($operacion === '' || !\is_array($hecho['base'] ?? null)) {
+            return [
+                'ok' => false,
+                'error' => 'esta pausa no registró el techo declarado de la operación (`base`), así que no hay contra qué hacer el meet',
+                'hint' => 'es una pausa de una compuerta anterior a los sobres: contesta `answer` o `counter`',
+            ];
+        }
+
+        try {
+            $base = EffectProfile::fromArray($hecho['base']);
+            $pedido = EffectProfile::fromPartial($sobre);
+        } catch (\InvalidArgumentException $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+
+        $sobreEfectivo = $base->meet($pedido);
+
+        // EL TRIPWIRE. `meet` está probado como invariante, y aun así se re-verifica sobre el valor
+        // concreto antes de apendar: la demostración no descansa en la suite, sino en esta línea.
+        // Si alguien cambia `meet` por `join`, esto lanza y nada se otorga.
+        if (!$sobreEfectivo->isNoWiderThan($base)) {
+            throw new \LogicException('el sobre resultó más ancho que el techo declarado; nada se otorga');
+        }
+
+        $apretadas = [];
+        foreach (['mutation', 'externality', 'reversibility', 'authority', 'subject'] as $hacha) {
+            if ($sobreEfectivo->{$hacha}->weight() < $base->{$hacha}->weight()) {
+                $apretadas[] = $hacha;
+            }
+        }
+        if ($apretadas === []) {
+            return [
+                'ok' => false,
+                'error' => 'esto es un «sí»: el sobre no baja ninguna hacha respecto del techo declarado — contesta `answer: sí`',
+            ];
+        }
+
+        $quien = $this->quienContesta($ctx);
+        $almacen->answer(
+            $id,
+            $pregunta->id,
+            'sí',
+            $quien,
+            $ctx instanceof InvocationContext && $ctx->executor !== null ? $ctx->executor : $this->procesoLocal(),
+        );
+        $almacen->grant($id, $operacion, $sobreEfectivo->toArray(), [
+            'base' => $base->toArray(),
+            'requested' => $sobre,
+            'question' => $pregunta->id,
+            'arguments_digest' => \Milpa\AppRuntime\Agent\ConsentBridge::digest($argumentos),
+            'by' => $quien->toArray(),
+        ]);
+
+        return [
+            'ok' => true,
+            'session' => $id,
+            'answered' => $pregunta->id,
+            'granted' => $operacion,
+            'envelope' => $sobreEfectivo->toArray(),
+            'base' => $base->toArray(),
+            'tightened' => $apretadas,
             'hint' => 'retoma con `coa agent "sigue" --session=' . $id . '`',
         ];
     }
