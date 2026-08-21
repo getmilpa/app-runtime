@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.52.0](https://github.com/getmilpa/app-runtime/compare/v0.51.0...v0.52.0) (2026-08-21)
+
+
+### Features
+
+* a promotion pause shows the trial's diff, so the human authorises what enters seeing it ([#127](https://github.com/getmilpa/app-runtime/issues/127)) ([278a4e9](https://github.com/getmilpa/app-runtime/commit/278a4e9e4c19fb905764821164144919f3bfc9da))
+
 ## [0.51.0](https://github.com/getmilpa/app-runtime/compare/v0.50.0...v0.51.0) (2026-08-21)
 
 
