@@ -37,6 +37,12 @@ final class TrialRouter
 {
     private const HOUSE_PREFIXES = ['agent:', 'session:', 'capabilities:', 'sandbox:', 'foundation:'];
 
+    // The most UNDECIDED trials kept on disk at once (decisions/0071). var/trials/ shares the disk the
+    // session writes to, so it is bounded here — ~24 x 656 KB is a ~15 MB ceiling on trial copies,
+    // far below anything that could starve the materialize confinedByTrial() depends on. Decided
+    // (promoted) trials do not count: they have already collapsed to a tiny pre-image.
+    public const KEEP = 24;
+
     /** @var array<string, ?TrialPlan> memoised by operation name + argument digest */
     private array $plans = [];
 
@@ -117,6 +123,8 @@ final class TrialRouter
 
         $id = 'w' . substr(hash('sha256', $key), 0, 12);
         $workspace = TrialWorkspace::materialize($this->root, $id, $this->runnerPath);
+        // Bound the disk on every fresh trial — the newest KEEP undecided survive, the oldest go.
+        TrialWorkspace::capUndecided($this->root, self::KEEP);
         $confinement = new TrialConfinement(
             workspaceId: $id,
             argumentsDigest: $digest,

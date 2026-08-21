@@ -90,6 +90,18 @@ final class TrialRouterTest extends TestCase
         self::assertSame([], TrialWorkspace::ids($root));
     }
 
+    public function testPlanningBoundsUndecidedTrialsToTheCap(): void
+    {
+        $root = $this->root();
+        $router = $this->router($root);
+        // plan more distinct calls than the cap keeps; each materialises an undecided trial
+        for ($i = 0; $i < TrialRouter::KEEP + 3; $i++) {
+            $router->planFor($this->op('config:set'), ['key' => 'k' . $i, 'value' => $i]);
+        }
+
+        self::assertLessThanOrEqual(TrialRouter::KEEP, \count(TrialWorkspace::ids($root)), 'the count cap bounds var/trials/ so it cannot fill the disk it shares with the session');
+    }
+
     public function testWithoutASandboxThereIsNoTrialAtAll(): void
     {
         $root = $this->root();

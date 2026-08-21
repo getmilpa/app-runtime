@@ -135,6 +135,56 @@ final class TrialWorkspaceTest extends TestCase
         self::assertSame(['w6'], TrialWorkspace::ids($root));
     }
 
+    public function testCollapseRemovesTheCopyButKeepsThePreImage(): void
+    {
+        // A promoted trial is spent — its consequence already crossed the door (0068) — so the 656 KB
+        // copy goes, but the pre-image (the manual-undo material, 0069) stays (decisions/0071).
+        $root = $this->root();
+        $ws = TrialWorkspace::materialize($root, 'c1', $this->runner());
+        mkdir($ws->baseDirectory() . '/pre/config', 0o777, true);
+        file_put_contents($ws->baseDirectory() . '/pre/config/x.php', "<?php // the undo\n");
+
+        $ws->collapse();
+
+        self::assertDirectoryDoesNotExist($ws->copy, 'the copy — the disk cost — is gone');
+        self::assertFileExists($ws->baseDirectory() . '/pre/config/x.php', 'the pre-image survives for manual undo');
+        self::assertSame([], TrialWorkspace::ids($root), 'a collapsed trial is decided: it no longer lists as open');
+        self::assertNull(TrialWorkspace::open($root, 'c1'), 'and it cannot be reopened or re-promoted');
+    }
+
+    public function testCapUndecidedDiscardsTheOldestCopiesBeyondTheKeep(): void
+    {
+        // The count cap bounds var/trials/ — app-life AND within-session (decisions/0071): keep the
+        // newest N undecided copies, full-discard the older ones (abandoned/rejected, no pre-image).
+        $root = $this->root();
+        $ids = [];
+        for ($i = 0; $i < 5; $i++) {
+            $ws = TrialWorkspace::materialize($root, 'k' . $i, $this->runner());
+            touch($ws->baseDirectory(), 1_700_000_000 + $i * 10); // oldest first, deterministic order
+            $ids[] = 'k' . $i;
+        }
+        // a promoted (collapsed) trial does not count toward the cap — its copy is already gone
+        TrialWorkspace::open($root, 'k2')->collapse();
+
+        TrialWorkspace::capUndecided($root, 2);
+
+        $remaining = TrialWorkspace::ids($root);
+        sort($remaining);
+        self::assertSame(['k3', 'k4'], $remaining, 'the two newest undecided survive; the oldest undecided are discarded');
+        self::assertDirectoryDoesNotExist($root . '/var/trials/k0', 'the oldest undecided trial is gone entirely');
+    }
+
+    public function testCapUndecidedIsANoOpWhenUnderTheKeep(): void
+    {
+        $root = $this->root();
+        TrialWorkspace::materialize($root, 'u0', $this->runner());
+        TrialWorkspace::materialize($root, 'u1', $this->runner());
+
+        TrialWorkspace::capUndecided($root, 5);
+
+        self::assertSame(['u0', 'u1'], TrialWorkspace::ids($root));
+    }
+
     public function testAnIdThatCouldEscapeTheTrialsDirectoryIsRefused(): void
     {
         $this->expectException(\InvalidArgumentException::class);

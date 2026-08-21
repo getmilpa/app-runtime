@@ -210,6 +210,45 @@ final class TrialWorkspace
         self::rmrf(self::baseDir($this->root, $this->id));
     }
 
+    /**
+     * Free the copy of a DECIDED trial, keeping its pre-image (decisions/0071).
+     *
+     * A promoted trial is spent — its consequence already crossed the door (0068) — so the ~656 KB
+     * copy has no further purpose and goes, bounding disk. The pre-image (`pre/`) stays: it is the
+     * manual-undo material a promotion leaves (0069), and it is tiny. A collapsed trial no longer has
+     * a `copy/`, so {@see ids()} stops listing it and {@see open()} returns null — it is done.
+     */
+    public function collapse(): void
+    {
+        self::rmrf($this->copy);
+    }
+
+    /**
+     * Bound `var/trials/` to the newest $keep UNDECIDED trials, discarding the older copies whole.
+     *
+     * The count cap decisions/0071 chose over a session-end sweep, because it bounds BOTH app-life
+     * growth and the within-session runaway that is the self-referential threat — `var/trials/` lives
+     * on the same disk the session writes to, and a full one starves the `materialize` that
+     * `confinedByTrial()` depends on. Only UNDECIDED trials count (a `copy/` still present): a promoted
+     * trial has already collapsed, and its pre-image is not a 656 KB copy. Oldest by directory mtime
+     * go first — an abandoned or rejected diff the human moved past.
+     */
+    public static function capUndecided(string $root, int $keep): void
+    {
+        $undecided = [];
+        foreach (self::ids($root) as $id) {
+            $undecided[$id] = @filemtime(self::baseDir($root, $id)) ?: 0;
+        }
+        if (\count($undecided) <= $keep) {
+            return;
+        }
+        asort($undecided); // oldest first
+        $evict = \array_slice(array_keys($undecided), 0, \count($undecided) - $keep);
+        foreach ($evict as $id) {
+            self::rmrf(self::baseDir($root, $id));
+        }
+    }
+
     private static function baseDir(string $root, string $id): string
     {
         return $root . '/var/trials/' . $id;
