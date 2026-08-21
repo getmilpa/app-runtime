@@ -47,6 +47,28 @@ final class TrialRouter
     ) {
     }
 
+    /**
+     * What a trial changed, as the host sees it — for a promotion pause to SHOW what would enter.
+     *
+     * The workspace, not the plan: a promotion names a trial that already ran, so the diff is read
+     * from the copy on disk (greenhouse decisions/0069 — the human authorises what enters).
+     *
+     * @return array<string, string> path => added|modified|deleted, or [] if there is no such trial
+     */
+    public function diffForWorkspace(string $id): array
+    {
+        $ws = TrialWorkspace::open($this->root, $id);
+        if ($ws === null) {
+            return [];
+        }
+        $out = [];
+        foreach ($ws->diff() as $path => $info) {
+            $out[$path] = $info['status'];
+        }
+
+        return $out;
+    }
+
     /** The runner this router plans against — the executor runs the trial through it. */
     public function runner(): TrialRunner
     {
