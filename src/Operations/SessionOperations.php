@@ -1034,6 +1034,12 @@ final class SessionOperations implements CommandProvider
         if (str_starts_with($pregunta->id, 'perm:') && $this->esAfirmativa($respuesta)) {
             $otorgado = substr($pregunta->id, 5);
             $almacen->grant($id, $otorgado);
+        } elseif ($pregunta->id === 'perm:sandbox:promote') {
+            // DISCARD-ON-REJECT (greenhouse decisions/0071, Precondition B): a «no» to a promotion is
+            // terminal — the trial is dead — so it is discarded, making «no» as clean as «sí» (which
+            // collapses the trial on promote). The workspace travels in the question's `why`, beside
+            // the arguments the human was shown (SessionToolGate::conElHechoAdentro).
+            $this->descartarEnsayoDe($pregunta);
         }
 
         return [
@@ -1186,6 +1192,31 @@ final class SessionOperations implements CommandProvider
      * «adelante pero con cuidado» tienen que caer del lado de la negativa, porque interpretar de más
      * en la pieza que otorga permisos es exactamente donde no se quiere ser listo.
      */
+    /**
+     * Discard the trial named in a rejected promotion's question, or nothing if there is none.
+     *
+     * The workspace id rides in the question's `why` (`{operation, arguments: {workspace}, ...}`),
+     * and the root comes from the kernel. Both absent leaves it a no-op — a reject that can find no
+     * trial simply grants and cleans up nothing, never throws.
+     */
+    private function descartarEnsayoDe(\Milpa\Agent\PendingQuestion $pregunta): void
+    {
+        $hecho = json_decode((string) $pregunta->why, true);
+        $ws = \is_array($hecho) && \is_array($hecho['arguments'] ?? null)
+            ? ($hecho['arguments']['workspace'] ?? null)
+            : null;
+        if (! \is_string($ws) || $ws === '') {
+            return;
+        }
+        $kernel = $this->container->has(\Milpa\Runtime\Kernel::class)
+            ? $this->container->get(\Milpa\Runtime\Kernel::class)
+            : null;
+        if (! $kernel instanceof \Milpa\Runtime\Kernel) {
+            return;
+        }
+        \Milpa\AppRuntime\Agent\TrialWorkspace::open($kernel->root(), $ws)?->discard();
+    }
+
     private function esAfirmativa(string $respuesta): bool
     {
         return \Milpa\AppRuntime\Agent\AffirmativeAnswer::is($respuesta);

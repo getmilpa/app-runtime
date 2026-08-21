@@ -74,6 +74,12 @@ final class AgentScreen implements SurfaceBroadcaster
      */
     private int $opcionPregunta = 0;
 
+    /**
+     * The id of the question `opcionPregunta` currently belongs to — so a NEW question can pre-select
+     * its safe default once, without snapping back over a human who has since arrowed elsewhere.
+     */
+    private ?string $preguntaVista = null;
+
     /** La próxima respuesta es una CONTRAOFERTA (la opción «la tuya»), no una respuesta que otorga. */
     private bool $contraofertando = false;
 
@@ -488,6 +494,25 @@ final class AgentScreen implements SurfaceBroadcaster
     }
 
     /**
+     * When a NEW question appears, pre-select its SAFE default — decline for the promotion gate.
+     *
+     * The promote gate is the door into the house (greenhouse decisions/0068), so a tired human
+     * pressing Enter must get «not promoted», not «promoted» (0071, Rod's ruling: only the promotion
+     * defaults to decline; every other permission keeps the low-friction Enter = sí). It fires only on
+     * a CHANGE of question, so once the human has arrowed to a choice, the same question standing does
+     * not override them.
+     */
+    private function alinearDefault(\Milpa\Agent\PendingQuestion $pregunta): void
+    {
+        if ($pregunta->id === $this->preguntaVista) {
+            return;
+        }
+        $this->preguntaVista = $pregunta->id;
+        // index 1 is the decline option («no»); 0 is «sí». Only the promotion door defaults to decline.
+        $this->opcionPregunta = $pregunta->id === 'perm:sandbox:promote' ? 1 : 0;
+    }
+
+    /**
      * Las tres afordancias, con la elegida marcada — dos respuestas de una palabra y la tuya.
      *
      * Las dos primeras salen de lo que la operación DECLARA en su pregunta, no de constantes de esta
@@ -675,6 +700,9 @@ final class AgentScreen implements SurfaceBroadcaster
                 $this->contraofertando = $this->opcionPregunta === 2;
                 $this->entrada = $eleccion;
                 $this->opcionPregunta = 0;
+                // Forget the answered question so the NEXT one re-aligns its default — otherwise a
+                // second promote (same id) would keep the reset «sí» instead of pre-selecting decline.
+                $this->preguntaVista = null;
                 $this->preguntar();
 
                 return true;
@@ -1650,6 +1678,7 @@ final class AgentScreen implements SurfaceBroadcaster
         // aviso al costado.
         $pendiente = $sesion?->question;
         if ($pendiente !== null) {
+            $this->alinearDefault($pendiente);
             $hijos[] = new TuiNode('pregunta', 'text', props: ['text' => '■ ⏸ ' . $pendiente->question]);
             if ($pendiente->why !== null) {
                 $hijos[] = new TuiNode('pregunta-por', 'text', props: ['text' => '  con ' . $this->sobreQue($pendiente->why)]);
