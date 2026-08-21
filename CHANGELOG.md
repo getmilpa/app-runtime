@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.55.0](https://github.com/getmilpa/app-runtime/compare/v0.54.0...v0.55.0) (2026-08-21)
+
+
+### Features
+
+* the trial has a lifecycle — promote collapses it, and undecided trials are count-capped (decisions/0071) ([#133](https://github.com/getmilpa/app-runtime/issues/133)) ([854c7e2](https://github.com/getmilpa/app-runtime/commit/854c7e215d7d34e183364c68d54580784ab7e407))
+
 ## [0.54.0](https://github.com/getmilpa/app-runtime/compare/v0.53.0...v0.54.0) (2026-08-21)
 
 
