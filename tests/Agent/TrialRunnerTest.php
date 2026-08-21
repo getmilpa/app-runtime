@@ -94,6 +94,28 @@ final class TrialRunnerTest extends TestCase
         self::assertStringContainsString('timeout', $run->stderr);
     }
 
+    public function testTheRunBindsHostVendorReadOnlyIntoTheCopy(): void
+    {
+        $root = $this->root();
+        mkdir($root . '/vendor', 0o777, true);
+        file_put_contents($root . '/vendor/autoload.php', "<?php\n");
+        $log = $root . '/bwrap-argv.txt';
+        // a spy bwrap: record its argv, then exec the command after `--` (no real sandbox needed)
+        $spy = $root . '/spy-bwrap';
+        file_put_contents($spy, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " . escapeshellarg($log) . "\nwhile [ \"$1\" != \"--\" ] && [ $# -gt 0 ]; do shift; done\nshift\nexec \"$@\"\n");
+        chmod($spy, 0o755);
+
+        $runner = new TrialRunner(bwrap: $spy);
+        self::assertTrue($runner->available(), 'the spy bwrap execs, so the probe passes');
+        $ws = TrialWorkspace::materialize($root, 'rv', $this->stub());
+
+        $runner->run($ws, 'anything', []);
+
+        $argv = (string) file_get_contents($log);
+        self::assertStringContainsString('--ro-bind ' . $root . '/vendor ' . $ws->copy . '/vendor', $argv, 'the host vendor is bound READ-ONLY at the copy path — the trial boots from it, cannot write it');
+        self::assertStringContainsString('--unshare-net', $argv);
+    }
+
     private function realRunner(int $timeoutSeconds = 60): TrialRunner
     {
         $runner = new TrialRunner(timeoutSeconds: $timeoutSeconds);

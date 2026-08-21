@@ -43,7 +43,7 @@ final class TrialWorkspaceTest extends TestCase
         self::assertSame('w1', $ws->id);
         self::assertFileExists($ws->copy . '/src/A.php');
         self::assertFileExists($ws->copy . '/config/x.php');
-        self::assertFileExists($ws->copy . '/vendor/autoload.php');
+        self::assertDirectoryDoesNotExist($ws->copy . '/vendor', 'vendor is bound READ-ONLY into the trial at run time, never copied (decisions/0070)');
         self::assertFileDoesNotExist($ws->copy . '/.env', 'secrets do not travel into the trial');
         self::assertDirectoryExists($ws->copy . '/var');
         self::assertSame([], array_diff(scandir($ws->copy . '/var') ?: [], ['.', '..']), 'the copy starts with an EMPTY var/: no second session stream');
@@ -73,6 +73,23 @@ final class TrialWorkspaceTest extends TestCase
         self::assertNull($diff['src/A.php']['sha256']);
         self::assertSame($hostConfig, sha1_file($root . '/config/x.php'), 'computing the diff changes nothing on the host');
         self::assertFileExists($root . '/src/A.php');
+    }
+
+    public function testTheDiffIgnoresVendorEntirely(): void
+    {
+        // vendor is bound read-only into the trial and NEVER copied, so it can only differ as a
+        // measurement artifact; a scoped diff must not report it — and the ro-bind makes a real
+        // in-trial vendor write impossible (EPERM), the guard of decisions/0070.
+        $root = $this->root();   // root() already creates vendor/autoload.php
+        $ws = TrialWorkspace::materialize($root, 'wv', $this->runner());
+
+        // simulate a stray vendor file appearing in the copy AND a host vendor change
+        mkdir($ws->copy . '/vendor', 0o777, true);
+        file_put_contents($ws->copy . '/vendor/autoload.php', "<?php // copy differs\n");
+        file_put_contents($ws->copy . '/vendor/New.php', "<?php // stray\n");
+        file_put_contents($root . '/vendor/Other.php', "<?php // host only\n");
+
+        self::assertSame([], $ws->diff(), 'vendor is out of the diff entirely — never added, modified or deleted');
     }
 
     public function testTheDiffIgnoresTheCopysVarAndTheRunnerItself(): void

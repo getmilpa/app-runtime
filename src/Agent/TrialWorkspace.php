@@ -38,6 +38,11 @@ final class TrialWorkspace
 
     private const RUNNER = 'trial-run.php';
 
+    // Top-level directories the trial never copies, hashes or diffs: `var/` (state — a second stream
+    // would fork the truth) and `vendor/` (bound READ-ONLY at run time, so a mutation cannot touch it,
+    // and copying/hashing 160 MB of it is the tax decisions/0070 removes).
+    private const PRUNE = ['var', 'vendor'];
+
     private function __construct(
         public readonly string $root,
         public readonly string $id,
@@ -223,7 +228,7 @@ final class TrialWorkspace
         // and a host without rsync still gets it through the plain-PHP walk below.
         if (self::hasRsync()) {
             $cmd = sprintf(
-                'rsync -a --exclude=/var/ --exclude=/.env %s %s',
+                'rsync -a --exclude=/var/ --exclude=/vendor/ --exclude=/.env %s %s',
                 escapeshellarg(rtrim($root, '/') . '/'),
                 escapeshellarg(rtrim($copy, '/') . '/'),
             );
@@ -274,11 +279,27 @@ final class TrialWorkspace
         if (! is_dir($dir)) {
             return [];
         }
+        $base = \strlen($dir);
+        // PRUNE `var/` AND `vendor/` DURING THE WALK, not after — that is where the cost is
+        // (decisions/0070): the diff hashed all 9843 files, ~160 MB of them vendor the mutation can
+        // never touch. Pruning at the top level means we never descend into vendor at all, and a stray
+        // vendor path can never enter the diff to be silently dropped — it is out of scope by
+        // construction. Deeper `vendor/`/`var/` (e.g. `src/var/…`) are real app files and stay.
+        $prune = static function (\SplFileInfo $f) use ($base): bool {
+            $rel = ltrim(substr($f->getPathname(), $base), '/');
+
+            return ! \in_array(explode('/', $rel)[0], self::PRUNE, true);
+        };
         $out = [];
-        $it = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS));
+        $it = new \RecursiveIteratorIterator(
+            new \RecursiveCallbackFilterIterator(
+                new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
+                $prune,
+            ),
+        );
         foreach ($it as $file) {
             if ($file->isFile()) {
-                $out[] = ltrim(substr($file->getPathname(), \strlen($dir)), '/');
+                $out[] = ltrim(substr($file->getPathname(), $base), '/');
             }
         }
         sort($out);
