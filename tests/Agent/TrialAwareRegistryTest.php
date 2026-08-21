@@ -72,7 +72,17 @@ final class TrialAwareRegistryTest extends TestCase
         self::assertTrue($result->success, (string) $result->error);
         self::assertSame(0, $llamadas, 'the registered handler did not run on the host: the trial did');
         self::assertIsArray($result->data);
-        self::assertSame('config:set', $result->data['operation'] ?? null);
+        // THE RESULT TELLS THE AGENT IT RAN IN A TRIAL AND HOW TO APPLY IT — else the agent reports
+        // false success and the human's intent is silently dropped into a disposable copy (measured
+        // on llama.local, greenhouse evidence/0274).
+        self::assertTrue($result->data['ran_in_trial'] ?? null);
+        self::assertFalse($result->data['applied'] ?? null, 'a trial is not applied until it is promoted');
+        self::assertSame('added', $result->data['changed']['touched.txt'] ?? null, 'the agent sees WHAT the trial changed');
+        self::assertSame('sandbox:promote', $result->data['to_apply']['operation'] ?? null);
+        self::assertSame($result->data['workspace'], $result->data['to_apply']['arguments']['workspace'] ?? null);
+        self::assertSame('sandbox:discard', $result->data['to_discard']['operation'] ?? null);
+        self::assertStringContainsString('sandbox:promote', (string) ($result->data['note'] ?? ''));
+        self::assertSame('config:set', $result->data['output']['operation'] ?? null, 'the operation output is kept under `output`');
         self::assertIsArray($result->meta['trial'] ?? null);
         self::assertSame(0, $result->meta['trial']['exit']);
         self::assertArrayHasKey('touched.txt', $result->meta['trial']['report']);
@@ -189,7 +199,7 @@ final class TrialAwareRegistryTest extends TestCase
 
         self::assertTrue($result->success, (string) $result->error);
         self::assertFileDoesNotExist($root . '/host-touched.txt', 'B1: the host tree is untouched');
-        self::assertFalse($result->data['net'] ?? true, 'the trial reached no network');
+        self::assertFalse($result->data['output']['net'] ?? true, 'the trial reached no network');
         self::assertSame(0, $llamadas);
     }
 
