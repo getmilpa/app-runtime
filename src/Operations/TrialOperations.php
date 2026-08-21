@@ -153,6 +153,10 @@ final class TrialOperations implements CommandProvider
 
         $this->recordPromotion($sessions, $input, $id, $paths, $diff);
 
+        // DISCARD-ON-PROMOTE (decisions/0071): the consequence has crossed the door (0068); the copy
+        // is spent. Collapse it — free the ~656 KB, keep the tiny pre-image for manual undo (0069).
+        $ws->collapse();
+
         return ['ok' => true, 'promoted' => $paths];
     }
 

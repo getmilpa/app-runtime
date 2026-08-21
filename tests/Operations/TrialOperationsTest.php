@@ -100,6 +100,9 @@ final class TrialOperationsTest extends TestCase
         self::assertFileDoesNotExist($root . '/src/A.php');
         self::assertSame("<?php return ['x' => 1];\n", file_get_contents($root . '/var/trials/w1/pre/config/x.php'), 'the pre-image is what the house had');
         self::assertSame("<?php // a\n", file_get_contents($root . '/var/trials/w1/pre/src/A.php'));
+        // discard-on-promote (decisions/0071): the spent copy is gone, the pre-image stays.
+        self::assertDirectoryDoesNotExist($root . '/var/trials/w1/copy', 'a promoted trial collapses its copy — the disk cost is freed');
+        self::assertSame([], TrialWorkspace::ids($root), 'and it no longer lists as an open trial');
         self::assertFileDoesNotExist($root . '/.env.promoted');
 
         $hechos = array_values(array_filter($eventos->replay('agent-session:s-1'), static fn ($e): bool => $e->type === 'session.trial_promoted'));
