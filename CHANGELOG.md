@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.56.0](https://github.com/getmilpa/app-runtime/compare/v0.55.0...v0.56.0) (2026-08-21)
+
+
+### Features
+
+* the promotion gate defaults to decline and a rejected promotion discards its trial (decisions/0071) ([#135](https://github.com/getmilpa/app-runtime/issues/135)) ([c48b97e](https://github.com/getmilpa/app-runtime/commit/c48b97e388b237127b9deb907c2d1421478cfd8f))
+
 ## [0.55.0](https://github.com/getmilpa/app-runtime/compare/v0.54.0...v0.55.0) (2026-08-21)
 
 
