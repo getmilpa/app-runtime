@@ -28,6 +28,7 @@ use Milpa\Command\Effect\AxisReduction;
 use Milpa\Command\Effect\CallSubject;
 use Milpa\Command\Effect\ContextFacts;
 use Milpa\Command\Effect\Mutation;
+use Milpa\Command\Effect\ProfileComposition;
 use Milpa\Command\Operation;
 use Milpa\Console\McpProjector;
 
@@ -177,16 +178,23 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // not a mutation, so the session does not pause for it — while the same operation without the
         // rehearsal still does. Composition can only LOWER a ceiling, never raise it, so this can
         // only ever ask LESS, and only when a producer authorised the descent — never by a flag.
+        // THE COMPOSITION IS COMPUTED ONCE AND HANDED TO THE POLICY (greenhouse decisions/0067): the
+        // policy is the single judge, so it receives the composed profile and compares it against a
+        // grant's envelope itself — this gate never compares. `null` when the operation does not
+        // mutate: there is nothing to compose and nothing a read needs admitting under.
+        $composicion = $this->componer($operacion, $arguments);
+
         $decision = $this->policy->decide(
             $this->session,
             $operacion->name,
-            $this->efectivamenteMuta($operacion, $arguments),
+            $composicion !== null && $composicion->effective->mutation !== Mutation::None,
             $operacion->requiresConfirmation,
             // El techo se pide AQUÍ, por llamada, y no se guarda en el constructor: si el padre baja
             // a `ask` a media corrida del hijo, la siguiente herramienta ya lo siente. Un techo
             // cacheado se queda viejo exactamente cuando el humano acaba de decidir supervisar —
             // la clase de defecto que Q-P20-B midió (la foto contra el estado vigente).
             $this->sessions->ceilingFor($this->session->id),
+            composed: $composicion?->effective,
         );
 
         return match ($decision) {
@@ -201,6 +209,12 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
                     $this->policy->permissionQuestion($operacion->name, $arguments, $this->vence()),
                     $operacion->name,
                     $arguments,
+                    // THE DECLARED CEILING AND WHAT THIS CALL COMPOSED TO, as facts the system writes
+                    // at the pause (decisions/0067): `base` is what a structural counter is meet-ed
+                    // against — never taken from the human's payload — and `composed` is what the
+                    // human tightens from, shown rather than remembered.
+                    $operacion->effectCeiling()->toArray(),
+                    $composicion?->effective->toArray(),
                 ),
             ),
             PolicyDecision::RequireSignature => $this->pause(
@@ -432,23 +446,33 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
     }
 
     /**
-     * La misma pregunta, con la operación y los argumentos guardados como dato.
+     * La misma pregunta, con la operación y los argumentos guardados como dato — y, desde los sobres
+     * (decisions/0067), el techo declarado y lo que esta llamada compuso.
      *
-     * @param array<string, mixed> $arguments
+     * @param array<string, mixed>      $arguments
+     * @param array<string, mixed>|null $base      el techo DECLARADO de la operación (`EffectProfile::toArray()`)
+     * @param array<string, mixed>|null $composed  lo que ESTA llamada compuso, para apretar desde un hecho visto
      */
     private function conElHechoAdentro(
         \Milpa\Agent\PendingQuestion $pregunta,
         string $operacion,
         array $arguments,
+        ?array $base = null,
+        ?array $composed = null,
     ): \Milpa\Agent\PendingQuestion {
+        $hecho = ['operation' => $operacion, 'arguments' => $arguments];
+        if ($base !== null) {
+            $hecho['base'] = $base;
+        }
+        if ($composed !== null) {
+            $hecho['composed'] = $composed;
+        }
+
         return new \Milpa\Agent\PendingQuestion(
             id: $pregunta->id,
             question: $pregunta->question,
             options: $pregunta->options,
-            why: json_encode(
-                ['operation' => $operacion, 'arguments' => $arguments],
-                \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES,
-            ) ?: $pregunta->why,
+            why: json_encode($hecho, \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES) ?: $pregunta->why,
             expiresAt: $pregunta->expiresAt,
             reason: $pregunta->reason,
         );
@@ -509,10 +533,10 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      *
      * @param array<string, mixed> $arguments
      */
-    private function efectivamenteMuta(Operation $operacion, array $arguments): bool
+    private function componer(Operation $operacion, array $arguments): ?ProfileComposition
     {
         if (! $operacion->mutating) {
-            return false;
+            return null;
         }
 
         $subject = new CallSubject(
@@ -540,7 +564,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             ]);
         }
 
-        return $composicion->effective->mutation !== Mutation::None;
+        return $composicion;
     }
 
     /**

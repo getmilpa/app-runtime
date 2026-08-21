@@ -10,6 +10,12 @@ use Milpa\Agent\PendingQuestion;
 use Milpa\Agent\SessionStore;
 use Milpa\Agent\Todo;
 use Milpa\Agent\TodoStatus;
+use Milpa\Command\Effect\Authority;
+use Milpa\Command\Effect\EffectProfile;
+use Milpa\Command\Effect\Externality;
+use Milpa\Command\Effect\Mutation;
+use Milpa\Command\Effect\Reversibility;
+use Milpa\Command\Effect\Subject;
 use Milpa\Command\InvocationContext;
 use Milpa\Command\Operation;
 use Milpa\Container\DIContainer;
@@ -906,5 +912,172 @@ final class SessionOperationsTest extends TestCase
         self::assertCount(3, $r['sessions'] ?? [], 'las tres sesiones se enumeran');
         self::assertSame(1, $contador->replayAll, 'listar N sesiones lee el log una sola vez');
         self::assertSame(0, $contador->replay, 'y no cae en el replay-por-sesión que colgaba /sessions');
+    }
+
+    // ── LA CONTRAOFERTA ESTRUCTURAL: `envelope` (decisions/0067) ─────────────────────────────────
+
+    /** El techo DECLARADO de la operación gateada — lo que un «sí» pelón otorga, op-wide. */
+    private function techoDeclarado(): EffectProfile
+    {
+        return new EffectProfile(
+            Mutation::Persistent,
+            Externality::SamePrincipal,
+            Reversibility::ManualRecovery,
+            Authority::WriteAsUser,
+            subject: Subject::Configuration,
+        );
+    }
+
+    /** Una pausa `perm:` cuyo `why` lleva el hecho estructurado que la compuerta escribe: operación, argumentos y base. */
+    private function pausaConBase(SessionStore $almacen, string $id = 's1'): void
+    {
+        $almacen->start($id, 'cambiar la config');
+        $almacen->ask($id, new PendingQuestion(
+            'perm:config:set',
+            '¿autorizas config:set?',
+            ['sí', 'no'],
+            why: json_encode([
+                'operation' => 'config:set',
+                'arguments' => ['key' => 'agent.treeBudget', 'value' => 7],
+                'base' => $this->techoDeclarado()->toArray(),
+            ], \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES) ?: null,
+        ));
+    }
+
+    /**
+     * CONTROL POSITIVO: un apriete válido otorga la operación bajo un sobre = meet(B, P_h).
+     *
+     * La llamada que corre sigue siendo la que el agente propuso; lo que cambia es cuánto se le
+     * permite ser. Una composición que cabe en el sobre queda admitida; la que compone al techo, no.
+     */
+    public function testAnEnvelopeGrantsUnderAMeetBoundedEnvelope(): void
+    {
+        $almacen = $this->almacen();
+        $this->pausaConBase($almacen);
+
+        $r = $this->llamar('agent:answer', ['session' => 's1', 'envelope' => ['reversibility' => 'compensatable']]);
+
+        self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
+        self::assertSame('config:set', $r['granted']);
+        self::assertSame('compensatable', $r['envelope']['reversibility'] ?? null);
+        self::assertSame(['reversibility'], $r['tightened'] ?? null, 'qué hachas bajaron respecto de B');
+
+        $sesion = $almacen->load('s1');
+        self::assertNotNull($sesion);
+        self::assertTrue($sesion->isRunnable(), 'la pregunta quedó resuelta');
+        $dentro = $this->techoDeclarado()->meet(EffectProfile::fromPartial(['reversibility' => 'compensatable']));
+        self::assertTrue($sesion->allows('config:set', $dentro), 'una llamada que compone dentro del sobre está admitida');
+        self::assertFalse($sesion->allows('config:set', $this->techoDeclarado()), 'una que compone al techo, NO — ahí muerde el apriete');
+    }
+
+    /** El apretón es un HECHO en el stream, con lo que un auditor necesita para recomputar el meet. */
+    public function testAnEnvelopeGrantRecordsBaseRequestedQuestionAndDigest(): void
+    {
+        $almacen = $this->almacen();
+        $this->pausaConBase($almacen);
+
+        $this->llamar('agent:answer', ['session' => 's1', 'envelope' => ['reversibility' => 'compensatable']]);
+
+        $granted = null;
+        foreach ($this->eventos->replay(SessionStore::PREFIX . 's1') as $e) {
+            if ($e->type === 'session.permission_granted') {
+                $granted = $e->payload;
+            }
+        }
+        self::assertNotNull($granted);
+        self::assertSame('compensatable', $granted['envelope']['reversibility'] ?? null);
+        self::assertSame('manual_recovery', $granted['base']['reversibility'] ?? null, 'la base contra la que se hizo el meet');
+        self::assertSame(['reversibility' => 'compensatable'], $granted['requested'] ?? null);
+        self::assertSame('perm:config:set', $granted['question'] ?? null);
+        self::assertStringStartsWith('sha256:', (string) ($granted['arguments_digest'] ?? ''), 'la llamada exacta, por digest canónico');
+        self::assertNotNull($granted['by'] ?? null, 'quién apretó');
+    }
+
+    /**
+     * EL NEGATIVO ASESINO: un ensanche no se puede expresar — meet lo pinza al techo.
+     *
+     * `authority: privileged` sobre un techo `write_as_user` queda en `write_as_user`; la respuesta
+     * dice que esa hacha NO se apretó. Junto con un apriete real la llamada sí pasa, pero con la
+     * autoridad del techo, nunca más.
+     */
+    public function testAWideningIsClampedByMeetAndReportedAsNotTightened(): void
+    {
+        $almacen = $this->almacen();
+        $this->pausaConBase($almacen);
+
+        $r = $this->llamar('agent:answer', ['session' => 's1', 'envelope' => ['authority' => 'privileged', 'reversibility' => 'compensatable']]);
+
+        self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
+        self::assertSame('write_as_user', $r['envelope']['authority'] ?? null, 'pinzado al techo: un sobre jamás es más ancho que B');
+        self::assertSame(['reversibility'], $r['tightened'] ?? null, 'authority no cuenta como apretada');
+    }
+
+    /** Un sobre que no baja nada es un «sí»: se rechaza, sin apendar nada — que lo diga como sí. */
+    public function testAVacuousEnvelopeIsRefusedAsAPlainYes(): void
+    {
+        $almacen = $this->almacen();
+        $this->pausaConBase($almacen);
+
+        $r = $this->llamar('agent:answer', ['session' => 's1', 'envelope' => ['reversibility' => 'manual_recovery']]);
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('sí', (string) $r['error']);
+        self::assertNotNull($almacen->load('s1')?->question, 'la pregunta sigue abierta: nada se otorgó');
+        self::assertFalse($almacen->load('s1')?->allows('config:set'));
+    }
+
+    /**
+     * UN CAMBIO DE BLANCO NO ES UN APRIETE (Regla 1 de 0065): una llave que no es hacha se rechaza
+     * nombrando `counter`, la vía advisory. Nada se apenda.
+     */
+    public function testANonAxisKeyIsRefusedAndPointedToTheCounter(): void
+    {
+        $almacen = $this->almacen();
+        $this->pausaConBase($almacen);
+
+        $r = $this->llamar('agent:answer', ['session' => 's1', 'envelope' => ['amount' => 200]]);
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('counter', (string) $r['error']);
+        self::assertNotNull($almacen->load('s1')?->question);
+    }
+
+    public function testEnvelopeIsExclusiveWithAnswerAndCounter(): void
+    {
+        $almacen = $this->almacen();
+        $this->pausaConBase($almacen);
+
+        $conAnswer = $this->llamar('agent:answer', ['session' => 's1', 'answer' => 'sí', 'envelope' => ['reversibility' => 'compensatable']]);
+        $conCounter = $this->llamar('agent:answer', ['session' => 's1', 'counter' => 'usa 5', 'envelope' => ['reversibility' => 'compensatable']]);
+
+        self::assertFalse($conAnswer['ok']);
+        self::assertFalse($conCounter['ok']);
+        self::assertNotNull($almacen->load('s1')?->question, 'ninguna de las dos tocó la sesión');
+    }
+
+    /** Un sobre sólo aprieta una pregunta de PERMISO; a una de firma o de intención no le aplica. */
+    public function testAnEnvelopeOnANonPermissionQuestionIsRefused(): void
+    {
+        $almacen = $this->almacen();
+        $almacen->start('s1', 'x');
+        $almacen->ask('s1', new PendingQuestion('sign:plugins_remove', 'necesita firma', []));
+
+        $r = $this->llamar('agent:answer', ['session' => 's1', 'envelope' => ['reversibility' => 'compensatable']]);
+
+        self::assertFalse($r['ok']);
+        self::assertNotNull($almacen->load('s1')?->question);
+    }
+
+    /** Sin `base` en el `why` (una pausa de una compuerta anterior a los sobres) no hay contra qué hacer meet: se rechaza. */
+    public function testAnEnvelopeWithoutARecordedBaseIsRefused(): void
+    {
+        $almacen = $this->almacen();
+        $almacen->start('s1', 'x');
+        $almacen->ask('s1', new PendingQuestion('perm:config:set', '¿autorizas?', ['sí', 'no'], why: json_encode(['operation' => 'config:set', 'arguments' => []]) ?: null));
+
+        $r = $this->llamar('agent:answer', ['session' => 's1', 'envelope' => ['reversibility' => 'compensatable']]);
+
+        self::assertFalse($r['ok']);
+        self::assertNotNull($almacen->load('s1')?->question);
     }
 }

@@ -259,7 +259,15 @@ final class ConsentBridge extends McpClientService
      *
      * @param array<string, mixed> $args
      */
-    private static function digest(array $args): string
+    /**
+     * The canonical digest of a call's arguments — key-order-stable, so the same call always hashes
+     * the same. Public because it is the ONE recipe: a tightened grant (greenhouse decisions/0067)
+     * records the exact call it was given over with this digest, and a second recipe elsewhere
+     * would let the grant and the execution disagree about whether they are the same call.
+     *
+     * @param array<string, mixed> $args
+     */
+    public static function digest(array $args): string
     {
         $canonical = static function (mixed $value) use (&$canonical): mixed {
             if (! \is_array($value)) {
