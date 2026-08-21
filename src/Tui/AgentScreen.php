@@ -457,11 +457,30 @@ final class AgentScreen implements SurfaceBroadcaster
         }
 
         $partes = [];
+
+        // LO QUE ENTRA A LA CASA VA PRIMERO Y EN CLARO. Un `sandbox:promote` trae el diff del ensayo
+        // en `cambios`; el pin califica lo que el humano ENTIENDE pintado (greenhouse decisions/0069),
+        // y un mapa JSON enterrado tras los perfiles de efecto no se entiende de un vistazo. El resto
+        // sí se deja crudo: sobre eso se está autorizando, y aplanarlo perdería la estructura.
+        $cambios = $datos['cambios'] ?? null;
+        if (\is_array($cambios) && $cambios !== []) {
+            $legibles = [];
+            foreach ($cambios as $ruta => $estado) {
+                $palabra = match ($estado) {
+                    'modified' => 'modificado',
+                    'added' => 'nuevo',
+                    'deleted' => 'borrado',
+                    default => (string) $estado,
+                };
+                $legibles[] = $ruta . ' (' . $palabra . ')';
+            }
+            $partes[] = 'cambia: ' . implode(', ', $legibles);
+            unset($datos['cambios']);
+        }
+
         foreach ($datos as $clave => $valor) {
             $partes[] = \is_scalar($valor) || $valor === null
                 ? $clave . ' ' . var_export($valor, true)
-                // Un valor compuesto se deja en JSON: aplanarlo perdería la estructura sobre la que
-                // justamente se está autorizando.
                 : $clave . ' ' . (string) json_encode($valor, \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES);
         }
 

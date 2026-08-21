@@ -220,6 +220,10 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
                     // human tightens from, shown rather than remembered.
                     $operacion->effectCeiling()->toArray(),
                     $composicion?->effective->toArray(),
+                    // WHAT WOULD ENTER, shown at the pause. Only a promotion carries it: the human
+                    // authorises a trial's consequences seeing the diff, not a workspace id
+                    // (greenhouse decisions/0069, 0068). Any other pause gets null and is unchanged.
+                    $this->cambiosDeUnaPromocion($operacion->name, $arguments),
                 ),
             ),
             PolicyDecision::RequireSignature => $this->pause(
@@ -454,9 +458,10 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      * La misma pregunta, con la operación y los argumentos guardados como dato — y, desde los sobres
      * (decisions/0067), el techo declarado y lo que esta llamada compuso.
      *
-     * @param array<string, mixed>      $arguments
-     * @param array<string, mixed>|null $base      el techo DECLARADO de la operación (`EffectProfile::toArray()`)
-     * @param array<string, mixed>|null $composed  lo que ESTA llamada compuso, para apretar desde un hecho visto
+     * @param array<string, mixed>       $arguments
+     * @param array<string, mixed>|null  $base      el techo DECLARADO de la operación (`EffectProfile::toArray()`)
+     * @param array<string, mixed>|null  $composed  lo que ESTA llamada compuso, para apretar desde un hecho visto
+     * @param array<string, string>|null $cambios   el diff que una promoción aplicaría (path => added|modified|deleted)
      */
     private function conElHechoAdentro(
         \Milpa\Agent\PendingQuestion $pregunta,
@@ -464,6 +469,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         array $arguments,
         ?array $base = null,
         ?array $composed = null,
+        ?array $cambios = null,
     ): \Milpa\Agent\PendingQuestion {
         $hecho = ['operation' => $operacion, 'arguments' => $arguments];
         if ($base !== null) {
@@ -471,6 +477,11 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         }
         if ($composed !== null) {
             $hecho['composed'] = $composed;
+        }
+        // The diff rides ALONGSIDE the arguments, never inside them: the grant reads `arguments`
+        // (decisions/0031), so `cambios` is display for the human and cannot pollute what is granted.
+        if ($cambios !== null && $cambios !== []) {
+            $hecho['cambios'] = $cambios;
         }
 
         return new \Milpa\Agent\PendingQuestion(
@@ -580,6 +591,31 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      * produced by re-verifying it here, each time. Without an owner there are no facts, and authority
      * does not descend — the gate behaves exactly as it did before this existed.
      */
+    /**
+     * The diff a promotion would apply, or `null` when this pause is not a promotion.
+     *
+     * Read live from the trial named in the arguments (greenhouse decisions/0069): the human sees
+     * what enters at the moment of authorising it, and the house — not the model — puts it there.
+     *
+     * @param array<string, mixed> $arguments
+     *
+     * @return array<string, string>|null
+     */
+    private function cambiosDeUnaPromocion(string $operation, array $arguments): ?array
+    {
+        if ($operation !== 'sandbox:promote' || $this->trialRouter === null) {
+            return null;
+        }
+        $workspace = $arguments['workspace'] ?? null;
+        if (! \is_string($workspace) || $workspace === '') {
+            return null;
+        }
+
+        $cambios = $this->trialRouter->diffForWorkspace($workspace);
+
+        return $cambios === [] ? null : $cambios;
+    }
+
     private function hechosDelDuenio(): ?ContextFacts
     {
         $asercion = $this->session->ownershipAssertion();
