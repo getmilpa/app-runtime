@@ -77,12 +77,24 @@ final class TrialRunner
     public function run(TrialWorkspace $workspace, string $operation, array $input): TrialRun
     {
         $json = json_encode($input, \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES) ?: '{}';
+
+        // VENDOR IS BOUND READ-ONLY, NOT COPIED (decisions/0070): the trial boots from the host vendor
+        // at the copy path, which keeps the two-root-authorities fix of evidence/0272 (Composer resolves
+        // against <copy>) while removing the 160 MB copy — and it TIGHTENS confinement, because a
+        // mutation that tried to write vendor now takes an EPERM at write time instead of being caught
+        // later at diff time. The bind comes AFTER `--bind <copy>` so it wins over the writable copy at
+        // that one path. When the host has no vendor (a bare app), there is nothing to bind.
+        $vendor = $workspace->root . '/vendor';
+        $vendorBind = is_dir($vendor)
+            ? sprintf(' --ro-bind %s %s', escapeshellarg($vendor), escapeshellarg($workspace->copy . '/vendor'))
+            : '';
         $cmd = sprintf(
-            'timeout -k 2 %d %s --unshare-net --unshare-pid --die-with-parent --ro-bind / / --bind %s %s -- %s %s %s %s',
+            'timeout -k 2 %d %s --unshare-net --unshare-pid --die-with-parent --ro-bind / / --bind %s %s%s -- %s %s %s %s',
             $this->timeoutSeconds,
             escapeshellarg($this->bwrap),
             escapeshellarg($workspace->copy),
             escapeshellarg($workspace->copy),
+            $vendorBind,
             escapeshellarg($this->php),
             escapeshellarg($workspace->runnerPath()),
             escapeshellarg($operation),
