@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.50.0](https://github.com/getmilpa/app-runtime/compare/v0.49.1...v0.50.0) (2026-08-21)
+
+
+### Features
+
+* a structural counter is adjudicated at the gate as a meet-bounded envelope ([dce7640](https://github.com/getmilpa/app-runtime/commit/dce764019c12c52b21b870f4157cc9ab3d00f663))
+* a structural counter is adjudicated at the gate as a meet-bounded envelope ([7c08ac3](https://github.com/getmilpa/app-runtime/commit/7c08ac32f64c27297b12c2349e723d913fe97297))
+
 ## [0.49.1](https://github.com/getmilpa/app-runtime/compare/v0.49.0...v0.49.1) (2026-08-20)
 
 
