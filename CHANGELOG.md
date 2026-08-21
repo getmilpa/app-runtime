@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.51.0](https://github.com/getmilpa/app-runtime/compare/v0.50.0...v0.51.0) (2026-08-21)
+
+
+### Features
+
+* a confinable mutation is rehearsed in a disposable trial workspace before it may touch the house ([#125](https://github.com/getmilpa/app-runtime/issues/125)) ([77c48ad](https://github.com/getmilpa/app-runtime/commit/77c48ad1ba0b8ba406ca7be45104c541bafcad18))
+
 ## [0.50.0](https://github.com/getmilpa/app-runtime/compare/v0.49.1...v0.50.0) (2026-08-21)
 
 
