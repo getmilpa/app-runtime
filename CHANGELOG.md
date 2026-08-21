@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.54.0](https://github.com/getmilpa/app-runtime/compare/v0.53.0...v0.54.0) (2026-08-21)
+
+
+### Features
+
+* the trial binds vendor read-only instead of copying it — the flip's blocker, removed (decisions/0070) ([#131](https://github.com/getmilpa/app-runtime/issues/131)) ([87f8d84](https://github.com/getmilpa/app-runtime/commit/87f8d845cd3408494a52126568fd44e268d760b6))
+
 ## [0.53.0](https://github.com/getmilpa/app-runtime/compare/v0.52.0...v0.53.0) (2026-08-21)
 
 
