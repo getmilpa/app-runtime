@@ -1360,10 +1360,15 @@ class AgentOperations implements CommandProvider
     /**
      * The trial router for this invocation, or `null` when trials are off or no sandbox is available.
      *
-     * Off by default (greenhouse decisions/0069): only when the app declares `agent.trialWorkspace`
-     * true does a router exist, and only when {@see TrialRunner::available()} confirms an unprivileged
-     * namespace — fail closed, never a claimed confinement. Memoised so the gate and the registry
-     * share ONE instance: the gate plans the call during composition, the executor reuses that plan.
+     * ON BY DEFAULT (greenhouse decisions/0072): a confinable mutation rehearses in a disposable copy
+     * unless the app declares `agent.trialWorkspace` FALSE — the escape hatch. Absent means on; only an
+     * explicit `false` turns it off. The default buys no authority: it changes WHERE the first attempt
+     * happens, never what may run — the effects contract still fixes eligibility and `SessionPolicy`
+     * still judges every call. And it fails closed: without an unprivileged namespace
+     * ({@see TrialRunner::available()}) there is no trial, and the mutation asks for consent against its
+     * declared ceiling as before — the default never invents a permissive path. Memoised so the gate
+     * and the registry share ONE instance: the gate plans the call during composition, the executor
+     * reuses that plan.
      */
     private function trialRouter(Kernel $kernel): ?TrialRouter
     {
@@ -1372,8 +1377,11 @@ class AgentOperations implements CommandProvider
         }
 
         $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
-        $on = $config instanceof Config && $config->get('agent.trialWorkspace') === true;
-        if (! $on) {
+        $declared = $config instanceof Config ? $config->get('agent.trialWorkspace') : null;
+        // THE FLIP (decisions/0072): `!== false`, not `=== true`. Absent (nobody touched it) or true is
+        // on; only an explicit `false` is the escape hatch — a good default is not a constitutional
+        // obligation.
+        if ($declared === false) {
             return $this->trialRouterMemo = null;
         }
 

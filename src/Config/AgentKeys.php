@@ -121,7 +121,8 @@ final class AgentKeys
             'agent.trialWorkspace' => [
                 'type' => DeclaredType::boolean(),
                 'does' => 'Whether a confinable mutation is rehearsed in a disposable copy before it may '
-                    . 'touch the house (off unless declared true; promoting is the only door in)',
+                    . 'touch the house — ON by default (decisions/0072); declare false to turn it off. '
+                    . 'Promoting is the only door in',
             ],
             'agent.architectureSummary' => [
                 'type' => DeclaredType::union(
