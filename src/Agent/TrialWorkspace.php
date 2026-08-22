@@ -249,6 +249,73 @@ final class TrialWorkspace
         }
     }
 
+    /**
+     * Reverse a promotion by the pre-image it left — the operation that makes the ManualRecovery a
+     * promotion DECLARES (0069) a mechanism, not a word. Modified paths return to what the house held,
+     * deleted paths come back, added paths are removed; then the promotion's record is erased, because
+     * a reversed promotion has nothing left to reverse. A promoted trial has collapsed (no `copy/`), so
+     * this reads the kept `pre/` and `promoted.json` directly — {@see open()} would return null.
+     *
+     * THE HOUSE MAY HAVE MOVED ON. If any promoted path no longer holds what the promotion WROTE — a
+     * later edit, a deletion recreated — undoing would clobber that newer content. That is the moved
+     * target of Rule 1 (0065): undo refuses and names the paths, because reversing over a moved target
+     * is a new proposal, not a recovery.
+     *
+     * @return array<string, mixed>
+     */
+    public static function undo(string $root, string $id): array
+    {
+        self::guardId($id);
+        $base = self::baseDir($root, $id);
+        $record = @file_get_contents($base . '/promoted.json');
+        $promoted = \is_string($record) ? json_decode($record, true) : null;
+        if (! \is_array($promoted) || $promoted === []) {
+            return ['ok' => false, 'error' => "no promotion «{$id}» to undo"];
+        }
+
+        $stale = [];
+        foreach ($promoted as $rel => $meta) {
+            $expected = \is_array($meta) ? ($meta['sha256'] ?? null) : null;
+            $hostFile = $root . '/' . $rel;
+            $current = is_file($hostFile) ? (hash_file('sha256', $hostFile) ?: null) : null;
+            if ($current !== $expected) {
+                $stale[] = (string) $rel;
+            }
+        }
+        if ($stale !== []) {
+            sort($stale);
+
+            return ['ok' => false, 'error' => 'the target moved since the promotion; this is a new proposal', 'stale' => $stale];
+        }
+
+        $paths = array_map('strval', array_keys($promoted));
+        sort($paths);
+        foreach ($paths as $rel) {
+            $hostFile = $root . '/' . $rel;
+            $preImage = $base . '/pre/' . $rel;
+            if (is_file($preImage)) {
+                self::putFile($hostFile, (string) file_get_contents($preImage));
+            } else {
+                @unlink($hostFile); // an added path had no pre-image; undo removes what promotion added
+            }
+        }
+
+        self::rmrf($base);
+
+        return ['ok' => true, 'undone' => $paths];
+    }
+
+    private static function putFile(string $path, string $contents): void
+    {
+        $dir = \dirname($path);
+        if (! is_dir($dir)) {
+            mkdir($dir, 0o777, true);
+        }
+        $tmp = $path . '.undo-tmp';
+        file_put_contents($tmp, $contents);
+        rename($tmp, $path);
+    }
+
     private static function baseDir(string $root, string $id): string
     {
         return $root . '/var/trials/' . $id;
