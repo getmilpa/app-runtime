@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.57.0](https://github.com/getmilpa/app-runtime/compare/v0.56.0...v0.57.0) (2026-08-22)
+
+
+### Features
+
+* agent.trialWorkspace is ON by default — the house errs first on disposable ground (decisions/0072) ([#137](https://github.com/getmilpa/app-runtime/issues/137)) ([2b0859c](https://github.com/getmilpa/app-runtime/commit/2b0859cc8d8db8532be7a9fb944414520d9137f0))
+
 ## [0.56.0](https://github.com/getmilpa/app-runtime/compare/v0.55.0...v0.56.0) (2026-08-21)
 
 
