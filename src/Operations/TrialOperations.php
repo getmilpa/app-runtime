@@ -53,7 +53,8 @@ final class TrialOperations implements CommandProvider
     }
 
     /**
-     * The trial doors: `sandbox:promote` (the only way in), `sandbox:list`, `sandbox:discard`.
+     * The trial doors: `sandbox:promote` (the only way in), `sandbox:list`, `sandbox:discard`, and
+     * `sandbox:undo` (the way back out — reverse a promotion from the pre-image it kept).
      *
      * @return list<Operation>
      */
@@ -105,6 +106,27 @@ final class TrialOperations implements CommandProvider
                 ],
                 mutating: true,
             ),
+            new Operation(
+                name: 'sandbox:undo',
+                description: 'Reverse a promotion from the pre-image it kept, returning the house. Pauses for consent.',
+                handler: fn (array $input): array => $this->undo($root, $input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'workspace' => ['type' => 'string', 'description' => 'Which promoted trial to reverse'],
+                        'session' => ['type' => 'string', 'description' => 'The session to record the undo in'],
+                    ],
+                    'required' => ['workspace'],
+                ],
+                mutating: true,
+                effects: new EffectProfile(
+                    mutation: Mutation::Persistent,
+                    externality: Externality::None,
+                    reversibility: Reversibility::ManualRecovery,
+                    authority: Authority::WriteAsUser,
+                    subject: Subject::Executable,
+                ),
+            ),
         ];
     }
 
@@ -153,6 +175,10 @@ final class TrialOperations implements CommandProvider
 
         $this->recordPromotion($sessions, $input, $id, $paths, $diff);
 
+        // What sandbox:undo reads to reverse this: the diff, whose sha256 per path is exactly the
+        // content the promotion just wrote to the host (0069). It outlives collapse() with the pre-image.
+        $this->write($ws->baseDirectory() . '/promoted.json', (string) json_encode($diff, \JSON_UNESCAPED_SLASHES | \JSON_PRETTY_PRINT));
+
         // DISCARD-ON-PROMOTE (decisions/0071): the consequence has crossed the door (0068); the copy
         // is spent. Collapse it — free the ~656 KB, keep the tiny pre-image for manual undo (0069).
         $ws->collapse();
@@ -195,6 +221,23 @@ final class TrialOperations implements CommandProvider
         }
 
         return ['ok' => true, 'discarded' => $id];
+    }
+
+    /**
+     * Reverse a promotion, the way back out that makes its ManualRecovery real (0069).
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function undo(string $root, array $input): array
+    {
+        $id = \is_string($input['workspace'] ?? null) ? $input['workspace'] : '';
+        if ($id === '') {
+            return ['ok' => false, 'error' => 'no trial to undo'];
+        }
+
+        return TrialWorkspace::undo($root, $id);
     }
 
     /**
