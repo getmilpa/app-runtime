@@ -50,18 +50,23 @@ final class TrialWiringTest extends TestCase
         }
     }
 
-    public function testTheGateHasNoRouterUntilTheLeafIsOn(): void
+    public function testTheGateHasARouterByDefaultWhenTheLeafIsAbsent(): void
     {
+        // ON BY DEFAULT (decisions/0072): nobody touched the leaf, so the gate is wired to a router.
+        if (! (new TrialRunner())->available()) {
+            self::markTestSkipped('this host offers no unprivileged user namespace for bwrap');
+        }
+
         $gate = $this->buildGate(trialWorkspace: null);
 
-        self::assertNull($this->routerOf($gate), 'off by default: the gate carries no router');
+        self::assertInstanceOf(TrialRouter::class, $this->routerOf($gate), 'absent means on: the gate carries a router');
     }
 
-    public function testTheLeafOffExplicitlyStillWiresNoRouter(): void
+    public function testAnExplicitFalseIsTheEscapeHatch(): void
     {
         $gate = $this->buildGate(trialWorkspace: false);
 
-        self::assertNull($this->routerOf($gate), 'a declared false is still off');
+        self::assertNull($this->routerOf($gate), 'only an explicit false turns the trial off');
     }
 
     public function testWithTheLeafOnAndASandboxTheGateCarriesARouter(): void
