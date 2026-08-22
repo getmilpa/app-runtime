@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.58.0](https://github.com/getmilpa/app-runtime/compare/v0.57.0...v0.58.0) (2026-08-22)
+
+
+### Features
+
+* **trial:** sandbox:undo reverses a promotion from the pre-image it kept ([#139](https://github.com/getmilpa/app-runtime/issues/139)) ([35ed4e7](https://github.com/getmilpa/app-runtime/commit/35ed4e728c5f4d9265c697d9bd92416e0af7c53b))
+
 ## [0.57.0](https://github.com/getmilpa/app-runtime/compare/v0.56.0...v0.57.0) (2026-08-22)
 
 
