@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.64.0](https://github.com/getmilpa/app-runtime/compare/v0.63.0...v0.64.0) (2026-08-24)
+
+
+### Features
+
+* **web:** a Surface defers its store to the operation layer, not boot() ([#153](https://github.com/getmilpa/app-runtime/issues/153)) ([49b8a46](https://github.com/getmilpa/app-runtime/commit/49b8a462c8ae60d1d4e03fb2fca2d765bb84db26))
+
 ## [0.63.0](https://github.com/getmilpa/app-runtime/compare/v0.62.0...v0.63.0) (2026-08-24)
 
 
