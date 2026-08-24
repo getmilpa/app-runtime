@@ -47,6 +47,14 @@ final class RealtimeStreamFactory
             return $path === '' ? null : new LogBroadcaster($path);
         }
 
+        // A browser-live transport with a different protocol (greenhouse evidence/0291): the agent
+        // POSTs to a relay, the browser subscribes over WebSocket. Another arm, another broadcaster.
+        if ($transport === 'websocket') {
+            $publish = \is_string($config['publish'] ?? null) ? $config['publish'] : '';
+
+            return $publish === '' ? null : new WebsocketBroadcaster($publish);
+        }
+
         if ($transport === 'mercure' && class_exists('Milpa\\Mercure\\MercureService')) {
             $hub = \is_string($config['hub'] ?? null) ? $config['hub'] : '';
             $public = \is_string($config['public'] ?? null) ? $config['public'] : $hub;
