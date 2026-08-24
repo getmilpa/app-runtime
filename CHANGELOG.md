@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.68.0](https://github.com/getmilpa/app-runtime/compare/v0.67.0...v0.68.0) (2026-08-24)
+
+
+### Features
+
+* **chat:** the structural counter «sí, pero…» in the terminal gate ([#163](https://github.com/getmilpa/app-runtime/issues/163)) ([9bb6fe6](https://github.com/getmilpa/app-runtime/commit/9bb6fe670cbdfd1ad71ea9a0b85f8b89c56a1008))
+
 ## [0.67.0](https://github.com/getmilpa/app-runtime/compare/v0.66.0...v0.67.0) (2026-08-24)
 
 
