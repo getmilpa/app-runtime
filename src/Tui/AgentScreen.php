@@ -27,6 +27,10 @@ use Milpa\Live\Tui\SimpleTuiLayoutEngine;
 use Milpa\Live\Contracts\Tui\MeasurableTuiNodeRendererInterface;
 use Milpa\Live\Tui\TuiNodeRendererRegistry;
 use Milpa\Live\ValueObjects\Tui\TuiNode;
+use Milpa\Live\Tui\NodeRenderers\ComponentTuiNodeRenderer;
+use Milpa\Live\Runtime\InMemoryComponentRegistry;
+use Milpa\AppRuntime\Board\BoardComponent;
+use Milpa\AppRuntime\Board\BoardTuiRenderer;
 
 /**
  * La conversación con el agente de esta app, en la terminal.
@@ -217,6 +221,13 @@ final class AgentScreen implements SurfaceBroadcaster
          * @var \Closure(string): array{ok: bool, countered?: string, granted?: string|null, error?: string}|null
          */
         private readonly ?\Closure $contraofertar = null,
+        /**
+         * The agent:board fold for the current session, re-read each frame so the board region
+         * follows the stream. Absent → no board region (greenhouse evidence/0297).
+         *
+         * @var \Closure(): array<string, mixed>|null
+         */
+        private readonly ?\Closure $tablero = null,
     ) {
         $this->loop = new RetainedTuiLoop(
             new RetainedTuiRenderer(new SimpleTuiLayoutEngine(), self::renderers()),
@@ -298,6 +309,12 @@ final class AgentScreen implements SurfaceBroadcaster
         // La barra de estado viene del catálogo de componentes de `milpa/live-tui`, no de aquí: una
         // pantalla que dibuja su propia barra es una barra que se ve distinta en cada pantalla.
         $registry->register(new StatusBarRenderer());
+        // THE BOARD IS A LIVE COMPONENT NOW (greenhouse evidence/0297): a `component` node renders it
+        // through BoardTuiRenderer — the same definition the browser serves (0296) — so the chat hosts
+        // the board without a bespoke tree. Registry and renderer are stateless, built here.
+        $componentes = new InMemoryComponentRegistry();
+        $componentes->register(BoardComponent::CONTRACT_NAME, new BoardComponent());
+        $registry->register(new ComponentTuiNodeRenderer($componentes, new BoardTuiRenderer()));
 
         return $registry;
     }
@@ -1368,6 +1385,23 @@ final class AgentScreen implements SurfaceBroadcaster
         return $sesion instanceof Session ? $sesion : null;
     }
 
+    /**
+     * Whether a board fold has anything worth a region in the chat — a card, or a pending question.
+     *
+     * @param array<string, mixed> $fold
+     */
+    private static function tieneTarjetas(array $fold): bool
+    {
+        $columns = \is_array($fold['columns'] ?? null) ? $fold['columns'] : [];
+        foreach ($columns as $cards) {
+            if (\is_array($cards) && $cards !== []) {
+                return true;
+            }
+        }
+
+        return \is_string($fold['pending_question'] ?? null) && $fold['pending_question'] !== '';
+    }
+
     private function tree(): TuiNode
     {
         $this->rehidratar();
@@ -1399,6 +1433,22 @@ final class AgentScreen implements SurfaceBroadcaster
                 $hijos[] = new TuiNode("estado:{$i}", 'text', props: ['text' => $linea]);
             }
             $hijos[] = new TuiNode('sep-estado', 'text', props: ['text' => str_repeat('─', 40)]);
+        }
+
+        // THE BOARD, PAINTED BY THE ONE COMPONENT (greenhouse evidence/0297): a `component` node
+        // renders BoardComponent through BoardTuiRenderer from the fold the closure hands it — the
+        // same definition the browser serves. Height is set up front because the component renderer
+        // is not measurable, so a node without a height would collapse to a single line.
+        if ($sesion !== null && $this->tablero !== null) {
+            $fold = ($this->tablero)();
+            if (($fold['ok'] ?? false) === true && self::tieneTarjetas($fold)) {
+                $hijos[] = new TuiNode('tablero', 'component', props: [
+                    'component' => BoardComponent::CONTRACT_NAME,
+                    'props' => $fold,
+                    'height' => BoardTuiRenderer::heightFor($fold),
+                ]);
+                $hijos[] = new TuiNode('sep-tablero', 'text', props: ['text' => str_repeat('─', 40)]);
+            }
         }
 
         if ($this->conversation === []) {

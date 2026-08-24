@@ -1287,4 +1287,53 @@ final class AgentScreenTest extends TestCase
         // («cobrarle al cliente») la haría re-proponer LO MISMO en vez de la contraoferta (evidence/0267).
         self::assertSame('continúa', $promptDeReCorrida, 'el re-run es neutro — no la intención que la contraoferta reemplazó');
     }
+    /**
+     * THE BOARD LIVES IN THE CHAT, PAINTED BY THE ONE COMPONENT (greenhouse evidence/0297).
+     *
+     * AgentScreen used to have nowhere to paint a card. Now it hosts a `component` node that renders
+     * BoardComponent through BoardTuiRenderer — the SAME definition the browser serves (0296) — from
+     * the agent:board fold a closure hands it. The card text painted here proves the chat renders the
+     * board via the component path, not a bespoke tree.
+     */
+    public function testTheBoardRegionRendersInTheChatFromTheComponent(): void
+    {
+        $sesion = new Session(
+            id: 's1',
+            goal: 'inspecciona los plugins',
+            turns: [['role' => 'user', 'content' => 'hola', 'seq' => 1]],
+        );
+        $fold = ['ok' => true, 'session' => 's1', 'columns' => [
+            'done' => [['id' => 'turn:15', 'text' => 'tarjeta-de-prueba', 'origin' => 'turn']],
+        ]];
+
+        $pantalla = new AgentScreen(
+            static fn (string $q): array => ['ok' => true],
+            static fn (): Session => $sesion,
+            null,
+            74,
+            20,
+            false,
+            tablero: static fn (): array => $fold,
+        );
+
+        $salida = $pantalla->render();
+        self::assertStringContainsString('tarjeta-de-prueba', $salida, 'the board card is painted in the chat, from the component');
+        self::assertStringContainsString('DONE', $salida, 'and the column heading with it');
+    }
+
+    public function testWithoutABoardClosureTheChatIsUnchanged(): void
+    {
+        $sesion = new Session(id: 's1', goal: 'x', turns: [['role' => 'user', 'content' => 'hola', 'seq' => 1]]);
+        $pantalla = new AgentScreen(
+            static fn (string $q): array => ['ok' => true],
+            static fn (): Session => $sesion,
+            null,
+            74,
+            20,
+            false,
+        );
+
+        // No tablero closure: the board region simply does not appear — the chat is exactly as before.
+        self::assertStringNotContainsString('(sin trabajo aún)', $pantalla->render());
+    }
 }
