@@ -625,10 +625,13 @@ final class SessionOperations implements CommandProvider
             static fn (array $c): bool => ($c['card']['origin'] ?? '') === 'turn',
         ));
         $viva = $session->endedBecause === null;
-        $ultimo = \count($turnos) - 1;
-        foreach ($turnos as $i => $c) {
+        foreach ($turnos as $c) {
             $card = $c['card'];
-            if ($viva && $i === $ultimo) {
+            // The card's own status, derived by boardCards from stream order (greenhouse evidence/0287):
+            // `doing` is the open cycle the agent is still in, `done` is a cycle the response closed.
+            // A session that ended holds nothing open, so even a `doing` card lands in done.
+            $enCurso = ($card['to'] ?? 'done') === 'doing' && $viva;
+            if ($enCurso) {
                 $destino = $session->question !== null ? TodoStatus::Blocked->value : TodoStatus::InProgress->value;
             } else {
                 $destino = TodoStatus::Done->value;
