@@ -20,7 +20,8 @@
     "milpa/live-tui": ">=0.7 <1.0",
     "milpa/plugin": ">=0.10 <1.0",
     "milpa/runtime": ">=0.7.6 <1.0",
-    "milpa/tool-runtime": ">=0.12 <1.0"
+    "milpa/tool-runtime": ">=0.12 <1.0",
+    "nyholm/psr7": "^1.8"
   },
   "conflict": {
     "milpa/agent": "<0.23",
