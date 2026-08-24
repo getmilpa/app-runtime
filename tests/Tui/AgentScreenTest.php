@@ -1336,4 +1336,95 @@ final class AgentScreenTest extends TestCase
         // No tablero closure: the board region simply does not appear — the chat is exactly as before.
         self::assertStringNotContainsString('(sin trabajo aún)', $pantalla->render());
     }
+    public function testTypingEffectAxesTIGHTENSViaAnEnvelopeInsteadOfCountering(): void
+    {
+        $sesion = new Session('s1', 'cobrarle al cliente', question: new PendingQuestion('perm:charge', '¿autorizas charge(250)?', ['sí', 'no']));
+        $llamadas = ['counter' => 0, 'apretar' => 0, 'run' => 0];
+        $sobreRecibido = null;
+        $promptDeReCorrida = null;
+        $responder = function (string $q) use (&$llamadas, &$promptDeReCorrida): array {
+            ++$llamadas['run'];
+            $promptDeReCorrida = $q;
+
+            return ['ok' => true, 'answer' => 'hecho'];
+        };
+        $contraofertar = function (string $c) use (&$llamadas): array {
+            ++$llamadas['counter'];
+
+            return ['ok' => true, 'countered' => $c, 'granted' => null];
+        };
+        $apretar = function (array $sobre) use (&$llamadas, &$sobreRecibido): array {
+            ++$llamadas['apretar'];
+            $sobreRecibido = $sobre;
+
+            return ['ok' => true, 'granted' => 'charge', 'tightened' => ['authority'], 'envelope' => ['authority' => 'read']];
+        };
+
+        $pantalla = new AgentScreen($responder, static fn (): Session => $sesion, null, 74, 24, false, contraofertar: $contraofertar, apretar: $apretar);
+        foreach (str_split('authority=read') as $c) {
+            $pantalla->loop()->dispatchKey($c);
+        }
+        $pantalla->loop()->dispatchKey("
+");
+
+        self::assertSame(1, $llamadas['apretar'], 'typing effect axes goes to the STRUCTURAL counter (envelope)');
+        self::assertSame(0, $llamadas['counter'], 'not the value counter — «authority=read» names an axis');
+        self::assertSame(['authority' => 'read'], $sobreRecibido, 'the envelope carries the tightened axis');
+        self::assertSame(1, $llamadas['run'], 'the granted call runs — the session is runnable now');
+        self::assertSame('continúa', $promptDeReCorrida, 'the re-run is neutral');
+        self::assertStringContainsString('apretado', $pantalla->render(), 'the adjudication is shown');
+    }
+
+    public function testValueTextStillCountersNotTightens(): void
+    {
+        $sesion = new Session('s1', 'x', question: new PendingQuestion('perm:charge', '¿autorizas?', ['sí', 'no']));
+        $counter = 0;
+        $apretar = 0;
+        $pantalla = new AgentScreen(
+            static fn (string $q): array => ['ok' => true, 'answer' => 'ok'],
+            static fn (): Session => $sesion,
+            null,
+            74,
+            24,
+            false,
+            contraofertar: function (string $c) use (&$counter): array {
+                ++$counter;
+                return ['ok' => true, 'countered' => $c, 'granted' => null];
+            },
+            apretar: function (array $s) use (&$apretar): array {
+                ++$apretar;
+                return ['ok' => true];
+            },
+        );
+        foreach (str_split('usa 200 no 250') as $c) {
+            $pantalla->loop()->dispatchKey($c);
+        }
+        $pantalla->loop()->dispatchKey("
+");
+
+        self::assertSame(1, $counter, 'prose names no axis: it is a value counter');
+        self::assertSame(0, $apretar, 'it does not masquerade as an envelope');
+    }
+    public function testTheGateSurfacesItsCeilingAxesAndTheTightenHint(): void
+    {
+        $why = (string) json_encode([
+            'operation' => 'config:set',
+            'base' => ['mutation' => 'persistent', 'externality' => 'same_principal', 'reversibility' => 'manual_recovery', 'authority' => 'write_as_user', 'subject' => 'configuration'],
+        ]);
+        $sesion = new Session('s1', 'x', question: new PendingQuestion('perm:config:set', '¿autorizas config:set?', ['sí', 'no'], why: $why));
+
+        $pantalla = new AgentScreen(
+            static fn (string $q): array => ['ok' => true],
+            static fn (): Session => $sesion,
+            null,
+            90,
+            24,
+            false,
+        );
+
+        $salida = $pantalla->render();
+        self::assertStringContainsString('techo:', $salida, 'the human sees the declared ceiling in axes');
+        self::assertStringContainsString('authority=write_as_user', $salida);
+        self::assertStringContainsString('aprieta con', $salida, 'and that they can tighten it with «eje=nivel»');
+    }
 }

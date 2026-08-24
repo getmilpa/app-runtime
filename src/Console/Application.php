@@ -408,6 +408,7 @@ final class Application
                 preguntaDeHijo: $this->preguntaDeHijoPausado(...),
                 contestarHijo: $this->contestarAlHijo(...),
                 contraofertar: $this->contraofertarEnElChat(...),
+                apretar: $this->apretarEnElChat(...),
                 // The board region in the chat, from the ONE Live component (greenhouse evidence/0297):
                 // hand the screen a closure that folds the CURRENT session via agent:board each frame,
                 // so it follows the stream — the same fold the web host renders.
@@ -734,6 +735,24 @@ final class Application
     {
         /** @var array{ok: bool, countered?: string, granted?: string|null, error?: string} $r */
         $r = $this->correr('agent:answer', ['session' => $this->sesionDelChatId, 'counter' => $contra])
+            ?? ['ok' => false, 'error' => 'esta app no declara la operación `agent:answer`'];
+
+        return $r;
+    }
+
+    /**
+     * The chat's «sí, pero…»: a structural envelope goes to agent:answer as `envelope`, which meets it
+     * against the gate's declared ceiling AT THE GATE and runs the same call if it fits — the TUI
+     * projection of the structural counter (greenhouse evidence/0299, decisions/0067).
+     *
+     * @param array<string, string> $sobre
+     *
+     * @return array{ok: bool, granted?: string|null, envelope?: array<string, mixed>, tightened?: list<string>, error?: string}
+     */
+    private function apretarEnElChat(array $sobre): array
+    {
+        /** @var array{ok: bool, granted?: string|null, envelope?: array<string, mixed>, tightened?: list<string>, error?: string} $r */
+        $r = $this->correr('agent:answer', ['session' => $this->sesionDelChatId, 'envelope' => $sobre])
             ?? ['ok' => false, 'error' => 'esta app no declara la operación `agent:answer`'];
 
         return $r;

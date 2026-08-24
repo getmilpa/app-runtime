@@ -222,6 +222,14 @@ final class AgentScreen implements SurfaceBroadcaster
          */
         private readonly ?\Closure $contraofertar = null,
         /**
+         * How the human APRIETA — the structural counter: the effect envelope goes to agent:answer,
+         * which meets it against the gate's declared ceiling and grants the SAME call if it fits,
+         * without returning to the agent (greenhouse evidence/0299, decisions/0067).
+         *
+         * @var \Closure(array<string, string>): array{ok: bool, granted?: string|null, tightened?: list<string>, error?: string}|null
+         */
+        private readonly ?\Closure $apretar = null,
+        /**
          * The agent:board fold for the current session, re-read each frame so the board region
          * follows the stream. Absent → no board region (greenhouse evidence/0297).
          *
@@ -468,6 +476,31 @@ final class AgentScreen implements SurfaceBroadcaster
      * Si no parsea, se enseña tal cual: inventar una frase sobre algo que no se entendió sería peor
      * que el JSON, porque el JSON al menos es cierto.
      */
+    /**
+     * The gate's declared effect ceiling as tightenable axes, most-commonly-tightened first — so a
+     * human can see what «sí, pero…» could lower (greenhouse evidence/0299), or `null` when the gate
+     * carries no ceiling. Reads only `base` from the question's `why` (the trusted declared ceiling).
+     */
+    private function ejesDelTecho(?string $why): ?string
+    {
+        if ($why === null || $why === '') {
+            return null;
+        }
+        $datos = json_decode($why, true);
+        $base = \is_array($datos) ? ($datos['base'] ?? null) : null;
+        if (! \is_array($base)) {
+            return null;
+        }
+        $ejes = [];
+        foreach (['authority', 'reversibility', 'mutation', 'externality', 'subject'] as $eje) {
+            if (\is_string($base[$eje] ?? null)) {
+                $ejes[] = $eje . '=' . $base[$eje];
+            }
+        }
+
+        return $ejes === [] ? null : implode(' · ', $ejes);
+    }
+
     private function sobreQue(?string $why): string
     {
         if ($why === null || $why === '') {
@@ -501,13 +534,17 @@ final class AgentScreen implements SurfaceBroadcaster
             unset($datos['cambios']);
         }
 
+        // The effect ceiling (`base`) and this call's floor (`composed`) are surfaced as their OWN
+        // lines by the gate render (they carry the axes a «sí, pero…» can lower); here they would only
+        // bury the arguments the human is authorizing in raw JSON, so they are dropped from this line.
+        unset($datos['base'], $datos['composed']);
         foreach ($datos as $clave => $valor) {
             $partes[] = \is_scalar($valor) || $valor === null
                 ? $clave . ' ' . var_export($valor, true)
                 : $clave . ' ' . (string) json_encode($valor, \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES);
         }
 
-        return implode(' · ', $partes);
+        return $partes === [] ? 'sin argumentos' : implode(' · ', $partes);
     }
 
     /**
@@ -794,28 +831,56 @@ final class AgentScreen implements SurfaceBroadcaster
         // pierde. Se manda como `counter`: no otorga, siembra la restricción, y RE-CORRE para que el
         // agente re-proponga con ella (decisions/0064). La diferencia con una respuesta que no
         // concedió nada: aquélla se paraba; ésta sigue, porque el humano SÍ pidió algo concreto.
-        if ($sesion?->question !== null && $esContra && $this->contraofertar !== null) {
-            $eco = ($this->contraofertar)($pregunta);
-            if (!$eco['ok']) {
-                $this->conversation[] = ['quien' => 'agente', 'voz' => 'sistema', 'texto' => '✗ ' . ($eco['error'] ?? '')];
+        if ($sesion?->question !== null && $esContra) {
+            // A CONSTRAINT, of one of two kinds. If the human typed effect axes («authority=read»),
+            // it is a STRUCTURAL tighten: an envelope, met against the ceiling AND adjudicated at the
+            // gate — the same call runs if it fits (greenhouse evidence/0299, decisions/0067). If it
+            // names no axis, it is a value COUNTER: re-proposed and re-gated (decisions/0064). The
+            // backend legislates which is safe; the screen only routes the form the human typed.
+            $sobre = EnvelopeInput::parse($pregunta);
+            if ($sobre !== [] && $this->apretar !== null) {
+                $eco = ($this->apretar)($sobre);
+                if (!$eco['ok']) {
+                    $this->conversation[] = ['quien' => 'agente', 'voz' => 'sistema', 'texto' => '✗ ' . ($eco['error'] ?? '')];
+
+                    return;
+                }
+                $apretadas = \is_array($eco['tightened'] ?? null) ? implode(', ', $eco['tightened']) : '';
+                $otorgado = \is_string($eco['granted'] ?? null) ? $eco['granted'] : null;
+                $this->conversation[] = [
+                    'quien' => 'agente',
+                    'voz' => 'sistema',
+                    'texto' => '✓ apretado' . ($apretadas !== '' ? " ({$apretadas})" : '') . ' — el sobre cabe en el techo'
+                        . ($otorgado !== null ? ", «{$otorgado}» otorgado dentro de él" : ''),
+                ];
+                $this->correrVuelta('continúa');
 
                 return;
             }
-            $this->conversation[] = [
-                'quien' => 'agente',
-                'voz' => 'sistema',
-                'texto' => '✓ contraoferta enviada — el agente la re-propone, y volverá a pedirte permiso',
-            ];
-            // NO con la petición interrumpida: ésa es la intención VIEJA («…en 7»), y re-inyectarla
-            // CONTRADICE la contraoferta. Medido en ganado con el agente de verdad: reanudar con
-            // «…en 7» hace que re-proponga 7; reanudar neutro hace que re-proponga el 5 que el humano
-            // pidió (greenhouse evidence/0267). La contraoferta ya está sembrada como turno por
-            // `agent:answer`; el agente la atiende si no se le vuelve a mandar la intención que ella
-            // reemplazó. Es la diferencia entre otorgar (completa lo interrumpido) y negociar (crea
-            // otra intención) — decisions/0065.
-            $this->correrVuelta('continúa');
 
-            return;
+            if ($this->contraofertar !== null) {
+                $eco = ($this->contraofertar)($pregunta);
+                if (!$eco['ok']) {
+                    $this->conversation[] = ['quien' => 'agente', 'voz' => 'sistema', 'texto' => '✗ ' . ($eco['error'] ?? '')];
+
+                    return;
+                }
+                $this->conversation[] = [
+                    'quien' => 'agente',
+                    'voz' => 'sistema',
+                    'texto' => '✓ contraoferta enviada — el agente la re-propone, y volverá a pedirte permiso',
+                ];
+                // NO con la petición interrumpida: ésa es la intención VIEJA («…en 7»), y re-inyectarla
+                // CONTRADICE la contraoferta. Medido en ganado con el agente de verdad: reanudar con
+                // «…en 7» hace que re-proponga 7; reanudar neutro hace que re-proponga el 5 que el humano
+                // pidió (greenhouse evidence/0267). La contraoferta ya está sembrada como turno por
+                // `agent:answer`; el agente la atiende si no se le vuelve a mandar la intención que ella
+                // reemplazó. Es la diferencia entre otorgar (completa lo interrumpido) y negociar (crea
+                // otra intención) — decisions/0065.
+                $this->correrVuelta('continúa');
+
+                return;
+            }
         }
 
         if ($sesion?->question !== null && $this->contestar !== null) {
@@ -1732,6 +1797,12 @@ final class AgentScreen implements SurfaceBroadcaster
             $hijos[] = new TuiNode('pregunta', 'text', props: ['text' => '■ ⏸ ' . $pendiente->question]);
             if ($pendiente->why !== null) {
                 $hijos[] = new TuiNode('pregunta-por', 'text', props: ['text' => '  con ' . $this->sobreQue($pendiente->why)]);
+            }
+            $techo = $this->ejesDelTecho($pendiente->why);
+            if ($techo !== null) {
+                // The ceiling in axes, and the one write on this gate that is not sí/no — «sí, pero…».
+                $hijos[] = new TuiNode('pregunta-techo', 'text', props: ['text' => '  techo: ' . $techo]);
+                $hijos[] = new TuiNode('pregunta-aprieta', 'text', props: ['text' => '  aprieta con «eje=nivel» (p.ej. authority=read)']);
             }
             $hijos[] = new TuiNode('pregunta-op', 'text', props: [
                 'text' => '  ' . $this->afordancias($pendiente->options),
