@@ -1,7 +1,7 @@
 <?php
 
 /**
- * This file is part of milpa/app-runtime — the agent runtime a Milpa app installs, not copies.
+ * This file is part of Milpa App Runtime — the application runtime of the Milpa PHP framework.
  *
  * (c) Rodrigo Vicente - TeamX Agency — https://teamx.agency <hola@teamx.agency>
  *
@@ -17,11 +17,13 @@ namespace Milpa\AppRuntime\Tests\Web;
 use PHPUnit\Framework\TestCase;
 
 /**
- * The painter, exercised as the artifact it is: the SAME JavaScript file the browser runs, executed
- * under `node`. A painter that can only be verified inside a browser is a painter that in practice
- * nobody verifies — and these claims (a born-done card is set apart, model text cannot become
- * markup, nothing writable is painted) are exactly the ones the board spec makes acceptance
- * criteria, so they get checks that can fail.
+ * The browser painter's SURVIVING job: the live activity line.
+ *
+ * The board fold itself is no longer painted here — since greenhouse evidence/0296 the server renders
+ * it with the one Live component ({@see \Milpa\AppRuntime\Board\BoardHtmlRenderer}, whose parity lives
+ * in {@see \Milpa\AppRuntime\Tests\Board\BoardHtmlParityTest}). What stays client-side is
+ * `paintActivity`: the one line for what the session is doing right now, pushed live, which has no
+ * durable fold to refetch.
  */
 final class BoardPainterTest extends TestCase
 {
@@ -65,134 +67,6 @@ final class BoardPainterTest extends TestCase
     }
 
     /**
-     * @param array<string, list<array<string, mixed>>> $columns
-     *
-     * @return array<string, mixed> a well-formed `agent:board` response to build fixtures from
-     */
-    private static function board(array $columns, ?string $question = null): array
-    {
-        $board = ['ok' => true, 'session' => 'org-1', 'columns' => $columns];
-        if ($question !== null) {
-            $board['pending_question'] = $question;
-        }
-
-        return $board;
-    }
-
-    /**
-     * Criterion 2 of the spec, made executable: a card born already done is set apart — and one
-     * that crossed is NOT. Both directions live in one test on purpose: a painter that marked
-     * everything or marked nothing would each fail exactly one of these assertions.
-     */
-    public function testACardBornDoneIsSetApartAndACrossedOneIsNot(): void
-    {
-        $html = self::paint('paintBoard', self::board([
-            'pending' => [],
-            'in_progress' => [],
-            'done' => [
-                ['id' => 't1', 'text' => 'create the plugin', 'version' => 1, 'origin' => 'retrospective', 'unexplained' => 0],
-                ['id' => 't2', 'text' => 'register the plugin', 'version' => 2, 'origin' => 'planned', 'unexplained' => 0],
-            ],
-            'blocked' => [],
-        ]));
-
-        self::assertIsString($html);
-        self::assertStringContainsString('data-id="t1" data-origin="retrospective" data-crossed="false"', $html);
-        self::assertStringContainsString('appeared already done', $html);
-        self::assertStringContainsString('data-id="t2" data-origin="planned" data-crossed="true"', $html);
-        self::assertSame(1, substr_count($html, 'appeared already done'), 'only the born-done card carries the flag');
-    }
-
-    /**
-     * `unsupported` is ALSO born done — with nothing behind it, which is more suspicious, not
-     * less. Found live: an unsupported card painted exactly like a planned one until the browser
-     * exercise said so (2026-08-06).
-     */
-    public function testACardBornDoneWithNothingBehindItIsSetApartToo(): void
-    {
-        $html = self::paint('paintBoard', self::board([
-            'done' => [
-                ['id' => 't1', 'text' => 'model the entity', 'version' => 1, 'origin' => 'unsupported', 'unexplained' => 0],
-            ],
-        ]));
-
-        self::assertIsString($html);
-        self::assertStringContainsString('data-id="t1" data-origin="unsupported" data-crossed="false"', $html);
-        self::assertStringContainsString('appeared already done', $html);
-    }
-
-    /**
-     * The columns are the keys the data brings, in the order it brings them. The enum decides
-     * server-side; a list written in the painter would be the second place deciding how many
-     * columns exist, and a new status would be born invisible on this surface.
-     */
-    public function testTheColumnsAreTheKeysTheDataBringsInTheOrderItBringsThem(): void
-    {
-        $html = self::paint('paintBoard', self::board([
-            'pending' => [], 'in_progress' => [], 'done' => [], 'blocked' => [], 'someday' => [],
-        ]));
-
-        self::assertIsString($html);
-        $positions = [];
-        foreach (['pending', 'in_progress', 'done', 'blocked', 'someday'] as $status) {
-            $at = strpos($html, 'data-status="' . $status . '"');
-            self::assertIsInt($at, "the {$status} column was not painted");
-            $positions[] = $at;
-        }
-        $sorted = $positions;
-        sort($sorted);
-        self::assertSame($sorted, $positions, 'the columns were reordered by the painter');
-    }
-
-    /**
-     * A card the fold holds behind an open question says WHY it sits in blocked — distinguishable
-     * from a block the agent declared, which carries no `held_by`.
-     */
-    public function testACardHeldByAQuestionSaysSo(): void
-    {
-        $html = self::paint('paintBoard', self::board([
-            'blocked' => [
-                ['id' => 't1', 'text' => 'wire the route', 'version' => 1, 'origin' => 'planned', 'unexplained' => 0, 'held_by' => 'question'],
-                ['id' => 't2', 'text' => 'stuck on api key', 'version' => 1, 'origin' => 'planned', 'unexplained' => 0],
-            ],
-        ]));
-
-        self::assertIsString($html);
-        self::assertSame(1, substr_count($html, 'waiting for an answer'), 'only the card held by the question carries the badge');
-    }
-
-    /** Card texts are written by a model. A model that writes markup must land as text. */
-    public function testModelWrittenTextLandsAsTextNeverAsMarkup(): void
-    {
-        $html = self::paint('paintBoard', self::board([
-            'pending' => [['id' => 't1', 'text' => '<script>alert(1)</script>', 'version' => 1, 'origin' => 'planned', 'unexplained' => 0]],
-        ]));
-
-        self::assertIsString($html);
-        self::assertStringNotContainsString('<script>alert(1)</script>', $html);
-        self::assertStringContainsString('&lt;script&gt;', $html);
-    }
-
-    /**
-     * The open question is stopped work waiting for a human — the one thing this surface must not
-     * hide. But it is painted WITHOUT an answer control: answering writes to the stream, and that
-     * step is gated on verified identity.
-     */
-    public function testTheOpenQuestionIsPaintedWithoutAnyWritableControl(): void
-    {
-        $html = self::paint('paintBoard', self::board(
-            ['pending' => []],
-            'La petición no nombra a «PluginTres». ¿Confirmas?',
-        ));
-
-        self::assertIsString($html);
-        self::assertStringContainsString('PluginTres', $html);
-        self::assertStringNotContainsStringIgnoringCase('<button', $html);
-        self::assertStringNotContainsStringIgnoringCase('<form', $html);
-        self::assertStringNotContainsStringIgnoringCase('<input', $html);
-    }
-
-    /**
      * The tool NAME is what makes progress observable while nothing durable changes: a fixed text
      * for sixteen seconds does not distinguish work from a hang; a changing name does.
      */
@@ -228,15 +102,5 @@ final class BoardPainterTest extends TestCase
     public function testAnUnknownKindIsNotGuessed(): void
     {
         self::assertNull(self::paint('paintActivity', ['session' => 'org-1', 'kind' => 'something.new', 'at' => 7]));
-    }
-
-    /** A board that could not be read says so — it does not paint four empty, plausible columns. */
-    public function testAFailedFoldIsSaidNotDressedAsAnEmptyBoard(): void
-    {
-        $html = self::paint('paintBoard', ['ok' => false, 'error' => 'no existe la sesión «x»']);
-
-        self::assertIsString($html);
-        self::assertStringContainsString('no existe la sesión', $html);
-        self::assertStringNotContainsString('data-status=', $html);
     }
 }

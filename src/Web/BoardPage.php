@@ -178,15 +178,17 @@ memory and travels only in the request header.</p>
     const answerStatus = document.getElementById('milpa-answer-status');
 
     function repaint() {
+        // The server renders the board with the ONE Live component now; the page sets the returned
+        // HTML as-is instead of re-deriving the markup here (greenhouse evidence/0296).
         return fetch(boardUrl)
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-                board.innerHTML = MilpaBoard.paintBoard(data);
-                // The bar follows the FOLD, not this page's memory of what it sent: the question is
-                // open until the stream says otherwise, and closed the moment it does — even when
-                // someone else answered from the terminal.
-                answerBar.hidden = !(data && data.ok === true
-                    && typeof data.pending_question === 'string' && data.pending_question !== '');
+            .then(function (r) { return r.text(); })
+            .then(function (html) {
+                board.innerHTML = html;
+                // The bar follows the FOLD, not this page's memory of what it sent: the rendered
+                // board carries the waiting alert exactly when a question is open, so its presence
+                // is the fold's own answer — closed the moment the stream says so, even when someone
+                // else answered from the terminal.
+                answerBar.hidden = board.querySelector('.milpa-board-waiting') === null;
             })
             .catch(function () { status.textContent = 'the board endpoint is unreachable'; });
     }

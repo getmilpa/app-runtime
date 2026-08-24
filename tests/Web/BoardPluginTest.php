@@ -89,8 +89,9 @@ final class BoardPluginTest extends TestCase
         $r = (new BoardDataController($container))->data((new ServerRequest('GET', '/board/data?session=s1'))->withQueryParams(['session' => 's1']));
 
         self::assertSame(200, $r->getStatusCode());
-        $data = json_decode((string) $r->getBody(), true);
-        self::assertTrue($data['ok'] ?? false, (string) $r->getBody());
-        self::assertSame('plugins_list', $data['columns']['done'][0]['text'] ?? null, 'the finished cycle folded into done');
+        self::assertStringContainsString('text/html', $r->getHeaderLine('Content-Type'), 'the board is server-rendered by the Live component now');
+        $html = (string) $r->getBody();
+        self::assertStringContainsString('data-status="done"', $html);
+        self::assertStringContainsString('plugins_list', $html, 'the finished cycle folded into the done column');
     }
 }
