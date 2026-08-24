@@ -15,8 +15,12 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Web;
 
 use Milpa\Agent\SessionStore;
+use Milpa\AppRuntime\Agent\BroadcastingEventStore;
+use Milpa\AppRuntime\Agent\RealtimeStreamFactory;
+use Milpa\AppRuntime\Agent\SurfaceBroadcaster;
 use Milpa\AppRuntime\Web\Controllers\BoardDataController;
 use Milpa\AppRuntime\Web\Controllers\BoardPageController;
+use Milpa\Runtime\Config;
 use Milpa\Attributes\PluginMetadata;
 use Milpa\EventStore\FileEventStore;
 use Milpa\Http\HttpMethod;
@@ -49,15 +53,33 @@ final class BoardPlugin implements PluginInterface, RouteProviderInterface
     {
     }
 
-    /** Register the read-only session store the board folds, and its controllers. */
+    /** Build the realtime stream and the session store from config, and register the controllers. */
     public function boot(): void
     {
+        // The board's live feed comes from CONFIG, not from editing boot.php (greenhouse evidence/0289):
+        // read the app's declared realtime stream and build the neutral SurfaceBroadcaster from it.
+        // Board names «realtime»; only RealtimeStreamFactory names a transport.
+        $realtime = $this->container->has(Config::class) ? $this->container->get(Config::class)->get('realtime') : null;
+        $broadcaster = \is_array($realtime) ? RealtimeStreamFactory::fromConfig($realtime) : null;
+        if ($broadcaster !== null && ! $this->container->has(SurfaceBroadcaster::class)) {
+            $this->container->registerService(SurfaceBroadcaster::class, $broadcaster);
+        }
+
+        // The store the board READS and the agent WRITES is one and the same. When a stream is
+        // configured it broadcasts every appended fact through it, so the agent's work reaches a
+        // subscribed page live; the web container lacks the Kernel the CLI has, so the store is built
+        // from the app root here (a gap named in evidence/0288).
         if (! $this->container->has(SessionStore::class)) {
             $root = $this->container->has(AppRoot::class) ? $this->container->get(AppRoot::class) : null;
             $base = $root instanceof AppRoot ? $root->path : (getcwd() ?: '.');
-            $this->container->registerService(SessionStore::class, new SessionStore(new FileEventStore($base . '/var/agent-sessions.jsonl')));
+            $eventos = new FileEventStore($base . '/var/agent-sessions.jsonl');
+            $store = $broadcaster !== null
+                ? new SessionStore(new BroadcastingEventStore($eventos, $broadcaster))
+                : new SessionStore($eventos);
+            $this->container->registerService(SessionStore::class, $store);
         }
-        $this->container->registerService(BoardPageController::class, new BoardPageController());
+
+        $this->container->registerService(BoardPageController::class, new BoardPageController(RealtimeStreamFactory::publicUrlFromConfig($realtime)));
         $this->container->registerService(BoardDataController::class, new BoardDataController($this->container));
     }
 
