@@ -14,21 +14,17 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Web;
 
-use Milpa\Agent\SessionStore;
-use Milpa\AppRuntime\Agent\BroadcastingEventStore;
 use Milpa\AppRuntime\Agent\RealtimeStreamFactory;
 use Milpa\AppRuntime\Agent\SurfaceBroadcaster;
 use Milpa\AppRuntime\Web\Controllers\BoardDataController;
 use Milpa\AppRuntime\Web\Controllers\BoardPageController;
 use Milpa\Runtime\Config;
 use Milpa\Attributes\PluginMetadata;
-use Milpa\EventStore\FileEventStore;
 use Milpa\Http\HttpMethod;
 use Milpa\Http\Routing\HandlerReference;
 use Milpa\Http\Routing\Route;
 use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\Interfaces\Plugin\PluginInterface;
-use Milpa\Plugin\Contracts\AppRoot;
 use Milpa\Runtime\Http\RouteProviderInterface;
 
 /**
@@ -40,11 +36,12 @@ use Milpa\Runtime\Http\RouteProviderInterface;
  * the framework does not know «board», it knows «a plugin contributed routes». An app enables Board
  * (adds this class to config/plugins.php) and a servable board appears; nothing is wired by hand.
  *
- * Scope, on purpose (greenhouse evidence/0288): this slice makes the surface SERVABLE. Its live feed
- * (a SurfaceBroadcaster from config, not from editing boot.php) is the next slice — here the page is
- * a photograph the browser refreshes. The board only READS the stream, so it registers a read-only
- * SessionStore from the app root for  to fold. That the web container lacks the Kernel
- * and a PSR-17 factory the CLI has is a framework gap this surfaced, named and left for productizing.
+ * A Surface does not own its store (greenhouse evidence/0292). It declares its transport — the
+ * SurfaceBroadcaster built from config — and its controllers; the SessionStore both the agent WRITES
+ * and the board READS is resolved at REQUEST time by the operation layer (AgentOperations, the same
+ * branch the CLI trusts), where the Kernel that names the app root is in the container. boot() runs
+ * before that Kernel exists, so resolving a store here would only duplicate — and risk diverging
+ * from — the one resolution the framework already owns.
  */
 #[PluginMetadata(version: '0.1.0', author: 'Rodrigo Vicente - TeamX Agency', site: 'https://teamx.agency', name: 'Board', type: 'Web')]
 final class BoardPlugin implements PluginInterface, RouteProviderInterface
@@ -58,25 +55,13 @@ final class BoardPlugin implements PluginInterface, RouteProviderInterface
     {
         // The board's live feed comes from CONFIG, not from editing boot.php (greenhouse evidence/0289):
         // read the app's declared realtime stream and build the neutral SurfaceBroadcaster from it.
-        // Board names «realtime»; only RealtimeStreamFactory names a transport.
+        // Board names «realtime»; only RealtimeStreamFactory names a transport. This registration is
+        // load-bearing in BOTH containers: it is how the CLI agent's writes reach a transport too
+        // (AgentOperations bridges the store with whatever SurfaceBroadcaster is registered).
         $realtime = $this->container->has(Config::class) ? $this->container->get(Config::class)->get('realtime') : null;
         $broadcaster = \is_array($realtime) ? RealtimeStreamFactory::fromConfig($realtime) : null;
         if ($broadcaster !== null && ! $this->container->has(SurfaceBroadcaster::class)) {
             $this->container->registerService(SurfaceBroadcaster::class, $broadcaster);
-        }
-
-        // The store the board READS and the agent WRITES is one and the same. When a stream is
-        // configured it broadcasts every appended fact through it, so the agent's work reaches a
-        // subscribed page live; the web container lacks the Kernel the CLI has, so the store is built
-        // from the app root here (a gap named in evidence/0288).
-        if (! $this->container->has(SessionStore::class)) {
-            $root = $this->container->has(AppRoot::class) ? $this->container->get(AppRoot::class) : null;
-            $base = $root instanceof AppRoot ? $root->path : (getcwd() ?: '.');
-            $eventos = new FileEventStore($base . '/var/agent-sessions.jsonl');
-            $store = $broadcaster !== null
-                ? new SessionStore(new BroadcastingEventStore($eventos, $broadcaster))
-                : new SessionStore($eventos);
-            $this->container->registerService(SessionStore::class, $store);
         }
 
         $this->container->registerService(BoardPageController::class, new BoardPageController(RealtimeStreamFactory::publicUrlFromConfig($realtime)));
