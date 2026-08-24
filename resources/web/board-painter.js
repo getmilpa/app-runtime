@@ -58,89 +58,6 @@
     }
 
     /**
-     * One card. `origin: retrospective` is a card that was born already done — it never crossed the
-     * board, and painting it like the ones that did would be the board lying (measured: 12 of 16
-     * cards are born in `done`). It gets a mark and a plain label instead of a crossing.
-     */
-    function paintCard(card) {
-        const origin = typeof card.origin === 'string' ? card.origin : 'unknown';
-        // BOTH born-done origins are set apart: `retrospective` records work the stream can show,
-        // `unsupported` was born done with NOTHING behind it — painting either as a crossing would
-        // be the board telling a story nobody observed (found live: an unsupported card painted
-        // exactly like a planned one, 2026-08-06).
-        const appearedDone = origin === 'retrospective' || origin === 'unsupported';
-        const unexplained = typeof card.unexplained === 'number' ? card.unexplained : 0;
-
-        let inner = '<span class="milpa-card-text">' + escapeHtml(card.text) + '</span>';
-        if (appearedDone) {
-            // A label, not an animation: «appeared already done» is a fact; a crossing would be a story.
-            // Plain mui-badge: @milpa/design@0.9.0 ships no badge variants, and a class that names
-            // a variant the pinned version does not offer is the surface claiming a look nobody
-            // designed. The semantic class is this repo's own hook.
-            inner += '<span class="mui-badge milpa-card-flag">appeared already done</span>';
-        }
-        if (card.held_by === 'question') {
-            // Derived by the fold, said by the surface: the session is waiting for an answer, so
-            // this card is not advancing — it sits in blocked WITH its reason, distinguishable from
-            // a block the agent declared.
-            inner += '<span class="mui-badge milpa-card-flag">waiting for an answer</span>';
-        }
-        if (unexplained > 0) {
-            // How many mutations happened after this card was last touched. It does not say the card
-            // is wrong — it says that much work went unexplained, which is the invariant Q-P19-C left.
-            inner += '<span class="mui-badge milpa-card-unexplained" title="mutations since this card was touched">'
-                + String(unexplained) + '</span>';
-        }
-
-        return '<li class="milpa-card" data-id="' + escapeHtml(card.id) + '"'
-            + ' data-origin="' + escapeHtml(origin) + '"'
-            + ' data-crossed="' + (appearedDone ? 'false' : 'true') + '"'
-            + ' data-version="' + escapeHtml(String(card.version ?? 1)) + '">'
-            + inner + '</li>';
-    }
-
-    /**
-     * The whole board, from one `agent:board` response.
-     *
-     * The columns are the keys the data brings, in the order it brings them — the enum decides
-     * server-side. A list written here would be the second place deciding how many columns exist,
-     * and a new status would be born invisible on this surface.
-     */
-    function paintBoard(board) {
-        if (!board || board.ok !== true || typeof board.columns !== 'object' || board.columns === null) {
-            return '<p class="mui-alert mui-alert--danger milpa-board-error">'
-                + escapeHtml(board && board.error ? board.error : 'the board could not be read')
-                + '</p>';
-        }
-
-        let html = '';
-
-        if (typeof board.pending_question === 'string' && board.pending_question !== '') {
-            // Stopped work waiting for a human is the one thing this surface must not hide — but it
-            // shows the question WITHOUT an answer control: answering writes to the stream and that
-            // is the next construction step, gated on verified identity.
-            html += '<p class="mui-alert mui-alert--warning milpa-board-waiting">' + escapeHtml(board.pending_question)
-                + ' <span class="milpa-board-waiting-hint">answer from the terminal: '
-                + '<code>php bin/coa agent:answer --session=' + escapeHtml(board.session ?? '')
-                + ' --answer=…</code></span></p>';
-        }
-
-        html += '<div class="milpa-board-columns">';
-        for (const status of Object.keys(board.columns)) {
-            const cards = Array.isArray(board.columns[status]) ? board.columns[status] : [];
-            html += '<section class="mui-card mui-card--compact milpa-column" data-status="' + escapeHtml(status) + '">'
-                + '<h2 class="milpa-column-title">' + escapeHtml(status)
-                + ' <span class="milpa-column-count">' + String(cards.length) + '</span></h2>'
-                + '<ul class="milpa-column-cards">'
-                + cards.map(paintCard).join('')
-                + '</ul></section>';
-        }
-        html += '</div>';
-
-        return html;
-    }
-
-    /**
      * One line for what the session is doing RIGHT NOW, from a projected event pushed by the bridge.
      *
      * Returns `null` for the kinds whose durable meaning lives in the fold (`card`, `plan`): the
@@ -188,8 +105,6 @@
 
     return {
         escapeHtml: escapeHtml,
-        paintCard: paintCard,
-        paintBoard: paintBoard,
         paintActivity: paintActivity,
     };
 });

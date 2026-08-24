@@ -43,16 +43,26 @@ final class BoardComponent extends AbstractDashboardComponent
             contractVersion: '0.1.0',
             summary: 'The agent board: four columns of work derived from a session stream.',
             propsSchema: [
+                'ok' => ['type' => 'bool', 'default' => true],
                 'columns' => ['type' => 'object', 'required' => false],
+                'pending_question' => ['type' => 'string', 'required' => false],
+                'session' => ['type' => 'string', 'required' => false],
+                'error' => ['type' => 'string', 'required' => false],
             ],
             stateSchema: [
+                'ok' => ['type' => 'bool'],
                 'columns' => ['type' => 'object'],
+                'pending_question' => ['type' => 'string'],
+                'session' => ['type' => 'string'],
+                'error' => ['type' => 'string'],
             ],
         );
     }
 
     /**
-     * Map the mounted `agent:board` fold (passed as props) into the snapshot's data.
+     * Map the mounted `agent:board` fold (passed as props) into the snapshot's data: the columns and,
+     * so a renderer reaches parity with the old client painter, whether the read was `ok`, the pending
+     * question, the session and any error.
      *
      * @param array<string, mixed> $props
      *
@@ -62,6 +72,12 @@ final class BoardComponent extends AbstractDashboardComponent
     {
         $columns = $props['columns'] ?? [];
 
-        return ['columns' => \is_array($columns) ? $columns : []];
+        return [
+            'ok' => (bool) ($props['ok'] ?? true),
+            'columns' => \is_array($columns) ? $columns : [],
+            'pending_question' => \is_string($props['pending_question'] ?? null) ? $props['pending_question'] : null,
+            'session' => \is_string($props['session'] ?? null) ? $props['session'] : null,
+            'error' => \is_string($props['error'] ?? null) ? $props['error'] : null,
+        ];
     }
 }
