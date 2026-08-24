@@ -18,6 +18,7 @@ use Milpa\AppRuntime\Support\ContratoInstalado;
 use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\Principal;
 use Milpa\Agent\Session;
+use Milpa\Agent\SessionProjector;
 use Milpa\Agent\SessionStore;
 use Milpa\Agent\Todo;
 use Milpa\Agent\TodoStatus;
@@ -611,6 +612,35 @@ final class SessionOperations implements CommandProvider
             }
 
             $columnas[$destino][] = $fila;
+        }
+
+        // THE WORK ITSELF, not only what the agent narrated (greenhouse evidence/0284–0286). The board
+        // folds the stream into ONE card per assistant turn — the unit of work, read from stream order,
+        // with zero todo calls — so it shows what the agent actually did, not only what it remembered
+        // to write down. A turn is `in progress` only while it is the current one of a live session
+        // (blocked if that turn waits on a question); a session that ended, and every earlier turn, is
+        // `done`. Reads and mutations are told apart by the fact `mutated`, never by asking the agent.
+        $turnos = array_values(array_filter(
+            (new SessionProjector())->boardCards($almacen->stream($id)),
+            static fn (array $c): bool => ($c['card']['origin'] ?? '') === 'turn',
+        ));
+        $viva = $session->endedBecause === null;
+        $ultimo = \count($turnos) - 1;
+        foreach ($turnos as $i => $c) {
+            $card = $c['card'];
+            if ($viva && $i === $ultimo) {
+                $destino = $session->question !== null ? TodoStatus::Blocked->value : TodoStatus::InProgress->value;
+            } else {
+                $destino = TodoStatus::Done->value;
+            }
+            $columnas[$destino][] = [
+                'id' => \is_string($card['id'] ?? null) ? $card['id'] : '',
+                'text' => \is_string($card['text'] ?? null) ? $card['text'] : '',
+                'version' => 1,
+                'origin' => 'turn',
+                'mutated' => ($card['mutated'] ?? false) === true,
+                'unexplained' => 0,
+            ];
         }
 
         $salida = ['ok' => true, 'session' => $id, 'columns' => $columnas];
