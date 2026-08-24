@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.60.0](https://github.com/getmilpa/app-runtime/compare/v0.59.1...v0.60.0) (2026-08-24)
+
+
+### Features
+
+* **board:** the board is a declared Surface served by the framework, not a hand-made front controller ([#145](https://github.com/getmilpa/app-runtime/issues/145)) ([761e7c5](https://github.com/getmilpa/app-runtime/commit/761e7c516b480bb3f7d729f6984087de9ff061e9))
+
 ## [0.59.1](https://github.com/getmilpa/app-runtime/compare/v0.59.0...v0.59.1) (2026-08-24)
 
 
