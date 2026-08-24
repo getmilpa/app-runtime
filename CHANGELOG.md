@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.59.1](https://github.com/getmilpa/app-runtime/compare/v0.59.0...v0.59.1) (2026-08-24)
+
+
+### Bug Fixes
+
+* **board:** the board column follows the card's derived doing/done status, not a positional guess ([#143](https://github.com/getmilpa/app-runtime/issues/143)) ([dc17b3f](https://github.com/getmilpa/app-runtime/commit/dc17b3ffc2623db9e1929e5a81d2e2b34bb95e5b))
+
 ## [0.59.0](https://github.com/getmilpa/app-runtime/compare/v0.58.0...v0.59.0) (2026-08-24)
 
 
