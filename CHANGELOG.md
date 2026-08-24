@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.64.1](https://github.com/getmilpa/app-runtime/compare/v0.64.0...v0.64.1) (2026-08-24)
+
+
+### Bug Fixes
+
+* **chat:** surfaces compose into a fan-out, they do not collide on the channel ([#155](https://github.com/getmilpa/app-runtime/issues/155)) ([60f2ec3](https://github.com/getmilpa/app-runtime/commit/60f2ec36df72087564953268b6cd193b4857c3eb))
+
 ## [0.64.0](https://github.com/getmilpa/app-runtime/compare/v0.63.0...v0.64.0) (2026-08-24)
 
 
