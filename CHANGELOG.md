@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.63.0](https://github.com/getmilpa/app-runtime/compare/v0.62.0...v0.63.0) (2026-08-24)
+
+
+### Features
+
+* **realtime:** a browser-live WebSocket transport — a different live protocol, still by config ([#151](https://github.com/getmilpa/app-runtime/issues/151)) ([a20b184](https://github.com/getmilpa/app-runtime/commit/a20b1849154a4586acbd2a3e2ef7f07d3657663f))
+
 ## [0.62.0](https://github.com/getmilpa/app-runtime/compare/v0.61.0...v0.62.0) (2026-08-24)
 
 
