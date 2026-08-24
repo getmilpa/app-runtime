@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.62.0](https://github.com/getmilpa/app-runtime/compare/v0.61.0...v0.62.0) (2026-08-24)
+
+
+### Features
+
+* **realtime:** a second transport proves RealtimeStreamFactory is a primitive, not Mercure in disguise ([#149](https://github.com/getmilpa/app-runtime/issues/149)) ([38cd204](https://github.com/getmilpa/app-runtime/commit/38cd2048daffd6e9882abcc39f4345aaa3f05018))
+
 ## [0.61.0](https://github.com/getmilpa/app-runtime/compare/v0.60.0...v0.61.0) (2026-08-24)
 
 
