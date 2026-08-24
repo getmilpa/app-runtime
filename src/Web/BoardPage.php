@@ -255,26 +255,33 @@ memory and travels only in the request header.</p>
         return;
     }
 
-    const source = new EventSource(subscribeUrl);
-    source.onopen = function () {
-        status.textContent = 'live';
-        // Whatever happened while disconnected is already in the fold — refetching IS catching up.
-        scheduleRepaint();
-    };
-    source.onerror = function () {
-        // EventSource reconnects by itself; the surface's duty is to stop wearing a live face.
-        status.textContent = 'reconnecting — the board may be behind';
-    };
-    source.onmessage = function (message) {
+    // The board is transport-agnostic on the SERVER (greenhouse evidence/0291); the browser must still
+    // speak the transport's own subscribe protocol. SSE (http hub) and WebSocket (ws) are two client
+    // shapes for one stream, chosen here by the URL scheme the config declared. Both feed one handler.
+    function onFact(dataString) {
         let event = null;
-        try { event = JSON.parse(message.data); } catch (e) { return; }
+        try { event = JSON.parse(dataString); } catch (e) { return; }
         const line = MilpaBoard.paintActivity(event);
         if (line !== null) {
             // textContent, never innerHTML: the activity line carries model-written text.
             status.textContent = line;
         }
         scheduleRepaint();
-    };
+    }
+
+    if (subscribeUrl.slice(0, 3) === 'ws:' || subscribeUrl.slice(0, 4) === 'wss:') {
+        const socket = new WebSocket(subscribeUrl);
+        // Whatever happened while disconnected is already in the fold — refetching IS catching up.
+        socket.onopen = function () { status.textContent = 'live'; scheduleRepaint(); };
+        socket.onclose = function () { status.textContent = 'reconnecting — the board may be behind'; };
+        socket.onmessage = function (message) { onFact(message.data); };
+    } else {
+        const source = new EventSource(subscribeUrl);
+        source.onopen = function () { status.textContent = 'live'; scheduleRepaint(); };
+        // EventSource reconnects by itself; the surface's duty is to stop wearing a live face.
+        source.onerror = function () { status.textContent = 'reconnecting — the board may be behind'; };
+        source.onmessage = function (message) { onFact(message.data); };
+    }
 })();
 </script>
 </body>

@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Agent;
 
 use Milpa\AppRuntime\Agent\LogBroadcaster;
+use Milpa\AppRuntime\Agent\WebsocketBroadcaster;
 use Milpa\AppRuntime\Agent\RealtimeStreamFactory;
 use Milpa\AppRuntime\Agent\SurfaceBroadcaster;
 use PHPUnit\Framework\TestCase;
@@ -49,6 +50,22 @@ final class RealtimeStreamFactoryTest extends TestCase
         $b->broadcast('milpa/sessions/s1', ['kind' => 'card', 'card' => ['id' => 'turn:2']]);
         self::assertStringContainsString('"topic":"milpa/sessions/s1"', (string) file_get_contents($tmp), 'the fact was carried');
         @unlink($tmp);
+    }
+
+    public function testABrowserLiveTransportWithADifferentProtocolAlsoSlotsIn(): void
+    {
+        // greenhouse evidence/0291: a transport different in LIVE PROTOCOL (WebSocket, not SSE) is still
+        // one factory arm and one class — the server-side broadcast path never learns the protocol.
+        $b = RealtimeStreamFactory::fromConfig([
+            'transport' => 'websocket',
+            'publish' => 'http://localhost:4000/publish',
+            'public' => 'ws://localhost:4000',
+        ]);
+
+        self::assertInstanceOf(WebsocketBroadcaster::class, $b);
+        self::assertSame('ws://localhost:4000', RealtimeStreamFactory::publicUrlFromConfig([
+            'transport' => 'websocket', 'publish' => 'http://localhost:4000/publish', 'public' => 'ws://localhost:4000',
+        ]), 'the page subscribes to the ws:// URL');
     }
 
     public function testAnUnknownOrIncompleteTransportBuildsNothing(): void
