@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.65.0](https://github.com/getmilpa/app-runtime/compare/v0.64.1...v0.65.0) (2026-08-24)
+
+
+### Features
+
+* **board:** the agent board as one Live component rendered to two hosts ([#157](https://github.com/getmilpa/app-runtime/issues/157)) ([ffaf5eb](https://github.com/getmilpa/app-runtime/commit/ffaf5eb867e1fe02ffc9313f02efb993241a9dd8))
+
 ## [0.64.1](https://github.com/getmilpa/app-runtime/compare/v0.64.0...v0.64.1) (2026-08-24)
 
 
