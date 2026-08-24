@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Console;
 
 use Milpa\AppRuntime\Config\MachineOverlay;
 use Milpa\AppRuntime\Agent\SurfaceBroadcaster;
+use Milpa\AppRuntime\Agent\SurfaceComposition;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\DevTools\Doctor\Repair;
 use Milpa\Command\CommandProvider;
@@ -414,25 +415,18 @@ final class Application
             // as it finds a `SurfaceBroadcaster` in the container. No new channel — it is the same
             // bridge a web page learns from.
             //
-            // AND FOR THAT VERY REASON IT NEVER REGISTERS ALONE. The bridge takes the first
-            // broadcaster it finds, so the bare screen DISPLACED the hub: with a chat open, the web
-            // board stood still wearing a «live» face until somebody reloaded — found by a human
-            // watching the browser, not by a suite. The screen and the hub are audiences of the
-            // same fact, not rivals for the channel.
+            // AND FOR THAT VERY REASON IT NEVER REGISTERS ALONE. The screen and whatever transport
+            // the app declared (a Surface registers one from config during boot) are audiences of
+            // the same fact, not rivals for the channel: {@see SurfaceComposition} fans them out and
+            // says so, instead of the bare screen displacing the transport — or colliding with it,
+            // which is what a real `coa chat` with `transport: websocket` did (greenhouse evidence/0294).
             //
             // It goes BEFORE running: the store is built on the first question, and a broadcaster
             // registered later would be late to its own session.
-            $audiences = [$chat];
-            $hub = $this->kernel()->container()->has('Milpa\\Mercure\\MercureService')
-                ? $this->kernel()->container()->get('Milpa\\Mercure\\MercureService')
-                : null;
-            if (\is_object($hub) && method_exists($hub, 'publish')) {
-                $audiences[] = new \Milpa\AppRuntime\Agent\MercureBroadcaster($hub);
+            $contenedor = $this->kernel()->container();
+            if ($contenedor instanceof \Milpa\Container\DIContainer) {
+                SurfaceComposition::compose($contenedor, $chat);
             }
-            $this->kernel()->container()->registerService(
-                SurfaceBroadcaster::class,
-                \count($audiences) === 1 ? $chat : new \Milpa\AppRuntime\Agent\FanOutBroadcaster($audiences),
-            );
 
             return $this->pantalla($chat);
         }
