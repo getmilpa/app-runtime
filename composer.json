@@ -35,6 +35,7 @@
     "milpa/data": ">=0.2.2 <1.0",
     "milpa/devtools": ">=0.14 <1.0",
     "milpa/event-store": ">=0.3 <1.0",
+    "milpa/mercure": "*",
     "phpstan/phpdoc-parser": "^2.3",
     "phpstan/phpstan": "^2.1",
     "phpunit/phpunit": "^11.5"
