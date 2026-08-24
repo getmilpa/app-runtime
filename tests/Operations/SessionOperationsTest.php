@@ -723,6 +723,44 @@ final class SessionOperationsTest extends TestCase
      * En el momento en que esto guardara su propia copia de en qué columna va una tarjeta habría dos
      * sitios que contestan «¿en qué va esto?», y divergirían. La única pregunta sería cuándo.
      */
+    public function testTheBoardShowsTheAgentsWorkAsTurnCardsWithZeroTodos(): void
+    {
+        // greenhouse evidence/0286: the board folds the stream into one card per assistant turn, so it
+        // shows real work even when the agent never called todo. Several tool calls in a turn are one
+        // card; a live session's current turn is in progress.
+        $almacen = $this->almacen();
+        $almacen->start('j', 'la tarea');
+        $almacen->recordTurn('j', 'assistant', 'voy');
+        foreach (['plugins_list', 'plugins_show', 'plugins_verify'] as $t) {
+            $almacen->recordToolCall('j', $t, [], 'ok');
+        }
+
+        $r = $this->llamar('agent:board', ['session' => 'j']);
+
+        self::assertTrue($r['ok']);
+        $enCurso = $r['columns']['in_progress'];
+        self::assertCount(1, $enCurso, 'three tool calls in one turn are ONE card, not three');
+        self::assertSame('turn', $enCurso[0]['origin']);
+        self::assertStringContainsString('plugins_list', $enCurso[0]['text'], 'the card cites the work the stream recorded');
+        self::assertFalse($enCurso[0]['mutated'], 'a turn of reads did not touch the world');
+        self::assertSame([], $r['columns']['pending'], 'and the agent never called todo');
+    }
+
+    public function testATurnThatRanAGovernedOperationReadsAsMutated(): void
+    {
+        $almacen = $this->almacen();
+        $almacen->start('j', 'x');
+        $almacen->recordTurn('j', 'assistant', 'voy');
+        $almacen->recordToolCall('j', 'edit', ['path' => 'a.php'], 'ok', true, true);
+        $almacen->recordExecution('j', 'plugins:register', null, 'agent', null, 'd1');
+
+        $r = $this->llamar('agent:board', ['session' => 'j']);
+
+        $enCurso = $r['columns']['in_progress'];
+        self::assertCount(1, $enCurso);
+        self::assertTrue($enCurso[0]['mutated'], 'a governed operation ran: this turn touched the world');
+    }
+
     public function testTheBoardIsTheFoldOfTheStreamAndNotAStore(): void
     {
         $almacen = $this->almacen();
