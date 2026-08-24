@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.61.0](https://github.com/getmilpa/app-runtime/compare/v0.60.0...v0.61.0) (2026-08-24)
+
+
+### Features
+
+* **realtime:** a realtime Surface gets its SurfaceBroadcaster by configuration, not by editing boot.php ([#147](https://github.com/getmilpa/app-runtime/issues/147)) ([6891120](https://github.com/getmilpa/app-runtime/commit/68911202934d465ca20a202fd3526a85e0ff68ff))
+
 ## [0.60.0](https://github.com/getmilpa/app-runtime/compare/v0.59.1...v0.60.0) (2026-08-24)
 
 
