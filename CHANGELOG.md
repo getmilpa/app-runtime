@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.59.0](https://github.com/getmilpa/app-runtime/compare/v0.58.0...v0.59.0) (2026-08-24)
+
+
+### Features
+
+* **board:** the human board shows the agent's real work as per-turn cards, not only its todos ([#141](https://github.com/getmilpa/app-runtime/issues/141)) ([f4c65fa](https://github.com/getmilpa/app-runtime/commit/f4c65fabe8f163b1cb4c242d8ca7dc425441538f))
+
 ## [0.58.0](https://github.com/getmilpa/app-runtime/compare/v0.57.0...v0.58.0) (2026-08-22)
 
 
