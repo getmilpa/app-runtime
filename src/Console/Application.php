@@ -408,6 +408,18 @@ final class Application
                 preguntaDeHijo: $this->preguntaDeHijoPausado(...),
                 contestarHijo: $this->contestarAlHijo(...),
                 contraofertar: $this->contraofertarEnElChat(...),
+                // The board region in the chat, from the ONE Live component (greenhouse evidence/0297):
+                // hand the screen a closure that folds the CURRENT session via agent:board each frame,
+                // so it follows the stream — the same fold the web host renders.
+                tablero: function (): array {
+                    foreach ((new \Milpa\AppRuntime\Operations\SessionOperations($this->kernel()->container()))->operations() as $op) {
+                        if ($op->name === 'agent:board') {
+                            return ($op->handler)(['session' => $this->sesionDelChatId]);
+                        }
+                    }
+
+                    return ['ok' => false, 'error' => 'no board'];
+                },
             );
 
             // THE SCREEN REGISTERS AS A SURFACE, which is how it receives what the agent does while
