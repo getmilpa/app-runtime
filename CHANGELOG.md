@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.66.0](https://github.com/getmilpa/app-runtime/compare/v0.65.0...v0.66.0) (2026-08-24)
+
+
+### Features
+
+* **board:** the web host serves the board from the one Live component ([#159](https://github.com/getmilpa/app-runtime/issues/159)) ([0866cff](https://github.com/getmilpa/app-runtime/commit/0866cff3ec0dfcb499fce670220ee8e0b56f82fb))
+
 ## [0.65.0](https://github.com/getmilpa/app-runtime/compare/v0.64.1...v0.65.0) (2026-08-24)
 
 
