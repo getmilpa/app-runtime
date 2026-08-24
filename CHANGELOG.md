@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.67.0](https://github.com/getmilpa/app-runtime/compare/v0.66.0...v0.67.0) (2026-08-24)
+
+
+### Features
+
+* **chat:** the board lives in the chat, painted by the one Live component ([#161](https://github.com/getmilpa/app-runtime/issues/161)) ([ad7a74c](https://github.com/getmilpa/app-runtime/commit/ad7a74ce04fbfb3ce6cb383bfb64223e959db6b5))
+
 ## [0.66.0](https://github.com/getmilpa/app-runtime/compare/v0.65.0...v0.66.0) (2026-08-24)
 
 
