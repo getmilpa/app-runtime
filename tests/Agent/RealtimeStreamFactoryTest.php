@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tests\Agent;
 
+use Milpa\AppRuntime\Agent\LogBroadcaster;
 use Milpa\AppRuntime\Agent\RealtimeStreamFactory;
 use Milpa\AppRuntime\Agent\SurfaceBroadcaster;
 use PHPUnit\Framework\TestCase;
@@ -35,6 +36,19 @@ final class RealtimeStreamFactoryTest extends TestCase
         ]);
 
         self::assertInstanceOf(SurfaceBroadcaster::class, $b, 'a declared mercure stream becomes the neutral contract');
+    }
+
+    public function testASecondTransportSlotsInAsOneFactoryArm(): void
+    {
+        // greenhouse evidence/0290: the strong control. A transport different in kind — a log, no hub —
+        // is built by the same factory the same way; a surface never sees the difference.
+        $tmp = sys_get_temp_dir() . '/rt-' . bin2hex(random_bytes(3)) . '.log';
+        $b = RealtimeStreamFactory::fromConfig(['transport' => 'log', 'path' => $tmp]);
+
+        self::assertInstanceOf(LogBroadcaster::class, $b, 'a declared log stream becomes the neutral contract too');
+        $b->broadcast('milpa/sessions/s1', ['kind' => 'card', 'card' => ['id' => 'turn:2']]);
+        self::assertStringContainsString('"topic":"milpa/sessions/s1"', (string) file_get_contents($tmp), 'the fact was carried');
+        @unlink($tmp);
     }
 
     public function testAnUnknownOrIncompleteTransportBuildsNothing(): void

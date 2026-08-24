@@ -38,6 +38,15 @@ final class RealtimeStreamFactory
     {
         $transport = \is_string($config['transport'] ?? null) ? $config['transport'] : '';
 
+        // A second transport, different in kind (greenhouse evidence/0290): a new arm here and its
+        // broadcaster class are all it takes — no surface, agent, or BoardPlugin changes. That is what
+        // makes this a primitive rather than a MercureBroadcaster wearing a config.
+        if ($transport === 'log') {
+            $path = \is_string($config['path'] ?? null) ? $config['path'] : '';
+
+            return $path === '' ? null : new LogBroadcaster($path);
+        }
+
         if ($transport === 'mercure' && class_exists('Milpa\\Mercure\\MercureService')) {
             $hub = \is_string($config['hub'] ?? null) ? $config['hub'] : '';
             $public = \is_string($config['public'] ?? null) ? $config['public'] : $hub;
