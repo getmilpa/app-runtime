@@ -34,6 +34,21 @@ final class GovernedSequenceRunner
             }
             try {
                 $result = $executor->callTool($step->operation, $step->arguments);
+                if ($this->isConsentFrontier($result)) {
+                    // FAIL-CLOSED at the OTHER frontier shape: `GovernedExecutor::callTool` did not
+                    // throw, it RETURNED a requires_confirmation/confirm_token sentinel — the
+                    // tool-runtime token gate (reachable in AutonomyMode Auto/Acknowledge, a
+                    // confirming channel, or a non-Operation tool). Recording this as Executed and
+                    // continuing is exactly the forbidden `A✓ B(needs consent)✓ C✓`: it silently
+                    // downgrades a frontier to success and starts steps a human never cleared
+                    // (greenhouse decisions/0074, falsifier #1). Treat it exactly like the thrown
+                    // frontier below: paused, stopped, nothing after it starts.
+                    /** @var array<string, mixed> $result */
+                    $message = \is_string($result['message'] ?? null) ? $result['message'] : 'requires confirmation';
+                    $outcomes[] = new StepOutcome($step, StepStatus::Paused, $result, $message);
+                    $stopped = true;
+                    continue;
+                }
                 $outcomes[] = new StepOutcome($step, StepStatus::Executed, $result);
             } catch (\Milpa\AiGateway\ToolCallRefusedException $refused) {
                 // FAIL-CLOSED at the exact frontier an individual call would stop at: the refused
@@ -56,5 +71,23 @@ final class GovernedSequenceRunner
         }
 
         return new SequenceResult($outcomes);
+    }
+
+    /**
+     * The OTHER consent frontier: `GovernedExecutor::callTool` (ConsentBridge) does not always
+     * signal it by throwing. When the session gate itself returns Allow — AutonomyMode Auto or
+     * Acknowledge, a channel whose policy demands confirmation for mutating ops, or a registered
+     * tool that is not an app Operation — the tool-runtime token gate answers with a plain,
+     * non-throwing return: `['requires_confirmation' => true, 'confirm_token' => '...', ...]`
+     * (see ConsentBridge::callTool, the branch that returns the pending result untouched when no
+     * grant covers the call). A caller that only watches for the throw sees that return as an
+     * ordinary success and keeps going.
+     *
+     * DOMAIN-BLIND ON PURPOSE: this looks at the SHAPE of the result, never at which operation
+     * produced it. Any executor's return carrying this shape is a frontier, whatever it is named.
+     */
+    private function isConsentFrontier(mixed $result): bool
+    {
+        return \is_array($result) && ($result['requires_confirmation'] ?? false) === true;
     }
 }

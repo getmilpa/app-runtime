@@ -70,6 +70,77 @@ final class GovernedSequenceRunnerTest extends TestCase
         self::assertSame(\Milpa\AppRuntime\Agent\StepStatus::NotStarted, $result->outcomes[2]->status);
     }
 
+    public function testItStopsAtAReturnedConsentFrontierWithoutThrowing(): void
+    {
+        // ConsentBridge signals a consent frontier TWO ways: a thrown ToolCallRefusedException
+        // (the session gate, covered above) and a non-throwing RETURN of a
+        // requires_confirmation/confirm_token sentinel (the tool-runtime token gate, reachable in
+        // AutonomyMode Auto/Acknowledge, a confirming channel, or a non-Operation tool). This must
+        // be treated exactly like the thrown frontier: Paused, stop, nothing after it starts.
+        $seen = [];
+        $executor = new class ($seen) implements GovernedExecutor {
+            /** @param list<string> $seen */
+            public function __construct(public array &$seen)
+            {
+            }
+            public function callTool(string $operation, array $arguments): mixed
+            {
+                $this->seen[] = $operation;
+                if ($operation === 'b') {
+                    return ['requires_confirmation' => true, 'confirm_token' => 'tok'];
+                }
+                return ['ok' => true];
+            }
+        };
+
+        $result = (new GovernedSequenceRunner())->run([
+            new SequenceStep('a', []),
+            new SequenceStep('b', []),
+            new SequenceStep('c', []),
+        ], $executor);
+
+        self::assertSame(['a', 'b'], $executor->seen, 'c must never be attempted after b returns the token-gate frontier');
+        self::assertFalse($result->completed());
+        self::assertSame(1, $result->executedCount());
+        self::assertSame(StepStatus::Executed, $result->outcomes[0]->status);
+        self::assertSame(StepStatus::Paused, $result->outcomes[1]->status, 'a non-throwing requires_confirmation return is a frontier too');
+        self::assertSame('requires confirmation', $result->outcomes[1]->reason);
+        self::assertSame(StepStatus::NotStarted, $result->outcomes[2]->status);
+    }
+
+    public function testItUsesTheSentinelsMessageAsTheReasonWhenPresent(): void
+    {
+        $executor = new class () implements GovernedExecutor {
+            public function callTool(string $operation, array $arguments): mixed
+            {
+                return ['requires_confirmation' => true, 'confirm_token' => 'tok', 'message' => 'confirm the telegram send'];
+            }
+        };
+
+        $result = (new GovernedSequenceRunner())->run([
+            new SequenceStep('a', []),
+        ], $executor);
+
+        self::assertSame(StepStatus::Paused, $result->outcomes[0]->status);
+        self::assertSame('confirm the telegram send', $result->outcomes[0]->reason);
+    }
+
+    public function testEmptySequenceIsVacuouslyCompleteAndTouchesNoExecutor(): void
+    {
+        $executor = new class () implements GovernedExecutor {
+            public function callTool(string $operation, array $arguments): mixed
+            {
+                throw new \LogicException('an empty sequence must never call the executor');
+            }
+        };
+
+        $result = (new GovernedSequenceRunner())->run([], $executor);
+
+        self::assertTrue($result->completed());
+        self::assertSame(0, $result->executedCount());
+        self::assertSame([], $result->outcomes);
+    }
+
     public function testANonRefusalFailureStopsTheSequenceOrderedNotAtomic(): void
     {
         $seen = [];
