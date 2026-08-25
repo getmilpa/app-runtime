@@ -1205,13 +1205,13 @@ class AgentOperations implements CommandProvider
         ?ToolCallRecorder $recorder = null,
         ?PlanBoard $tablero = null,
     ): string {
-        $modeloRemoto = new LlmService(
+        $argumentos = [
             $llave,
             $modelo,
             $proveedor,
             new NullLogger(),
-            baseUrl: $this->baseUrl(),
-            extraHeaders: $this->extraHeaders(),
+            'baseUrl' => $this->baseUrl(),
+            'extraHeaders' => $this->extraHeaders(),
             // LA ENTRADA DEL AGENTE, GRABADA DONDE SE SERIALIZA.
             //
             // Sin este cable el stream sigue guardando sólo lo que el agente HIZO, y `agent:observe`
@@ -1220,8 +1220,25 @@ class AgentOperations implements CommandProvider
             //
             // Sólo cuando hay sesión: una corrida sin sesión no tiene dónde apendar, y grabar en
             // ningún lado con tal de grabar sería peor que no grabar.
-            channelObserver: $this->observadorDeEntrada(),
-        );
+            'channelObserver' => $this->observadorDeEntrada(),
+        ];
+
+        // EL PULSO SÓLO SI EL LlmService LO ADMITE — degradar, no romper.
+        //
+        // `onStreamChunk` nació en una versión posterior de `milpa/ai-gateway`; pasarlo como
+        // argumento con nombre a un constructor que no lo declara es un fatal, aunque el valor sea
+        // null. Y ai-gateway es una capacidad OPCIONAL: esta app no puede fijar su versión. Así que
+        // se le pregunta al constructor si lo acepta —una app con el ai-gateway viejo corre igual,
+        // sin streaming; con el nuevo, el spinner late por chunk (greenhouse evidence/0307)—.
+        if ($this->llmServiceAdmiteStreaming()) {
+            // EL PULSO DEL MODELO, HONESTO. Con una superficie viva, late por cada trozo REAL que el
+            // modelo escribe, para que su spinner avance por hecho —no por reloj— mientras el modelo
+            // tiene la palabra. Sin superficie —un `coa agent` de script— `progresoDelModelo()`
+            // devuelve null y el camino queda sin streaming, byte por byte como antes.
+            $argumentos['onStreamChunk'] = $this->progresoDelModelo();
+        }
+
+        $modeloRemoto = new LlmService(...$argumentos);
         $cliente = new ConsentBridge(
             $registry,
             $this->grantsDeLaSesion(),
@@ -1996,6 +2013,64 @@ class AgentOperations implements CommandProvider
         $superficie = $this->broadcaster();
 
         return $superficie === null ? $eventos : new BroadcastingEventStore($eventos, $superficie);
+    }
+
+    /**
+     * EL PULSO DEL MODELO — el cable que el LlmService late por cada trozo REAL que llega.
+     *
+     * Con una superficie viva (la TUI registrada como `SurfaceBroadcaster`), devuelve un closure que
+     * le empuja un hecho `activity` por chunk: la pantalla avanza un cuadro del spinner por evento,
+     * no por reloj (greenhouse evidence/0307, promesa `tui-says-what-it-is-doing`). *Si el modelo se
+     * cuelga y no llega ningún trozo, no late — que es exactamente lo honesto.* Sin superficie —un
+     * `coa agent` de script, sin humano mirando— devuelve null y el LlmService no streamea.
+     *
+     * Se throttlea a ~12 fps: a ~65 tokens/s un repintado por token es trabajo de más sin cuadro
+     * nuevo que se note. El primer trozo SIEMPRE late (saca el estado del «preguntando…» inicial).
+     *
+     * @return (\Closure(string): void)|null
+     */
+    /**
+     * ¿El `LlmService` instalado admite el pulso por chunk? `onStreamChunk` llegó en una versión
+     * posterior de `milpa/ai-gateway` —una capacidad opcional cuya versión esta app no fija—, así
+     * que se lee el constructor real: si declara el parámetro, se cablea el streaming; si no, la app
+     * corre sin él en vez de reventar (born-green, degradar no romper).
+     */
+    private function llmServiceAdmiteStreaming(): bool
+    {
+        $constructor = (new \ReflectionClass(LlmService::class))->getConstructor();
+        if ($constructor === null) {
+            return false;
+        }
+
+        foreach ($constructor->getParameters() as $parametro) {
+            if ($parametro->getName() === 'onStreamChunk') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function progresoDelModelo(): ?\Closure
+    {
+        $superficie = $this->broadcaster();
+        if ($superficie === null) {
+            return null;
+        }
+
+        $ultimo = 0.0;
+
+        return static function (string $pieza) use ($superficie, &$ultimo): void {
+            $ahora = microtime(true);
+            if ($ahora - $ultimo < 0.08) {
+                return;
+            }
+            $ultimo = $ahora;
+            $superficie->broadcast('progress', [
+                'kind' => 'activity',
+                'activity' => ['state' => 'thinking'],
+            ]);
+        };
     }
 
     /** A quién se le empuja, si hay alguien. */

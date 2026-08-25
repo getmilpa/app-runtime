@@ -1321,6 +1321,68 @@ final class AgentScreenTest extends TestCase
         self::assertStringContainsString('DONE', $salida, 'and the column heading with it');
     }
 
+    /**
+     * REGRESIÓN (greenhouse evidence/0307): con un board presente Y una respuesta más alta que el
+     * viewport, la barra de entrada desaparecía. El presupuesto del transcript restaba `count($hijos)`
+     * —un nodo por cabecera— pero el nodo `tablero` pinta `heightFor` filas (aquí 14, no 1), así que
+     * sobre-asignaba el transcript y el motor recortaba a alto 0 la barra de entrada y el pie. El
+     * humano quedaba sin poder teclear el siguiente turno. El chrome se CUENTA, no se adivina — y la
+     * cabecera es chrome también.
+     */
+    public function testTheInputBarSurvivesABoardPlusATallAnswer(): void
+    {
+        $sesion = new Session(
+            id: 's1',
+            goal: 'inspecciona los plugins',
+            turns: [['role' => 'user', 'content' => 'hola', 'seq' => 1]],
+        );
+        $fold = ['ok' => true, 'session' => 's1', 'columns' => [
+            'in_progress' => [
+                ['id' => 'turn:1', 'text' => 'plugins_list', 'origin' => 'turn'],
+                ['id' => 'turn:2', 'text' => 'plugins_deps', 'origin' => 'turn'],
+                ['id' => 'turn:3', 'text' => 'plugins_show', 'origin' => 'turn'],
+            ],
+            'done' => [
+                ['id' => 'turn:4', 'text' => 'plugins_verify', 'origin' => 'turn'],
+                ['id' => 'turn:5', 'text' => 'plugins_architecture', 'origin' => 'turn'],
+                ['id' => 'turn:6', 'text' => 'config', 'origin' => 'turn'],
+                ['id' => 'turn:7', 'text' => 'plugins_list', 'origin' => 'turn'],
+            ],
+        ]];
+
+        $pantalla = new AgentScreen(
+            static fn (string $q): array => [
+                'ok' => true,
+                'answer' => implode("\n", array_fill(0, 80, 'renglon de una respuesta muy larga')),
+                'steps' => 2,
+                'tools' => 30,
+            ],
+            static fn (): Session => $sesion,
+            null,
+            74,
+            55,
+            false,
+            tablero: static fn (): array => $fold,
+        );
+
+        $this->teclear($pantalla, 'lee la configuracion del agente');
+        $pantalla->press('enter');
+
+        $pintado = preg_replace('/\e\[[0-9;]*m/', '', $pantalla->render()) ?? '';
+
+        self::assertStringContainsString(
+            '[Ctrl-C] salir',
+            $pintado,
+            'la barra de ayuda (el pie) debe seguir en pantalla tras una respuesta larga con board',
+        );
+        self::assertStringContainsString(
+            'escribe tu pregunta',
+            $pintado,
+            'el campo de entrada debe seguir visible: sin el, el humano no puede teclear el siguiente turno',
+        );
+    }
+
+
     public function testWithoutABoardClosureTheChatIsUnchanged(): void
     {
         $sesion = new Session(id: 's1', goal: 'x', turns: [['role' => 'user', 'content' => 'hola', 'seq' => 1]]);

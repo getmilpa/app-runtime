@@ -207,4 +207,65 @@ final class AgentOperationsTest extends TestCase
         self::assertArrayHasKey('withSession', $r, 'y se dice qué agregaría una');
         self::assertNotSame([], $r['withSession']['tools'] ?? [], 'nombrándolas, no contándolas nada más');
     }
+
+    /**
+     * EL PULSO DEL MODELO (greenhouse evidence/0307): sin superficie viva no hay a quién empujar,
+     * así que no se streamea; con una superficie, cada trozo real late un hecho `activity` para que
+     * el spinner avance por evento, y se throttlea para no repintar por token.
+     */
+    public function testTheModelPulseFiresActivityOnlyWithALiveSurfaceAndIsThrottled(): void
+    {
+        $sinSuperficie = new AgentOperations(new DIContainer());
+        $metodo = new \ReflectionMethod(AgentOperations::class, 'progresoDelModelo');
+        $metodo->setAccessible(true);
+        self::assertNull($metodo->invoke($sinSuperficie), 'sin SurfaceBroadcaster, no hay pulso (ni streaming)');
+
+        $superficie = new class () implements \Milpa\AppRuntime\Agent\SurfaceBroadcaster {
+            /** @var list<array{topic: string, payload: array<string, mixed>}> */
+            public array $empujes = [];
+
+            public function broadcast(string $topic, array $payload): void
+            {
+                $this->empujes[] = ['topic' => $topic, 'payload' => $payload];
+            }
+        };
+        $contenedor = new DIContainer();
+        $contenedor->registerService(\Milpa\AppRuntime\Agent\SurfaceBroadcaster::class, $superficie);
+        $pulso = $metodo->invoke(new AgentOperations($contenedor));
+
+        self::assertInstanceOf(\Closure::class, $pulso);
+
+        $pulso('primer trozo');
+        $pulso('segundo trozo, inmediato');   // dentro de la ventana de throttle: no debe empujar
+
+        self::assertCount(1, $superficie->empujes, 'el primer trozo late; el inmediato se throttlea');
+        self::assertSame('activity', $superficie->empujes[0]['payload']['kind'] ?? null);
+        self::assertSame('thinking', $superficie->empujes[0]['payload']['activity']['state'] ?? null);
+    }
+
+
+    /**
+     * LA GUARDA POR REFLEXIÓN (greenhouse evidence/0309): `onStreamChunk` es de una versión
+     * posterior de milpa/ai-gateway —capacidad opcional cuya versión esta app no fija—, así que la
+     * app pregunta al constructor real si lo admite. Con el ai-gateway viejo debe correr sin
+     * streaming (degradar), con el nuevo cablearlo — nunca reventar por pasar un arg que no existe.
+     * La aserción es versión-agnóstica: concuerda con lo que el constructor REALMENTE declara.
+     */
+    public function testStreamingIsWiredOnlyWhenTheInstalledLlmServiceDeclaresIt(): void
+    {
+        $metodo = new \ReflectionMethod(AgentOperations::class, 'llmServiceAdmiteStreaming');
+        $metodo->setAccessible(true);
+        $resultado = $metodo->invoke(new AgentOperations(new DIContainer()));
+
+        $declarado = false;
+        foreach ((new \ReflectionMethod(\Milpa\AiGateway\LlmService::class, '__construct'))->getParameters() as $parametro) {
+            if ($parametro->getName() === 'onStreamChunk') {
+                $declarado = true;
+                break;
+            }
+        }
+
+        self::assertSame($declarado, $resultado, 'la guarda debe seguir lo que el LlmService instalado realmente acepta');
+    }
+
 }
