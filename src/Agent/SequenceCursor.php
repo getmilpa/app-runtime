@@ -75,4 +75,38 @@ final readonly class SequenceCursor
 
         return \hash('sha256', \json_encode($encoded, \JSON_THROW_ON_ERROR));
     }
+
+    /**
+     * Rebuild a resumable cursor from a declaration and a nextIndex alone — PURE, no stream read,
+     * no agent dependency. This is what a caller builds from a rehydrated pause fact (its `steps`
+     * cast back to `SequenceStep[]`, its `nextIndex`) to hand to `GovernedSequenceRunner::resume`
+     * in another process: the digest is recomputed here from `$declaredSteps` (so `resume()`'s own
+     * re-hash against the caller-provided steps is the ONLY authority that decides whether the
+     * declaration still matches — property 4 across processes), and `$done` is built as
+     * `$nextIndex` PLACEHOLDER `Executed` outcomes rather than any content carried from the pause
+     * fact — `resume()`'s `drive()` never inspects `done`'s content, only `count($done)`, so a
+     * placeholder prefix is exactly as good as a real one for satisfying that guard.
+     *
+     * @param list<SequenceStep> $declaredSteps the FULL declared step list, exactly as originally run
+     *
+     * @throws \InvalidArgumentException when `$nextIndex` is negative or exceeds the declared step count
+     * @throws \JsonException            when `$declaredSteps` carries a non-JSON-encodable argument
+     *                                   (see `digestOf`)
+     */
+    public static function rehydrate(array $declaredSteps, int $nextIndex): self
+    {
+        if ($nextIndex < 0 || $nextIndex > \count($declaredSteps)) {
+            throw new \InvalidArgumentException(
+                "cannot rehydrate: nextIndex {$nextIndex} is out of range for " . \count($declaredSteps) . ' declared steps',
+            );
+        }
+
+        $digest = self::digestOf($declaredSteps);
+        $done = [];
+        for ($i = 0; $i < $nextIndex; $i++) {
+            $done[] = new StepOutcome($declaredSteps[$i], StepStatus::Executed);
+        }
+
+        return new self($digest, $nextIndex, $done);
+    }
 }
