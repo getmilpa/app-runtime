@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.72.0](https://github.com/getmilpa/app-runtime/compare/v0.71.0...v0.72.0) (2026-08-25)
+
+
+### Features
+
+* **agent:** rehydrate a sequence cursor from a persisted declaration ([#173](https://github.com/getmilpa/app-runtime/issues/173)) ([7040e5e](https://github.com/getmilpa/app-runtime/commit/7040e5ec92e1a777e0340ca6cbf97b044350f8e7))
+
 ## [0.71.0](https://github.com/getmilpa/app-runtime/compare/v0.70.0...v0.71.0) (2026-08-25)
 
 
