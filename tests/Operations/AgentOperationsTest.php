@@ -243,4 +243,29 @@ final class AgentOperationsTest extends TestCase
         self::assertSame('thinking', $superficie->empujes[0]['payload']['activity']['state'] ?? null);
     }
 
+
+    /**
+     * LA GUARDA POR REFLEXIÓN (greenhouse evidence/0309): `onStreamChunk` es de una versión
+     * posterior de milpa/ai-gateway —capacidad opcional cuya versión esta app no fija—, así que la
+     * app pregunta al constructor real si lo admite. Con el ai-gateway viejo debe correr sin
+     * streaming (degradar), con el nuevo cablearlo — nunca reventar por pasar un arg que no existe.
+     * La aserción es versión-agnóstica: concuerda con lo que el constructor REALMENTE declara.
+     */
+    public function testStreamingIsWiredOnlyWhenTheInstalledLlmServiceDeclaresIt(): void
+    {
+        $metodo = new \ReflectionMethod(AgentOperations::class, 'llmServiceAdmiteStreaming');
+        $metodo->setAccessible(true);
+        $resultado = $metodo->invoke(new AgentOperations(new DIContainer()));
+
+        $declarado = false;
+        foreach ((new \ReflectionMethod(\Milpa\AiGateway\LlmService::class, '__construct'))->getParameters() as $parametro) {
+            if ($parametro->getName() === 'onStreamChunk') {
+                $declarado = true;
+                break;
+            }
+        }
+
+        self::assertSame($declarado, $resultado, 'la guarda debe seguir lo que el LlmService instalado realmente acepta');
+    }
+
 }

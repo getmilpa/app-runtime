@@ -1205,13 +1205,13 @@ class AgentOperations implements CommandProvider
         ?ToolCallRecorder $recorder = null,
         ?PlanBoard $tablero = null,
     ): string {
-        $modeloRemoto = new LlmService(
+        $argumentos = [
             $llave,
             $modelo,
             $proveedor,
             new NullLogger(),
-            baseUrl: $this->baseUrl(),
-            extraHeaders: $this->extraHeaders(),
+            'baseUrl' => $this->baseUrl(),
+            'extraHeaders' => $this->extraHeaders(),
             // LA ENTRADA DEL AGENTE, GRABADA DONDE SE SERIALIZA.
             //
             // Sin este cable el stream sigue guardando sólo lo que el agente HIZO, y `agent:observe`
@@ -1220,13 +1220,25 @@ class AgentOperations implements CommandProvider
             //
             // Sólo cuando hay sesión: una corrida sin sesión no tiene dónde apendar, y grabar en
             // ningún lado con tal de grabar sería peor que no grabar.
-            channelObserver: $this->observadorDeEntrada(),
+            'channelObserver' => $this->observadorDeEntrada(),
+        ];
+
+        // EL PULSO SÓLO SI EL LlmService LO ADMITE — degradar, no romper.
+        //
+        // `onStreamChunk` nació en una versión posterior de `milpa/ai-gateway`; pasarlo como
+        // argumento con nombre a un constructor que no lo declara es un fatal, aunque el valor sea
+        // null. Y ai-gateway es una capacidad OPCIONAL: esta app no puede fijar su versión. Así que
+        // se le pregunta al constructor si lo acepta —una app con el ai-gateway viejo corre igual,
+        // sin streaming; con el nuevo, el spinner late por chunk (greenhouse evidence/0307)—.
+        if ($this->llmServiceAdmiteStreaming()) {
             // EL PULSO DEL MODELO, HONESTO. Con una superficie viva, late por cada trozo REAL que el
             // modelo escribe, para que su spinner avance por hecho —no por reloj— mientras el modelo
-            // tiene la palabra (greenhouse evidence/0307). Sin superficie —un `coa agent` de script—
+            // tiene la palabra. Sin superficie —un `coa agent` de script— `progresoDelModelo()`
             // devuelve null y el camino queda sin streaming, byte por byte como antes.
-            onStreamChunk: $this->progresoDelModelo(),
-        );
+            $argumentos['onStreamChunk'] = $this->progresoDelModelo();
+        }
+
+        $modeloRemoto = new LlmService(...$argumentos);
         $cliente = new ConsentBridge(
             $registry,
             $this->grantsDeLaSesion(),
@@ -2017,6 +2029,28 @@ class AgentOperations implements CommandProvider
      *
      * @return (\Closure(string): void)|null
      */
+    /**
+     * ¿El `LlmService` instalado admite el pulso por chunk? `onStreamChunk` llegó en una versión
+     * posterior de `milpa/ai-gateway` —una capacidad opcional cuya versión esta app no fija—, así
+     * que se lee el constructor real: si declara el parámetro, se cablea el streaming; si no, la app
+     * corre sin él en vez de reventar (born-green, degradar no romper).
+     */
+    private function llmServiceAdmiteStreaming(): bool
+    {
+        $constructor = (new \ReflectionClass(LlmService::class))->getConstructor();
+        if ($constructor === null) {
+            return false;
+        }
+
+        foreach ($constructor->getParameters() as $parametro) {
+            if ($parametro->getName() === 'onStreamChunk') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function progresoDelModelo(): ?\Closure
     {
         $superficie = $this->broadcaster();
