@@ -20,7 +20,7 @@ final class GovernedExecutorSeamTest extends TestCase
 
     public function testAFakeCanStandInForTheExecutor(): void
     {
-        $fake = new class implements GovernedExecutor {
+        $fake = new class () implements GovernedExecutor {
             public function callTool(string $operation, array $arguments): mixed
             {
                 return ['ok' => true, 'echo' => $operation];
