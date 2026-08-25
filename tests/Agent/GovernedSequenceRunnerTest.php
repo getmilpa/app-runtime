@@ -69,4 +69,37 @@ final class GovernedSequenceRunnerTest extends TestCase
         self::assertSame('needs your authorization', $result->outcomes[1]->reason);
         self::assertSame(\Milpa\AppRuntime\Agent\StepStatus::NotStarted, $result->outcomes[2]->status);
     }
+
+    public function testANonRefusalFailureStopsTheSequenceOrderedNotAtomic(): void
+    {
+        $seen = [];
+        $executor = new class ($seen) implements GovernedExecutor {
+            /** @param list<string> $seen */
+            public function __construct(public array &$seen)
+            {
+            }
+            public function callTool(string $operation, array $arguments): mixed
+            {
+                $this->seen[] = $operation;
+                if ($operation === 'b') {
+                    throw new \RuntimeException('boom');
+                }
+                return ['ok' => true];
+            }
+        };
+
+        $result = (new GovernedSequenceRunner())->run([
+            new SequenceStep('a', []),
+            new SequenceStep('b', []),
+            new SequenceStep('c', []),
+        ], $executor);
+
+        self::assertSame(['a', 'b'], $executor->seen, 'c must never be attempted after b fails');
+        self::assertFalse($result->completed());
+        self::assertSame(1, $result->executedCount());
+        self::assertSame(StepStatus::Executed, $result->outcomes[0]->status);
+        self::assertSame(StepStatus::Failed, $result->outcomes[1]->status);
+        self::assertSame('boom', $result->outcomes[1]->reason);
+        self::assertSame(StepStatus::NotStarted, $result->outcomes[2]->status);
+    }
 }

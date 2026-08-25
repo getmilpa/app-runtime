@@ -38,7 +38,19 @@ final class GovernedSequenceRunner
             } catch (\Milpa\AiGateway\ToolCallRefusedException $refused) {
                 // FAIL-CLOSED at the exact frontier an individual call would stop at: the refused
                 // step is paused, nothing after it is started (greenhouse decisions/0074, falsifier #1).
+                //
+                // THIS CATCH MUST STAY FIRST. ToolCallRefusedException extends \RuntimeException, so
+                // the broad \Throwable catch below would swallow it as a plain failure if it came
+                // first — collapsing a gate's deliberate pause into an error nobody asked to happen.
                 $outcomes[] = new StepOutcome($step, StepStatus::Paused, null, $refused->getMessage());
+                $stopped = true;
+            } catch (\Throwable $failed) {
+                // ORDERED, NOT ATOMIC (greenhouse decisions/0074): a step that raised anything other
+                // than a refusal is a FAILURE, not a frontier — nobody is waiting on a human answer,
+                // something just broke. The prior Executed steps stay recorded exactly as they ran;
+                // there is no rollback. Domain-blind: any throwable stops the sequence the same way,
+                // whichever operation raised it.
+                $outcomes[] = new StepOutcome($step, StepStatus::Failed, null, $failed->getMessage());
                 $stopped = true;
             }
         }
