@@ -66,6 +66,14 @@ final class AgentScreen implements SurfaceBroadcaster
     private const PULSO = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
     /**
+     * Filas que el tablero necesita A SU ALREDEDOR para mostrarse sin comerse la barra de entrada:
+     * título, estado, separadores, y el chrome de abajo (separador · badge · barra · campo · pie).
+     * Si `alto < heightFor(tablero) + esto`, el tablero cede (greenhouse evidence/0307). Medido: un
+     * tablero de nueve filas coexiste con todo a partir de veinte filas de terminal.
+     */
+    private const FILAS_MINIMAS_JUNTO_AL_TABLERO = 11;
+
+    /**
      * Cuál de las tres afordancias está elegida cuando hay una pregunta abierta.
      *
      * `0` y `1` son las respuestas de una palabra que la operación ya declara; `2` es escribir la
@@ -1507,12 +1515,26 @@ final class AgentScreen implements SurfaceBroadcaster
         if ($sesion !== null && $this->tablero !== null) {
             $fold = ($this->tablero)();
             if (($fold['ok'] ?? false) === true && self::tieneTarjetas($fold)) {
-                $hijos[] = new TuiNode('tablero', 'component', props: [
-                    'component' => BoardComponent::CONTRACT_NAME,
-                    'props' => $fold,
-                    'height' => BoardTuiRenderer::heightFor($fold),
-                ]);
-                $hijos[] = new TuiNode('sep-tablero', 'text', props: ['text' => str_repeat('─', 40)]);
+                $alturaTablero = BoardTuiRenderer::heightFor($fold);
+
+                // EL TABLERO CEDE EN PANTALLA DIMINUTA — la barra de entrada no.
+                //
+                // El estado va antes que la conversación (P16.7), pero la BARRA DE ENTRADA va antes
+                // que todo: en una terminal chica se puede prescindir de VER el trabajo, nunca de
+                // PODER teclear el siguiente turno. Con el tablero, título, estado y el chrome de
+                // abajo (separador, badge, barra, campo, pie) el `SimpleTuiLayoutEngine` recortaba en
+                // silencio a alto 0 los últimos hijos —el campo y el pie— por debajo de ~18 filas
+                // (greenhouse evidence/0307, arista 2/2). Se muestra el tablero sólo si sobra sitio
+                // para él Y para lo esencial —mismo criterio que la M de la portada, que es lo primero
+                // que se sacrifica—. El umbral escala con el alto del tablero (más cartas, más filas).
+                if ($this->height >= $alturaTablero + self::FILAS_MINIMAS_JUNTO_AL_TABLERO) {
+                    $hijos[] = new TuiNode('tablero', 'component', props: [
+                        'component' => BoardComponent::CONTRACT_NAME,
+                        'props' => $fold,
+                        'height' => $alturaTablero,
+                    ]);
+                    $hijos[] = new TuiNode('sep-tablero', 'text', props: ['text' => str_repeat('─', 40)]);
+                }
             }
         }
 
