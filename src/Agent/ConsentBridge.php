@@ -56,7 +56,7 @@ use Milpa\ToolRuntime\ToolRegistry;
  *
  * @internal to app-runtime — surfaces get the projection, never this
  */
-final class ConsentBridge extends McpClientService
+final class ConsentBridge extends McpClientService implements GovernedExecutor
 {
     /** @var list<ConsentGrant> */
     private array $grants;
