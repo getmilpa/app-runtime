@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.70.0](https://github.com/getmilpa/app-runtime/compare/v0.69.1...v0.70.0) (2026-08-25)
+
+
+### Features
+
+* **agent:** GovernedSequenceRunner — a declared sequence through the one governed pipeline ([#169](https://github.com/getmilpa/app-runtime/issues/169)) ([4b4850d](https://github.com/getmilpa/app-runtime/commit/4b4850df3d87847a5cdb9d4a5d38857c5797e841))
+
 ## [0.69.1](https://github.com/getmilpa/app-runtime/compare/v0.69.0...v0.69.1) (2026-08-25)
 
 
