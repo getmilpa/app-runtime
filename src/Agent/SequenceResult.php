@@ -55,4 +55,30 @@ final readonly class SequenceResult
 
         return null;
     }
+
+    /**
+     * The resumable state of a paused run, or null when there is nothing to resume: the sequence
+     * either completed (every step Executed) or stopped at a Failed step, which a resume cannot
+     * repair. Only a Paused frontier — a consent frontier, not a broken step — yields a cursor:
+     * its index becomes `nextIndex`, and the Executed prefix before it is carried as `done` so
+     * `GovernedSequenceRunner::resume` never re-runs it (greenhouse decisions/0075, property 1).
+     *
+     * @param list<SequenceStep> $steps the FULL declared step list this result ran against
+     */
+    public function pausedCursor(array $steps): ?SequenceCursor
+    {
+        $done = [];
+        foreach ($this->outcomes as $index => $o) {
+            if ($o->status === StepStatus::Paused) {
+                return new SequenceCursor(SequenceCursor::digestOf($steps), $index, $done);
+            }
+            if ($o->status !== StepStatus::Executed) {
+                // NotStarted (behind a Failed step) or Failed itself — nothing a resume can do.
+                return null;
+            }
+            $done[] = $o;
+        }
+
+        return null;
+    }
 }

@@ -19,6 +19,11 @@ namespace Milpa\AppRuntime\Agent;
  * i.e. ConsentBridge): each step gets the same gate, consent, EffectProfile, authority and
  * execution facts as an individual call. It compresses the intent, never the governance. It is
  * domain-blind and recipe-blind. Ordered, NOT atomic (greenhouse decisions/0074, H-SEQUENCE-1).
+ *
+ * A run that pauses at a consent frontier can be RESUMED (`resume()`) from a `SequenceCursor`:
+ * the already-executed prefix is carried, never re-run, and the same fail-closed loop drives the
+ * rest through the same executor — a grant that covers the pending step never authorizes a later
+ * one (greenhouse decisions/0075, H-CONTINUITY-1).
  */
 final class GovernedSequenceRunner
 {
@@ -32,9 +37,69 @@ final class GovernedSequenceRunner
      */
     public function run(array $steps, GovernedExecutor $executor): SequenceResult
     {
-        $outcomes = [];
+        return $this->drive($steps, 0, [], $executor);
+    }
+
+    /**
+     * Resume a previously paused run from its cursor: the Executed prefix (`$cursor->done`) is
+     * carried untouched — indices before `$cursor->nextIndex` are NEVER passed to the executor
+     * again (greenhouse decisions/0075, property 1) — and the SAME fail-closed loop `run()` uses
+     * drives `$steps` forward from there, through the SAME `GovernedExecutor`. A later step that
+     * still needs consent pauses exactly as it would on a first pass: resuming the step the grant
+     * covers never authorizes the ones after it (property 5 holds by this per-step fail-closed,
+     * not by any new authority logic here).
+     *
+     * The declared step list is re-hashed and checked against the cursor's digest FIRST — a
+     * mutated sequence is rejected before the executor is ever touched (property 4). The cursor's
+     * OWN internal consistency is checked next: `count($cursor->done)` must equal
+     * `$cursor->nextIndex`, or `drive()` would silently start from the wrong offset — an
+     * inconsistent (or forged-by-count) prefix must never yield a truncated success dressed up as
+     * a real `SequenceResult`. `pausedCursor()` always produces a cursor where this holds; this
+     * guard is the trust boundary for any cursor that did NOT come straight from it (a mismatch
+     * here is a defect in the caller, or worse — see greenhouse evidence/0312).
+     *
+     * @param list<SequenceStep> $steps the FULL declared step list, exactly as originally run
+     *
+     * @throws \InvalidArgumentException when `$steps` does not hash to `$cursor->digest`, or when
+     *                                   `$cursor->done` and `$cursor->nextIndex` disagree
+     * @throws \JsonException            when `$steps` carries a non-JSON-encodable argument
+     *                                   (see `SequenceCursor::digestOf`)
+     */
+    public function resume(array $steps, SequenceCursor $cursor, GovernedExecutor $executor): SequenceResult
+    {
+        if (SequenceCursor::digestOf($steps) !== $cursor->digest) {
+            throw new \InvalidArgumentException(
+                'cannot resume: the declared step list no longer matches the paused cursor',
+            );
+        }
+
+        if (\count($cursor->done) !== $cursor->nextIndex) {
+            throw new \InvalidArgumentException(
+                'cannot resume: cursor->done and cursor->nextIndex disagree on how much already ran',
+            );
+        }
+
+        return $this->drive($steps, $cursor->nextIndex, $cursor->done, $executor);
+    }
+
+    /**
+     * The one fail-closed loop both `run()` and `resume()` ride: start at `$from`, treat
+     * `$done` (indices before `$from`) as already-recorded outcomes, and drive every step from
+     * `$from` onward through `$executor`, stopping at the first consent frontier (thrown OR
+     * returned) or the first failure exactly as `run()` always has. Extracted so a resume can
+     * never duplicate — and so drift from — this fail-closed logic (greenhouse decisions/0075).
+     *
+     * @param list<SequenceStep> $steps the FULL declared step list
+     * @param list<StepOutcome>  $done  outcomes already recorded for indices before `$from`
+     */
+    private function drive(array $steps, int $from, array $done, GovernedExecutor $executor): SequenceResult
+    {
+        $outcomes = $done;
         $stopped = false;
-        foreach ($steps as $step) {
+        foreach ($steps as $index => $step) {
+            if ($index < $from) {
+                continue;
+            }
             if ($stopped) {
                 $outcomes[] = new StepOutcome($step, StepStatus::NotStarted);
                 continue;
