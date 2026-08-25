@@ -20,6 +20,7 @@ use Milpa\Command\Consent\OperationId;
 use Milpa\AiGateway\OptionTable;
 use Milpa\AiGateway\ToolCallGate;
 use Milpa\AiGateway\ToolCallRecorder;
+use Milpa\Console\McpProjector;
 use Milpa\ToolRuntime\Contracts\ToolContext;
 use Milpa\ToolRuntime\ToolRegistry;
 
@@ -111,6 +112,22 @@ final class ConsentBridge extends McpClientService implements GovernedExecutor
      */
     public function callTool(string $name, array $args): mixed
     {
+        // THE DOOR TRANSLATES, THE PRODUCER NEVER DOES. `GovernedSequenceRunner` drives this method
+        // with an OPERATION name (colon form, e.g. `foundation:found`) — that is `SequenceStep`'s
+        // own contract. But the registry this bridge resolves against only knows TOOL names, the
+        // projection `McpProjector::toolName()` computes from an operation (greenhouse
+        // evidence/0314): every char outside `[a-zA-Z0-9_-]` becomes `_`, so `foundation:found`
+        // becomes `foundation_found`. Left untranslated, a colon-named operation resolved to
+        // nothing — `Tool not found: foundation:found` — for every operation except the rare one
+        // whose spelling already happens to match its own projection.
+        //
+        // Canonicalizing HERE, at the one governed door, is a no-op for a name already in tool
+        // form: the projection only rewrites characters that do not belong to it, so a name with
+        // none — every tool name the agent's `ask()` loop already calls with, because the catalogue
+        // that loop reads is built from the SAME projection — comes back unchanged. Nothing past
+        // this line ever sees the un-canonicalized spelling again.
+        $name = McpProjector::toolName($name);
+
         // THE SAME EXACTNESS, ONE LAYER EARLIER. `PolicyGate` decides on a `ConsentGrant` too, and it
         // compares that grant against `consent.arguments` — the arguments of the call being judged.
         // A context set once per run cannot carry those: they change with every call. Setting it here
