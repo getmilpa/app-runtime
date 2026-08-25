@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tests\Agent;
 
-use Milpa\AppRuntime\Agent\{SequenceCursor, SequenceStep, StepOutcome, StepStatus};
+use Milpa\AppRuntime\Agent\{GovernedExecutor, GovernedSequenceRunner, SequenceCursor, SequenceStep, StepOutcome, StepStatus};
 use PHPUnit\Framework\TestCase;
 
 final class SequenceCursorTest extends TestCase
@@ -35,5 +35,57 @@ final class SequenceCursorTest extends TestCase
         // digestOf() must fail closed instead of silently producing a constant hash.
         $this->expectException(\JsonException::class);
         SequenceCursor::digestOf([new SequenceStep('x', ['n' => NAN])]);
+    }
+
+    public function testRehydrateBuildsACursorThatResumeAccepts(): void
+    {
+        $steps = [new SequenceStep('a', []), new SequenceStep('b', []), new SequenceStep('c', [])];
+        $cursor = SequenceCursor::rehydrate($steps, 2);
+        self::assertSame(SequenceCursor::digestOf($steps), $cursor->digest);
+        self::assertSame(2, $cursor->nextIndex);
+        self::assertCount(2, $cursor->done);
+        self::assertSame(StepStatus::Executed, $cursor->done[0]->status);
+        // resume() with the SAME declared steps must accept it (count===nextIndex, digest matches) and run only c:
+        $seen = [];
+        $exec = new class ($seen) implements GovernedExecutor {
+            /** @param list<string> $seen */
+            public function __construct(public array &$seen)
+            {
+            }
+            public function callTool(string $operation, array $arguments): mixed
+            {
+                $this->seen[] = $operation;
+
+                return ['ok' => true];
+            }
+        };
+        $result = (new GovernedSequenceRunner())->resume($steps, $cursor, $exec);
+        self::assertSame(['c'], $exec->seen);
+        self::assertTrue($result->completed());
+    }
+
+    public function testRehydrateRejectsAnOutOfRangeNextIndex(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        SequenceCursor::rehydrate([new SequenceStep('a', [])], 5);
+    }
+
+    public function testRehydrateAcceptsAMatchingExpectedDigest(): void
+    {
+        $steps = [new SequenceStep('a', []), new SequenceStep('b', []), new SequenceStep('c', [])];
+        $cursor = SequenceCursor::rehydrate($steps, 2, SequenceCursor::digestOf($steps));
+        self::assertSame(SequenceCursor::digestOf($steps), $cursor->digest);
+        self::assertSame(2, $cursor->nextIndex);
+    }
+
+    public function testRehydrateThrowsOnAMismatchedExpectedDigest(): void
+    {
+        // The persisted digest disagrees with the declaration handed back at rehydrate time —
+        // a mutated sequence must not resume under a grant given to a different one (property 4,
+        // cross-process). Before this guard existed in rehydrate() itself, only a caller-side
+        // self-check could catch this; the product must fail closed on its own.
+        $steps = [new SequenceStep('a', []), new SequenceStep('b', []), new SequenceStep('c', [])];
+        $this->expectException(\InvalidArgumentException::class);
+        SequenceCursor::rehydrate($steps, 2, 'a-different-digest');
     }
 }

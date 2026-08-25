@@ -75,4 +75,56 @@ final readonly class SequenceCursor
 
         return \hash('sha256', \json_encode($encoded, \JSON_THROW_ON_ERROR));
     }
+
+    /**
+     * Rebuild a resumable cursor from a declaration and a nextIndex — PURE, no stream read, no
+     * agent dependency. This is what a caller builds from a rehydrated pause fact (its `steps`
+     * cast back to `SequenceStep[]`, its `nextIndex`) to hand to `GovernedSequenceRunner::resume`
+     * in another process. `$done` is built as `$nextIndex` PLACEHOLDER `Executed` outcomes rather
+     * than any content carried from the pause fact — `resume()`'s `drive()` never inspects
+     * `done`'s content, only `count($done)`, so a placeholder prefix is exactly as good as a real
+     * one for satisfying that guard.
+     *
+     * The digest is recomputed here from `$declaredSteps`. When `$expectedDigest` is omitted
+     * (null), this method only RECOMPUTES and trusts — the caller-provided steps are taken as
+     * given, and `resume()`'s own re-hash against them is left as whatever authority decides the
+     * declaration still matches. When the caller passes the digest a pause fact actually persisted
+     * (e.g. `PausedSequence::$digest`), this method VERIFIES: the recomputed digest is compared
+     * against `$expectedDigest`, and a mismatch throws BEFORE a cursor is ever built — a mutated
+     * declaration cross-process must not resume, and now the PRODUCT enforces that itself rather
+     * than depending on the caller to notice (property 4 across processes, greenhouse
+     * decisions/0076 falsifier #2). `$expectedDigest` is a plain string — this class stays
+     * decoupled from any pause-fact type.
+     *
+     * @param list<SequenceStep> $declaredSteps the FULL declared step list, exactly as originally run
+     *
+     * @throws \InvalidArgumentException when `$nextIndex` is negative or exceeds the declared step
+     *                                   count, or when `$expectedDigest` is given and disagrees
+     *                                   with the digest recomputed from `$declaredSteps`
+     * @throws \JsonException            when `$declaredSteps` carries a non-JSON-encodable argument
+     *                                   (see `digestOf`)
+     */
+    public static function rehydrate(array $declaredSteps, int $nextIndex, ?string $expectedDigest = null): self
+    {
+        if ($nextIndex < 0 || $nextIndex > \count($declaredSteps)) {
+            throw new \InvalidArgumentException(
+                "cannot rehydrate: nextIndex {$nextIndex} is out of range for " . \count($declaredSteps) . ' declared steps',
+            );
+        }
+
+        $digest = self::digestOf($declaredSteps);
+
+        if ($expectedDigest !== null && $digest !== $expectedDigest) {
+            throw new \InvalidArgumentException(
+                'cannot rehydrate: the declared steps do not match the persisted digest',
+            );
+        }
+
+        $done = [];
+        for ($i = 0; $i < $nextIndex; $i++) {
+            $done[] = new StepOutcome($declaredSteps[$i], StepStatus::Executed);
+        }
+
+        return new self($digest, $nextIndex, $done);
+    }
 }
