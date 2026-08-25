@@ -26,6 +26,7 @@ final readonly class SequenceResult
     {
     }
 
+    /** True only when EVERY step executed — one paused, failed or not-started step makes the sequence incomplete. */
     public function completed(): bool
     {
         foreach ($this->outcomes as $o) {
@@ -37,11 +38,13 @@ final readonly class SequenceResult
         return true;
     }
 
+    /** How many steps actually ran through the governed pipeline. */
     public function executedCount(): int
     {
         return count(array_filter($this->outcomes, static fn (StepOutcome $o): bool => $o->status === StepStatus::Executed));
     }
 
+    /** The first step that did NOT execute — where the sequence stopped — or null when every step executed. */
     public function frontier(): ?StepOutcome
     {
         foreach ($this->outcomes as $o) {

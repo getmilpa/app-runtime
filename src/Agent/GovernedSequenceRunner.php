@@ -22,7 +22,14 @@ namespace Milpa\AppRuntime\Agent;
  */
 final class GovernedSequenceRunner
 {
-    /** @param list<SequenceStep> $steps */
+    /**
+     * Run the declared steps in order through the governed executor, stopping fail-closed at the
+     * first consent frontier (a thrown refusal OR a returned `requires_confirmation` sentinel) or
+     * the first failure — later steps are never started. Ordered, not atomic: prior executed steps
+     * stay recorded, nothing is rolled back.
+     *
+     * @param list<SequenceStep> $steps
+     */
     public function run(array $steps, GovernedExecutor $executor): SequenceResult
     {
         $outcomes = [];
