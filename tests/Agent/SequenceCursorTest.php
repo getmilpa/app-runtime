@@ -69,4 +69,23 @@ final class SequenceCursorTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         SequenceCursor::rehydrate([new SequenceStep('a', [])], 5);
     }
+
+    public function testRehydrateAcceptsAMatchingExpectedDigest(): void
+    {
+        $steps = [new SequenceStep('a', []), new SequenceStep('b', []), new SequenceStep('c', [])];
+        $cursor = SequenceCursor::rehydrate($steps, 2, SequenceCursor::digestOf($steps));
+        self::assertSame(SequenceCursor::digestOf($steps), $cursor->digest);
+        self::assertSame(2, $cursor->nextIndex);
+    }
+
+    public function testRehydrateThrowsOnAMismatchedExpectedDigest(): void
+    {
+        // The persisted digest disagrees with the declaration handed back at rehydrate time —
+        // a mutated sequence must not resume under a grant given to a different one (property 4,
+        // cross-process). Before this guard existed in rehydrate() itself, only a caller-side
+        // self-check could catch this; the product must fail closed on its own.
+        $steps = [new SequenceStep('a', []), new SequenceStep('b', []), new SequenceStep('c', [])];
+        $this->expectException(\InvalidArgumentException::class);
+        SequenceCursor::rehydrate($steps, 2, 'a-different-digest');
+    }
 }
