@@ -26,9 +26,21 @@ final class GovernedSequenceRunner
     public function run(array $steps, GovernedExecutor $executor): SequenceResult
     {
         $outcomes = [];
+        $stopped = false;
         foreach ($steps as $step) {
-            $result = $executor->callTool($step->operation, $step->arguments);
-            $outcomes[] = new StepOutcome($step, StepStatus::Executed, $result);
+            if ($stopped) {
+                $outcomes[] = new StepOutcome($step, StepStatus::NotStarted);
+                continue;
+            }
+            try {
+                $result = $executor->callTool($step->operation, $step->arguments);
+                $outcomes[] = new StepOutcome($step, StepStatus::Executed, $result);
+            } catch (\Milpa\AiGateway\ToolCallRefusedException $refused) {
+                // FAIL-CLOSED at the exact frontier an individual call would stop at: the refused
+                // step is paused, nothing after it is started (greenhouse decisions/0074, falsifier #1).
+                $outcomes[] = new StepOutcome($step, StepStatus::Paused, null, $refused->getMessage());
+                $stopped = true;
+            }
         }
 
         return new SequenceResult($outcomes);
