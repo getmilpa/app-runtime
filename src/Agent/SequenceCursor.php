@@ -47,7 +47,15 @@ final readonly class SequenceCursor
      * `class_exists` skip guard), and this value object must stay usable without it — Task 1's own
      * shape never touches `GovernedExecutor` or `ai-gateway` at all.
      *
+     * FAILS CLOSED: a step whose arguments cannot be JSON-encoded (a NAN/INF float, a resource, a
+     * non-UTF-8 string) throws rather than silently digesting as `sha256('')` — the old
+     * `(string) json_encode(...)` cast turned `json_encode`'s failure return (`false`) into an
+     * empty string, so any two non-encodable step lists collided on the SAME digest, bypassing
+     * the mutated-sequence guard `GovernedSequenceRunner::resume` relies on (property 4).
+     *
      * @param list<SequenceStep> $steps
+     *
+     * @throws \JsonException when a step's arguments cannot be JSON-encoded
      */
     public static function digestOf(array $steps): string
     {
@@ -65,6 +73,6 @@ final readonly class SequenceCursor
             $steps,
         );
 
-        return \hash('sha256', (string) \json_encode($encoded));
+        return \hash('sha256', \json_encode($encoded, \JSON_THROW_ON_ERROR));
     }
 }

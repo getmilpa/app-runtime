@@ -26,4 +26,14 @@ final class SequenceCursorTest extends TestCase
         self::assertSame(1, $cur->nextIndex);
         self::assertSame($done, $cur->done);
     }
+
+    public function testDigestOfFailsClosedOnANonEncodableArgumentInsteadOfHashingEmptyString(): void
+    {
+        // json_encode() returns false on NAN/INF/non-UTF-8 input; casting that false to '' would
+        // make THIS step list collide with the digest of an empty step list (both sha256('')) —
+        // a mutated sequence would then pass the digest guard in resume() (property 4 bypassed).
+        // digestOf() must fail closed instead of silently producing a constant hash.
+        $this->expectException(\JsonException::class);
+        SequenceCursor::digestOf([new SequenceStep('x', ['n' => NAN])]);
+    }
 }
