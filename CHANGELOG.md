@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.69.1](https://github.com/getmilpa/app-runtime/compare/v0.69.0...v0.69.1) (2026-08-25)
+
+
+### Bug Fixes
+
+* **chat:** the board yields to the input bar on a tiny terminal ([#167](https://github.com/getmilpa/app-runtime/issues/167)) ([a7e651c](https://github.com/getmilpa/app-runtime/commit/a7e651c8d1b25adc089566fb45b8b5dbbcab2cb9))
+
 ## [0.69.0](https://github.com/getmilpa/app-runtime/compare/v0.68.0...v0.69.0) (2026-08-25)
 
 
