@@ -1221,6 +1221,11 @@ class AgentOperations implements CommandProvider
             // Sólo cuando hay sesión: una corrida sin sesión no tiene dónde apendar, y grabar en
             // ningún lado con tal de grabar sería peor que no grabar.
             channelObserver: $this->observadorDeEntrada(),
+            // EL PULSO DEL MODELO, HONESTO. Con una superficie viva, late por cada trozo REAL que el
+            // modelo escribe, para que su spinner avance por hecho —no por reloj— mientras el modelo
+            // tiene la palabra (greenhouse evidence/0307). Sin superficie —un `coa agent` de script—
+            // devuelve null y el camino queda sin streaming, byte por byte como antes.
+            onStreamChunk: $this->progresoDelModelo(),
         );
         $cliente = new ConsentBridge(
             $registry,
@@ -1996,6 +2001,42 @@ class AgentOperations implements CommandProvider
         $superficie = $this->broadcaster();
 
         return $superficie === null ? $eventos : new BroadcastingEventStore($eventos, $superficie);
+    }
+
+    /**
+     * EL PULSO DEL MODELO — el cable que el LlmService late por cada trozo REAL que llega.
+     *
+     * Con una superficie viva (la TUI registrada como `SurfaceBroadcaster`), devuelve un closure que
+     * le empuja un hecho `activity` por chunk: la pantalla avanza un cuadro del spinner por evento,
+     * no por reloj (greenhouse evidence/0307, promesa `tui-says-what-it-is-doing`). *Si el modelo se
+     * cuelga y no llega ningún trozo, no late — que es exactamente lo honesto.* Sin superficie —un
+     * `coa agent` de script, sin humano mirando— devuelve null y el LlmService no streamea.
+     *
+     * Se throttlea a ~12 fps: a ~65 tokens/s un repintado por token es trabajo de más sin cuadro
+     * nuevo que se note. El primer trozo SIEMPRE late (saca el estado del «preguntando…» inicial).
+     *
+     * @return (\Closure(string): void)|null
+     */
+    private function progresoDelModelo(): ?\Closure
+    {
+        $superficie = $this->broadcaster();
+        if ($superficie === null) {
+            return null;
+        }
+
+        $ultimo = 0.0;
+
+        return static function (string $pieza) use ($superficie, &$ultimo): void {
+            $ahora = microtime(true);
+            if ($ahora - $ultimo < 0.08) {
+                return;
+            }
+            $ultimo = $ahora;
+            $superficie->broadcast('progress', [
+                'kind' => 'activity',
+                'activity' => ['state' => 'thinking'],
+            ]);
+        };
     }
 
     /** A quién se le empuja, si hay alguien. */
