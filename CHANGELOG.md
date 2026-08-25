@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.69.0](https://github.com/getmilpa/app-runtime/compare/v0.68.0...v0.69.0) (2026-08-25)
+
+
+### Features
+
+* **chat:** reserve the input bar and stream honest per-chunk progress ([#165](https://github.com/getmilpa/app-runtime/issues/165)) ([87ea6f8](https://github.com/getmilpa/app-runtime/commit/87ea6f886b65f36c5ae4efe60a22e13a9d1fddd9))
+
 ## [0.68.0](https://github.com/getmilpa/app-runtime/compare/v0.67.0...v0.68.0) (2026-08-24)
 
 
