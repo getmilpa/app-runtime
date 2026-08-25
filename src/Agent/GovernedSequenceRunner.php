@@ -50,17 +50,32 @@ final class GovernedSequenceRunner
      * not by any new authority logic here).
      *
      * The declared step list is re-hashed and checked against the cursor's digest FIRST — a
-     * mutated sequence is rejected before the executor is ever touched (property 4).
+     * mutated sequence is rejected before the executor is ever touched (property 4). The cursor's
+     * OWN internal consistency is checked next: `count($cursor->done)` must equal
+     * `$cursor->nextIndex`, or `drive()` would silently start from the wrong offset — an
+     * inconsistent (or forged-by-count) prefix must never yield a truncated success dressed up as
+     * a real `SequenceResult`. `pausedCursor()` always produces a cursor where this holds; this
+     * guard is the trust boundary for any cursor that did NOT come straight from it (a mismatch
+     * here is a defect in the caller, or worse — see greenhouse evidence/0312).
      *
      * @param list<SequenceStep> $steps the FULL declared step list, exactly as originally run
      *
-     * @throws \InvalidArgumentException when `$steps` does not hash to `$cursor->digest`
+     * @throws \InvalidArgumentException when `$steps` does not hash to `$cursor->digest`, or when
+     *                                   `$cursor->done` and `$cursor->nextIndex` disagree
+     * @throws \JsonException            when `$steps` carries a non-JSON-encodable argument
+     *                                   (see `SequenceCursor::digestOf`)
      */
     public function resume(array $steps, SequenceCursor $cursor, GovernedExecutor $executor): SequenceResult
     {
         if (SequenceCursor::digestOf($steps) !== $cursor->digest) {
             throw new \InvalidArgumentException(
                 'cannot resume: the declared step list no longer matches the paused cursor',
+            );
+        }
+
+        if (\count($cursor->done) !== $cursor->nextIndex) {
+            throw new \InvalidArgumentException(
+                'cannot resume: cursor->done and cursor->nextIndex disagree on how much already ran',
             );
         }
 
