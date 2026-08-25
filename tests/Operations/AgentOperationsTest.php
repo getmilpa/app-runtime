@@ -220,7 +220,7 @@ final class AgentOperationsTest extends TestCase
         $metodo->setAccessible(true);
         self::assertNull($metodo->invoke($sinSuperficie), 'sin SurfaceBroadcaster, no hay pulso (ni streaming)');
 
-        $superficie = new class implements \Milpa\AppRuntime\Agent\SurfaceBroadcaster {
+        $superficie = new class () implements \Milpa\AppRuntime\Agent\SurfaceBroadcaster {
             /** @var list<array{topic: string, payload: array<string, mixed>}> */
             public array $empujes = [];
 
