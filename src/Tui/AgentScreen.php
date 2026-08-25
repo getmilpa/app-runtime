@@ -1618,7 +1618,19 @@ final class AgentScreen implements SurfaceBroadcaster
             'maxLines' => 6,
         ]));
         $chrome = 6 + $fieldHeight + (($sesion?->question !== null || $deHijo !== null) ? 3 : 0) + $altoTabla;
-        $presupuesto = max(3, $this->height - \count($hijos) - $chrome);
+
+        // EL ENCABEZADO SE MIDE, NO SE CUENTA. `$hijos` aquí trae la cabecera —título, estado y el
+        // TABLERO, que es UN nodo pero pinta `heightFor` filas (evidence/0297)—. Restar
+        // `count($hijos)` lo contaba como una fila: sobre-asignaba el transcript y el motor recortaba
+        // a alto CERO la barra de entrada y el pie, dejando al humano sin poder teclear el siguiente
+        // turno (greenhouse evidence/0307). Se suma la altura DECLARADA de cada nodo —`heightOf`
+        // sobre el tablero devuelve 1 porque su renderer no es medible, por eso `props['height']`
+        // manda—, más una fila para el aviso de scroll «↑ N más arriba» que se pinta después (:1774).
+        $altoEncabezado = array_sum(array_map(
+            fn (TuiNode $n): int => (int) ($n->props['height'] ?? $this->heightOf($n)),
+            $hijos,
+        ));
+        $presupuesto = max(3, $this->height - $altoEncabezado - $chrome - 1);
 
         // LAS TECLAS NECESITAN SABER CUÁNTO CABE Y CUÁNTO HAY. Sin esto, «una página» sería un
         // número inventado y el tope del desplazamiento no existiría: se podría subir para siempre
