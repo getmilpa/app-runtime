@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.71.0](https://github.com/getmilpa/app-runtime/compare/v0.70.0...v0.71.0) (2026-08-25)
+
+
+### Features
+
+* **agent:** a governed sequence resumes after a consent pause without propagating authority ([#171](https://github.com/getmilpa/app-runtime/issues/171)) ([0562c05](https://github.com/getmilpa/app-runtime/commit/0562c050ea81861fd5e08b6183ecf277fc44cfd9))
+
 ## [0.70.0](https://github.com/getmilpa/app-runtime/compare/v0.69.1...v0.70.0) (2026-08-25)
 
 
