@@ -1239,26 +1239,7 @@ class AgentOperations implements CommandProvider
         }
 
         $modeloRemoto = new LlmService(...$argumentos);
-        $cliente = new ConsentBridge(
-            $registry,
-            $this->grantsDeLaSesion(),
-            $gate,
-            $recorder ?? ($gate instanceof ToolCallRecorder ? $gate : null),
-            $mesa,
-            executions: $gate instanceof ExecutionRecorder ? $gate : null,
-            // WHO IS RUNNING, OBSERVED HERE AND WRITTEN ONCE.
-            //
-            // The expression looks like the one in `grantsDeLaSesion()`, and the difference is
-            // everything. There the environment is read to REBUILD an authority somebody else already
-            // granted, which makes an old fact change author depending on who reads it. Here it is
-            // read to DECLARE who is materialising the effect now, and it is written down once. Same
-            // reading, different moment, different destination (greenhouse evidence/0209,
-            // decisions/0037).
-            executor: new ObservedExecutor(
-                Principal::fromTerminal(getenv('USER') ?: null, gethostname() ?: null),
-                ObservedExecutor::TERMINAL,
-            ),
-        );
+        $cliente = $this->governedExecutor($registry, $gate, $recorder, $mesa);
 
         // EL PUENTE SE QUEDA CON EL CONTEXTO, y no se arma aquí.
         //
@@ -1294,6 +1275,41 @@ class AgentOperations implements CommandProvider
             )),
             $history,
             $onStep,
+        );
+    }
+
+    /**
+     * Builds the ConsentBridge that gates and records every tool call `ask()` originates.
+     *
+     * This is the one construction, named: a caller that needs the same governed door — the
+     * gate, the session's grants, the recorder, the option table, and who is executing — builds it
+     * this way rather than reproducing the wiring inline (greenhouse recipe:apply, task 1).
+     */
+    private function governedExecutor(
+        ToolRegistry $registry,
+        ?ToolCallGate $gate,
+        ?ToolCallRecorder $recorder,
+        ?OptionTable $mesa,
+    ): ConsentBridge {
+        return new ConsentBridge(
+            $registry,
+            $this->grantsDeLaSesion(),
+            $gate,
+            $recorder ?? ($gate instanceof ToolCallRecorder ? $gate : null),
+            $mesa,
+            executions: $gate instanceof ExecutionRecorder ? $gate : null,
+            // WHO IS RUNNING, OBSERVED HERE AND WRITTEN ONCE.
+            //
+            // The expression looks like the one in `grantsDeLaSesion()`, and the difference is
+            // everything. There the environment is read to REBUILD an authority somebody else already
+            // granted, which makes an old fact change author depending on who reads it. Here it is
+            // read to DECLARE who is materialising the effect now, and it is written down once. Same
+            // reading, different moment, different destination (greenhouse evidence/0209,
+            // decisions/0037).
+            executor: new ObservedExecutor(
+                Principal::fromTerminal(getenv('USER') ?: null, gethostname() ?: null),
+                ObservedExecutor::TERMINAL,
+            ),
         );
     }
 
