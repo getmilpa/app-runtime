@@ -1383,6 +1383,54 @@ final class AgentScreenTest extends TestCase
     }
 
 
+    /**
+     * REGRESIÓN (greenhouse evidence/0307, arista 2/2): en una terminal DIMINUTA, la cabecera con el
+     * tablero más el chrome no dejaban sitio y el piso `max(3, …)` del transcript forzaba filas que
+     * desbordaban, recortando otra vez la barra de entrada. La barra es innegociable: en pantalla
+     * chica se puede prescindir de VER el trabajo (el tablero cede), nunca de PODER teclear.
+     */
+    public function testTheInputBarSurvivesABoardOnATinyTerminal(): void
+    {
+        $sesion = new Session(
+            id: 's1',
+            goal: 'x',
+            turns: [['role' => 'user', 'content' => 'hola', 'seq' => 1]],
+        );
+        $fold = ['ok' => true, 'session' => 's1', 'columns' => [
+            'in_progress' => [
+                ['id' => 'turn:1', 'text' => 'plugins_list', 'origin' => 'turn'],
+                ['id' => 'turn:2', 'text' => 'plugins_deps', 'origin' => 'turn'],
+                ['id' => 'turn:3', 'text' => 'plugins_show', 'origin' => 'turn'],
+            ],
+            'done' => [
+                ['id' => 'turn:4', 'text' => 'plugins_verify', 'origin' => 'turn'],
+                ['id' => 'turn:5', 'text' => 'plugins_architecture', 'origin' => 'turn'],
+                ['id' => 'turn:6', 'text' => 'config', 'origin' => 'turn'],
+                ['id' => 'turn:7', 'text' => 'plugins_list', 'origin' => 'turn'],
+            ],
+        ]];
+
+        $pantalla = new AgentScreen(
+            static fn (string $q): array => ['ok' => true, 'answer' => 'ok'],
+            static fn (): Session => $sesion,
+            null,
+            74,
+            16,
+            false,
+            tablero: static fn (): array => $fold,
+        );
+
+        $pintado = preg_replace('/\e\[[0-9;]*m/', '', $pantalla->render()) ?? '';
+
+        self::assertStringContainsString(
+            'escribe tu pregunta',
+            $pintado,
+            'en una terminal chica el campo de entrada debe seguir visible: el tablero cede, la barra no',
+        );
+        self::assertStringContainsString('[Ctrl-C] salir', $pintado, 'y el pie con él');
+    }
+
+
     public function testWithoutABoardClosureTheChatIsUnchanged(): void
     {
         $sesion = new Session(id: 's1', goal: 'x', turns: [['role' => 'user', 'content' => 'hola', 'seq' => 1]]);
