@@ -14,6 +14,8 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Agent;
 
+use Milpa\Command\Effect\Subject;
+
 /**
  * A DISPOSABLE COPY of the app root, where a trial may run and only the HOST decides what changed.
  *
@@ -377,6 +379,62 @@ final class TrialWorkspace
         }
 
         return $out;
+    }
+
+    /** @return list<string> */
+    /**
+     * Where the files a trial may change WITHOUT changing what the app executes live, and what they
+     * may be. The producer of a promotion's subject (greenhouse decisions/0080) is an ALLOWLIST: a path
+     * must sit under one of these directories AND carry one of these extensions to count as
+     * Configuration; everything else — a `.php` anywhere, `config/` (its files list what boots),
+     * `composer.*`, `bin/`, `src/`, an extension nobody vouched for — keeps the declared ceiling.
+     * Descending needs a written claim; the default is the worst case (the shape of decisions/0078).
+     */
+    private const CONFIGURATION_DIRS = ['storage/', '.milpa/', 'public/'];
+
+    private const CONFIGURATION_EXTENSIONS = ['json', 'yaml', 'yml', 'md', 'txt', 'csv', 'sqlite', 'log', 'env'];
+
+    /**
+     * What this trial's change is made of, as far as the workspace can VOUCH for it — or null.
+     *
+     * The workspace owns the diff, so it is the one producer that may attest a promotion's subject
+     * (greenhouse decisions/0080). It attests {@see Subject::Configuration} only when EVERY changed
+     * path is an allowlisted non-code file in a data/config location; one path it cannot vouch for
+     * and it attests nothing, so the declared ceiling (`Executable`) holds. It never attests `Data`
+     * (a promotion's files are the app's, not a store's rows) and never anything above the ceiling:
+     * composition only lowers. An empty diff attests nothing — there is no change to be made of.
+     */
+    public function attestedSubject(): ?Subject
+    {
+        $diff = $this->diff();
+        if ($diff === []) {
+            return null;
+        }
+        foreach (array_keys($diff) as $rel) {
+            if (! self::isConfigurationPath($rel)) {
+                return null;
+            }
+        }
+
+        return Subject::Configuration;
+    }
+
+    /** Allowlisted location AND allowlisted extension — both, or the ceiling holds. */
+    private static function isConfigurationPath(string $rel): bool
+    {
+        $inDir = false;
+        foreach (self::CONFIGURATION_DIRS as $dir) {
+            if (str_starts_with($rel, $dir)) {
+                $inDir = true;
+                break;
+            }
+        }
+        if (! $inDir) {
+            return false;
+        }
+        $ext = strtolower(pathinfo($rel, \PATHINFO_EXTENSION));
+
+        return $ext !== '' && \in_array($ext, self::CONFIGURATION_EXTENSIONS, true);
     }
 
     /** @return list<string> */

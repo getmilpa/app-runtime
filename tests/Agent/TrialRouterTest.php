@@ -112,6 +112,35 @@ final class TrialRouterTest extends TestCase
         self::assertSame([], TrialWorkspace::ids($root));
     }
 
+    /**
+     * The router hands the gate a promotion's subject attestation, naming the workspace as producer
+     * and the diff it classified as provenance (greenhouse decisions/0080) — or nothing, when the
+     * workspace does not exist or attests nothing.
+     */
+    public function testItAttestsAPromotionsSubjectWithTheDiffDigestAsProvenance(): void
+    {
+        $root = $this->root();
+        mkdir($root . '/storage');
+        file_put_contents($root . '/storage/plugins.json', "{\"probe\": 1}\n");
+        // The router first: it writes its fake bwrap into the host, and a host file written AFTER the
+        // copy shows up in the diff as deleted — which the allowlist rightly refuses to vouch for.
+        $router = $this->router($root);
+        $ws = TrialWorkspace::materialize($root, 'w-att', $this->stub());
+        file_put_contents($ws->copy . '/storage/plugins.json', "{\"probe\": 2}\n");
+
+        $a = $router->subjectAttestationFor('w-att');
+
+        self::assertNotNull($a);
+        self::assertSame(Subject::Configuration, $a->subject);
+        self::assertSame('trial-workspace', $a->producer);
+        self::assertSame('diff:' . hash('sha256', (string) json_encode($ws->diff(), \JSON_UNESCAPED_SLASHES)), $a->provenance, 'the same digest TrialPromoted records — receipt and promotion correlate without names');
+
+        self::assertNull($router->subjectAttestationFor('no-such-trial'));
+        $code = TrialWorkspace::materialize($root, 'w-code', $this->stub());
+        file_put_contents($code->copy . '/src/B.php', "<?php\n");
+        self::assertNull($router->subjectAttestationFor('w-code'), 'code attests nothing');
+    }
+
     private function router(string $root): TrialRouter
     {
         return new TrialRouter($root, new TrialRunner(bwrap: $this->fakeBwrap($root)), $this->stub());

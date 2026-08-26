@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Agent;
 
 use Milpa\AppRuntime\Agent\TrialWorkspace;
+use Milpa\Command\Effect\Subject;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -190,6 +191,46 @@ final class TrialWorkspaceTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
 
         TrialWorkspace::materialize($this->root(), '../escape', $this->runner());
+    }
+
+    /**
+     * THE PRODUCER OF A PROMOTION'S SUBJECT (greenhouse decisions/0080): the workspace owns the diff, so
+     * it may attest what the change is made of — by ALLOWLIST, and only downwards. A diff made only
+     * of non-code files in data/config locations is Configuration; anything it cannot vouch for — a
+     * .php anywhere, a code directory, an unknown extension, an empty diff — attests nothing, and the
+     * declared ceiling (Executable) holds.
+     *
+     * @dataProvider diffs
+     *
+     * @param array<string, string> $edits path => content written into the COPY
+     */
+    public function testItAttestsConfigurationOnlyForAnAllowlistedDiff(array $edits, ?Subject $expected, string $why): void
+    {
+        $root = $this->root();
+        mkdir($root . '/storage');
+        file_put_contents($root . '/storage/plugins.json', "{\"probe\": 1}\n");
+        $ws = TrialWorkspace::materialize($root, 'w-subject', $this->runner());
+        foreach ($edits as $rel => $content) {
+            @mkdir(\dirname($ws->copy . '/' . $rel), 0o777, true);
+            file_put_contents($ws->copy . '/' . $rel, $content);
+        }
+
+        self::assertSame($expected, $ws->attestedSubject(), $why);
+    }
+
+    /** @return iterable<string, array{array<string, string>, ?Subject, string}> */
+    public static function diffs(): iterable
+    {
+        yield 'configuration-only' => [['storage/plugins.json' => "{\"probe\": 2}\n"], Subject::Configuration, 'a json under storage/ is configuration'];
+        yield 'foundation' => [['.milpa/foundation.json' => "{}\n"], Subject::Configuration, 'founding is configuration (Subject docblock)'];
+        yield 'a note under .milpa' => [['.milpa/notes/x.md' => "# x\n"], Subject::Configuration, 'markdown under .milpa/ is not code'];
+        yield 'code' => [['src/Plugins/Probe/ProbePlugin.php' => "<?php\n"], null, 'a .php under src/ keeps the ceiling'];
+        yield 'mixed' => [['storage/plugins.json' => "{}\n", 'src/Plugins/Probe/ProbePlugin.php' => "<?php\n"], null, 'one code path and the whole diff keeps the ceiling'];
+        yield 'code in a data dir' => [['storage/evil.php' => "<?php\n"], null, 'the extension beats the directory'];
+        yield 'config dir is code' => [['config/x.php' => "<?php return [];\n"], null, 'config/*.php lists what boots — executable'];
+        yield 'composer' => [['composer.json' => "{}\n"], null, 'composer.json changes what installs — not allowlisted'];
+        yield 'unknown extension' => [['storage/blob.bin' => "\x00"], null, 'an extension the allowlist does not know keeps the ceiling'];
+        yield 'empty diff' => [[], null, 'nothing changed: nothing to attest'];
     }
 
     private function root(): string

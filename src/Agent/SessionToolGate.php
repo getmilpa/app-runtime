@@ -633,12 +633,18 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             return null;
         }
 
+        // THE FOURTH PRODUCER (greenhouse decisions/0080): for a promotion, the workspace that owns the
+        // diff attests what the change is made of, and composition may lower `subject` to it — so a
+        // grant a human tightened to `subject ≤ configuration` can finally admit a configuration-only
+        // promotion while a code diff still pauses. Null for everything that is not a promotion, and
+        // for a promotion the workspace cannot vouch for: then the declared ceiling holds.
         $subject = new CallSubject(
             $operacion->name,
             $operacion->handlerDigest(),
             $this->policyProvider?->authorityPolicy(),
             $this->hechosDelDuenio(),
             $this->trialRouter?->planFor($operacion, $arguments)?->confinement,
+            subjectAttestation: $this->trialRouter?->attestationFor($operacion, $arguments),
         );
         $composicion = $operacion->effectCeiling()->composeForCall($arguments, $subject);
 
