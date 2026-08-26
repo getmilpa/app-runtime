@@ -84,6 +84,11 @@ final class SessionOperations implements CommandProvider
         return [
             new Operation(
                 name: 'agent:sessions',
+                // EXPONER UNA LECTURA NO CONCEDE EL DERECHO A LEERLA (greenhouse decisions/0082): los hechos
+                // de una sesión son del actor que la corre. Sin scopes la política HTTP no se consulta y
+                // `config/http.php` era una lista de cosas públicas (evidence/0318). `hasAnyScope`: el token
+                // de respuesta que el README reparte sigue leyendo; un token de sólo lectura existe por fin.
+                scopes: ['agent:read', 'agent:answer'],
                 effects: new EffectProfile(
                     Mutation::None,
                     Externality::None,
@@ -136,6 +141,11 @@ final class SessionOperations implements CommandProvider
             ),
             new Operation(
                 name: 'agent:show',
+                // EXPONER UNA LECTURA NO CONCEDE EL DERECHO A LEERLA (greenhouse decisions/0082): los hechos
+                // de una sesión son del actor que la corre. Sin scopes la política HTTP no se consulta y
+                // `config/http.php` era una lista de cosas públicas (evidence/0318). `hasAnyScope`: el token
+                // de respuesta que el README reparte sigue leyendo; un token de sólo lectura existe por fin.
+                scopes: ['agent:read', 'agent:answer'],
                 effects: new EffectProfile(
                     Mutation::None,
                     Externality::None,
@@ -206,6 +216,11 @@ final class SessionOperations implements CommandProvider
             ),
             new Operation(
                 name: 'agent:timeline',
+                // EXPONER UNA LECTURA NO CONCEDE EL DERECHO A LEERLA (greenhouse decisions/0082): los hechos
+                // de una sesión son del actor que la corre. Sin scopes la política HTTP no se consulta y
+                // `config/http.php` era una lista de cosas públicas (evidence/0318). `hasAnyScope`: el token
+                // de respuesta que el README reparte sigue leyendo; un token de sólo lectura existe por fin.
+                scopes: ['agent:read', 'agent:answer'],
                 effects: new EffectProfile(
                     Mutation::None,
                     Externality::None,
@@ -347,6 +362,11 @@ final class SessionOperations implements CommandProvider
             ),
             new Operation(
                 name: 'agent:board',
+                // EXPONER UNA LECTURA NO CONCEDE EL DERECHO A LEERLA (greenhouse decisions/0082): los hechos
+                // de una sesión son del actor que la corre. Sin scopes la política HTTP no se consulta y
+                // `config/http.php` era una lista de cosas públicas (evidence/0318). `hasAnyScope`: el token
+                // de respuesta que el README reparte sigue leyendo; un token de sólo lectura existe por fin.
+                scopes: ['agent:read', 'agent:answer'],
                 effects: new EffectProfile(
                     Mutation::None,
                     Externality::None,

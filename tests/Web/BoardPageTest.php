@@ -59,6 +59,12 @@ final class BoardPageTest extends TestCase
         $html = (new BoardPage())->render('org-1', '/agent/board', null);
 
         self::assertStringContainsString("'Authorization': 'Bearer ' + tokenField.value", $html);
+        // READING NEEDS THE ACTOR TOO (greenhouse decisions/0082): the fold is a session's private facts,
+        // so the data fetch carries the same header the answer does, and without a token the page says
+        // what it needs instead of painting an empty board over a 401.
+        self::assertStringContainsString('function repaint()', $html);
+        self::assertStringContainsString("fetch(boardUrl, { headers: authHeaders() })", $html, 'the data fetch carries the Bearer');
+        self::assertStringContainsString('pega un token', $html, 'without a token the page teaches, it does not pretend');
         // The needle is concatenated so the SOURCE never carries the pattern the public-safety
         // gate forbids — this assertion hunts that exact pattern in the page's OUTPUT.
         self::assertStringNotContainsString('token' . '=', $html);

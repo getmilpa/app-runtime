@@ -177,12 +177,29 @@ memory and travels only in the request header.</p>
     const noButton = document.getElementById('milpa-answer-no');
     const answerStatus = document.getElementById('milpa-answer-status');
 
+    // READING NEEDS THE ACTOR TOO (greenhouse decisions/0082): the fold is a session's private facts, so
+    // the data fetch carries the same header the answer does. Without a token there is nothing to send —
+    // the server answers 401 and the page says what it needs instead of painting an empty board.
+    function authHeaders() {
+        const token = tokenField.value.trim();
+        return token === '' ? {} : { 'Authorization': 'Bearer ' + token };
+    }
+
     function repaint() {
         // The server renders the board with the ONE Live component now; the page sets the returned
         // HTML as-is instead of re-deriving the markup here (greenhouse evidence/0296).
-        return fetch(boardUrl)
-            .then(function (r) { return r.text(); })
+        return fetch(boardUrl, { headers: authHeaders() })
+            .then(function (r) {
+                if (r.status === 401 || r.status === 403) {
+                    status.textContent = tokenField.value.trim() === ''
+                        ? 'pega un token con agent:read o agent:answer para ver el board'
+                        : 'este token no puede leer el board (' + r.status + ')';
+                    return null;
+                }
+                return r.text();
+            })
             .then(function (html) {
+                if (html === null) { return; }
                 board.innerHTML = html;
                 // The bar follows the FOLD, not this page's memory of what it sent: the rendered
                 // board carries the waiting alert exactly when a question is open, so its presence
@@ -201,6 +218,7 @@ memory and travels only in the request header.</p>
         noButton.disabled = !armed;
     }
     tokenField.addEventListener('input', armButtons);
+    tokenField.addEventListener('change', repaint);
 
     function answer(value) {
         yesButton.disabled = true;

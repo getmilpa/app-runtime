@@ -310,6 +310,21 @@ final class SessionOperationsTest extends TestCase
         self::assertSame(['agent:answer'], $contestar->scopes, 'la web exige actor, no basta con estar');
     }
 
+    /**
+     * EXPONER UNA LECTURA NO CONCEDE EL DERECHO A LEERLA (greenhouse decisions/0082). Los hechos de una
+     * sesión —goal, plan, la pregunta pendiente, la lista de sesiones— son del actor que la corre: las
+     * cuatro lecturas declaran quién puede, y el token de respuesta que el README reparte sigue leyendo
+     * (`hasAnyScope`). Sin esta línea, `config/http.php` era una lista de cosas públicas (evidence/0318).
+     */
+    public function testTheSessionReadsDeclareWhoMayReadThem(): void
+    {
+        foreach (['agent:board', 'agent:show', 'agent:timeline', 'agent:sessions'] as $nombre) {
+            $op = $this->operacion($nombre);
+            self::assertFalse($op->mutating, $nombre);
+            self::assertSame(['agent:read', 'agent:answer'], $op->scopes, "{$nombre}: una lectura de sesión exige un actor con agent:read o agent:answer");
+        }
+    }
+
     /** `agent:mode` cambia la autonomía y dice desde dónde — un cambio sin origen no se puede revisar. */
     public function testTheModeCanBeChangedAndItSaysWhereItCameFrom(): void
     {
