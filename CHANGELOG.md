@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.73.0](https://github.com/getmilpa/app-runtime/compare/v0.72.0...v0.73.0) (2026-08-26)
+
+
+### Features
+
+* **recipe:** recipe:apply expands a declaration into a governed sequence ([#175](https://github.com/getmilpa/app-runtime/issues/175)) ([60360cd](https://github.com/getmilpa/app-runtime/commit/60360cd1e943db5d3d8f9c3158b3edc2ceabeeda))
+
 ## [0.72.0](https://github.com/getmilpa/app-runtime/compare/v0.71.0...v0.72.0) (2026-08-25)
 
 
