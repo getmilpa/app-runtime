@@ -7,6 +7,7 @@ namespace Milpa\AppRuntime\Tests\Recipe;
 use Milpa\Agent\SessionStore;
 use Milpa\AiGateway\ToolCallRefusedException;
 use Milpa\AppRuntime\Agent\GovernedExecutor;
+use Milpa\AppRuntime\Agent\SessionToolGate;
 use Milpa\AppRuntime\Recipe\Recipe;
 use Milpa\AppRuntime\Recipe\RecipeDriver;
 use Milpa\EventStore\Event;
@@ -69,6 +70,27 @@ final class RecipeDriverTest extends TestCase
         };
     }
 
+    /**
+     * A fake door that refuses the mutation as UNJUDGEABLE — the fail-closed hard-deny a call the
+     * gate cannot characterise gets (greenhouse decisions/0078), never a real consent pause.
+     */
+    private function unjudgeableExecutor(): GovernedExecutor
+    {
+        return new class () implements GovernedExecutor {
+            public function callTool(string $operation, array $arguments): mixed
+            {
+                if ($operation === 'demo:mutate') {
+                    throw new ToolCallRefusedException(
+                        SessionToolGate::UNJUDGEABLE . ": «{$operation}» resolves to no Operation of this app"
+                        . ' and no producer states its effect.',
+                    );
+                }
+
+                return ['ok' => true, 'operation' => $operation];
+            }
+        };
+    }
+
     /** A fake door that grants everything — the consent the pause was waiting for has arrived. */
     private function grantingExecutor(): GovernedExecutor
     {
@@ -118,6 +140,50 @@ final class RecipeDriverTest extends TestCase
         self::assertSame('demo', $paused->sequenceId);
         self::assertCount(3, $paused->steps);
         self::assertFalse($store->load($sid)?->isRunnable(), 'the session is left waiting on the pause');
+    }
+
+    /**
+     * An UNJUDGEABLE hard-deny can never become judgeable, so a caller must be able to tell it
+     * apart from a real consent pause — `pending_reason` is the seam that carries the distinction
+     * (`SessionToolGate::UNJUDGEABLE` marks it, greenhouse decisions/0078).
+     */
+    public function testAPausedResultCarriesAnUnjudgeableRefusalReasonAsThePendingReason(): void
+    {
+        $store = new SessionStore(new InMemoryEventStore());
+        $sid = 'recipe:demo';
+
+        $result = (new RecipeDriver())->apply(
+            $this->recipe(),
+            $this->unjudgeableExecutor(),
+            $store,
+            $sid,
+            $this->verdict(),
+            $this->installed(),
+        );
+
+        self::assertTrue($result['paused']);
+        self::assertArrayHasKey('pending_reason', $result);
+        self::assertStringContainsString(SessionToolGate::UNJUDGEABLE, $result['pending_reason']);
+    }
+
+    /** The OTHER frontier — an ordinary consent pause — carries its own reason, and NOT the marker. */
+    public function testAPausedResultCarriesAnOrdinaryConsentReasonWithoutTheUnjudgeableMarker(): void
+    {
+        $store = new SessionStore(new InMemoryEventStore());
+        $sid = 'recipe:demo';
+
+        $result = (new RecipeDriver())->apply(
+            $this->recipe(),
+            $this->pausingExecutor(),
+            $store,
+            $sid,
+            $this->verdict(),
+            $this->installed(),
+        );
+
+        self::assertTrue($result['paused']);
+        self::assertSame('consent needed: demo:mutate', $result['pending_reason']);
+        self::assertStringNotContainsString(SessionToolGate::UNJUDGEABLE, $result['pending_reason']);
     }
 
     public function testResumeWithGrantedConsentCompletesAndRecordsResumed(): void

@@ -43,7 +43,11 @@ final class RecipeDriver
      * @param callable(): list<string>                            $installed the package names already installed, read when the run begins
      *
      * @return array<string, mixed> a self-describing outcome: ok, applied, paused, and — when paused —
-     *                              whether it is resumable and which operation is pending
+     *                              whether it is resumable, which operation is pending, and the
+     *                              refusal reason it is pending FOR (`pending_reason`) — a caller
+     *                              reads it to tell a real consent frontier from an UNJUDGEABLE
+     *                              hard-deny (SessionToolGate::UNJUDGEABLE), which can never become
+     *                              judgeable no matter how long it waits
      */
     public function apply(
         Recipe $recipe,
@@ -144,6 +148,11 @@ final class RecipeDriver
                 'paused' => true,
                 'resumable' => true,
                 'pending_operation' => $result->frontier()?->step->operation,
+                // THE REFUSAL REASON, PASSED THROUGH VERBATIM. This driver draws no line between a
+                // real consent pause and an UNJUDGEABLE hard-deny (SessionToolGate::UNJUDGEABLE) —
+                // that classification belongs to the caller, who can inspect this string for the
+                // marker. Dropping it here (as before) left the two frontiers indistinguishable.
+                'pending_reason' => $result->frontier()?->reason,
                 'executed_count' => $result->executedCount(),
                 'steps_total' => \count($steps),
             ];
