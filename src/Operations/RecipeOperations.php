@@ -20,9 +20,12 @@ use Milpa\Agent\Session;
 use Milpa\Agent\SessionStore;
 use Milpa\AppRuntime\Agent\AgentTable;
 use Milpa\AppRuntime\Agent\ConsentBridge;
+use Milpa\AppRuntime\Agent\ContractProducer;
 use Milpa\AppRuntime\Agent\ObservedExecutor;
+use Milpa\AppRuntime\Agent\SessionBookkeeping;
 use Milpa\AppRuntime\Agent\SessionIdentity;
 use Milpa\AppRuntime\Agent\SessionToolGate;
+use Milpa\AppRuntime\Agent\SubAgentSpawner;
 use Milpa\AppRuntime\Policy\PolicyConfig;
 use Milpa\AppRuntime\Recipe\Recipe;
 use Milpa\AppRuntime\Recipe\RecipeDriver;
@@ -227,6 +230,12 @@ final class RecipeOperations implements CommandProvider
             petition: $petition,
             policyProvider: $provider,
             identity: $identity,
+            // PARITY WITH `AgentOperations::nuevaCompuerta` (greenhouse decisions/0078): without
+            // these, the gate resolves the session's own notebook and delegation tools to «no
+            // Operation and no producer», which is the genuinely-UNJUDGEABLE case it fails closed
+            // on — safe, but not what a recipe's internal producer tools deserve. Wiring them here
+            // lets the gate judge them by their declared contract, exactly as the agent gate does.
+            contractProducers: $this->contractProducers($store, $session->id),
         );
 
         return new ConsentBridge(
@@ -240,5 +249,30 @@ final class RecipeOperations implements CommandProvider
                 ObservedExecutor::TERMINAL,
             ),
         );
+    }
+
+    /**
+     * The authorized producers whose tools reach this gate without an app `Operation` behind them —
+     * the session's own notebook and delegation. Mirrors `AgentOperations::contractProducers()`
+     * exactly (greenhouse decisions/0078): built from THIS session's id, so the recipe path judges
+     * its internal producer tools by their declared contract instead of allowing them by name — the
+     * same seam the agent gate has always had. The runner throws by construction: a gate RESOLVES
+     * contracts here, it never runs a child.
+     *
+     * @return list<ContractProducer>
+     */
+    private function contractProducers(SessionStore $store, string $sessionId): array
+    {
+        $producers = [new SessionBookkeeping($store, $sessionId)];
+
+        if (class_exists(SubAgentSpawner::class)) {
+            $producers[] = new SubAgentSpawner(
+                $store,
+                $sessionId,
+                static fn (): array => throw new \LogicException('a gate resolves contracts; it does not run a child'),
+            );
+        }
+
+        return $producers;
     }
 }
