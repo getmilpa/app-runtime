@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.74.0](https://github.com/getmilpa/app-runtime/compare/v0.73.1...v0.74.0) (2026-08-26)
+
+
+### Features
+
+* **agent:** a promotion's subject comes from the diff — the trial workspace attests it, and a tightened subject grant finally bites ([#179](https://github.com/getmilpa/app-runtime/issues/179)) ([069d7f5](https://github.com/getmilpa/app-runtime/commit/069d7f51a6e24dd0b8c6c43121af69d06abf82a4))
+
 ## [0.73.1](https://github.com/getmilpa/app-runtime/compare/v0.73.0...v0.73.1) (2026-08-26)
 
 
