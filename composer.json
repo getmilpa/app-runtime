@@ -1,66 +1,68 @@
 {
-  "name": "milpa/app-runtime",
-  "description": "The agent runtime a Milpa app INSTALLS instead of copying: session gate, sub-agent delegation, tree budget, sterile-loop guard and the live bridge. Lives here so an existing app receives its improvements \u2014 a template that copies what nobody edits is a package in disguise.",
-  "type": "library",
-  "license": "Apache-2.0",
-  "authors": [
-    {
-      "name": "Rodrigo Vicente - TeamX Agency",
-      "homepage": "https://x.com/rodrigoteamx"
+    "name": "milpa/app-runtime",
+    "description": "The agent runtime a Milpa app INSTALLS instead of copying: session gate, sub-agent delegation, tree budget, sterile-loop guard and the live bridge. Lives here so an existing app receives its improvements \u2014 a template that copies what nobody edits is a package in disguise.",
+    "type": "library",
+    "license": "Apache-2.0",
+    "authors": [
+        {
+            "name": "Rodrigo Vicente - TeamX Agency",
+            "homepage": "https://x.com/rodrigoteamx"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "milpa/agent": ">=0.27 <1.0",
+        "milpa/command": ">=0.19 <1.0",
+        "milpa/console": ">=0.12 <1.0",
+        "milpa/container": ">=0.1 <1.0",
+        "milpa/core": ">=0.6.2 <1.0",
+        "milpa/http": ">=0.1.5 <1.0",
+        "milpa/live": ">=0.5 <1.0",
+        "milpa/live-tui": ">=0.7 <1.0",
+        "milpa/plugin": ">=0.10 <1.0",
+        "milpa/runtime": ">=0.7.6 <1.0",
+        "milpa/tool-runtime": ">=0.12 <1.0",
+        "nyholm/psr7": "^1.8"
+    },
+    "conflict": {
+        "milpa/agent": "<0.23",
+        "milpa/command": "<0.19",
+        "milpa/event-store": "<0.3"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.75",
+        "milpa/ai-gateway": ">=0.8 <1.0",
+        "milpa/auth": ">=0.3.8 <1.0",
+        "milpa/data": ">=0.2.2 <1.0",
+        "milpa/devtools": ">=0.14 <1.0",
+        "milpa/event-store": ">=0.3 <1.0",
+        "milpa/live-web": ">=0.4 <1.0",
+        "milpa/mercure": "*",
+        "phpstan/phpdoc-parser": "^2.3",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^11.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "Milpa\\AppRuntime\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Milpa\\AppRuntime\\Tests\\": "tests/",
+            "Milpa\\Docs\\": "vendor/milpa/core/tools/gen-docs/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "suggest": {
+        "milpa/agent": "The agent runtime itself: sessions, gates, sub-agents. Without it the agent operations are not offered.",
+        "milpa/ai-gateway": "One message and tool-call shape across model providers. Needed by the agent operations.",
+        "milpa/auth": "Verifying the token a caller presents over HTTP.",
+        "milpa/data": "Persisting those tokens.",
+        "milpa/devtools": "`coa doctor`, `coa repair` and `coa update`.",
+        "milpa/event-store": "Append-only session streams. Needed by the agent operations.",
+        "milpa/live-web": "Mounts the live wire (LivePlugin): server-rendered components take actions over HTTP with signed state, CSRF and replay protection \u2014 dashboards, admin panels."
     }
-  ],
-  "require": {
-    "php": "^8.3",
-    "milpa/agent": ">=0.27 <1.0",
-    "milpa/command": ">=0.19 <1.0",
-    "milpa/console": ">=0.12 <1.0",
-    "milpa/container": ">=0.1 <1.0",
-    "milpa/core": ">=0.6.2 <1.0",
-    "milpa/http": ">=0.1.5 <1.0",
-    "milpa/live": ">=0.5 <1.0",
-    "milpa/live-tui": ">=0.7 <1.0",
-    "milpa/plugin": ">=0.10 <1.0",
-    "milpa/runtime": ">=0.7.6 <1.0",
-    "milpa/tool-runtime": ">=0.12 <1.0",
-    "nyholm/psr7": "^1.8"
-  },
-  "conflict": {
-    "milpa/agent": "<0.23",
-    "milpa/command": "<0.19",
-    "milpa/event-store": "<0.3"
-  },
-  "require-dev": {
-    "friendsofphp/php-cs-fixer": "^3.75",
-    "milpa/ai-gateway": ">=0.8 <1.0",
-    "milpa/auth": ">=0.3.8 <1.0",
-    "milpa/data": ">=0.2.2 <1.0",
-    "milpa/devtools": ">=0.14 <1.0",
-    "milpa/event-store": ">=0.3 <1.0",
-    "milpa/mercure": "*",
-    "phpstan/phpdoc-parser": "^2.3",
-    "phpstan/phpstan": "^2.1",
-    "phpunit/phpunit": "^11.5"
-  },
-  "autoload": {
-    "psr-4": {
-      "Milpa\\AppRuntime\\": "src/"
-    }
-  },
-  "autoload-dev": {
-    "psr-4": {
-      "Milpa\\AppRuntime\\Tests\\": "tests/",
-      "Milpa\\Docs\\": "vendor/milpa/core/tools/gen-docs/"
-    }
-  },
-  "config": {
-    "sort-packages": true
-  },
-  "suggest": {
-    "milpa/agent": "The agent runtime itself: sessions, gates, sub-agents. Without it the agent operations are not offered.",
-    "milpa/ai-gateway": "One message and tool-call shape across model providers. Needed by the agent operations.",
-    "milpa/auth": "Verifying the token a caller presents over HTTP.",
-    "milpa/data": "Persisting those tokens.",
-    "milpa/devtools": "`coa doctor`, `coa repair` and `coa update`.",
-    "milpa/event-store": "Append-only session streams. Needed by the agent operations."
-  }
 }
