@@ -31,4 +31,20 @@ final class SequenceResultTest extends TestCase
         self::assertNull($r->frontier());
         self::assertSame(2, $r->executedCount());
     }
+
+
+    /** A Denied frontier is a closed door, not a waiting one: it yields no cursor (decisions/0079). */
+    public function testADeniedFrontierYieldsNoCursorWhileAPausedOneDoes(): void
+    {
+        $steps = [new SequenceStep('a', []), new SequenceStep('b', [])];
+        $a = new StepOutcome($steps[0], StepStatus::Executed, ['ok' => true]);
+
+        $denied = new SequenceResult([$a, new StepOutcome($steps[1], StepStatus::Denied, null, 'UNJUDGEABLE: b')]);
+        self::assertNull($denied->pausedCursor($steps));
+        self::assertFalse($denied->completed());
+        self::assertSame(StepStatus::Denied, $denied->frontier()?->status);
+
+        $paused = new SequenceResult([$a, new StepOutcome($steps[1], StepStatus::Paused, null, 'needs consent')]);
+        self::assertSame(1, $paused->pausedCursor($steps)?->nextIndex);
+    }
 }

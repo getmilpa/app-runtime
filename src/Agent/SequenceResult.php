@@ -58,8 +58,9 @@ final readonly class SequenceResult
 
     /**
      * The resumable state of a paused run, or null when there is nothing to resume: the sequence
-     * either completed (every step Executed) or stopped at a Failed step, which a resume cannot
-     * repair. Only a Paused frontier — a consent frontier, not a broken step — yields a cursor:
+     * either completed (every step Executed), stopped at a Failed step, which a resume cannot
+     * repair, or stopped at a Denied step, which no answer can lift (decisions/0079). Only a
+     * Paused frontier — a consent frontier, not a broken or closed one — yields a cursor:
      * its index becomes `nextIndex`, and the Executed prefix before it is carried as `done` so
      * `GovernedSequenceRunner::resume` never re-runs it (greenhouse decisions/0075, property 1).
      *
@@ -73,7 +74,7 @@ final readonly class SequenceResult
                 return new SequenceCursor(SequenceCursor::digestOf($steps), $index, $done);
             }
             if ($o->status !== StepStatus::Executed) {
-                // NotStarted (behind a Failed step) or Failed itself — nothing a resume can do.
+                // NotStarted (behind a Failed/Denied step), Failed, or Denied — nothing a resume can do.
                 return null;
             }
             $done[] = $o;

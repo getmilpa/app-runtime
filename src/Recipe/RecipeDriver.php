@@ -21,6 +21,7 @@ use Milpa\AppRuntime\Agent\GovernedSequenceRunner;
 use Milpa\AppRuntime\Agent\SequenceCursor;
 use Milpa\AppRuntime\Agent\SequenceResult;
 use Milpa\AppRuntime\Agent\SequenceStep;
+use Milpa\AppRuntime\Agent\StepStatus;
 
 /**
  * Drives one declared unit of intent through the ONE governed door: it expands the recipe into an
@@ -167,6 +168,25 @@ final class RecipeDriver
                 'ok' => true,
                 'applied' => true,
                 'paused' => false,
+                'executed_count' => $result->executedCount(),
+                'steps_total' => \count($steps),
+            ];
+        }
+
+        // DENIED (greenhouse decisions/0079): the gate closed a door no human can open — an
+        // UNJUDGEABLE call (decisions/0078). Not paused, so nothing was persisted and nothing
+        // resumes; not failed, because nothing broke — the gate judged. The reason passes through
+        // verbatim, marker included; this driver still draws no line of its own, the runner did.
+        $frontier = $result->frontier();
+        if ($frontier?->status === StepStatus::Denied) {
+            return [
+                'ok' => false,
+                'applied' => false,
+                'paused' => false,
+                'denied' => true,
+                'resumable' => false,
+                'denied_operation' => $frontier->step->operation,
+                'reason' => $frontier->reason,
                 'executed_count' => $result->executedCount(),
                 'steps_total' => \count($steps),
             ];
