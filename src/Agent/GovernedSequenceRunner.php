@@ -129,7 +129,17 @@ final class GovernedSequenceRunner
                 // THIS CATCH MUST STAY FIRST. ToolCallRefusedException extends \RuntimeException, so
                 // the broad \Throwable catch below would swallow it as a plain failure if it came
                 // first — collapsing a gate's deliberate pause into an error nobody asked to happen.
-                $outcomes[] = new StepOutcome($step, StepStatus::Paused, null, $refused->getMessage());
+                //
+                // A DENY IS NOT A PAUSE (greenhouse decisions/0079, H-DENY-1). The gate signals the
+                // one refusal no human can answer — a call it cannot judge — with the marker it
+                // declared for exactly this reading (SessionToolGate::UNJUDGEABLE, decisions/0078:
+                // «so audit can tell them apart»). Recording that as Paused would hand the driver a
+                // cursor to persist as a consent frontier: a SequencePaused fact saying «waiting on
+                // a human» for a door that is closed for good, and a resume that runs nothing and
+                // pauses again. Reading the MARKER is using the published contract as declared; it
+                // is not a name switch — the same message without the marker is a pause below.
+                $status = self::isHardDeny($refused->getMessage()) ? StepStatus::Denied : StepStatus::Paused;
+                $outcomes[] = new StepOutcome($step, $status, null, $refused->getMessage());
                 $stopped = true;
             } catch (\Throwable $failed) {
                 // ORDERED, NOT ATOMIC (greenhouse decisions/0074): a step that raised anything other
@@ -161,5 +171,18 @@ final class GovernedSequenceRunner
     private function isConsentFrontier(mixed $result): bool
     {
         return \is_array($result) && ($result['requires_confirmation'] ?? false) === true;
+    }
+
+    /**
+     * Is this refusal the gate's fail-closed «I cannot judge this» — a deny nobody can lift?
+     *
+     * The gate travels its verdict as `?string` (the released contract, decisions/0078 chose not
+     * to widen it) and marks the unjudgeable case with {@see SessionToolGate::UNJUDGEABLE} so a
+     * consumer can tell «I cannot judge this» from «a human must decide this». This is the
+     * consumer that has to: a pause is persisted and resumable, a deny is neither.
+     */
+    private static function isHardDeny(string $reason): bool
+    {
+        return str_contains($reason, SessionToolGate::UNJUDGEABLE);
     }
 }

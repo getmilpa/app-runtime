@@ -147,7 +147,13 @@ final class RecipeDriverTest extends TestCase
      * apart from a real consent pause — `pending_reason` is the seam that carries the distinction
      * (`SessionToolGate::UNJUDGEABLE` marks it, greenhouse decisions/0078).
      */
-    public function testAPausedResultCarriesAnUnjudgeableRefusalReasonAsThePendingReason(): void
+    /**
+     * H-DENY-1 (greenhouse decisions/0079): an UNJUDGEABLE refusal is a hard deny no human can answer,
+     * so the driver reports it as DENIED — not paused, not resumable — and persists NO pause. The
+     * old behaviour (paused:true, resumable:true, a SequencePaused fact written) recorded a session
+     * as waiting on a human who cannot exist; a later resume ran nothing and paused again forever.
+     */
+    public function testAnUnjudgeableRefusalDeniesTheRecipeAndPersistsNoPause(): void
     {
         $store = new SessionStore(new InMemoryEventStore());
         $sid = 'recipe:demo';
@@ -161,9 +167,21 @@ final class RecipeDriverTest extends TestCase
             $this->installed(),
         );
 
-        self::assertTrue($result['paused']);
-        self::assertArrayHasKey('pending_reason', $result);
-        self::assertStringContainsString(SessionToolGate::UNJUDGEABLE, $result['pending_reason']);
+        self::assertFalse($result['ok']);
+        self::assertFalse($result['applied']);
+        self::assertFalse($result['paused']);
+        self::assertTrue($result['denied']);
+        self::assertFalse($result['resumable']);
+        self::assertSame('demo:mutate', $result['denied_operation']);
+        self::assertStringContainsString(SessionToolGate::UNJUDGEABLE, $result['reason']);
+        self::assertSame(1, $result['executed_count'], 'the read before the denied step ran; nothing after it');
+
+        self::assertNull($store->load($sid)?->pausedSequence, 'a deny is not a pause: no SequencePaused fact');
+
+        $resumed = (new RecipeDriver())->resume($store, $sid, $this->grantingExecutor());
+        self::assertFalse($resumed['ok']);
+        self::assertFalse($resumed['resumable'], 'nothing was paused, so nothing resumes');
+        self::assertSame(0, $resumed['executed_count'] ?? 0, 'a resume after a deny runs nothing');
     }
 
     /** The OTHER frontier — an ordinary consent pause — carries its own reason, and NOT the marker. */

@@ -173,4 +173,80 @@ final class GovernedSequenceRunnerTest extends TestCase
         self::assertSame('boom', $result->outcomes[1]->reason);
         self::assertSame(StepStatus::NotStarted, $result->outcomes[2]->status);
     }
+
+
+    /**
+     * An UNJUDGEABLE refusal (greenhouse decisions/0078) is a hard deny, not a consent frontier: no
+     * human can answer it, so it must never be recorded as Paused — a pause would be persisted as
+     * something waiting on a human who cannot exist (greenhouse decisions/0079, H-DENY-1). The step
+     * is Denied, the sequence stops, nothing after it starts, and the reason keeps its marker.
+     */
+    public function testAnUnjudgeableRefusalDeniesTheStepInsteadOfPausingIt(): void
+    {
+        $seen = [];
+        $executor = new class ($seen) implements \Milpa\AppRuntime\Agent\GovernedExecutor {
+            /** @param list<string> $seen */
+            public function __construct(public array &$seen)
+            {
+            }
+            public function callTool(string $operation, array $arguments): mixed
+            {
+                $this->seen[] = $operation;
+                if ($operation === 'b') {
+                    throw new \Milpa\AiGateway\ToolCallRefusedException(
+                        \Milpa\AppRuntime\Agent\SessionToolGate::UNJUDGEABLE
+                        . ': «b» resolves to no Operation of this app and no producer states its effect.',
+                    );
+                }
+                return ['ok' => true];
+            }
+        };
+
+        $result = (new \Milpa\AppRuntime\Agent\GovernedSequenceRunner())->run([
+            new \Milpa\AppRuntime\Agent\SequenceStep('a', []),
+            new \Milpa\AppRuntime\Agent\SequenceStep('b', []),
+            new \Milpa\AppRuntime\Agent\SequenceStep('c', []),
+        ], $executor);
+
+        self::assertSame(['a', 'b'], $executor->seen, 'c must never be attempted after b is denied');
+        self::assertFalse($result->completed());
+        self::assertSame(1, $result->executedCount());
+        self::assertSame(\Milpa\AppRuntime\Agent\StepStatus::Executed, $result->outcomes[0]->status);
+        self::assertSame(\Milpa\AppRuntime\Agent\StepStatus::Denied, $result->outcomes[1]->status);
+        self::assertStringContainsString(\Milpa\AppRuntime\Agent\SessionToolGate::UNJUDGEABLE, (string) $result->outcomes[1]->reason);
+        self::assertSame(\Milpa\AppRuntime\Agent\StepStatus::NotStarted, $result->outcomes[2]->status);
+        self::assertNull($result->pausedCursor([
+            new \Milpa\AppRuntime\Agent\SequenceStep('a', []),
+            new \Milpa\AppRuntime\Agent\SequenceStep('b', []),
+            new \Milpa\AppRuntime\Agent\SequenceStep('c', []),
+        ]), 'a denied sequence has nothing to resume');
+    }
+
+    /**
+     * COUNTER-CONTROL: the verdict moves with the MARKER, not with the tool. The same refusal on the
+     * same step without the marker is an ordinary consent frontier and stays Paused (resumable).
+     */
+    public function testTheSameRefusalWithoutTheMarkerIsStillAPause(): void
+    {
+        $executor = new class () implements \Milpa\AppRuntime\Agent\GovernedExecutor {
+            public function callTool(string $operation, array $arguments): mixed
+            {
+                if ($operation === 'b') {
+                    throw new \Milpa\AiGateway\ToolCallRefusedException(
+                        '«b» resolves to no Operation of this app and no producer states its effect.',
+                    );
+                }
+                return ['ok' => true];
+            }
+        };
+
+        $steps = [
+            new \Milpa\AppRuntime\Agent\SequenceStep('a', []),
+            new \Milpa\AppRuntime\Agent\SequenceStep('b', []),
+        ];
+        $result = (new \Milpa\AppRuntime\Agent\GovernedSequenceRunner())->run($steps, $executor);
+
+        self::assertSame(\Milpa\AppRuntime\Agent\StepStatus::Paused, $result->outcomes[1]->status);
+        self::assertNotNull($result->pausedCursor($steps));
+    }
 }
