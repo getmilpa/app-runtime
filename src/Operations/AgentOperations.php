@@ -74,6 +74,7 @@ use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\Runtime\Config;
 use Milpa\AppRuntime\Agent\SessionBookkeeping;
 use Milpa\AppRuntime\Agent\PrerequisiteGate;
+use Milpa\AppRuntime\Agent\ContractProducer;
 use Milpa\AppRuntime\Agent\SessionToolGate;
 use Milpa\AppRuntime\Support\Operations;
 use Milpa\Interfaces\Tooling\ToolProviderInterface;
@@ -1457,7 +1458,38 @@ class AgentOperations implements CommandProvider
             policyProvider: $policyProvider,
             identity: $identity,
             trialRouter: $this->trialRouter($kernel),
+            // THE INTERNAL PRODUCERS, so the gate judges the notebook and delegation by their declared
+            // contracts instead of allowing them by name (greenhouse decisions/0078). Built from THIS
+            // session's id, so a child spawned through this same builder governs its own internal tools.
+            contractProducers: $this->contractProducers($store, $session->id),
         );
+    }
+
+    /**
+     * The authorized producers whose tools reach a gate through the registry's `$extra` and never
+     * through `Operations::all()` — the session's own notebook and delegation.
+     *
+     * The gate consults them to RESOLVE a tool's contract and judge it (greenhouse decisions/0078):
+     * `agent_message`/`agent:roles` read as allowed, `agent_spawn`/`agent_resume` finally enforce the
+     * `requiresConfirmation` they always declared, and `plan`/`todo` pass as the session's own
+     * self-legibility. Built here, in the one gate builder, so the main session and a sub-agent get the
+     * same seam. The runner throws by construction: a gate RESOLVES contracts, it never runs a child.
+     *
+     * @return list<ContractProducer>
+     */
+    private function contractProducers(SessionStore $store, string $sessionId): array
+    {
+        $productores = [new SessionBookkeeping($store, $sessionId)];
+
+        if (class_exists(SubAgentSpawner::class)) {
+            $productores[] = new SubAgentSpawner(
+                $store,
+                $sessionId,
+                static fn (): array => throw new \LogicException('a gate resolves contracts; it does not run a child'),
+            );
+        }
+
+        return $productores;
     }
 
     /** The session store this app writes to, or null when it has nowhere to keep sessions. */

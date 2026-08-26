@@ -4,11 +4,21 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tests\Agent;
 
+use Milpa\AppRuntime\Agent\ContractProducer;
+use Milpa\AppRuntime\Agent\SessionBookkeeping;
 use Milpa\AppRuntime\Agent\SessionToolGate;
+use Milpa\AppRuntime\Agent\SubAgentSpawner;
 use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\SessionObservation;
 use Milpa\Agent\SessionStore;
+use Milpa\Command\Effect\Authority;
+use Milpa\Command\Effect\EffectProfile;
+use Milpa\Command\Effect\Externality;
+use Milpa\Command\Effect\Mutation;
+use Milpa\Command\Effect\Reversibility;
+use Milpa\Command\Effect\Subject;
 use Milpa\Command\Operation;
+use Milpa\Console\McpProjector;
 use Milpa\EventStore\InMemoryEventStore;
 use PHPUnit\Framework\TestCase;
 
@@ -616,6 +626,10 @@ final class SessionToolGateTest extends TestCase
             $sesion,
             $this->operaciones(),
             compuertaPrevia: new \Milpa\AppRuntime\Agent\PrerequisiteGate(['plan']),
+            // El productor de la bitácora: `plan` se resuelve por su contrato y pasa como bitácora
+            // propia. Sin él, `plan` no sería una operación ni un contrato de productor, y la compuerta
+            // —que ya falla cerrado— lo negaría, cerrando la mesa que la obligación venía a abrir.
+            contractProducers: [new \Milpa\AppRuntime\Agent\SessionBookkeeping($almacen, 'j')],
         );
 
         self::assertIsString($compuerta->refuse('make', []), 'trabajar no procede sin plan');
@@ -688,5 +702,113 @@ final class SessionToolGateTest extends TestCase
 
         self::assertNotNull($compuerta->refuse('foundation_found', ['domain' => 'Panadería Central']));
         self::assertNotNull($almacen->load('s1')?->question);
+    }
+
+    // ── JUDGING BY CONTRACT, NOT BY NAME (greenhouse decisions/0078, expanded) ───────────────────
+
+    /**
+     * THE GOLD FALSIFIER: the gate's verdict follows the CONTRACT a producer declares, not the tool's
+     * name. Three cells, one tool name, produced by a test-only producer that is in NO allowlist and
+     * backs NO app Operation.
+     *
+     *   1. the producer declares `requiresConfirmation: true` → the gate STOPS it (asks/enforces)
+     *   2. ONLY the contract changes to a read              → the SAME tool is now ALLOWED
+     *   3. the identical tool with NO producer               → nobody states its effect → UNJUDGEABLE
+     *
+     * If the gate recognised names, cell 2 could not flip cell 1's verdict, and cell 3 could not
+     * differ from a cell that shares its name. It is the contract that moves the veredicto.
+     */
+    public function testTheGateJudgesAProducerContractByItsContractNotItsName(): void
+    {
+        $almacen = new SessionStore(new InMemoryEventStore());
+        // Auto removes the mode's permission question from the picture, so only the contract decides.
+        $almacen->start('s1', 'x', AutonomyMode::Auto);
+        $sesion = $almacen->load('s1');
+        self::assertNotNull($sesion);
+
+        $productorDe = static fn (Operation $op): ContractProducer => new class ($op) implements ContractProducer {
+            public function __construct(private readonly Operation $op)
+            {
+            }
+
+            public function contractFor(string $tool): ?Operation
+            {
+                return McpProjector::toolName($this->op->name) === $tool ? $this->op : null;
+            }
+        };
+        $schema = ['type' => 'object', 'properties' => []];
+
+        // CELL 1 — a contract that demands confirmation. The gate enforces it: a non-null refusal, and
+        // NOT the unjudgeable state (it is judged — it asks).
+        $exigeConfirmacion = new Operation(
+            'gold_probe',
+            'A delegation-like effect a producer declares',
+            static fn (array $i): array => ['ok' => true],
+            inputSchema: $schema,
+            mutating: true,
+            requiresConfirmation: true,
+            effects: new EffectProfile(Mutation::Persistent, Externality::None, Reversibility::Irreversible, Authority::WriteAsUser, subject: Subject::Executable),
+        );
+        $c1 = (new SessionToolGate($almacen, $sesion, [], contractProducers: [$productorDe($exigeConfirmacion)]))->refuse('gold_probe', []);
+        self::assertNotNull($c1, 'the declared confirmation is enforced: the gate stops it');
+        self::assertStringNotContainsString(SessionToolGate::UNJUDGEABLE, $c1, 'it is JUDGED, not unjudgeable');
+
+        // CELL 2 — SAME tool name, ONLY the contract changed to a read → allowed.
+        $soloLee = new Operation(
+            'gold_probe',
+            'The same tool, now a read',
+            static fn (array $i): array => ['ok' => true],
+            inputSchema: $schema,
+        );
+        $c2 = (new SessionToolGate($almacen, $sesion, [], contractProducers: [$productorDe($soloLee)]))->refuse('gold_probe', []);
+        self::assertNull($c2, 'same name, a read contract now: allowed — the verdict follows the CONTRACT');
+
+        // CELL 3 — the identical tool with NO producer → nobody can state its effect → UNJUDGEABLE.
+        $c3 = (new SessionToolGate($almacen, $sesion, [], contractProducers: []))->refuse('gold_probe', []);
+        self::assertNotNull($c3);
+        self::assertStringContainsString(SessionToolGate::UNJUDGEABLE, $c3, 'no producer, no Operation: the gate cannot judge it');
+    }
+
+    /**
+     * THE INTERNAL-TOOLS BATTERY: the real producers, judged by their real contracts.
+     *
+     * These tools reach the gate through the registry's `$extra`, never `Operations::all()`. Under the
+     * old null→ALLOW they ran without ever asking the consent their contract declares — a dead policy.
+     * Now the gate resolves each from its authorized producer and judges it: delegation enforces its
+     * `requiresConfirmation`, the read-only channels pass, and the session's own notebook passes as
+     * self-legibility (by its benign profile, not by its name). A tool no producer claims still fails
+     * closed. Asserted in `Auto`, so a confirmation stopping is the contract talking, not the mode.
+     */
+    public function testTheInternalToolsAreJudgedByTheirProducersContracts(): void
+    {
+        $almacen = new SessionStore(new InMemoryEventStore());
+        $almacen->start('s1', 'x', AutonomyMode::Auto);
+        $sesion = $almacen->load('s1');
+        self::assertNotNull($sesion);
+
+        $productores = [new SessionBookkeeping($almacen, 's1')];
+        if (class_exists(SubAgentSpawner::class)) {
+            $productores[] = new SubAgentSpawner($almacen, 's1', static fn (): array => throw new \LogicException('the gate resolves contracts, it does not run children'));
+        }
+        $compuerta = new SessionToolGate($almacen, $sesion, [], contractProducers: $productores);
+
+        if (class_exists(SubAgentSpawner::class)) {
+            // Delegation carries `requiresConfirmation: true` → enforced now, where null→ALLOW let it run.
+            self::assertNotNull($compuerta->refuse('agent_spawn', ['brief' => 'x', 'done_when' => 'y']), 'spawn: its declared confirmation is finally enforced');
+            self::assertNotNull($compuerta->refuse('agent_resume', ['sub_session' => 'k']), 'resume: same');
+
+            // Read-only channels resolve to reads → allowed.
+            self::assertNull($compuerta->refuse('agent_message', ['to' => 'a', 'message' => 'b']), 'message is read-only: allowed');
+            self::assertNull($compuerta->refuse('agent_roles', []), 'roles is read-only: allowed');
+        }
+
+        // The session's own notebook: self-legibility, allowed by its benign contract — not by name.
+        self::assertNull($compuerta->refuse('plan', ['plan' => 'do the thing']), 'plan is self-log: allowed');
+        self::assertNull($compuerta->refuse('todo', ['text' => 'a thing']), 'todo is self-log: allowed');
+
+        // A tool no producer claims and no Operation backs → UNJUDGEABLE (the falsifier still holds).
+        $sinDuenio = $compuerta->refuse('some_unowned_tool', []);
+        self::assertNotNull($sinDuenio);
+        self::assertStringContainsString(SessionToolGate::UNJUDGEABLE, $sinDuenio);
     }
 }
