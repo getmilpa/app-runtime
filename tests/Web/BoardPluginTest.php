@@ -23,7 +23,12 @@ use Milpa\Container\DIContainer;
 use Milpa\EventStore\InMemoryEventStore;
 use Milpa\Http\Routing\Route;
 use Milpa\Runtime\Config;
+use Milpa\Command\Operation;
+use Milpa\Command\OperationHttpPolicy;
+use Nyholm\Psr7\Response;
 use Nyholm\Psr7\ServerRequest;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -75,16 +80,16 @@ final class BoardPluginTest extends TestCase
         self::assertFalse($container->has(SessionStore::class), 'a Surface no longer owns its store — the operation layer resolves it at request time');
     }
 
-    public function testTheDataControllerFoldsTheSessionIntoColumns(): void
+    /**
+     * THE SECOND DOOR JUDGES WITH THE SAME POLICY (greenhouse decisions/0082): /board/data used to call
+     * agent:board's handler directly, so the OperationHttpPolicy the projector consults never saw it and
+     * an anonymous caller read the fold (evidence/0318, 0319). Now the controller asks the container's
+     * policy first — and without one it refuses: a door nobody judges is not a door.
+     */
+    public function testTheDataControllerFoldsTheSessionIntoColumnsWhenThePolicyAdmits(): void
     {
-        $eventos = new InMemoryEventStore();
-        $store = new SessionStore($eventos);
-        $store->start('s1', 'x');
-        $store->recordTurn('s1', 'user', 'inspecciona');
-        $store->recordToolCall('s1', 'plugins_list', [], 'ok');
-        $store->recordTurn('s1', 'assistant', 'listo');
-        $container = new DIContainer();
-        $container->registerService(SessionStore::class, $store);
+        $container = $this->containerWithASession();
+        $container->registerService(OperationHttpPolicy::class, $this->policyThat(null));
 
         $r = (new BoardDataController($container))->data((new ServerRequest('GET', '/board/data?session=s1'))->withQueryParams(['session' => 's1']));
 
@@ -93,5 +98,56 @@ final class BoardPluginTest extends TestCase
         $html = (string) $r->getBody();
         self::assertStringContainsString('data-status="done"', $html);
         self::assertStringContainsString('plugins_list', $html, 'the finished cycle folded into the done column');
+    }
+
+    public function testTheDataControllerReturnsThePolicysRefusalUntouched(): void
+    {
+        $container = $this->containerWithASession();
+        $container->registerService(OperationHttpPolicy::class, $this->policyThat(new Response(403, ['Content-Type' => 'application/json'], '{"error":"scope"}')));
+
+        $r = (new BoardDataController($container))->data((new ServerRequest('GET', '/board/data?session=s1'))->withQueryParams(['session' => 's1']));
+
+        self::assertSame(403, $r->getStatusCode());
+        self::assertStringNotContainsString('plugins_list', (string) $r->getBody(), 'a refused caller sees no session fact');
+    }
+
+    public function testWithoutAPolicyTheDataControllerFailsClosed(): void
+    {
+        $container = $this->containerWithASession();
+
+        $r = (new BoardDataController($container))->data((new ServerRequest('GET', '/board/data?session=s1'))->withQueryParams(['session' => 's1']));
+
+        self::assertSame(401, $r->getStatusCode());
+        $body = (string) $r->getBody();
+        self::assertStringNotContainsString('plugins_list', $body, 'no session fact leaks through an unjudged door');
+        self::assertStringContainsString('milpa/auth', $body, 'the refusal teaches what is missing');
+    }
+
+    private function containerWithASession(): DIContainer
+    {
+        $store = new SessionStore(new InMemoryEventStore());
+        $store->start('s1', 'x');
+        $store->recordTurn('s1', 'user', 'inspecciona');
+        $store->recordToolCall('s1', 'plugins_list', [], 'ok');
+        $store->recordTurn('s1', 'assistant', 'listo');
+        $container = new DIContainer();
+        $container->registerService(SessionStore::class, $store);
+
+        return $container;
+    }
+
+    /** A policy whose verdict is fixed: null admits, a response refuses — the shape OperationHttpPolicy::enforce returns. */
+    private function policyThat(?ResponseInterface $verdict): OperationHttpPolicy
+    {
+        return new class ($verdict) implements OperationHttpPolicy {
+            public function __construct(private readonly ?ResponseInterface $verdict)
+            {
+            }
+
+            public function enforce(Operation $op, ServerRequestInterface $request): ?ResponseInterface
+            {
+                return $this->verdict;
+            }
+        };
     }
 }
