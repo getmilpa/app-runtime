@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.77.0](https://github.com/getmilpa/app-runtime/compare/v0.76.0...v0.77.0) (2026-08-26)
+
+
+### Features
+
+* **web:** a live action needs an actor — the door refuses an anonymous POST /live before the endpoint ([#185](https://github.com/getmilpa/app-runtime/issues/185)) ([ac69bf3](https://github.com/getmilpa/app-runtime/commit/ac69bf3a52af54e192ed832ac2deb0937a42024c))
+
 ## [0.76.0](https://github.com/getmilpa/app-runtime/compare/v0.75.0...v0.76.0) (2026-08-26)
 
 
