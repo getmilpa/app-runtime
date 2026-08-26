@@ -150,9 +150,58 @@ final class LivePluginTest extends TestCase
         $noCsrf = $post(['state' => $data['state'], 'csrfToken' => ''] + $base + ['action' => 'page', 'payload' => ['page' => 2]]);
         self::assertSame(403, $noCsrf->getStatusCode());
 
-        // 7 · bad JSON never reaches the endpoint
-        $bad = $controller->handle((new ServerRequest('POST', '/live'))->withBody(Stream::create('not json')));
+        // 7 · bad JSON never reaches the endpoint (from an authenticated caller — identity is checked first)
+        $bad = $controller->handle(
+            (new ServerRequest('POST', '/live'))->withAttribute(AuthenticateMiddleware::ATTRIBUTE, $actor)->withBody(Stream::create('not json')),
+        );
         self::assertSame(400, $bad->getStatusCode());
+
+        // 8 · IDENTITY IS THE OUTERMOST GATE (greenhouse decisions/0084): an anonymous caller — a fresh,
+        // valid envelope and CSRF, but NO verified actor — is refused with 401 BEFORE the endpoint, and no
+        // action runs. Exposing the wire does not grant the right to act (evidence/0320 finding G).
+        $fresh = $plugin->bootFor();
+        $freshHtml = $renderer->render($table, new RenderRequest(
+            context: new ComponentContext('t1', route: '/live'),
+            props: ['name' => 'ventas', 'endpoint' => '/live', 'columns' => [['key' => 'v', 'label' => 'V']], 'rows' => [['id' => 'a', 'v' => 1]]],
+            target: RenderTarget::HTML,
+        ))->output;
+        preg_match('#<script type="application/milpa\\+xhtml" data-milpa-state="t1">(.*?)</script>#s', $freshHtml, $fm);
+        $freshEnv = html_entity_decode($fm[1] ?? '');
+        $anon = $controller->handle(
+            (new ServerRequest('POST', '/live'))->withBody(Stream::create((string) json_encode([
+                'action' => 'sort', 'payload' => ['key' => 'v'], 'state' => $freshEnv, 'sessionId' => $fresh->sessionId, 'csrfToken' => $fresh->csrfToken,
+            ]))),
+        );
+        self::assertSame(401, $anon->getStatusCode(), 'no verified actor → 401, before the endpoint');
+        self::assertStringContainsString('live_unauthenticated', (string) $anon->getBody());
+    }
+
+    public function testWithLiveAnonymousTheWireReopensToAnUnauthenticatedCaller(): void
+    {
+        $config = $this->config();
+        $config['live']['anonymous'] = true;
+        $container = $this->container($config);
+        $plugin = new LivePlugin($container);
+        $plugin->boot();
+        $boot = $plugin->bootFor();
+
+        $renderer = $container->get(DashboardHtmlRenderer::class);
+        $table = $container->get(ComponentRegistryInterface::class)->get('data-table');
+        $html = $renderer->render($table, new RenderRequest(
+            context: new ComponentContext('t1', route: '/live'),
+            props: ['name' => 'ventas', 'endpoint' => '/live', 'columns' => [['key' => 'v', 'label' => 'V']], 'rows' => [['id' => 'a', 'v' => 1]]],
+            target: RenderTarget::HTML,
+        ))->output;
+        preg_match('#<script type="application/milpa\\+xhtml" data-milpa-state="t1">(.*?)</script>#s', $html, $m);
+        $envelope = html_entity_decode($m[1] ?? '');
+
+        // No Authorization at all, yet the app declared the wire public: the action reaches the endpoint and runs.
+        $r = $container->get(LiveController::class)->handle(
+            (new ServerRequest('POST', '/live'))->withBody(Stream::create((string) json_encode([
+                'action' => 'sort', 'payload' => ['key' => 'v'], 'state' => $envelope, 'sessionId' => $boot->sessionId, 'csrfToken' => $boot->csrfToken,
+            ]))),
+        );
+        self::assertSame(200, $r->getStatusCode(), 'live.anonymous reopens the wire — public is a written decision');
     }
 
     /** @param array<string, mixed> $config */

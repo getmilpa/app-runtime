@@ -139,7 +139,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface
         $this->container->registerService(ComponentRegistryInterface::class, $components->registry);
         $this->container->registerService(DashboardHtmlRenderer::class, $renderer);
         $this->container->registerService(LiveEndpoint::class, $endpoint);
-        $this->container->registerService(LiveController::class, new LiveController($endpoint));
+        $this->container->registerService(LiveController::class, new LiveController($endpoint, (bool) ($live['anonymous'] ?? false)));
         $this->container->registerService(LiveAssetsController::class, new LiveAssetsController());
         $this->route = $route;
     }
