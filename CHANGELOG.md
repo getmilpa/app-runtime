@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.76.0](https://github.com/getmilpa/app-runtime/compare/v0.75.0...v0.76.0) (2026-08-26)
+
+
+### Features
+
+* **web:** the live loop closes — LivePlugin mounts the endpoint and serves the runtimes, with the verified actor as the principal ([#183](https://github.com/getmilpa/app-runtime/issues/183)) ([050843a](https://github.com/getmilpa/app-runtime/commit/050843a18dfa656d8ac7428d30829a44f4f3ea64))
+
 ## [0.75.0](https://github.com/getmilpa/app-runtime/compare/v0.74.0...v0.75.0) (2026-08-26)
 
 
