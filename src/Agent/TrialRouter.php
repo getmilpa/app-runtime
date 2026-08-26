@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Agent;
 
 use Milpa\Command\Effect\Externality;
+use Milpa\Command\Effect\SubjectAttestation;
 use Milpa\Command\Effect\TrialConfinement;
 use Milpa\Command\Operation;
 
@@ -73,6 +74,39 @@ final class TrialRouter
         }
 
         return $out;
+    }
+
+    /**
+     * The subject attestation for promoting the named trial — the workspace as producer, the digest of
+     * the diff it classified as provenance (greenhouse decisions/0080) — or null when there is no such
+     * trial or the workspace attests nothing (then the declared ceiling holds: the safe direction).
+     */
+    public function subjectAttestationFor(string $id): ?SubjectAttestation
+    {
+        $ws = TrialWorkspace::open($this->root, $id);
+        $subject = $ws?->attestedSubject();
+        if ($ws === null || $subject === null) {
+            return null;
+        }
+
+        // The SAME digest sandbox:promote records on TrialPromoted, so the ceiling_composed receipt
+        // and the promotion fact correlate by content, never by name.
+        return new SubjectAttestation($subject, 'trial-workspace', 'diff:' . hash('sha256', (string) json_encode($ws->diff(), \JSON_UNESCAPED_SLASHES)));
+    }
+
+    /**
+     * The attestation THIS call carries, or null: only the promotion door carries a diff to attest.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    public function attestationFor(Operation $operation, array $arguments): ?SubjectAttestation
+    {
+        if ($operation->name !== 'sandbox:promote') {
+            return null;
+        }
+        $workspace = $arguments['workspace'] ?? null;
+
+        return \is_string($workspace) && $workspace !== '' ? $this->subjectAttestationFor($workspace) : null;
     }
 
     /** The runner this router plans against — the executor runs the trial through it. */
