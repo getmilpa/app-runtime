@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.73.1](https://github.com/getmilpa/app-runtime/compare/v0.73.0...v0.73.1) (2026-08-26)
+
+
+### Bug Fixes
+
+* **agent:** a deny is not a pause — an UNJUDGEABLE refusal closes the sequence instead of persisting a resumable pause ([#177](https://github.com/getmilpa/app-runtime/issues/177)) ([dbde5c2](https://github.com/getmilpa/app-runtime/commit/dbde5c29cd66c234168298163b6dd54a3b0068d3))
+
 ## [0.73.0](https://github.com/getmilpa/app-runtime/compare/v0.72.0...v0.73.0) (2026-08-26)
 
 
