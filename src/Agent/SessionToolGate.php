@@ -53,6 +53,20 @@ use Milpa\Console\McpProjector;
 final class SessionToolGate implements ToolCallGate, ToolCallRecorder, ExecutionRecorder
 {
     /**
+     * SUMMARY: The marker every UNJUDGEABLE refusal carries, so audit can tell «I cannot judge this»
+     * apart from «I know this is forbidden» — both block the call, but they are NOT the same fact
+     * (greenhouse decisions/0078, H-GATE-1).
+     *
+     * It is a stable string and not a new enum ON PURPOSE. {@see ToolCallGate::refuse()} is a RELEASED
+     * interface (`milpa/ai-gateway`) whose contract is `?string`; widening it to carry a typed reason
+     * would break every published implementer. The refusal reason is already the channel a refusal
+     * travels on — down to {@see \Milpa\AiGateway\ToolCallRefusedException} — so the minimal honest
+     * signal is a recognizable prefix inside that `?string`, not a second shape. A recorder or an
+     * auditor recognises the state with `str_contains($reason, self::UNJUDGEABLE)`.
+     */
+    public const UNJUDGEABLE = 'UNJUDGEABLE';
+
+    /**
      * @param list<Operation> $operations las de esta app — de ahí salen `mutating` y
      *                                    `requiresConfirmation`, que son declaraciones de la operación
      *                                    y no algo que esta compuerta pueda opinar
@@ -140,11 +154,34 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
 
         $operacion = $this->operationFor($tool);
         if ($operacion === null) {
-            // Una herramienta que no viene de una operación de esta app no la puede juzgar esta
-            // política: no sabe si muta. Se deja pasar porque negar lo que no se entiende volvería
-            // inútil cualquier registro externo — y porque el registro de herramientas tiene su propia
-            // compuerta de scopes, que sigue puesta.
-            return null;
+            // THE SESSION'S OWN NOTEBOOK IS JUDGEABLE, so it is not refused here. `plan` and `todo`
+            // arrive through the registry's `$extra`, never through the catalogue this gate resolves
+            // against, so `operationFor` cannot see them — but they are not UNKNOWN, they are OWNED:
+            // {@see SessionBookkeeping} is their authorized producer and declares their `EffectProfile`
+            // (append-only, confined to THIS session's log). Gating the notebook would ask permission
+            // to be legible, the one thing the authority declared non-negotiable. This asks the OWNER
+            // ({@see SessionBookkeeping::names()}), the same seam `recorded()` already uses — it is a
+            // producer stating an effect, not a directory of exempt names.
+            if ($this->esContabilidad($tool)) {
+                return null;
+            }
+
+            // FAIL CLOSED (greenhouse decisions/0078, H-GATE-1). The old code returned `null` here —
+            // ALLOW — on the theory that «not my operation; the scope gate will judge it». That
+            // justification is FALSE in the governed path: `ConsentBridge::callTool` builds the context
+            // with `ToolContext::cli()` = `scopes: ['*']`, so no scope gate really judges it, and an
+            // unjudgeable call would run with NO judge (masked at evidence/0314 only by the registry's
+            // accidental «Tool not found»). The gate is the judge, and the judge cannot abstain.
+            //
+            // The criterion is JUDGEABILITY, never scopes: is there an authorized producer that can
+            // state this call's `EffectProfile`? If not, the honest answer is «I cannot judge this»,
+            // and that is a DIFFERENT fact from «I know this is forbidden» — {@see self::UNJUDGEABLE}
+            // marks it so audit can tell them apart without widening the released `?string` contract.
+            // No pause: a call nobody can characterise offers a human nothing to decide, and a pause
+            // answered «yes» would run it unjudged — the hole this closes.
+            return self::UNJUDGEABLE . ": «{$tool}» resolves to no Operation of this app, so no producer"
+                . ' can state its effect. Registering an executable tool does not grant authority in the'
+                . ' governed path; a judgeable Operation does.';
         }
 
         // EL CONTRATO DE INTENCIÓN VA ANTES DE LA POLÍTICA, y ningún modo lo exime (ADR-0044).

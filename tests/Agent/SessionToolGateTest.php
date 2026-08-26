@@ -219,17 +219,115 @@ final class SessionToolGateTest extends TestCase
     }
 
     /**
-     * Una herramienta que no viene de una operación de esta app se deja pasar.
+     * A tool this app CANNOT JUDGE is refused as UNJUDGEABLE — the gate fails closed (H-GATE-1).
      *
-     * Esta política no sabe si muta, y negar lo que no se entiende volvería inútil cualquier registro
-     * externo. El registro de herramientas tiene su propia compuerta de scopes, que sigue puesta.
+     * This test asserted the OPPOSITE until greenhouse decisions/0078: that an external-registry tool
+     * was «left to its own gate», allowed here on the theory that a downstream scope gate would judge
+     * it. That delegated authority did not exist in the governed path — `ConsentBridge::callTool`
+     * builds the context with `ToolContext::cli()` = `scopes: ['*']`, so nothing downstream really
+     * judges it — and an unjudgeable call ran with NO judge (masked at evidence/0314 only by the
+     * registry's accidental «Tool not found»). Registering an executable tool is not enough to acquire
+     * authority: it needs a judgeable `Operation`. So the tool is now refused, distinguishably.
      */
-    public function testAToolThisAppDidNotDeclareIsLeftToItsOwnGate(): void
+    public function testAToolThisAppCannotJudgeIsRefusedAsUnjudgeable(): void
     {
         $almacen = new SessionStore(new InMemoryEventStore());
         $compuerta = $this->compuerta($almacen, 's1');
 
-        self::assertNull($compuerta->refuse('herramienta_de_otro_registro', []));
+        $motivo = $compuerta->refuse('herramienta_de_otro_registro', []);
+
+        self::assertNotNull($motivo, 'no Operation can state its effect, so the gate refuses');
+        self::assertStringContainsString(
+            SessionToolGate::UNJUDGEABLE,
+            $motivo,
+            'and it refuses as the UNJUDGEABLE state, recognizably',
+        );
+    }
+
+    /**
+     * THE DIRECT FALSIFIER: a tool the executor's registry could run, but that this app does not
+     * declare as an `Operation`, is refused AT THE GATE — never allowed, never executed.
+     *
+     * It isolates the gate from the registry's «Tool not found»: `externally_registered_tool` is the
+     * shape of a tool some other registry contributed and would happily execute — the gate is the only
+     * thing that stops it. `AutonomyMode::Auto` removes even the permission question from the picture,
+     * so what blocks the call is JUDGEABILITY and nothing else. It is a hard block, not a pause: there
+     * is nothing a human decides about a call no producer can characterise, and a pause could be
+     * answered «yes» and then run unjudged — the very hole this closes.
+     */
+    public function testAToolTheRegistryCouldRunButThisAppCannotJudgeIsRefusedAtTheGate(): void
+    {
+        $almacen = new SessionStore(new InMemoryEventStore());
+        $compuerta = $this->compuerta($almacen, 's1', AutonomyMode::Auto);
+
+        $motivo = $compuerta->refuse('externally_registered_tool', ['x' => 1]);
+
+        self::assertNotNull($motivo, 'the gate itself refuses; it never returns Allow');
+        self::assertStringContainsString(SessionToolGate::UNJUDGEABLE, $motivo);
+        self::assertNull(
+            $almacen->load('s1')?->question,
+            'it does not pause — a call nobody can judge is a hard block, not a question',
+        );
+    }
+
+    /**
+     * THE CONTRACT PATH SURVIVES: a tool that did NOT ship with this app, but whose name resolves to a
+     * known `Operation`, is judged NORMALLY — extensibility is not the casualty of failing closed.
+     *
+     * The criterion is a contract, not provenance: bring an `Operation` whose `McpProjector::toolName`
+     * matches and the gate judges it by its declared effect — a read passes, a mutation asks — and the
+     * refusal, when there is one, is an ordinary permission pause, never the UNJUDGEABLE state.
+     */
+    public function testAnExternalToolThatResolvesToAKnownOperationIsJudgedNormally(): void
+    {
+        $almacen = new SessionStore(new InMemoryEventStore());
+        $almacen->start('s1', 'x', AutonomyMode::Ask);
+        $sesion = $almacen->load('s1');
+        self::assertNotNull($sesion);
+
+        // Two operations a third party contributed to this app's catalogue — the gate judges by these.
+        $compuerta = new SessionToolGate($almacen, $sesion, [
+            new Operation('vendor_probe', 'A read a third party added', static fn (array $i): array => ['ok' => true], inputSchema: ['type' => 'object', 'properties' => []]),
+            new Operation('vendor_write', 'A mutation a third party added', static fn (array $i): array => ['ok' => true], inputSchema: ['type' => 'object', 'properties' => []], mutating: true),
+        ]);
+
+        self::assertNull($compuerta->refuse('vendor_probe', []), 'a resolvable read is judged and allowed');
+
+        $mutacion = $compuerta->refuse('vendor_write', []);
+        self::assertNotNull($mutacion, 'a resolvable mutation is judged and asks, per its effect');
+        self::assertStringNotContainsString(
+            SessionToolGate::UNJUDGEABLE,
+            $mutacion,
+            'and it is judged, not UNJUDGEABLE — the contract made it legible',
+        );
+    }
+
+    /**
+     * AUDIT CAN TELL THE TWO REFUSALS APART. «I know this is forbidden» and «I cannot judge this» both
+     * block, but they are not the same fact: an ordinary permission pause never carries the UNJUDGEABLE
+     * marker, and the unjudgeable refusal always does.
+     */
+    public function testTheUnjudgeableReasonIsDistinguishableFromAnOrdinaryRefusal(): void
+    {
+        $almacen = new SessionStore(new InMemoryEventStore());
+        $compuerta = $this->compuerta($almacen, 's1', AutonomyMode::Ask);
+
+        $ordinaria = $compuerta->refuse('make', ['what' => 'plugin', 'plugin' => 'Cobranza']);
+        $sinJuez = $compuerta->refuse('externally_registered_tool', []);
+
+        self::assertNotNull($ordinaria);
+        self::assertNotNull($sinJuez);
+        self::assertNotSame($ordinaria, $sinJuez, 'two facts, two reasons');
+        self::assertStringNotContainsString(
+            SessionToolGate::UNJUDGEABLE,
+            $ordinaria,
+            'a forbidden/ask refusal is not the unjudgeable one',
+        );
+        self::assertStringContainsString(
+            SessionToolGate::UNJUDGEABLE,
+            $sinJuez,
+            'and the unjudgeable one is recognizably marked',
+        );
     }
 
     /**
