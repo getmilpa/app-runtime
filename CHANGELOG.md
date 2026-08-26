@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.75.0](https://github.com/getmilpa/app-runtime/compare/v0.74.0...v0.75.0) (2026-08-26)
+
+
+### Features
+
+* **web:** exposing a session read over HTTP does not grant the right to read it — session reads declare who may, the board's second door is judged, and the page reads with identity ([#181](https://github.com/getmilpa/app-runtime/issues/181)) ([f65e0c5](https://github.com/getmilpa/app-runtime/commit/f65e0c5b7c15f4d7ab8bc8a7075b35183aa887df))
+
 ## [0.74.0](https://github.com/getmilpa/app-runtime/compare/v0.73.1...v0.74.0) (2026-08-26)
 
 
