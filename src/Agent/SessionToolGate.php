@@ -24,11 +24,14 @@ use Milpa\Agent\SessionStore;
 use Milpa\AiGateway\ToolCallGate;
 use Milpa\AiGateway\ToolCallRecorder;
 use Milpa\AppRuntime\Policy\PolicyProvider;
+use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\AxisReduction;
 use Milpa\Command\Effect\CallSubject;
 use Milpa\Command\Effect\ContextFacts;
+use Milpa\Command\Effect\Externality;
 use Milpa\Command\Effect\Mutation;
 use Milpa\Command\Effect\ProfileComposition;
+use Milpa\Command\Effect\Subject;
 use Milpa\Command\Operation;
 use Milpa\Console\McpProjector;
 
@@ -53,9 +56,25 @@ use Milpa\Console\McpProjector;
 final class SessionToolGate implements ToolCallGate, ToolCallRecorder, ExecutionRecorder
 {
     /**
-     * @param list<Operation> $operations las de esta app — de ahí salen `mutating` y
-     *                                    `requiresConfirmation`, que son declaraciones de la operación
-     *                                    y no algo que esta compuerta pueda opinar
+     * SUMMARY: The marker every UNJUDGEABLE refusal carries, so audit can tell «I cannot judge this»
+     * apart from «I know this is forbidden» — both block the call, but they are NOT the same fact
+     * (greenhouse decisions/0078, H-GATE-1).
+     *
+     * It is a stable string and not a new enum ON PURPOSE. {@see ToolCallGate::refuse()} is a RELEASED
+     * interface (`milpa/ai-gateway`) whose contract is `?string`; widening it to carry a typed reason
+     * would break every published implementer. The refusal reason is already the channel a refusal
+     * travels on — down to {@see \Milpa\AiGateway\ToolCallRefusedException} — so the minimal honest
+     * signal is a recognizable prefix inside that `?string`, not a second shape. A recorder or an
+     * auditor recognises the state with `str_contains($reason, self::UNJUDGEABLE)`.
+     */
+    public const UNJUDGEABLE = 'UNJUDGEABLE';
+
+    /**
+     * @param list<Operation>        $operations        las de esta app — de ahí salen `mutating` y
+     *                                                  `requiresConfirmation`, que son declaraciones de la
+     *                                                  operación y no algo que esta compuerta pueda opinar
+     * @param list<ContractProducer> $contractProducers los productores internos cuyos contratos la
+     *                                                  compuerta resuelve cuando la app no declara la operación
      */
     public function __construct(
         private readonly SessionStore $sessions,
@@ -95,6 +114,13 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // it, a confinable mutation composes down to Ephemeral and runs without a pause when it fits
         // the trial ceiling; without it, or without a sandbox, the gate behaves exactly as before.
         private readonly ?TrialRouter $trialRouter = null,
+        // THE AUTHORIZED PRODUCERS of tools that reach the gate through the registry's `$extra` and
+        // never through `Operations::all()` — the session's notebook and delegation (greenhouse
+        // decisions/0078). The gate consults them to RESOLVE a tool's contract when the app declares
+        // no Operation for it, and then judges THAT contract. Empty by default: with no producers the
+        // gate resolves only app Operations, exactly as before — and a tool neither an Operation nor a
+        // producer claims is the one genuinely unjudgeable thing, which fails closed.
+        private readonly array $contractProducers = [],
     ) {
     }
 
@@ -138,12 +164,38 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             return $closed;
         }
 
+        // RESOLVE THE OPERATIONAL CONTRACT of this call: an app Operation, or — for a tool the app
+        // does not declare but an authorized internal producer does — that producer's declared
+        // contract (greenhouse decisions/0078). {@see self::operationFor()} walks that ladder.
         $operacion = $this->operationFor($tool);
         if ($operacion === null) {
-            // Una herramienta que no viene de una operación de esta app no la puede juzgar esta
-            // política: no sabe si muta. Se deja pasar porque negar lo que no se entiende volvería
-            // inútil cualquier registro externo — y porque el registro de herramientas tiene su propia
-            // compuerta de scopes, que sigue puesta.
+            // FAIL CLOSED (H-GATE-1). No Operation and no producer states this call's effect, so it is
+            // genuinely UNJUDGEABLE. The old code returned `null` here — ALLOW — on the theory that «not
+            // my operation; the scope gate will judge it». That justification is FALSE in the governed
+            // path: `ConsentBridge::callTool` builds the context with `ToolContext::cli()` = `scopes:
+            // ['*']`, so no scope gate really judges it, and an unjudgeable call would run with NO judge
+            // (masked at evidence/0314 only by the registry's accidental «Tool not found»). The gate is
+            // the judge, and the judge cannot abstain.
+            //
+            // The criterion is JUDGEABILITY, never scopes. «I cannot judge this» is a DIFFERENT fact
+            // from «I know this is forbidden» — {@see self::UNJUDGEABLE} marks it so audit can tell them
+            // apart without widening the released `?string` contract. No pause: a call nobody can
+            // characterise offers a human nothing to decide, and a pause answered «yes» would run it
+            // unjudged — the hole this closes.
+            return self::UNJUDGEABLE . ": «{$tool}» resolves to no Operation of this app and no producer"
+                . ' states its effect. Registering an executable tool does not grant authority in the'
+                . ' governed path; a judgeable contract does.';
+        }
+
+        // THE SESSION'S OWN NOTEBOOK IS NOT WORLD-GATED — S2 by profile (greenhouse decisions/0028,
+        // evidence/0189). A resolved contract whose declared effect touches only the session's own log
+        // — no externality, no authority, subject Data — and demands no confirmation is self-legibility,
+        // not a world mutation: gating it would ask permission to be legible, the one thing the
+        // authority declared non-negotiable. This reads the CONTRACT (the `EffectProfile`), never a
+        // name — it is what `SessionBookkeeping`'s profile always meant, finally wired now that the gate
+        // resolves it. Only such a contract passes; delegation (`WriteAsUser`, `Executable`,
+        // `requiresConfirmation`) is not self-log, so it is judged by the policy below.
+        if ($this->esBitacoraPropia($operacion)) {
             return null;
         }
 
@@ -652,6 +704,16 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         return $this->identity->admit($asercion, $this->session->id);
     }
 
+    /**
+     * The operational contract of a tool: an app Operation, else a producer-declared one.
+     *
+     * The name stays `operationFor` while its meaning widened (greenhouse decisions/0078): it no
+     * longer «finds an app Operation», it RESOLVES THE CONTRACT this call is judged by. Step 1 is the
+     * app's own catalogue. Step 2 asks each authorized producer — the notebook, delegation — for the
+     * contract IT declares, so a tool that never reaches `Operations::all()` is still judged by what
+     * its producer states rather than allowed by its name. Neither step matching is the one genuinely
+     * unjudgeable case, and the caller fails closed on it.
+     */
     private function operationFor(string $tool): ?Operation
     {
         foreach ($this->operations as $operacion) {
@@ -660,6 +722,37 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             }
         }
 
+        foreach ($this->contractProducers as $productor) {
+            $contrato = $productor->contractFor($tool);
+            if ($contrato !== null) {
+                return $contrato;
+            }
+        }
+
         return null;
+    }
+
+    /**
+     * Does this contract touch only the session's own log — a self-legibility effect, not a world one?
+     *
+     * True when the declared profile has no externality, no authority, and subject Data, and the
+     * operation asks for no confirmation: an append to the session's own bookkeeping (greenhouse
+     * evidence/0189). It is read from the CONTRACT and not from a tool name, so any producer whose
+     * profile is a benign self-log inherits the treatment and delegation — which carries `WriteAsUser`
+     * and `requiresConfirmation` — never does. Read defensively, like the rest of this gate: this
+     * `src/` travels with `composer create-project` and can meet a vendor whose `EffectProfile` predates
+     * an axis; an unreadable one is simply «not a benign self-log», which is the safe answer.
+     */
+    private function esBitacoraPropia(Operation $operacion): bool
+    {
+        if ($operacion->requiresConfirmation) {
+            return false;
+        }
+
+        $perfil = $operacion->effectCeiling();
+
+        return $perfil->externality === Externality::None
+            && $perfil->authority === Authority::None
+            && $perfil->subject === Subject::Data;
     }
 }

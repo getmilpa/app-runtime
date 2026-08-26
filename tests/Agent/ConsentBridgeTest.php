@@ -236,6 +236,63 @@ final class ConsentBridgeTest extends TestCase
         self::assertTrue($resultado['simulated'] ?? false, 'una herramienta con scope sigue corriendo');
     }
 
+    // ── EL SEAM DE COLON: la puerta traduce el nombre de operación antes de resolver ────────────
+    //
+    // `GovernedSequenceRunner` llama a `callTool($step->operation, ...)` con el nombre de OPERACIÓN
+    // (forma de dos puntos, p. ej. `foundation:found`), pero el registro sólo conoce nombres de
+    // HERRAMIENTA (`foundation_found`) — la proyección de `McpProjector::toolName()`. Antes de este
+    // arreglo eso resolvía en «Tool not found» para cualquier operación con dos puntos; `config_set`
+    // sólo sobrevivía porque su nombre de operación y su nombre de herramienta ya coinciden por
+    // casualidad (greenhouse evidence/0314).
+
+    public function testAColonNamedOperationResolvesTheSameAsItsToolNameForm(): void
+    {
+        $registro = $this->registro();
+        $puente = $this->puente($registro, [$this->grant('config_set', ['key' => 'a', 'value' => true])]);
+
+        // `config:set` es la forma que un `SequenceStep` lleva — la operación, nunca la herramienta.
+        // El registro sólo tiene `config_set`; sin la traducción esto sería «Tool not found: config:set».
+        $resultado = $puente->callTool('config:set', ['key' => 'a', 'value' => true]);
+
+        self::assertCount(1, $this->corridas, 'la herramienta corrió exactamente una vez');
+        self::assertSame(['key' => 'a', 'value' => true], $this->corridas[0]['args']);
+        self::assertIsArray($resultado);
+        self::assertArrayNotHasKey('requires_confirmation', $resultado, 'ya no pide un segundo sí');
+    }
+
+    // ── IDEMPOTENCIA: un nombre ya en forma de herramienta no cambia de significado ─────────────
+    //
+    // `McpProjector::toolName()` sólo reescribe caracteres fuera de `[a-zA-Z0-9_-]`. Un nombre que ya
+    // viene en esa forma no tiene nada que reescribir, así que la traducción es un no-op — el camino
+    // que `ask()` ya usaba (nombres de herramienta que el LLM vio) queda exactamente igual. Esta
+    // prueba es la número 8 de la batería original, sin tocar: sigue verde con la traducción puesta
+    // delante porque `plugins_simulate` ya está en forma de herramienta y no cambia.
+
+    public function testAnAlreadyToolFormNameIsUnchangedByTheTranslation(): void
+    {
+        self::assertSame(
+            'plugins_simulate',
+            \Milpa\Console\McpProjector::toolName('plugins_simulate'),
+            'un nombre sin caracteres fuera de [a-zA-Z0-9_-] no tiene nada que traducir',
+        );
+        self::assertSame(
+            'config_set',
+            \Milpa\Console\McpProjector::toolName('config_set'),
+        );
+
+        // Y a nivel del puente: la batería entera de arriba (7 casos, incluido el control positivo)
+        // llama con nombres YA en forma de herramienta y sigue verde con la traducción puesta
+        // delante — esa es la prueba de que el camino de `ask()` (nombres que el LLM ya vio) no
+        // cambia de comportamiento.
+        $registro = $this->registro();
+        $puente = $this->puente($registro, [$this->grant('config_set', ['key' => 'a', 'value' => true])]);
+
+        $resultado = $puente->callTool('config_set', ['key' => 'a', 'value' => true]);
+
+        self::assertCount(1, $this->corridas);
+        self::assertArrayNotHasKey('requires_confirmation', $resultado);
+    }
+
     // ── utilidades que tocan el almacén real, porque su TTL no es inyectable ─────────────────────
 
     private function almacen(ToolRegistry $registro): object

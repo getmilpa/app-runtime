@@ -268,4 +268,21 @@ final class AgentOperationsTest extends TestCase
         self::assertSame($declarado, $resultado, 'la guarda debe seguir lo que el LlmService instalado realmente acepta');
     }
 
+    /**
+     * THE SEAM `ask()` USES INLINE, NAMED: `governedExecutor()` builds the exact bridge `ask()`
+     * always built — same class, same interface — so a later provider (RecipeOperations) can build
+     * its own the same way without duplicating an inline construction (greenhouse recipe:apply, task 1).
+     */
+    public function testGovernedExecutorReturnsAConsentBridgeThatIsAGovernedExecutor(): void
+    {
+        $metodo = new \ReflectionMethod(AgentOperations::class, 'governedExecutor');
+        $metodo->setAccessible(true);
+
+        $registry = new \Milpa\ToolRuntime\ToolRegistry(new \Psr\Log\NullLogger());
+
+        $puente = $metodo->invoke($this->operations, $registry, null, null, null);
+
+        self::assertInstanceOf(\Milpa\AppRuntime\Agent\ConsentBridge::class, $puente);
+        self::assertInstanceOf(\Milpa\AppRuntime\Agent\GovernedExecutor::class, $puente);
+    }
 }

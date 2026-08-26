@@ -11,7 +11,7 @@
   ],
   "require": {
     "php": "^8.3",
-    "milpa/agent": ">=0.26.1 <1.0",
+    "milpa/agent": ">=0.27 <1.0",
     "milpa/command": ">=0.18 <1.0",
     "milpa/console": ">=0.12 <1.0",
     "milpa/container": ">=0.1 <1.0",

@@ -115,24 +115,39 @@ final class SessionBookkeepingTest extends TestCase
     }
 
     /**
-     * La contabilidad NO pasa por la compuerta de permisos.
+     * La contabilidad NO pasa por la compuerta de permisos — y AHORA por su CONTRATO, no por su nombre.
      *
      * Declara que muta, porque apenda. Pero pedir permiso para anotar un plan es pedir permiso para
      * ser legible, y una compuerta que se pide también para eso se aprueba sin leer — que es como se
      * pierde la que sí importaba.
+     *
+     * Lo que cambió (greenhouse decisions/0078): antes la compuerta dejaba pasar `plan`/`todo` porque
+     * NO eran una operación suya —`operationFor` daba `null` y `null` valía ALLOW—. Eso se retiró: hoy
+     * la ausencia de contrato falla cerrado. Lo que las sigue dejando pasar es su CONTRATO, resuelto
+     * desde su productor autorizado: `SessionBookkeeping` es un {@see ContractProducer}, la compuerta
+     * le pregunta el contrato de `plan`/`todo`, y su perfil —bitácora propia, sin externalidad, sin
+     * autoridad, sujeto Data— es autolegibilidad, no una mutación del mundo. Por eso hay que cablear el
+     * productor: es el camino general, no una exención por nombre.
      */
     public function testBookkeepingIsNotGatedByPermissions(): void
     {
         $sesion = $this->almacen->load('s1');
         self::assertNotNull($sesion);
 
-        $compuerta = new SessionToolGate($this->almacen, $sesion, [
-            new Operation('make', 'Andamia', static fn (array $i): array => ['ok' => true], inputSchema: ['type' => 'object', 'properties' => []], mutating: true),
-        ]);
+        $compuerta = new SessionToolGate(
+            $this->almacen,
+            $sesion,
+            [
+                new Operation('make', 'Andamia', static fn (array $i): array => ['ok' => true], inputSchema: ['type' => 'object', 'properties' => []], mutating: true),
+            ],
+            // El productor que declara el contrato de la bitácora: por él la compuerta la resuelve y
+            // la juzga, en vez de negarla como algo que no puede juzgar.
+            contractProducers: [new SessionBookkeeping($this->almacen, 's1')],
+        );
 
         // La sesión está en `ask`: `make` sí se detiene, y la contabilidad no.
-        self::assertNull($compuerta->refuse('plan', ['plan' => 'x']));
-        self::assertNull($compuerta->refuse('todo', ['text' => 'x']));
+        self::assertNull($compuerta->refuse('plan', ['plan' => 'x']), 'el plan pasa por su contrato de bitácora propia');
+        self::assertNull($compuerta->refuse('todo', ['text' => 'x']), 'y el pendiente igual');
         self::assertNotNull($compuerta->refuse('make', []), 'lo que toca archivos sigue gateado');
     }
 

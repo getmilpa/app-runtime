@@ -4,11 +4,21 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tests\Agent;
 
+use Milpa\AppRuntime\Agent\ContractProducer;
+use Milpa\AppRuntime\Agent\SessionBookkeeping;
 use Milpa\AppRuntime\Agent\SessionToolGate;
+use Milpa\AppRuntime\Agent\SubAgentSpawner;
 use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\SessionObservation;
 use Milpa\Agent\SessionStore;
+use Milpa\Command\Effect\Authority;
+use Milpa\Command\Effect\EffectProfile;
+use Milpa\Command\Effect\Externality;
+use Milpa\Command\Effect\Mutation;
+use Milpa\Command\Effect\Reversibility;
+use Milpa\Command\Effect\Subject;
 use Milpa\Command\Operation;
+use Milpa\Console\McpProjector;
 use Milpa\EventStore\InMemoryEventStore;
 use PHPUnit\Framework\TestCase;
 
@@ -219,17 +229,115 @@ final class SessionToolGateTest extends TestCase
     }
 
     /**
-     * Una herramienta que no viene de una operación de esta app se deja pasar.
+     * A tool this app CANNOT JUDGE is refused as UNJUDGEABLE — the gate fails closed (H-GATE-1).
      *
-     * Esta política no sabe si muta, y negar lo que no se entiende volvería inútil cualquier registro
-     * externo. El registro de herramientas tiene su propia compuerta de scopes, que sigue puesta.
+     * This test asserted the OPPOSITE until greenhouse decisions/0078: that an external-registry tool
+     * was «left to its own gate», allowed here on the theory that a downstream scope gate would judge
+     * it. That delegated authority did not exist in the governed path — `ConsentBridge::callTool`
+     * builds the context with `ToolContext::cli()` = `scopes: ['*']`, so nothing downstream really
+     * judges it — and an unjudgeable call ran with NO judge (masked at evidence/0314 only by the
+     * registry's accidental «Tool not found»). Registering an executable tool is not enough to acquire
+     * authority: it needs a judgeable `Operation`. So the tool is now refused, distinguishably.
      */
-    public function testAToolThisAppDidNotDeclareIsLeftToItsOwnGate(): void
+    public function testAToolThisAppCannotJudgeIsRefusedAsUnjudgeable(): void
     {
         $almacen = new SessionStore(new InMemoryEventStore());
         $compuerta = $this->compuerta($almacen, 's1');
 
-        self::assertNull($compuerta->refuse('herramienta_de_otro_registro', []));
+        $motivo = $compuerta->refuse('herramienta_de_otro_registro', []);
+
+        self::assertNotNull($motivo, 'no Operation can state its effect, so the gate refuses');
+        self::assertStringContainsString(
+            SessionToolGate::UNJUDGEABLE,
+            $motivo,
+            'and it refuses as the UNJUDGEABLE state, recognizably',
+        );
+    }
+
+    /**
+     * THE DIRECT FALSIFIER: a tool the executor's registry could run, but that this app does not
+     * declare as an `Operation`, is refused AT THE GATE — never allowed, never executed.
+     *
+     * It isolates the gate from the registry's «Tool not found»: `externally_registered_tool` is the
+     * shape of a tool some other registry contributed and would happily execute — the gate is the only
+     * thing that stops it. `AutonomyMode::Auto` removes even the permission question from the picture,
+     * so what blocks the call is JUDGEABILITY and nothing else. It is a hard block, not a pause: there
+     * is nothing a human decides about a call no producer can characterise, and a pause could be
+     * answered «yes» and then run unjudged — the very hole this closes.
+     */
+    public function testAToolTheRegistryCouldRunButThisAppCannotJudgeIsRefusedAtTheGate(): void
+    {
+        $almacen = new SessionStore(new InMemoryEventStore());
+        $compuerta = $this->compuerta($almacen, 's1', AutonomyMode::Auto);
+
+        $motivo = $compuerta->refuse('externally_registered_tool', ['x' => 1]);
+
+        self::assertNotNull($motivo, 'the gate itself refuses; it never returns Allow');
+        self::assertStringContainsString(SessionToolGate::UNJUDGEABLE, $motivo);
+        self::assertNull(
+            $almacen->load('s1')?->question,
+            'it does not pause — a call nobody can judge is a hard block, not a question',
+        );
+    }
+
+    /**
+     * THE CONTRACT PATH SURVIVES: a tool that did NOT ship with this app, but whose name resolves to a
+     * known `Operation`, is judged NORMALLY — extensibility is not the casualty of failing closed.
+     *
+     * The criterion is a contract, not provenance: bring an `Operation` whose `McpProjector::toolName`
+     * matches and the gate judges it by its declared effect — a read passes, a mutation asks — and the
+     * refusal, when there is one, is an ordinary permission pause, never the UNJUDGEABLE state.
+     */
+    public function testAnExternalToolThatResolvesToAKnownOperationIsJudgedNormally(): void
+    {
+        $almacen = new SessionStore(new InMemoryEventStore());
+        $almacen->start('s1', 'x', AutonomyMode::Ask);
+        $sesion = $almacen->load('s1');
+        self::assertNotNull($sesion);
+
+        // Two operations a third party contributed to this app's catalogue — the gate judges by these.
+        $compuerta = new SessionToolGate($almacen, $sesion, [
+            new Operation('vendor_probe', 'A read a third party added', static fn (array $i): array => ['ok' => true], inputSchema: ['type' => 'object', 'properties' => []]),
+            new Operation('vendor_write', 'A mutation a third party added', static fn (array $i): array => ['ok' => true], inputSchema: ['type' => 'object', 'properties' => []], mutating: true),
+        ]);
+
+        self::assertNull($compuerta->refuse('vendor_probe', []), 'a resolvable read is judged and allowed');
+
+        $mutacion = $compuerta->refuse('vendor_write', []);
+        self::assertNotNull($mutacion, 'a resolvable mutation is judged and asks, per its effect');
+        self::assertStringNotContainsString(
+            SessionToolGate::UNJUDGEABLE,
+            $mutacion,
+            'and it is judged, not UNJUDGEABLE — the contract made it legible',
+        );
+    }
+
+    /**
+     * AUDIT CAN TELL THE TWO REFUSALS APART. «I know this is forbidden» and «I cannot judge this» both
+     * block, but they are not the same fact: an ordinary permission pause never carries the UNJUDGEABLE
+     * marker, and the unjudgeable refusal always does.
+     */
+    public function testTheUnjudgeableReasonIsDistinguishableFromAnOrdinaryRefusal(): void
+    {
+        $almacen = new SessionStore(new InMemoryEventStore());
+        $compuerta = $this->compuerta($almacen, 's1', AutonomyMode::Ask);
+
+        $ordinaria = $compuerta->refuse('make', ['what' => 'plugin', 'plugin' => 'Cobranza']);
+        $sinJuez = $compuerta->refuse('externally_registered_tool', []);
+
+        self::assertNotNull($ordinaria);
+        self::assertNotNull($sinJuez);
+        self::assertNotSame($ordinaria, $sinJuez, 'two facts, two reasons');
+        self::assertStringNotContainsString(
+            SessionToolGate::UNJUDGEABLE,
+            $ordinaria,
+            'a forbidden/ask refusal is not the unjudgeable one',
+        );
+        self::assertStringContainsString(
+            SessionToolGate::UNJUDGEABLE,
+            $sinJuez,
+            'and the unjudgeable one is recognizably marked',
+        );
     }
 
     /**
@@ -518,6 +626,10 @@ final class SessionToolGateTest extends TestCase
             $sesion,
             $this->operaciones(),
             compuertaPrevia: new \Milpa\AppRuntime\Agent\PrerequisiteGate(['plan']),
+            // El productor de la bitácora: `plan` se resuelve por su contrato y pasa como bitácora
+            // propia. Sin él, `plan` no sería una operación ni un contrato de productor, y la compuerta
+            // —que ya falla cerrado— lo negaría, cerrando la mesa que la obligación venía a abrir.
+            contractProducers: [new \Milpa\AppRuntime\Agent\SessionBookkeeping($almacen, 'j')],
         );
 
         self::assertIsString($compuerta->refuse('make', []), 'trabajar no procede sin plan');
@@ -590,5 +702,113 @@ final class SessionToolGateTest extends TestCase
 
         self::assertNotNull($compuerta->refuse('foundation_found', ['domain' => 'Panadería Central']));
         self::assertNotNull($almacen->load('s1')?->question);
+    }
+
+    // ── JUDGING BY CONTRACT, NOT BY NAME (greenhouse decisions/0078, expanded) ───────────────────
+
+    /**
+     * THE GOLD FALSIFIER: the gate's verdict follows the CONTRACT a producer declares, not the tool's
+     * name. Three cells, one tool name, produced by a test-only producer that is in NO allowlist and
+     * backs NO app Operation.
+     *
+     *   1. the producer declares `requiresConfirmation: true` → the gate STOPS it (asks/enforces)
+     *   2. ONLY the contract changes to a read              → the SAME tool is now ALLOWED
+     *   3. the identical tool with NO producer               → nobody states its effect → UNJUDGEABLE
+     *
+     * If the gate recognised names, cell 2 could not flip cell 1's verdict, and cell 3 could not
+     * differ from a cell that shares its name. It is the contract that moves the veredicto.
+     */
+    public function testTheGateJudgesAProducerContractByItsContractNotItsName(): void
+    {
+        $almacen = new SessionStore(new InMemoryEventStore());
+        // Auto removes the mode's permission question from the picture, so only the contract decides.
+        $almacen->start('s1', 'x', AutonomyMode::Auto);
+        $sesion = $almacen->load('s1');
+        self::assertNotNull($sesion);
+
+        $productorDe = static fn (Operation $op): ContractProducer => new class ($op) implements ContractProducer {
+            public function __construct(private readonly Operation $op)
+            {
+            }
+
+            public function contractFor(string $tool): ?Operation
+            {
+                return McpProjector::toolName($this->op->name) === $tool ? $this->op : null;
+            }
+        };
+        $schema = ['type' => 'object', 'properties' => []];
+
+        // CELL 1 — a contract that demands confirmation. The gate enforces it: a non-null refusal, and
+        // NOT the unjudgeable state (it is judged — it asks).
+        $exigeConfirmacion = new Operation(
+            'gold_probe',
+            'A delegation-like effect a producer declares',
+            static fn (array $i): array => ['ok' => true],
+            inputSchema: $schema,
+            mutating: true,
+            requiresConfirmation: true,
+            effects: new EffectProfile(Mutation::Persistent, Externality::None, Reversibility::Irreversible, Authority::WriteAsUser, subject: Subject::Executable),
+        );
+        $c1 = (new SessionToolGate($almacen, $sesion, [], contractProducers: [$productorDe($exigeConfirmacion)]))->refuse('gold_probe', []);
+        self::assertNotNull($c1, 'the declared confirmation is enforced: the gate stops it');
+        self::assertStringNotContainsString(SessionToolGate::UNJUDGEABLE, $c1, 'it is JUDGED, not unjudgeable');
+
+        // CELL 2 — SAME tool name, ONLY the contract changed to a read → allowed.
+        $soloLee = new Operation(
+            'gold_probe',
+            'The same tool, now a read',
+            static fn (array $i): array => ['ok' => true],
+            inputSchema: $schema,
+        );
+        $c2 = (new SessionToolGate($almacen, $sesion, [], contractProducers: [$productorDe($soloLee)]))->refuse('gold_probe', []);
+        self::assertNull($c2, 'same name, a read contract now: allowed — the verdict follows the CONTRACT');
+
+        // CELL 3 — the identical tool with NO producer → nobody can state its effect → UNJUDGEABLE.
+        $c3 = (new SessionToolGate($almacen, $sesion, [], contractProducers: []))->refuse('gold_probe', []);
+        self::assertNotNull($c3);
+        self::assertStringContainsString(SessionToolGate::UNJUDGEABLE, $c3, 'no producer, no Operation: the gate cannot judge it');
+    }
+
+    /**
+     * THE INTERNAL-TOOLS BATTERY: the real producers, judged by their real contracts.
+     *
+     * These tools reach the gate through the registry's `$extra`, never `Operations::all()`. Under the
+     * old null→ALLOW they ran without ever asking the consent their contract declares — a dead policy.
+     * Now the gate resolves each from its authorized producer and judges it: delegation enforces its
+     * `requiresConfirmation`, the read-only channels pass, and the session's own notebook passes as
+     * self-legibility (by its benign profile, not by its name). A tool no producer claims still fails
+     * closed. Asserted in `Auto`, so a confirmation stopping is the contract talking, not the mode.
+     */
+    public function testTheInternalToolsAreJudgedByTheirProducersContracts(): void
+    {
+        $almacen = new SessionStore(new InMemoryEventStore());
+        $almacen->start('s1', 'x', AutonomyMode::Auto);
+        $sesion = $almacen->load('s1');
+        self::assertNotNull($sesion);
+
+        $productores = [new SessionBookkeeping($almacen, 's1')];
+        if (class_exists(SubAgentSpawner::class)) {
+            $productores[] = new SubAgentSpawner($almacen, 's1', static fn (): array => throw new \LogicException('the gate resolves contracts, it does not run children'));
+        }
+        $compuerta = new SessionToolGate($almacen, $sesion, [], contractProducers: $productores);
+
+        if (class_exists(SubAgentSpawner::class)) {
+            // Delegation carries `requiresConfirmation: true` → enforced now, where null→ALLOW let it run.
+            self::assertNotNull($compuerta->refuse('agent_spawn', ['brief' => 'x', 'done_when' => 'y']), 'spawn: its declared confirmation is finally enforced');
+            self::assertNotNull($compuerta->refuse('agent_resume', ['sub_session' => 'k']), 'resume: same');
+
+            // Read-only channels resolve to reads → allowed.
+            self::assertNull($compuerta->refuse('agent_message', ['to' => 'a', 'message' => 'b']), 'message is read-only: allowed');
+            self::assertNull($compuerta->refuse('agent_roles', []), 'roles is read-only: allowed');
+        }
+
+        // The session's own notebook: self-legibility, allowed by its benign contract — not by name.
+        self::assertNull($compuerta->refuse('plan', ['plan' => 'do the thing']), 'plan is self-log: allowed');
+        self::assertNull($compuerta->refuse('todo', ['text' => 'a thing']), 'todo is self-log: allowed');
+
+        // A tool no producer claims and no Operation backs → UNJUDGEABLE (the falsifier still holds).
+        $sinDuenio = $compuerta->refuse('some_unowned_tool', []);
+        self::assertNotNull($sinDuenio);
+        self::assertStringContainsString(SessionToolGate::UNJUDGEABLE, $sinDuenio);
     }
 }

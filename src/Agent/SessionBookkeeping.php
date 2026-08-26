@@ -18,6 +18,7 @@ use Milpa\Agent\SessionStore;
 use Milpa\Agent\Todo;
 use Milpa\Agent\TodoStatus;
 use Milpa\Command\Operation;
+use Milpa\Console\McpProjector;
 /**
  * Las herramientas con las que el agente escribe su propio plan y mueve sus pendientes (P16.3).
  *
@@ -48,7 +49,7 @@ use Milpa\Command\Effect\Mutation;
 use Milpa\Command\Effect\Reversibility;
 use Milpa\Command\Effect\Subject;
 
-final readonly class SessionBookkeeping
+final readonly class SessionBookkeeping implements ContractProducer
 {
     public function __construct(
         private SessionStore $sessions,
@@ -67,6 +68,26 @@ final readonly class SessionBookkeeping
     public static function names(): array
     {
         return ['plan', 'todo'];
+    }
+
+    /**
+     * SUMMARY: The contract this notebook declares for `$tool` — the `plan`/`todo` {@see Operation}
+     * with its benign self-log `EffectProfile` — or `null` for anything it does not own.
+     *
+     * This is how {@see SessionToolGate} reaches the profile these operations declare (evidence/0189)
+     * without them being in `Operations::all()`: the gate resolves the contract from HERE, the
+     * authorized producer, and judges THAT. Their profile is self-legibility (no externality, no
+     * authority, subject Data), so the gate lets them pass — by the contract, not by their name.
+     */
+    public function contractFor(string $tool): ?Operation
+    {
+        foreach ($this->operations() as $operacion) {
+            if (McpProjector::toolName($operacion->name) === $tool) {
+                return $operacion;
+            }
+        }
+
+        return null;
     }
 
     /**

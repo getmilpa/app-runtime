@@ -30,6 +30,7 @@ use Milpa\Command\Effect\Subject;
 use Milpa\AiGateway\AgentOrchestrator;
 use Milpa\AiGateway\RunInterrupted;
 use Milpa\Command\Operation;
+use Milpa\Console\McpProjector;
 
 /**
  * Delegar una sub-tarea a un sub-agente con contexto fresco (Q-P19-P, spec §5.1/§5.2).
@@ -54,7 +55,7 @@ use Milpa\Command\Operation;
  * Igual que en `SessionBookkeeping`: un id que el modelo pudiera nombrar es uno que puede errar, y
  * colgarle un hijo a otra sesión no es una equivocación recuperable.
  */
-final class SubAgentSpawner
+final class SubAgentSpawner implements ContractProducer
 {
     /**
      * @param \Closure(string, string, array<int, array{role: string, content: string}>, list<string>, list<array{role: string, content: string, class: string}>): array{answer: string, steps: int} $runChild Runs one child turn with its brief, id, provider history, prerequisites, and the composer-owned declaration of that history. Fresh children receive two empty windows; resumed children receive both projections of their own Session.
@@ -83,6 +84,29 @@ final class SubAgentSpawner
         // changes nothing, which is every delegation before this existed.
         private readonly ?\Closure $prologue = null,
     ) {
+    }
+
+    /**
+     * SUMMARY: The contract this spawner declares for `$tool` — the delegation `Operation`
+     * (`agent_spawn`/`agent_resume`/`agent_message`/`agent:roles`) with its `EffectProfile` and
+     * `requiresConfirmation` — or `null` for anything it does not own.
+     *
+     * This is how {@see SessionToolGate} reaches the confirmation these tools declare without them
+     * being in `Operations::all()`: the gate resolves the contract from HERE and judges it. Under the
+     * old gate they resolved to «no Operation» and ran unauthorised — the confirmation `agent_spawn`
+     * and `agent_resume` declare (`requiresConfirmation: true`) was a dead policy. Resolving them here
+     * is what finally enforces it; the read-only channels (`agent_message`, `agent:roles`) resolve to
+     * reads and pass. Building the four Operations only reads their shape — the runner is never called.
+     */
+    public function contractFor(string $tool): ?Operation
+    {
+        foreach ([$this->operation(), $this->resumeOperation(), $this->messageOperation(), $this->rolesOperation()] as $operacion) {
+            if (McpProjector::toolName($operacion->name) === $tool) {
+                return $operacion;
+            }
+        }
+
+        return null;
     }
 
     /** La herramienta que el padre ve en su catálogo. El hijo no la recibe: profundidad 1 por construcción. */

@@ -74,6 +74,7 @@ use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\Runtime\Config;
 use Milpa\AppRuntime\Agent\SessionBookkeeping;
 use Milpa\AppRuntime\Agent\PrerequisiteGate;
+use Milpa\AppRuntime\Agent\ContractProducer;
 use Milpa\AppRuntime\Agent\SessionToolGate;
 use Milpa\AppRuntime\Support\Operations;
 use Milpa\Interfaces\Tooling\ToolProviderInterface;
@@ -1239,26 +1240,7 @@ class AgentOperations implements CommandProvider
         }
 
         $modeloRemoto = new LlmService(...$argumentos);
-        $cliente = new ConsentBridge(
-            $registry,
-            $this->grantsDeLaSesion(),
-            $gate,
-            $recorder ?? ($gate instanceof ToolCallRecorder ? $gate : null),
-            $mesa,
-            executions: $gate instanceof ExecutionRecorder ? $gate : null,
-            // WHO IS RUNNING, OBSERVED HERE AND WRITTEN ONCE.
-            //
-            // The expression looks like the one in `grantsDeLaSesion()`, and the difference is
-            // everything. There the environment is read to REBUILD an authority somebody else already
-            // granted, which makes an old fact change author depending on who reads it. Here it is
-            // read to DECLARE who is materialising the effect now, and it is written down once. Same
-            // reading, different moment, different destination (greenhouse evidence/0209,
-            // decisions/0037).
-            executor: new ObservedExecutor(
-                Principal::fromTerminal(getenv('USER') ?: null, gethostname() ?: null),
-                ObservedExecutor::TERMINAL,
-            ),
-        );
+        $cliente = $this->governedExecutor($registry, $gate, $recorder, $mesa);
 
         // EL PUENTE SE QUEDA CON EL CONTEXTO, y no se arma aquí.
         //
@@ -1294,6 +1276,41 @@ class AgentOperations implements CommandProvider
             )),
             $history,
             $onStep,
+        );
+    }
+
+    /**
+     * Builds the ConsentBridge that gates and records every tool call `ask()` originates.
+     *
+     * This is the one construction, named: a caller that needs the same governed door — the
+     * gate, the session's grants, the recorder, the option table, and who is executing — builds it
+     * this way rather than reproducing the wiring inline (greenhouse recipe:apply, task 1).
+     */
+    private function governedExecutor(
+        ToolRegistry $registry,
+        ?ToolCallGate $gate,
+        ?ToolCallRecorder $recorder,
+        ?OptionTable $mesa,
+    ): ConsentBridge {
+        return new ConsentBridge(
+            $registry,
+            $this->grantsDeLaSesion(),
+            $gate,
+            $recorder ?? ($gate instanceof ToolCallRecorder ? $gate : null),
+            $mesa,
+            executions: $gate instanceof ExecutionRecorder ? $gate : null,
+            // WHO IS RUNNING, OBSERVED HERE AND WRITTEN ONCE.
+            //
+            // The expression looks like the one in `grantsDeLaSesion()`, and the difference is
+            // everything. There the environment is read to REBUILD an authority somebody else already
+            // granted, which makes an old fact change author depending on who reads it. Here it is
+            // read to DECLARE who is materialising the effect now, and it is written down once. Same
+            // reading, different moment, different destination (greenhouse evidence/0209,
+            // decisions/0037).
+            executor: new ObservedExecutor(
+                Principal::fromTerminal(getenv('USER') ?: null, gethostname() ?: null),
+                ObservedExecutor::TERMINAL,
+            ),
         );
     }
 
@@ -1441,7 +1458,38 @@ class AgentOperations implements CommandProvider
             policyProvider: $policyProvider,
             identity: $identity,
             trialRouter: $this->trialRouter($kernel),
+            // THE INTERNAL PRODUCERS, so the gate judges the notebook and delegation by their declared
+            // contracts instead of allowing them by name (greenhouse decisions/0078). Built from THIS
+            // session's id, so a child spawned through this same builder governs its own internal tools.
+            contractProducers: $this->contractProducers($store, $session->id),
         );
+    }
+
+    /**
+     * The authorized producers whose tools reach a gate through the registry's `$extra` and never
+     * through `Operations::all()` — the session's own notebook and delegation.
+     *
+     * The gate consults them to RESOLVE a tool's contract and judge it (greenhouse decisions/0078):
+     * `agent_message`/`agent:roles` read as allowed, `agent_spawn`/`agent_resume` finally enforce the
+     * `requiresConfirmation` they always declared, and `plan`/`todo` pass as the session's own
+     * self-legibility. Built here, in the one gate builder, so the main session and a sub-agent get the
+     * same seam. The runner throws by construction: a gate RESOLVES contracts, it never runs a child.
+     *
+     * @return list<ContractProducer>
+     */
+    private function contractProducers(SessionStore $store, string $sessionId): array
+    {
+        $productores = [new SessionBookkeeping($store, $sessionId)];
+
+        if (class_exists(SubAgentSpawner::class)) {
+            $productores[] = new SubAgentSpawner(
+                $store,
+                $sessionId,
+                static fn (): array => throw new \LogicException('a gate resolves contracts; it does not run a child'),
+            );
+        }
+
+        return $productores;
     }
 
     /** The session store this app writes to, or null when it has nowhere to keep sessions. */
