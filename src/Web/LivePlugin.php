@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Web;
 
 use Milpa\AppRuntime\Web\Controllers\LiveAssetsController;
+use Milpa\AppRuntime\Web\Controllers\LiveComponentPageController;
 use Milpa\AppRuntime\Web\Controllers\LiveController;
 use Milpa\Attributes\PluginMetadata;
 use Milpa\Http\HttpMethod;
@@ -141,6 +142,20 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface
         $this->container->registerService(LiveEndpoint::class, $endpoint);
         $this->container->registerService(LiveController::class, new LiveController($endpoint, (bool) ($live['anonymous'] ?? false)));
         $this->container->registerService(LiveAssetsController::class, new LiveAssetsController());
+
+        // The shipped interactive render path: a page that carries ownership by construction (decisions/0092).
+        // The app owns DATA via a registered LivePageProvider; the framework owns OWNERSHIP via LiveRender.
+        $provider = $this->container->has(LivePageProvider::class) ? $this->container->get(LivePageProvider::class) : null;
+        $this->container->registerService(
+            LiveComponentPageController::class,
+            new LiveComponentPageController(
+                $components->registry,
+                $renderer,
+                $csrf,
+                $route,
+                $provider instanceof LivePageProvider ? $provider : null,
+            ),
+        );
         $this->route = $route;
     }
 
@@ -169,6 +184,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface
 
         return [
             new Route(path: $this->route, methods: HttpMethod::POST, name: 'live', handler: new HandlerReference(LiveController::class, 'handle')),
+            new Route(path: $this->route . '/page', methods: HttpMethod::GET, name: 'live.page', handler: new HandlerReference(LiveComponentPageController::class, 'show')),
             new Route(path: $urls[ClientRuntime::LOCAL], methods: HttpMethod::GET, name: 'live.runtime.local', handler: new HandlerReference(LiveAssetsController::class, 'local')),
             new Route(path: $urls[ClientRuntime::REMOTE], methods: HttpMethod::GET, name: 'live.runtime.remote', handler: new HandlerReference(LiveAssetsController::class, 'remote')),
             new Route(path: $urls[ClientRuntime::ALPINE], methods: HttpMethod::GET, name: 'live.runtime.alpine', handler: new HandlerReference(LiveAssetsController::class, 'alpine')),
