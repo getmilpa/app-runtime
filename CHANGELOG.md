@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.80.0](https://github.com/getmilpa/app-runtime/compare/v0.79.0...v0.80.0) (2026-08-27)
+
+
+### Features
+
+* **live:** register the StateMachine component in the shipped default (requires milpa/live &gt;=0.6) ([#191](https://github.com/getmilpa/app-runtime/issues/191)) ([de8acfc](https://github.com/getmilpa/app-runtime/commit/de8acfcdd74019e3890fdc45928f9dd5dce0fae8))
+
 ## [0.79.0](https://github.com/getmilpa/app-runtime/compare/v0.78.0...v0.79.0) (2026-08-27)
 
 
