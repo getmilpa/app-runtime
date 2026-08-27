@@ -59,6 +59,10 @@ use Milpa\AppRuntime\Agent\BroadcastingEventStore;
  */
 final readonly class BoardPage
 {
+    /** The design-system base a fresh install points at — a versioned CDN. An app may override it (e.g. to
+     *  a bundled, offline copy) via the board's `assetBase` config; the default keeps zero-config behaviour. */
+    public const DESIGN_BASE = 'https://unpkg.com/@milpa/design@0.9.0';
+
     /**
      * The complete HTML document for one session's board.
      *
@@ -76,6 +80,7 @@ final readonly class BoardPage
         string $boardEndpoint = '/agent/board',
         ?string $hubUrl = null,
         string $answerEndpoint = '/agent/answer',
+        string $assetBase = self::DESIGN_BASE,
     ): string {
         $painter = file_get_contents(\dirname(__DIR__, 2) . '/resources/web/board-painter.js');
         if ($painter === false) {
@@ -104,11 +109,11 @@ final readonly class BoardPage
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>agent board — {$sessionHtml}</title>
-<!-- The look is @milpa/design's, consumed BY VERSION from the CDN — never copied into this repo.
-     Bumping the pin is how this surface changes skin. -->
-<link rel="stylesheet" href="https://unpkg.com/@milpa/design@0.9.0/dist/milpa-tokens.css">
-<link rel="stylesheet" href="https://unpkg.com/@milpa/design@0.9.0/primitives/milpa-primitives.css">
-<link rel="stylesheet" href="https://unpkg.com/@milpa/design@0.9.0/components/milpa-components.css">
+<!-- The look is @milpa/design's, consumed BY VERSION. Default is the CDN; an app may point `assetBase`
+     at a bundled offline copy (greenhouse evidence/0367). Bumping the pin is how this surface changes skin. -->
+<link rel="stylesheet" href="{$assetBase}/dist/milpa-tokens.css">
+<link rel="stylesheet" href="{$assetBase}/primitives/milpa-primitives.css">
+<link rel="stylesheet" href="{$assetBase}/components/milpa-components.css">
 <style>
 /* Structure only. Colors, borders and type come from the design tokens; every var() carries a
    fallback so the board stays readable when the CDN is out of reach — degraded, not broken. */

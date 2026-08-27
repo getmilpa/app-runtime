@@ -23,7 +23,7 @@ use Psr\Http\Message\ServerRequestInterface;
 final class BoardPageController
 {
     /** @param string|null $hubUrl the public real-time-stream URL the browser subscribes to, from config; null = a photograph */
-    public function __construct(private readonly ?string $hubUrl = null)
+    public function __construct(private readonly ?string $hubUrl = null, private readonly string $assetBase = BoardPage::DESIGN_BASE)
     {
     }
 
@@ -33,6 +33,6 @@ final class BoardPageController
         $params = $request->getQueryParams();
         $session = \is_string($params['session'] ?? null) ? $params['session'] : 'default';
 
-        return new Response(200, ['Content-Type' => 'text/html; charset=utf-8'], (new BoardPage())->render($session, '/board/data', $this->hubUrl));
+        return new Response(200, ['Content-Type' => 'text/html; charset=utf-8'], (new BoardPage())->render($session, '/board/data', $this->hubUrl, assetBase: $this->assetBase));
     }
 }

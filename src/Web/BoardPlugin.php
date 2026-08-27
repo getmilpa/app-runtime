@@ -64,7 +64,9 @@ final class BoardPlugin implements PluginInterface, RouteProviderInterface
             $this->container->registerService(SurfaceBroadcaster::class, $broadcaster);
         }
 
-        $this->container->registerService(BoardPageController::class, new BoardPageController(RealtimeStreamFactory::publicUrlFromConfig($realtime)));
+        $board = $this->container->has(Config::class) ? $this->container->get(Config::class)->get('board') : null;
+        $assetBase = \is_array($board) && \is_string($board['assetBase'] ?? null) ? $board['assetBase'] : \Milpa\AppRuntime\Web\BoardPage::DESIGN_BASE;
+        $this->container->registerService(BoardPageController::class, new BoardPageController(RealtimeStreamFactory::publicUrlFromConfig($realtime), $assetBase));
         $this->container->registerService(BoardDataController::class, new BoardDataController($this->container));
     }
 
