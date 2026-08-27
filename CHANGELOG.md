@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.82.0](https://github.com/getmilpa/app-runtime/compare/v0.81.0...v0.82.0) (2026-08-27)
+
+
+### Features
+
+* **board:** the board's design asset-base is configurable — CDN by default, local for offline ([#195](https://github.com/getmilpa/app-runtime/issues/195)) ([e825bdb](https://github.com/getmilpa/app-runtime/commit/e825bdb56a4a8748f3d7f277b650bc5fed1474c1))
+
 ## [0.81.0](https://github.com/getmilpa/app-runtime/compare/v0.80.0...v0.81.0) (2026-08-27)
 
 
