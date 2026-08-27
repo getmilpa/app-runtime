@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.78.0](https://github.com/getmilpa/app-runtime/compare/v0.77.0...v0.78.0) (2026-08-27)
+
+
+### Features
+
+* **live:** LiveRender::contextForRequest binds the request's verified actor as the state owner ([#187](https://github.com/getmilpa/app-runtime/issues/187)) ([75e6131](https://github.com/getmilpa/app-runtime/commit/75e6131fff6086eeb120d104fdb8b6092962696c))
+
 ## [0.77.0](https://github.com/getmilpa/app-runtime/compare/v0.76.0...v0.77.0) (2026-08-26)
 
 
