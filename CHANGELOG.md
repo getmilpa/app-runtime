@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.79.0](https://github.com/getmilpa/app-runtime/compare/v0.78.0...v0.79.0) (2026-08-27)
+
+
+### Features
+
+* **live:** ship the interactive render path GET {route}/page bound to the request's actor ([#189](https://github.com/getmilpa/app-runtime/issues/189)) ([24df384](https://github.com/getmilpa/app-runtime/commit/24df384a4cb71714fcfb082d9f979408386d3e7b))
+
 ## [0.78.0](https://github.com/getmilpa/app-runtime/compare/v0.77.0...v0.78.0) (2026-08-27)
 
 
