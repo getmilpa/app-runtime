@@ -25,6 +25,7 @@ use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\Interfaces\Plugin\PluginInterface;
 use Milpa\Live\Adapters\Alpine\AlpineRuntimeAdapter;
 use Milpa\Live\Components\Dashboard\DataTableComponent;
+use Milpa\Live\Components\StateMachineComponent;
 use Milpa\Live\Components\Dashboard\MetricCardComponent;
 use Milpa\Live\Contracts\Component\ComponentDefinitionInterface;
 use Milpa\Live\Contracts\Component\ComponentRegistryInterface;
@@ -239,6 +240,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface
         $declared = \is_array($live['components'] ?? null) ? $live['components'] : [
             'data-table' => DataTableComponent::class,
             'metric-card' => MetricCardComponent::class,
+            'state-machine' => StateMachineComponent::class,
         ];
         $names = [];
         foreach ($declared as $name => $class) {
