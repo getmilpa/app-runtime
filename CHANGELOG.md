@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.88.0](https://github.com/getmilpa/app-runtime/compare/v0.87.0...v0.88.0) (2026-08-28)
+
+
+### Features
+
+* passkey registration over HTTP — register the credential, enroll to recognize it ([#209](https://github.com/getmilpa/app-runtime/issues/209)) ([c77b07a](https://github.com/getmilpa/app-runtime/commit/c77b07a702c562c48e92c5a12a2d9dfb54032d51))
+
 ## [0.87.0](https://github.com/getmilpa/app-runtime/compare/v0.86.1...v0.87.0) (2026-08-28)
 
 
