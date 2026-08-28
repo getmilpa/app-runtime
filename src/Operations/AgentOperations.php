@@ -1482,10 +1482,14 @@ class AgentOperations implements CommandProvider
         // declared out-of-band root that enrollment consumes (greenhouse decisions/0117, evidence/0375).
         // Neither means the app opts out of identity, and the gate decides by the flag as it always did.
         $rooted = IdentityConfig::load($root);
-        $identity = ($provider === null && $rooted->isEmpty()) ? null : new SessionIdentity(
+        $enrollments = new FileEnrollmentStore($root . '/storage/identity/enrollments.json');
+        // Admission exists when there is ANY basis for recognition: a declared PolicyProvider, a declared
+        // out-of-band root, OR standing enrollments — a key bootstrapped or enrolled into the store must be
+        // admissible even with an empty config root and no policy (greenhouse decisions/0117, evidence/0384).
+        $identity = ($provider === null && $rooted->isEmpty() && $enrollments->isEmpty()) ? null : new SessionIdentity(
             new GnupgSignatureVerifier(),
             $provider,
-            new FileEnrollmentStore($root . '/storage/identity/enrollments.json'),
+            $enrollments,
         );
 
         return [$provider, $identity];
