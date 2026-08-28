@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.86.1](https://github.com/getmilpa/app-runtime/compare/v0.86.0...v0.86.1) (2026-08-28)
+
+
+### Bug Fixes
+
+* build identity from standing enrollments, so a bootstrapped key is admitted ([#205](https://github.com/getmilpa/app-runtime/issues/205)) ([bb5a3e0](https://github.com/getmilpa/app-runtime/commit/bb5a3e02be8576edb98f2c75aed69af01ce33ca8))
+
 ## [0.86.0](https://github.com/getmilpa/app-runtime/compare/v0.85.0...v0.86.0) (2026-08-28)
 
 
