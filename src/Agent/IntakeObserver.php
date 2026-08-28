@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Agent;
 use Milpa\Agent\ModelCallIntake;
 use Milpa\Agent\SessionStore;
 use Milpa\AiGateway\ChannelObserver;
+use Milpa\AiGateway\ReturnObserver;
 
 /**
  * El cable entre el canal y el stream.
@@ -35,7 +36,7 @@ use Milpa\AiGateway\ChannelObserver;
  * provider received after gateway composition; the second says why each Session-composed history
  * message existed. Joining them here by index or content would turn this reader into the classifier.
  */
-final class IntakeObserver implements ChannelObserver
+final class IntakeObserver implements ChannelObserver, ReturnObserver
 {
     /** @param list<array{role: string, content: string, class: string}>|null $window */
     public function __construct(
@@ -57,6 +58,24 @@ final class IntakeObserver implements ChannelObserver
         } catch (\Throwable) {
             // Se pierde la observación, no la corrida. Observar no puede cambiar lo observado, y eso
             // incluye no poder tumbarlo.
+        }
+    }
+
+    /**
+     * Records what the model call cost as its own fact on the same session, beside what it was given.
+     *
+     * The gateway already normalized the usage across providers; this only lands it on the stream. It
+     * follows {@see observe()}'s discipline exactly: an observer may not fell the run it observes, so
+     * a failed write loses the cost, never the corrida.
+     *
+     * @param array<string, mixed> $meta
+     */
+    public function observeReturn(string $uri, array $meta): void
+    {
+        try {
+            $this->sessions->recordModelReturn($this->session, $meta);
+        } catch (\Throwable) {
+            // Same contract as observe(): observing a channel may not change it.
         }
     }
 }

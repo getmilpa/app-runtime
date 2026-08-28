@@ -48,6 +48,31 @@ final class IntakeObserverTest extends TestCase
         self::assertSame('qwen3-coder:30b', $o->answers['context_received']['value']['model']);
     }
 
+    public function testTheCostOfACallBecomesItsOwnFactBesideTheIntake(): void
+    {
+        $eventos = new InMemoryEventStore();
+        $almacen = new SessionStore($eventos);
+        $almacen->start('s1', 'listar plugins');
+
+        // The same observer that records the request is the one the gateway reports the return to:
+        // one wire, both halves. The gateway already normalized the usage across providers.
+        (new IntakeObserver($almacen, 's1'))->observeReturn('https://llama.local/v1/chat/completions', [
+            'model' => 'qwen3-coder:30b',
+            'usage' => ['prompt_tokens' => 17, 'completion_tokens' => 16, 'total_tokens' => 33],
+        ]);
+
+        $payload = null;
+        foreach ($eventos->replay(SessionStore::PREFIX . 's1') as $event) {
+            if ($event->type === 'session.model_returned') {
+                $payload = $event->payload;
+            }
+        }
+
+        self::assertNotNull($payload, 'the return reached the stream as its own event');
+        self::assertSame('qwen3-coder:30b', $payload['model']);
+        self::assertSame(33, $payload['usage']['total_tokens']);
+    }
+
     public function testTheDeclaredWindowReachesTheStreamWithoutEnteringTheProviderPayload(): void
     {
         $events = new InMemoryEventStore();
