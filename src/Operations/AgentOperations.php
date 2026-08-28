@@ -199,6 +199,46 @@ class AgentOperations implements CommandProvider
                     rollbackContract: 'reads only: there is nothing to roll back',
                 ),
             ),
+            new Operation(
+                name: 'session:owner',
+                description: 'Who the house recognizes as this session\'s verified owner right now — re-verified live, or the system user when none',
+                handler: fn (array $input): array => $this->ownerOf($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'session' => [
+                            'type' => 'string',
+                            'description' => 'The session to read the recognized owner of',
+                            'x-milpa-source' => ['tool' => 'agent:sessions', 'path' => 'sessions', 'key' => 'session'],
+                        ],
+                    ],
+                    'required' => ['session'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean'],
+                        'session' => ['type' => 'string'],
+                        'verified' => ['type' => 'boolean', 'description' => 'True only when a signature was re-verified live and its signer is recognized'],
+                        'owner' => ['type' => ['string', 'null'], 'description' => 'The recognized principal as key:<fingerprint>, or null for the system user'],
+                        'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'What the recognized owner may do'],
+                        'note' => ['type' => 'string', 'description' => 'Why there is no verified owner, when there is not'],
+                        'error' => ['type' => 'string'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // A projection may not proclaim what only the house can verify: it RE-VERIFIES the
+                // stored assertion live and reports the fact, so a surface can show identity without
+                // inventing it (greenhouse decisions/0117). It reads, reaches nobody, changes nothing.
+                effects: new EffectProfile(
+                    mutation: Mutation::None,
+                    externality: Externality::None,
+                    reversibility: Reversibility::Guaranteed,
+                    authority: Authority::Read,
+                    subject: Subject::None,
+                    rollbackContract: 'reads only: there is nothing to roll back',
+                ),
+            ),
         ];
 
         if (!Capabilities::installed('agent-runs')) {
@@ -1378,6 +1418,56 @@ class AgentOperations implements CommandProvider
      * coincidir, y el día que lo hicieran `agent:answer` contestaría en una sesión que `agent` no
      * está leyendo.
      */
+    /**
+     * Who the house recognizes as this session's verified owner, re-verified live at the moment asked.
+     *
+     * The read half of identity (greenhouse decisions/0117): enrollment and ownership WRITE facts;
+     * this READS the admission, so a surface can project «you are key:… with these scopes» or «system
+     * user» without ever proclaiming a grade the house did not produce. The verdict is produced HERE,
+     * each call, by re-verifying the stored assertion — never read from a stored flag (evidence/0254).
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array{ok: bool, session?: string, verified?: bool, owner?: string|null, scopes?: list<string>, note?: string, error?: string}
+     */
+    private function ownerOf(array $input): array
+    {
+        $session = \is_string($input['session'] ?? null) ? trim($input['session']) : '';
+        if ($session === '') {
+            return ['ok' => false, 'error' => 'which session? `session` is required — agent:sessions lists them'];
+        }
+
+        $store = $this->sessionStore();
+        $sesion = $store?->load($session);
+        if ($sesion === null) {
+            return ['ok' => false, 'error' => 'the session «' . $session . '» does not exist here'];
+        }
+
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        $assertion = $sesion->ownershipAssertion();
+        [, $identity] = $kernel instanceof Kernel ? $this->policyAndIdentity($kernel->root()) : [null, null];
+
+        if ($assertion === null || $identity === null) {
+            return [
+                'ok' => true, 'session' => $session, 'verified' => false, 'owner' => null, 'scopes' => [],
+                'note' => 'the system user — no verified owner is recognized for this session',
+            ];
+        }
+
+        $facts = $identity->admit($assertion, $session);
+        if ($facts === null) {
+            return [
+                'ok' => true, 'session' => $session, 'verified' => false, 'owner' => null, 'scopes' => [],
+                'note' => 'an ownership assertion exists but no principal is admitted — unrecognized, revoked, or the binding failed live',
+            ];
+        }
+
+        return [
+            'ok' => true, 'session' => $session,
+            'verified' => $facts->verified, 'owner' => $facts->principal, 'scopes' => $facts->scopes,
+        ];
+    }
+
     /**
      * The app's declared PolicyProvider and the identity admission built on it — greenhouse
      * decisions/0058. Null provider when the app declares no `config/policy.php`, and then the gate
