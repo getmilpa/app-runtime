@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.84.0](https://github.com/getmilpa/app-runtime/compare/v0.83.0...v0.84.0) (2026-08-28)
+
+
+### Features
+
+* admission exists when there is a root OR a policy, not only a policy ([#199](https://github.com/getmilpa/app-runtime/issues/199)) ([bb9cc81](https://github.com/getmilpa/app-runtime/commit/bb9cc8163780efd9f50789bd3ec1e8e1ace6ee60))
+
 ## [0.83.0](https://github.com/getmilpa/app-runtime/compare/v0.82.0...v0.83.0) (2026-08-28)
 
 
