@@ -60,6 +60,12 @@ final class FileEnrollmentStore implements EnrollmentStore
         return $revoked;
     }
 
+    /** True when nothing has ever been recognized — any entry, revoked or not, seals it. */
+    public function isEmpty(): bool
+    {
+        return $this->read() === [];
+    }
+
     /**
      * The scopes recorded for this fingerprint, or null for one never enrolled — and null once revoked.
      *

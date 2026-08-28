@@ -35,6 +35,7 @@ use Milpa\Command\Effect\Subject;
 use Milpa\Command\Operation;
 use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
+use Milpa\AppRuntime\Identity\IdentityEnrolled;
 use Milpa\AppRuntime\Identity\IdentityConfig;
 use Milpa\AppRuntime\Identity\IdentityEnrollment;
 use Milpa\AppRuntime\Identity\IdentityNotRooted;
@@ -566,6 +567,46 @@ final class SessionOperations implements CommandProvider
                 mutating: true,
                 // The signature names WHO revokes: only a verified principal with identity:revoke may,
                 // and the signed payload binds this fingerprint.
+                requiresConfirmation: true,
+            ),
+            new Operation(
+                name: 'identity:bootstrap',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    Reversibility::Irreversible,
+                    // The ONLY act that mints a root — deliberately its own scary door, so
+                    // identity:enroll never has to (greenhouse decisions/0119). Bounded hard: opt-in,
+                    // greenfield only, self only, sealed after the first.
+                    Authority::Privileged,
+                    subject: Subject::Configuration,
+                ),
+                description: 'First-run only: the first signer self-enrolls as root of an EMPTY house that opted in — the one act that mints a root, sealed forever after',
+                handler: fn (array $input): array => $this->bootstrapear($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'scopes' => [
+                            'type' => 'array',
+                            'items' => ['type' => 'string'],
+                            'description' => 'What the first identity may do — it recognizes its OWN signing key, no other',
+                        ],
+                    ],
+                    'required' => ['scopes'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean', 'description' => 'False when the house is not a greenfield that opted in — the error says why'],
+                        'fingerprint' => ['type' => 'string', 'description' => 'The signing key, now the root of this house'],
+                        'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'What it may do'],
+                        'error' => ['type' => 'string', 'description' => 'Why bootstrap did not happen; absent when ok'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                scopes: ['identity:bootstrap'],
+                surfaces: ['cli', 'tui', 'mcp', 'http'],
+                mutating: true,
                 requiresConfirmation: true,
             ),
         ];
@@ -1593,6 +1634,66 @@ final class SessionOperations implements CommandProvider
         }
 
         return ['ok' => true, 'fingerprint' => $fingerprint, 'revoked_by' => $revokedBy];
+    }
+
+    /**
+     * First-run self-enrollment: the first signer becomes the root of a house that has none — or refuse.
+     *
+     * This is the ONLY operation that mints a root, and it is fenced so identity:enroll never has to be
+     * (greenhouse decisions/0119). It fires only when ALL hold: the app opted in (config/identity.php
+     * `bootstrap => true`), no root was declared out of band, and nothing was ever recognized. It
+     * recognizes the CALLER'S OWN key and no other. The recognition it writes seals it: the next call
+     * finds a non-empty registry and refuses. Whoever signs first is root — which is why it is opt-in.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array{ok: bool, fingerprint?: string, scopes?: list<string>, error?: string}
+     */
+    private function bootstrapear(array $input): array
+    {
+        $scopes = [];
+        foreach (\is_array($input['scopes'] ?? null) ? $input['scopes'] : [] as $scope) {
+            if (\is_string($scope) && trim($scope) !== '') {
+                $scopes[] = trim($scope);
+            }
+        }
+        if ($scopes === []) {
+            return ['ok' => false, 'error' => '`scopes` is required — a root that may do nothing is not a root'];
+        }
+
+        $granted = $this->container->has(GrantedAuthorization::class)
+            ? $this->container->get(GrantedAuthorization::class)
+            : null;
+        if (! $granted instanceof GrantedAuthorization) {
+            return ['ok' => false, 'error' => 'bootstrapping a root requires the signature that becomes it; re-run with --sign'];
+        }
+        if ($granted->authorization->operation !== 'identity:bootstrap') {
+            return ['ok' => false, 'error' => 'the granted signature does not cover bootstrapping — nothing was minted'];
+        }
+
+        $kernel = $this->container->has(\Milpa\Runtime\Kernel::class)
+            ? $this->container->get(\Milpa\Runtime\Kernel::class)
+            : null;
+        if (! $kernel instanceof \Milpa\Runtime\Kernel) {
+            return ['ok' => false, 'error' => 'this app has no root to write its first recognition to'];
+        }
+        $root = $kernel->root();
+
+        if (!IdentityConfig::bootstrapAllowed($root)) {
+            return ['ok' => false, 'error' => 'this house did not opt into a first-run bootstrap (config/identity.php must declare bootstrap => true)'];
+        }
+        if (!IdentityConfig::load($root)->isEmpty()) {
+            return ['ok' => false, 'error' => 'this house already declared a root out of band — use identity:enroll, not bootstrap'];
+        }
+        $store = new FileEnrollmentStore($root . '/storage/identity/enrollments.json');
+        if (!$store->isEmpty()) {
+            return ['ok' => false, 'error' => 'this house is no longer a greenfield — a first recognition already stands, and bootstrap is a one-time act'];
+        }
+
+        $fingerprint = $granted->signer->fingerprint;
+        $store->record(new IdentityEnrolled($fingerprint, $scopes, 'bootstrap'));
+
+        return ['ok' => true, 'fingerprint' => $fingerprint, 'scopes' => $scopes];
     }
 
     private function sessions(): ?SessionStore

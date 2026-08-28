@@ -46,4 +46,20 @@ final class IdentityConfig
 
         return new RootedSigners($fingerprints);
     }
+
+    /**
+     * Whether the app opted into a first-run bootstrap: `config/identity.php` returning
+     * `['bootstrap' => true]`. Absent or false means NO bootstrap — the safe default, in which the
+     * only way a key becomes rooted is out of band (decisions/0117).
+     */
+    public static function bootstrapAllowed(string $root): bool
+    {
+        $file = $root . '/config/identity.php';
+        if (!is_file($file)) {
+            return false;
+        }
+        $declared = require $file;
+
+        return \is_array($declared) && ($declared['bootstrap'] ?? false) === true;
+    }
 }

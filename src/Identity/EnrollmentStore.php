@@ -40,4 +40,10 @@ interface EnrollmentStore
      * but the key is no longer admitted. Returns false when there was no live recognition to revoke.
      */
     public function revoke(string $fingerprint, string $revokedBy): bool;
+
+    /**
+     * True when the house has recognized no key at all — the greenfield in which a first-run bootstrap
+     * may mint a root. Any recognition (revoked or not) seals it: bootstrap is a one-time act.
+     */
+    public function isEmpty(): bool;
 }
