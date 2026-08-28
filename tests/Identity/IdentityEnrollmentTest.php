@@ -40,6 +40,12 @@ final class IdentityEnrollmentTest extends TestCase
         $enrollment->enroll(self::B, ['*'], 'key:' . self::A);
     }
 
+    public function testTheRootReportsWhetherItDeclaredAnyone(): void
+    {
+        self::assertTrue((new RootedSigners([]))->isEmpty(), 'no declaration is an empty root');
+        self::assertFalse((new RootedSigners([self::A]))->isEmpty());
+    }
+
     /** A rooted fingerprint is recognized, carrying the scopes policy assigned and who authorized it. */
     public function testARootedFingerprintIsEnrolled(): void
     {

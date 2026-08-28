@@ -92,11 +92,37 @@ final class IdentityEnrollmentWiringTest extends TestCase
         self::assertSame(['agent:read', 'agent:answer'], $facts->scopes);
     }
 
+    public function testAdmissionNeedsNoPolicyProviderWhenTheKeyIsEnrolled(): void
+    {
+        $this->store()->record(new IdentityEnrolled(self::FP, ['agent:read'], 'key:' . self::FP));
+
+        // No PolicyProvider AT ALL (an app that declared a root but no config/policy.php): recognition
+        // comes wholly from the enrollment store, and admission must still produce a principal
+        // (decisions/0117, evidence/0375 — the wiring refinement).
+        $facts = $this->identityWithoutPolicy()->admit($this->assertion(), 'run-1');
+
+        self::assertNotNull($facts, 'an enrolled key is a principal even with no policy provider');
+        self::assertTrue($facts->verified);
+        self::assertSame(['agent:read'], $facts->scopes);
+    }
+
     public function testAKeyNeitherEnrolledNorStaticallyRecognizedIsPossessionAlone(): void
     {
         // Nothing recorded; static registry null. gpg proved possession, but the house recognizes no
         // identity for it — admission yields nothing.
         self::assertNull($this->identity(scopesForSigner: null)->admit($this->assertion(), 'run-1'));
+    }
+
+    private function identityWithoutPolicy(): SessionIdentity
+    {
+        $verifier = new class () implements SignatureVerifier {
+            public function verify(string $payload, string $signature): ?VerifiedSigner
+            {
+                return new VerifiedSigner(IdentityEnrollmentWiringTest::FP, 'Rod <rodrigo@teamx.agency>');
+            }
+        };
+
+        return new SessionIdentity($verifier, null, $this->store());
     }
 
     private function identity(?array $scopesForSigner): SessionIdentity

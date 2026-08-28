@@ -39,6 +39,12 @@ final readonly class RootedSigners
         );
     }
 
+    /** True when the operator declared no rooted signer at all — the app opts out of identity by root. */
+    public function isEmpty(): bool
+    {
+        return $this->fingerprints === [];
+    }
+
     /** True only when the operator declared this fingerprint before boot. Silence is «not rooted». */
     public function admits(string $fingerprint): bool
     {

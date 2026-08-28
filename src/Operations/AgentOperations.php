@@ -27,6 +27,7 @@ use Milpa\AppRuntime\Agent\ArchitectureSummaryProjector;
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Agent\SessionIdentity;
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
+use Milpa\AppRuntime\Identity\IdentityConfig;
 use Milpa\AppRuntime\Policy\PolicyConfig;
 use Milpa\ToolRuntime\Identity\GnupgSignatureVerifier;
 use Milpa\AppRuntime\Config\AgentEndpoint;
@@ -1387,7 +1388,11 @@ class AgentOperations implements CommandProvider
     private function policyAndIdentity(string $root): array
     {
         $provider = PolicyConfig::load($root);
-        $identity = $provider === null ? null : new SessionIdentity(
+        // Admission exists when there is ANY basis for recognition: a declared PolicyProvider, or a
+        // declared out-of-band root that enrollment consumes (greenhouse decisions/0117, evidence/0375).
+        // Neither means the app opts out of identity, and the gate decides by the flag as it always did.
+        $rooted = IdentityConfig::load($root);
+        $identity = ($provider === null && $rooted->isEmpty()) ? null : new SessionIdentity(
             new GnupgSignatureVerifier(),
             $provider,
             new FileEnrollmentStore($root . '/storage/identity/enrollments.json'),

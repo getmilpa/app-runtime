@@ -46,7 +46,9 @@ final readonly class SessionIdentity
 {
     public function __construct(
         private SignatureVerifier $verifier,
-        private PolicyProvider $policy,
+        // Null when the app declares an out-of-band root but no PolicyProvider: recognition then comes
+        // wholly from the enrollment store, and no static registry contradicts or supplements it.
+        private ?PolicyProvider $policy,
         // The runtime-written half of recognition: enrollments made by the governed identity:enroll
         // operation (decisions/0117). Null keeps the pre-enrollment behaviour — scopesForSigner alone.
         private ?EnrollmentStore $enrollments = null,
@@ -94,7 +96,7 @@ final readonly class SessionIdentity
         // identity:enroll operation wrote at runtime, then the app's static scopesForSigner. A key
         // recognized either way is a principal; a key recognized by neither is possession alone.
         $scopes = $this->enrollments?->scopesFor($signer->fingerprint)
-            ?? $this->policy->scopesForSigner($signer->fingerprint);
+            ?? $this->policy?->scopesForSigner($signer->fingerprint);
         if ($scopes === null) {
             return null;
         }
