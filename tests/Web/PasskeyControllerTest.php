@@ -16,11 +16,13 @@ namespace Milpa\AppRuntime\Tests\Web;
 
 use Milpa\AppRuntime\Web\Controllers\PasskeyController;
 use Milpa\Auth\InMemorySessionStore;
-use Milpa\Auth\WebAuthn\FileChallengeStore;
 use Milpa\Auth\WebAuthn\FilePasskeyCredentialStore;
 use Milpa\Auth\WebAuthn\PasskeyAuthenticator;
 use Milpa\Auth\WebAuthn\PasskeyLogin;
+use Milpa\Auth\WebAuthn\ChallengeStore;
+use Milpa\Auth\WebAuthn\FileChallengeStore;
 use Milpa\Auth\WebAuthn\RegisteredCredential;
+use Milpa\Auth\WebAuthn\WebAuthnRegistrationVerifier;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
 
@@ -106,10 +108,64 @@ final class PasskeyControllerTest extends TestCase
         self::assertSame(400, $res->getStatusCode());
     }
 
+    public function testRegisterOptionsIssuesAChallenge(): void
+    {
+        [$controller] = $this->controller(recognized: true);
+        $res = $controller->registerOptions(new ServerRequest('POST', '/webauthn/register/options'));
+        $body = json_decode((string) $res->getBody(), true);
+
+        self::assertSame(200, $res->getStatusCode());
+        self::assertNotEmpty($body['challenge']);
+    }
+
+    public function testARegistrationStoresACredentialThatCanThenLogIn(): void
+    {
+        [$controller, , , , $challenges, $credentials] = $this->controller(recognized: true, registerCred: false);
+        $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
+        $credId = random_bytes(16);
+        $challenge = $challenges->issue();
+
+        // Register through the HTTP door.
+        $reg = $controller->register($this->registerRequest($key, $challenge, $credId));
+        $regBody = json_decode((string) $reg->getBody(), true);
+
+        self::assertSame(201, $reg->getStatusCode());
+        self::assertTrue($regBody['ok']);
+        $storedId = $regBody['credentialId'];
+        self::assertNotNull($credentials->find($storedId), 'the credential is remembered');
+
+        // The registered credential is RECOGNIZED here (scopesFor returns scopes), so it can now log in.
+        $auth = new PasskeyAuthenticator($challenges, $credentials);
+        $login = new PasskeyLogin($auth, new InMemorySessionStore(), static fn (string $c): array => ['agent:read']);
+        $loginController = new PasskeyController($auth, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, self::RP_ID, self::COOKIE);
+        $authChallenge = $auth->challenge();
+        $res = $loginController->authenticate($this->assertionRequestFor($key, $authChallenge, $storedId));
+
+        self::assertSame(200, $res->getStatusCode(), 'the just-registered credential logs in');
+    }
+
+    public function testAReplayedRegistrationIsRejected(): void
+    {
+        [$controller, , , , $challenges] = $this->controller(recognized: true, registerCred: false);
+        $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
+        $challenge = $challenges->issue();
+        $req = $this->registerRequest($key, $challenge, random_bytes(8));
+
+        self::assertSame(201, $controller->register($req)->getStatusCode());
+        // The challenge is spent — the same registration again is refused.
+        self::assertSame(401, $controller->register($req)->getStatusCode());
+    }
+
+    public function testAMalformedRegistrationBodyIsRejected(): void
+    {
+        [$controller] = $this->controller(recognized: true);
+        self::assertSame(400, $controller->register(new ServerRequest('POST', '/webauthn/register', [], 'not-json'))->getStatusCode());
+    }
+
     // --- helpers ---
 
-    /** @return array{0: PasskeyController, 1: PasskeyAuthenticator, 2: \OpenSSLAsymmetricKey, 3: InMemorySessionStore} */
-    private function controller(bool $recognized): array
+    /** @return array{0: PasskeyController, 1: PasskeyAuthenticator, 2: \OpenSSLAsymmetricKey, 3: InMemorySessionStore, 4: ChallengeStore, 5: FilePasskeyCredentialStore} */
+    private function controller(bool $recognized, bool $registerCred = true): array
     {
         $dir = sys_get_temp_dir() . '/milpa-pkc-' . bin2hex(random_bytes(4));
         $this->files[] = $dir . '-ch.json';
@@ -118,16 +174,20 @@ final class PasskeyControllerTest extends TestCase
         $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
         $pem = (string) openssl_pkey_get_details($key)['key'];
         $credentials = new FilePasskeyCredentialStore($dir . '-cr.json');
-        $credentials->register(new RegisteredCredential(self::CRED, $pem, 0));
+        if ($registerCred) {
+            $credentials->register(new RegisteredCredential(self::CRED, $pem, 0));
+        }
 
-        $auth = new PasskeyAuthenticator(new FileChallengeStore($dir . '-ch.json'), $credentials);
+        $challenges = new FileChallengeStore($dir . '-ch.json');
+        $auth = new PasskeyAuthenticator($challenges, $credentials);
         $sessions = new InMemorySessionStore();
         $scopesFor = $recognized
             ? static fn (string $c): array => ['agent:read']
             : static fn (string $c): ?array => null;
         $login = new PasskeyLogin($auth, $sessions, $scopesFor);
+        $controller = new PasskeyController($auth, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, self::RP_ID, self::COOKIE);
 
-        return [new PasskeyController($auth, $login, self::RP_ID, self::COOKIE), $auth, $key, $sessions];
+        return [$controller, $auth, $key, $sessions, $challenges, $credentials];
     }
 
     private function assertionRequest(\OpenSSLAsymmetricKey $key, string $challenge): ServerRequest
@@ -150,5 +210,88 @@ final class PasskeyControllerTest extends TestCase
         ]);
 
         return new ServerRequest('POST', '/webauthn/authenticate', [], $payload);
+    }
+
+    private function assertionRequestFor(\OpenSSLAsymmetricKey $key, string $challenge, string $credentialId): ServerRequest
+    {
+        $client = (string) json_encode([
+            'type' => 'webauthn.get',
+            'challenge' => rtrim(strtr(base64_encode($challenge), '+/', '-_'), '='),
+            'origin' => 'https://' . self::RP_ID,
+        ]);
+        $data = hash('sha256', self::RP_ID, true) . "\x01" . pack('N', 7);
+        $sig = '';
+        openssl_sign($data . hash('sha256', $client, true), $sig, $key, OPENSSL_ALGO_SHA256);
+        $b64 = static fn (string $v): string => rtrim(strtr(base64_encode($v), '+/', '-_'), '=');
+
+        return new ServerRequest('POST', '/webauthn/authenticate', [], (string) json_encode([
+            'credentialId' => $credentialId,
+            'clientDataJSON' => $b64($client),
+            'authenticatorData' => $b64($data),
+            'signature' => $b64($sig),
+        ]));
+    }
+
+    private function registerRequest(\OpenSSLAsymmetricKey $key, string $challenge, string $credId): ServerRequest
+    {
+        $client = (string) json_encode([
+            'type' => 'webauthn.create',
+            'challenge' => rtrim(strtr(base64_encode($challenge), '+/', '-_'), '='),
+            'origin' => 'https://' . self::RP_ID,
+        ]);
+        $d = openssl_pkey_get_details($key);
+        $cose = self::cborCoseMap([1 => 2, 3 => -7, -1 => 1, -2 => $d['ec']['x'], -3 => $d['ec']['y']]);
+        $authData = hash('sha256', self::RP_ID, true) . "\x41" . pack('N', 0)
+            . str_repeat("\x00", 16) . pack('n', \strlen($credId)) . $credId . $cose;
+        $att = self::cborHead(5, 3)
+            . self::cborText('fmt') . self::cborText('none')
+            . self::cborText('attStmt') . self::cborHead(5, 0)
+            . self::cborText('authData') . self::cborBytes($authData);
+        $b64 = static fn (string $v): string => rtrim(strtr(base64_encode($v), '+/', '-_'), '=');
+
+        return new ServerRequest('POST', '/webauthn/register', [], (string) json_encode([
+            'clientDataJSON' => $b64($client),
+            'attestationObject' => $b64($att),
+        ]));
+    }
+
+    /** @param array<int, int|string> $map */
+    private static function cborCoseMap(array $map): string
+    {
+        $out = self::cborHead(5, \count($map));
+        foreach ($map as $k => $v) {
+            $out .= self::cborInt($k);
+            $out .= \is_int($v) ? self::cborInt($v) : self::cborBytes($v);
+        }
+
+        return $out;
+    }
+
+    private static function cborInt(int $n): string
+    {
+        return $n >= 0 ? self::cborHead(0, $n) : self::cborHead(1, -1 - $n);
+    }
+
+    private static function cborBytes(string $sVal): string
+    {
+        return self::cborHead(2, \strlen($sVal)) . $sVal;
+    }
+
+    private static function cborText(string $sVal): string
+    {
+        return self::cborHead(3, \strlen($sVal)) . $sVal;
+    }
+
+    private static function cborHead(int $major, int $value): string
+    {
+        $mt = $major << 5;
+        if ($value < 24) {
+            return \chr($mt | $value);
+        }
+        if ($value < 256) {
+            return \chr($mt | 24) . \chr($value);
+        }
+
+        return \chr($mt | 25) . pack('n', $value);
     }
 }

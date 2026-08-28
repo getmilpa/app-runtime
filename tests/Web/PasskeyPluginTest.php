@@ -51,7 +51,7 @@ final class PasskeyPluginTest extends TestCase
         $plugin->boot();
 
         $routes = $plugin->routes();
-        self::assertCount(2, $routes);
+        self::assertCount(4, $routes);
         $paths = array_map(static fn (Route $r): string => $r->path, $routes);
         self::assertContains('/webauthn/authenticate/options', $paths);
         self::assertContains('/webauthn/authenticate', $paths);

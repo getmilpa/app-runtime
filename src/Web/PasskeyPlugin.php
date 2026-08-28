@@ -21,6 +21,7 @@ use Milpa\Auth\WebAuthn\FileChallengeStore;
 use Milpa\Auth\WebAuthn\FilePasskeyCredentialStore;
 use Milpa\Auth\WebAuthn\PasskeyAuthenticator;
 use Milpa\Auth\WebAuthn\PasskeyLogin;
+use Milpa\Auth\WebAuthn\WebAuthnRegistrationVerifier;
 use Milpa\Http\HttpMethod;
 use Milpa\Http\Routing\HandlerReference;
 use Milpa\Http\Routing\Route;
@@ -103,7 +104,7 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
         $this->rpId = $rpId;
         $this->container->registerService(
             PasskeyController::class,
-            new PasskeyController($authenticator, $login, $rpId, $cookie),
+            new PasskeyController($authenticator, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $rpId, $cookie),
         );
     }
 
@@ -117,6 +118,8 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
         return [
             new Route(path: '/webauthn/authenticate/options', methods: HttpMethod::POST, name: 'passkey.authenticate.options', handler: new HandlerReference(PasskeyController::class, 'options')),
             new Route(path: '/webauthn/authenticate', methods: HttpMethod::POST, name: 'passkey.authenticate', handler: new HandlerReference(PasskeyController::class, 'authenticate')),
+            new Route(path: '/webauthn/register/options', methods: HttpMethod::POST, name: 'passkey.register.options', handler: new HandlerReference(PasskeyController::class, 'registerOptions')),
+            new Route(path: '/webauthn/register', methods: HttpMethod::POST, name: 'passkey.register', handler: new HandlerReference(PasskeyController::class, 'register')),
         ];
     }
 

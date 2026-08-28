@@ -14,8 +14,11 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Web\Controllers;
 
+use Milpa\Auth\WebAuthn\ChallengeStore;
 use Milpa\Auth\WebAuthn\PasskeyAuthenticator;
+use Milpa\Auth\WebAuthn\PasskeyCredentialStore;
 use Milpa\Auth\WebAuthn\PasskeyLogin;
+use Milpa\Auth\WebAuthn\WebAuthnRegistrationVerifier;
 use Nyholm\Psr7\Response;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -35,9 +38,61 @@ final class PasskeyController
     public function __construct(
         private readonly PasskeyAuthenticator $authenticator,
         private readonly PasskeyLogin $login,
+        private readonly ChallengeStore $challenges,
+        private readonly WebAuthnRegistrationVerifier $registration,
+        private readonly PasskeyCredentialStore $credentials,
         private readonly string $rpId,
         private readonly string $cookieName,
     ) {
+    }
+
+    /** Issue a fresh one-time challenge for a registration ceremony. */
+    public function registerOptions(ServerRequestInterface $request): ResponseInterface
+    {
+        $challenge = $this->challenges->issue();
+
+        return $this->json(200, [
+            'rpId' => $this->rpId,
+            'challenge' => self::base64UrlEncode($challenge),
+        ]);
+    }
+
+    /**
+     * Verify a registration attestation and, if it holds, remember the credential.
+     *
+     * The credential is now REGISTERED (the house holds its public key), not yet RECOGNIZED — granting it
+     * scopes is identity:enroll's job, exactly as a fresh gpg key must be enrolled (greenhouse decisions/0125).
+     */
+    public function register(ServerRequestInterface $request): ResponseInterface
+    {
+        $body = json_decode((string) $request->getBody(), true);
+        if (!\is_array($body)) {
+            return $this->json(400, ['error' => 'passkey_bad_request', 'message' => 'The body is not a JSON object.']);
+        }
+        $clientData = self::base64UrlDecode(\is_string($body['clientDataJSON'] ?? null) ? $body['clientDataJSON'] : '');
+        $attestation = self::base64UrlDecode(\is_string($body['attestationObject'] ?? null) ? $body['attestationObject'] : '');
+        if ($clientData === null || $attestation === null) {
+            return $this->json(400, ['error' => 'passkey_bad_request', 'message' => 'clientDataJSON and attestationObject are required.']);
+        }
+
+        // The challenge the client echoes must be one we issued and have not spent — consume it first.
+        $decoded = json_decode($clientData, true);
+        $challenge = self::base64UrlDecode(\is_array($decoded) && \is_string($decoded['challenge'] ?? null) ? $decoded['challenge'] : '');
+        if ($challenge === null || !$this->challenges->consume($challenge)) {
+            return $this->json(401, ['ok' => false, 'error' => 'passkey_rejected']);
+        }
+
+        $credential = $this->registration->verify($challenge, $this->rpId, $clientData, $attestation);
+        if ($credential === null) {
+            return $this->json(401, ['ok' => false, 'error' => 'passkey_rejected']);
+        }
+        $this->credentials->register($credential);
+
+        return $this->json(201, [
+            'ok' => true,
+            'credentialId' => $credential->credentialId,
+            'note' => 'registered — enroll this credential id to grant it scopes',
+        ]);
     }
 
     /** Issue a fresh one-time challenge for an authentication ceremony. */
