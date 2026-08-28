@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Agent;
 
+use Milpa\AppRuntime\Identity\EnrollmentStore;
 use Milpa\AppRuntime\Policy\PolicyProvider;
 use Milpa\Command\Effect\ContextFacts;
 use Milpa\Command\Effect\VerifiedPrincipal;
@@ -46,6 +47,9 @@ final readonly class SessionIdentity
     public function __construct(
         private SignatureVerifier $verifier,
         private PolicyProvider $policy,
+        // The runtime-written half of recognition: enrollments made by the governed identity:enroll
+        // operation (decisions/0117). Null keeps the pre-enrollment behaviour — scopesForSigner alone.
+        private ?EnrollmentStore $enrollments = null,
     ) {
     }
 
@@ -83,9 +87,14 @@ final readonly class SessionIdentity
             return null;
         }
 
-        // POSSESSION IS NOT IDENTITY. gpg proved the signer holds some key; only the app's declared
-        // registry says what that key is worth here — and for an unknown one, nothing.
-        $scopes = $this->policy->scopesForSigner($signer->fingerprint);
+        // POSSESSION IS NOT IDENTITY. gpg proved the signer holds some key; only the house's
+        // recognition says what that key is worth here — and for an unrecognized one, nothing.
+        //
+        // Two sources of recognition, checked in this order: the enrollments the governed
+        // identity:enroll operation wrote at runtime, then the app's static scopesForSigner. A key
+        // recognized either way is a principal; a key recognized by neither is possession alone.
+        $scopes = $this->enrollments?->scopesFor($signer->fingerprint)
+            ?? $this->policy->scopesForSigner($signer->fingerprint);
         if ($scopes === null) {
             return null;
         }

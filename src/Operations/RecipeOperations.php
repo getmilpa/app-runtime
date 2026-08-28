@@ -24,6 +24,7 @@ use Milpa\AppRuntime\Agent\ContractProducer;
 use Milpa\AppRuntime\Agent\ObservedExecutor;
 use Milpa\AppRuntime\Agent\SessionBookkeeping;
 use Milpa\AppRuntime\Agent\SessionIdentity;
+use Milpa\AppRuntime\Identity\FileEnrollmentStore;
 use Milpa\AppRuntime\Agent\SessionToolGate;
 use Milpa\AppRuntime\Agent\SubAgentSpawner;
 use Milpa\AppRuntime\Policy\PolicyConfig;
@@ -221,7 +222,11 @@ final class RecipeOperations implements CommandProvider
         }
 
         $provider = PolicyConfig::load($root);
-        $identity = $provider === null ? null : new SessionIdentity(new GnupgSignatureVerifier(), $provider);
+        $identity = $provider === null ? null : new SessionIdentity(
+            new GnupgSignatureVerifier(),
+            $provider,
+            new FileEnrollmentStore($root . '/storage/identity/enrollments.json'),
+        );
 
         $gate = new SessionToolGate(
             $store,

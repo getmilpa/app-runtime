@@ -34,6 +34,10 @@ use Milpa\Command\Effect\Reversibility;
 use Milpa\Command\Effect\Subject;
 use Milpa\Command\Operation;
 use Milpa\Interfaces\Di\DIContainerInterface;
+use Milpa\AppRuntime\Identity\FileEnrollmentStore;
+use Milpa\AppRuntime\Identity\IdentityConfig;
+use Milpa\AppRuntime\Identity\IdentityEnrollment;
+use Milpa\AppRuntime\Identity\IdentityNotRooted;
 use Milpa\ToolRuntime\Identity\GrantedAuthorization;
 
 /**
@@ -472,6 +476,56 @@ final class SessionOperations implements CommandProvider
                 mutating: true,
                 // THE SIGNATURE IS THE ACT, not a formality around it: the signed payload IS the
                 // assertion this operation stores. Without --sign there is nothing to store.
+                requiresConfirmation: true,
+            ),
+            new Operation(
+                name: 'identity:enroll',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    // A recognition is a fact once made; withdrawing it is revocation, its own
+                    // governed act, undecided on purpose (greenhouse decisions/0117).
+                    Reversibility::Irreversible,
+                    // Enrolling an identity decides who the house will believe as a principal — an
+                    // institutional act, above acting AS a user.
+                    Authority::Privileged,
+                    subject: Subject::Configuration,
+                ),
+                description: 'Recognize a rooted key as an institutional identity with scopes — it consumes the out-of-band root, never mints it',
+                handler: fn (array $input): array => $this->enrolar($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'fingerprint' => [
+                            'type' => 'string',
+                            'description' => 'The key to recognize — MUST already be in the out-of-band root, or enrollment refuses it',
+                        ],
+                        'scopes' => [
+                            'type' => 'array',
+                            'items' => ['type' => 'string'],
+                            'description' => 'What policy grants this identity at the moment of recognition',
+                        ],
+                    ],
+                    'required' => ['fingerprint', 'scopes'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean', 'description' => 'False when nothing was recognized — the error says why'],
+                        'fingerprint' => ['type' => 'string', 'description' => 'The key now recognized'],
+                        'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'What it may do'],
+                        'authorized_by' => ['type' => 'string', 'description' => 'The verified principal that authorized the recognition, as key:<fingerprint>'],
+                        'error' => ['type' => 'string', 'description' => 'Why enrollment did not happen; absent when ok'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // The gate enforces this on a permission-aware surface: only a principal that carries
+                // identity:enroll may enroll another. Without it the door would be open on HTTP.
+                scopes: ['identity:enroll'],
+                surfaces: ['cli', 'tui', 'mcp', 'http'],
+                mutating: true,
+                // The signature names WHO is recognizing: only a verified principal with the
+                // identity:enroll scope may enroll another, and the signed payload binds this call.
                 requiresConfirmation: true,
             ),
         ];
@@ -1376,6 +1430,80 @@ final class SessionOperations implements CommandProvider
             'session' => $session,
             'owner' => 'key:' . $concedida->signer->fingerprint,
             'note' => 'the signed assertion is stored; every consumer re-verifies it live before trusting it',
+        ];
+    }
+
+    /**
+     * Recognize a rooted key as an institutional identity — or refuse.
+     *
+     * The three rights stay separate (greenhouse decisions/0117): the ROOT (config/identity.php,
+     * out of band) says whom the house will believe; THIS says which identity it recognizes under
+     * that root; the scopes are what policy grants. The first gate is the root, fail-closed: a
+     * fingerprint the operator never declared is refused, because enrollment consumes a root of
+     * trust and cannot mint the one that would authorize it.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array{ok: bool, fingerprint?: string, scopes?: list<string>, authorized_by?: string, error?: string}
+     */
+    private function enrolar(array $input): array
+    {
+        $fingerprint = \is_string($input['fingerprint'] ?? null) ? trim($input['fingerprint']) : '';
+        if ($fingerprint === '') {
+            return ['ok' => false, 'error' => 'which key? `fingerprint` is required — it must be one the out-of-band root already declared'];
+        }
+
+        $scopes = [];
+        foreach (\is_array($input['scopes'] ?? null) ? $input['scopes'] : [] as $scope) {
+            if (\is_string($scope) && trim($scope) !== '') {
+                $scopes[] = trim($scope);
+            }
+        }
+        if ($scopes === []) {
+            return ['ok' => false, 'error' => '`scopes` is required — a recognition with no scopes grants nothing and hides that it grants nothing'];
+        }
+
+        $granted = $this->container->has(GrantedAuthorization::class)
+            ? $this->container->get(GrantedAuthorization::class)
+            : null;
+        if (! $granted instanceof GrantedAuthorization) {
+            return [
+                'ok' => false,
+                'error' => 'enrolling an identity requires the signature that names WHO is recognizing it; re-run with --sign',
+            ];
+        }
+        if (
+            $granted->authorization->operation !== 'identity:enroll'
+            || ($granted->authorization->arguments['fingerprint'] ?? null) !== $fingerprint
+        ) {
+            return [
+                'ok' => false,
+                'error' => 'the granted signature does not cover enrolling THIS fingerprint — nothing was recognized',
+            ];
+        }
+
+        $kernel = $this->container->has(\Milpa\Runtime\Kernel::class)
+            ? $this->container->get(\Milpa\Runtime\Kernel::class)
+            : null;
+        if (! $kernel instanceof \Milpa\Runtime\Kernel) {
+            return ['ok' => false, 'error' => 'this app has no root to read its out-of-band signer declaration from'];
+        }
+        $root = $kernel->root();
+
+        $enrollment = new IdentityEnrollment(IdentityConfig::load($root));
+        try {
+            $enrolled = $enrollment->enroll($fingerprint, $scopes, 'key:' . $granted->signer->fingerprint);
+        } catch (IdentityNotRooted $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+
+        (new FileEnrollmentStore($root . '/storage/identity/enrollments.json'))->record($enrolled);
+
+        return [
+            'ok' => true,
+            'fingerprint' => $enrolled->fingerprint,
+            'scopes' => $enrolled->scopes,
+            'authorized_by' => $enrolled->authorizedBy,
         ];
     }
 
