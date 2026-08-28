@@ -25,6 +25,7 @@ use Milpa\AppRuntime\Agent\ObservedExecutor;
 use Milpa\AppRuntime\Agent\SessionBookkeeping;
 use Milpa\AppRuntime\Agent\SessionIdentity;
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
+use Milpa\AppRuntime\Identity\IdentityConfig;
 use Milpa\AppRuntime\Agent\SessionToolGate;
 use Milpa\AppRuntime\Agent\SubAgentSpawner;
 use Milpa\AppRuntime\Policy\PolicyConfig;
@@ -222,7 +223,10 @@ final class RecipeOperations implements CommandProvider
         }
 
         $provider = PolicyConfig::load($root);
-        $identity = $provider === null ? null : new SessionIdentity(
+        // Admission exists when there is ANY basis for recognition: a declared PolicyProvider, or a
+        // declared out-of-band root that enrollment consumes (greenhouse decisions/0117, evidence/0375).
+        $rooted = IdentityConfig::load($root);
+        $identity = ($provider === null && $rooted->isEmpty()) ? null : new SessionIdentity(
             new GnupgSignatureVerifier(),
             $provider,
             new FileEnrollmentStore($root . '/storage/identity/enrollments.json'),
