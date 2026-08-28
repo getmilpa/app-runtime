@@ -28,6 +28,7 @@ final class FileEnrollmentStore implements EnrollmentStore
     {
     }
 
+    /** Persist a recognition, keyed by its (normalized) fingerprint, under an exclusive lock. */
     public function record(IdentityEnrolled $enrolled): void
     {
         $key = self::normalize($enrolled->fingerprint);
@@ -38,6 +39,11 @@ final class FileEnrollmentStore implements EnrollmentStore
         });
     }
 
+    /**
+     * The scopes recorded for this fingerprint, or null for one never enrolled.
+     *
+     * @return list<string>|null
+     */
     public function scopesFor(string $fingerprint): ?array
     {
         $map = $this->read();

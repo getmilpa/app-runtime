@@ -24,6 +24,7 @@ namespace Milpa\AppRuntime\Identity;
  */
 final class IdentityConfig
 {
+    /** Read the out-of-band root from the app's config/identity.php, or an empty root when absent. */
     public static function load(string $root): RootedSigners
     {
         $file = $root . '/config/identity.php';

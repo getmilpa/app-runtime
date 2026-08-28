@@ -30,6 +30,8 @@ final readonly class IdentityEnrollment
     }
 
     /**
+     * Recognize a rooted fingerprint as an institutional identity, or refuse one the root never declared.
+     *
      * @param list<string> $scopes       what policy assigns this identity at the moment of recognition
      * @param string       $authorizedBy the verified principal running the enrollment (key:<fingerprint>)
      *

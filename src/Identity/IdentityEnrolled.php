@@ -33,7 +33,11 @@ final readonly class IdentityEnrolled
     ) {
     }
 
-    /** @return array{fingerprint: string, scopes: list<string>, authorized_by: string} */
+    /**
+     * The recognition as a plain map, for persistence and transport.
+     *
+     * @return array{fingerprint: string, scopes: list<string>, authorized_by: string}
+     */
     public function toArray(): array
     {
         return [

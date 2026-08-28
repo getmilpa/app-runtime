@@ -23,6 +23,7 @@ namespace Milpa\AppRuntime\Identity;
  */
 final class IdentityNotRooted extends \RuntimeException
 {
+    /** The refusal for a fingerprint the out-of-band root never declared. */
     public static function forFingerprint(string $fingerprint): self
     {
         return new self(
