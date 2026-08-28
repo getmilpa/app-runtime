@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Operations;
 
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
+use Milpa\AppRuntime\Identity\IdentityEnrolled;
 use Milpa\AppRuntime\Operations\SessionOperations;
 use Milpa\Container\DIContainer;
 use Milpa\Runtime\Kernel;
@@ -114,6 +115,55 @@ final class IdentityEnrollOperationTest extends TestCase
         self::assertFalse($this->call($c, ['fingerprint' => self::ROOTED, 'scopes' => []])['ok']);
     }
 
+    public function testRevokingARecognizedKeyStopsAdmittingItButKeepsTheFact(): void
+    {
+        [$c, $root] = $this->containerWithRoot(self::ROOTED);
+        $store = new FileEnrollmentStore($root . '/storage/identity/enrollments.json');
+
+        // The key is already recognized (the enrollment path is covered elsewhere).
+        $store->record(new IdentityEnrolled(self::ROOTED, ['agent:read'], 'key:' . self::ROOTED));
+        self::assertSame(['agent:read'], $store->scopesFor(self::ROOTED));
+
+        // Revoke it through the operation.
+        $this->grant($c, self::ROOTED, 'identity:revoke');
+        $r = $this->call($c, ['fingerprint' => self::ROOTED], 'identity:revoke');
+
+        self::assertTrue($r['ok']);
+        self::assertSame(self::ROOTED, $r['fingerprint']);
+        self::assertSame('key:' . self::ROOTED, $r['revoked_by']);
+        self::assertNull($store->scopesFor(self::ROOTED), 'a revoked key is no longer admitted');
+    }
+
+    public function testRevokingWhatWasNeverRecognizedIsRefused(): void
+    {
+        $c = $this->container(self::ROOTED);
+        $this->grant($c, self::UNROOTED, 'identity:revoke');
+
+        $r = $this->call($c, ['fingerprint' => self::UNROOTED], 'identity:revoke');
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('did not recognize', (string) $r['error']);
+    }
+
+    public function testRevokingNeedsTheSignatureThatNamesTheRevoker(): void
+    {
+        $c = $this->container(self::ROOTED);
+
+        $r = $this->call($c, ['fingerprint' => self::ROOTED], 'identity:revoke');
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('--sign', (string) $r['error']);
+    }
+
+    public function testTheRevokeCatalogueEntryIsSignedAndScoped(): void
+    {
+        $op = $this->operation(new DIContainer(), 'identity:revoke');
+
+        self::assertTrue($op->requiresConfirmation);
+        self::assertTrue($op->mutating);
+        self::assertContains('identity:revoke', $op->scopes);
+    }
+
     // --- helpers ---
 
     private function container(string $rooted): DIContainer
@@ -142,10 +192,10 @@ final class IdentityEnrollOperationTest extends TestCase
         return [$c, $root];
     }
 
-    private function grant(DIContainer $c, string $fingerprint): void
+    private function grant(DIContainer $c, string $fingerprint, string $operation = 'identity:enroll'): void
     {
         $authorization = new OperationAuthorization(
-            operation: 'identity:enroll',
+            operation: $operation,
             arguments: ['fingerprint' => $fingerprint],
             host: 'lab-host',
             issuedAt: '2026-08-18T00:00:00+00:00',
@@ -159,14 +209,14 @@ final class IdentityEnrollOperationTest extends TestCase
         ));
     }
 
-    private function operation(DIContainer $c): \Milpa\Command\Operation
+    private function operation(DIContainer $c, string $name = 'identity:enroll'): \Milpa\Command\Operation
     {
         foreach ((new SessionOperations($c))->operations() as $op) {
-            if ($op->name === 'identity:enroll') {
+            if ($op->name === $name) {
                 return $op;
             }
         }
-        self::fail('identity:enroll is not offered');
+        self::fail($name . ' is not offered');
     }
 
     /**
@@ -174,9 +224,9 @@ final class IdentityEnrollOperationTest extends TestCase
      *
      * @return array<string, mixed>
      */
-    private function call(DIContainer $c, array $input): array
+    private function call(DIContainer $c, array $input, string $name = 'identity:enroll'): array
     {
-        $handler = $this->operation($c)->handler;
+        $handler = $this->operation($c, $name)->handler;
         self::assertIsCallable($handler);
 
         /** @var array<string, mixed> */

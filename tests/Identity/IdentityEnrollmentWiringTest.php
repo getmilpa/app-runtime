@@ -53,6 +53,53 @@ final class IdentityEnrollmentWiringTest extends TestCase
         @rmdir($this->dir);
     }
 
+    public function testRevocationDeniesTheKeyButKeepsTheEnrollmentFact(): void
+    {
+        $this->store()->record(new IdentityEnrolled(self::FP, ['agent:read'], 'key:' . self::FP));
+        self::assertSame(['agent:read'], $this->store()->scopesFor(self::FP));
+
+        $revoked = $this->store()->revoke(self::FP, 'key:REVOKER');
+        self::assertTrue($revoked);
+
+        // Admission stops honoring the key...
+        self::assertNull($this->store()->scopesFor(self::FP), 'a revoked key resolves to nothing');
+        // ...but the enrollment fact survives on disk for the audit trail.
+        $raw = json_decode((string) file_get_contents($this->dir . '/storage/identity/enrollments.json'), true);
+        self::assertSame(['agent:read'], $raw[self::FP]['scopes'], 'the recognition is not erased');
+        self::assertSame('key:REVOKER', $raw[self::FP]['revoked_by']);
+    }
+
+    public function testRevokingWhatWasNeverRecognizedOrAlreadyRevokedChangesNothing(): void
+    {
+        // Never enrolled.
+        self::assertFalse($this->store()->revoke(self::FP, 'key:REVOKER'));
+
+        // Enrolled then revoked once; a second revoke is a no-op.
+        $this->store()->record(new IdentityEnrolled(self::FP, ['agent:read'], 'key:' . self::FP));
+        self::assertTrue($this->store()->revoke(self::FP, 'key:REVOKER'));
+        self::assertFalse($this->store()->revoke(self::FP, 'key:REVOKER'), 'a standing revocation is not re-applied');
+    }
+
+    public function testRe_enrollingAfterRevocationRecognizesTheKeyAgain(): void
+    {
+        $this->store()->record(new IdentityEnrolled(self::FP, ['agent:read'], 'key:' . self::FP));
+        $this->store()->revoke(self::FP, 'key:REVOKER');
+        self::assertNull($this->store()->scopesFor(self::FP));
+
+        // Enrolling again lays a fresh recognition with no revocation over it.
+        $this->store()->record(new IdentityEnrolled(self::FP, ['agent:answer'], 'key:' . self::FP));
+        self::assertSame(['agent:answer'], $this->store()->scopesFor(self::FP));
+    }
+
+    public function testAdmissionRefusesARevokedKey(): void
+    {
+        $this->store()->record(new IdentityEnrolled(self::FP, ['agent:read'], 'key:' . self::FP));
+        $this->store()->revoke(self::FP, 'key:REVOKER');
+
+        // gpg still proves possession, but the house revoked its recognition — possession alone.
+        self::assertNull($this->identity(scopesForSigner: null)->admit($this->assertion(), 'run-1'));
+    }
+
     private function store(): FileEnrollmentStore
     {
         return new FileEnrollmentStore($this->dir . '/storage/identity/enrollments.json');

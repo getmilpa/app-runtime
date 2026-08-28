@@ -39,8 +39,29 @@ final class FileEnrollmentStore implements EnrollmentStore
         });
     }
 
+    /** Lay a revocation over a live recognition (the enrollment stays); false if there was none. */
+    public function revoke(string $fingerprint, string $revokedBy): bool
+    {
+        $key = self::normalize($fingerprint);
+        $revoked = false;
+        $this->mutate(static function (array $map) use ($key, $revokedBy, &$revoked): array {
+            $entry = $map[$key] ?? null;
+            // Nothing to revoke if it was never recognized, or if a revocation already stands.
+            if (!\is_array($entry) || ($entry['revoked_by'] ?? null) !== null) {
+                return $map;
+            }
+            $entry['revoked_by'] = $revokedBy;
+            $map[$key] = $entry;
+            $revoked = true;
+
+            return $map;
+        });
+
+        return $revoked;
+    }
+
     /**
-     * The scopes recorded for this fingerprint, or null for one never enrolled.
+     * The scopes recorded for this fingerprint, or null for one never enrolled — and null once revoked.
      *
      * @return list<string>|null
      */
@@ -49,6 +70,11 @@ final class FileEnrollmentStore implements EnrollmentStore
         $map = $this->read();
         $entry = $map[self::normalize($fingerprint)] ?? null;
         if (!\is_array($entry) || !\is_array($entry['scopes'] ?? null)) {
+            return null;
+        }
+        // A revocation is a fact laid over the recognition (decisions/0117): the entry stays for the
+        // audit trail, but a revoked key is no longer admitted.
+        if (($entry['revoked_by'] ?? null) !== null) {
             return null;
         }
 

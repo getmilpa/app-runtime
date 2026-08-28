@@ -528,6 +528,46 @@ final class SessionOperations implements CommandProvider
                 // identity:enroll scope may enroll another, and the signed payload binds this call.
                 requiresConfirmation: true,
             ),
+            new Operation(
+                name: 'identity:revoke',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    // A revocation is itself a fact laid over the recognition; withdrawing THAT would
+                    // be its own act. The enrollment is never erased (greenhouse decisions/0117).
+                    Reversibility::Irreversible,
+                    Authority::Privileged,
+                    subject: Subject::Configuration,
+                ),
+                description: 'Revoke a key the house recognized — the enrollment fact stays for the audit trail; the key is no longer admitted',
+                handler: fn (array $input): array => $this->revocar($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'fingerprint' => [
+                            'type' => 'string',
+                            'description' => 'The recognized key to revoke — revocation refuses one that was never enrolled',
+                        ],
+                    ],
+                    'required' => ['fingerprint'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean', 'description' => 'False when there was no live recognition to revoke — the error says so'],
+                        'fingerprint' => ['type' => 'string', 'description' => 'The key no longer admitted'],
+                        'revoked_by' => ['type' => 'string', 'description' => 'The verified principal that authorized the revocation, as key:<fingerprint>'],
+                        'error' => ['type' => 'string', 'description' => 'Why revocation did not happen; absent when ok'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                scopes: ['identity:revoke'],
+                surfaces: ['cli', 'tui', 'mcp', 'http'],
+                mutating: true,
+                // The signature names WHO revokes: only a verified principal with identity:revoke may,
+                // and the signed payload binds this fingerprint.
+                requiresConfirmation: true,
+            ),
         ];
     }
 
@@ -1505,6 +1545,54 @@ final class SessionOperations implements CommandProvider
             'scopes' => $enrolled->scopes,
             'authorized_by' => $enrolled->authorizedBy,
         ];
+    }
+
+    /**
+     * Revoke a key the house recognized — or refuse when there is nothing live to revoke.
+     *
+     * A revocation is a fact laid over the recognition (greenhouse decisions/0117): the enrollment is
+     * not erased, so the audit trail survives, but admission stops honoring the key. It needs no root
+     * gate — revoking removes recognition, it does not consume the root.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array{ok: bool, fingerprint?: string, revoked_by?: string, error?: string}
+     */
+    private function revocar(array $input): array
+    {
+        $fingerprint = \is_string($input['fingerprint'] ?? null) ? trim($input['fingerprint']) : '';
+        if ($fingerprint === '') {
+            return ['ok' => false, 'error' => 'which key? `fingerprint` is required — it must be one the house currently recognizes'];
+        }
+
+        $granted = $this->container->has(GrantedAuthorization::class)
+            ? $this->container->get(GrantedAuthorization::class)
+            : null;
+        if (! $granted instanceof GrantedAuthorization) {
+            return ['ok' => false, 'error' => 'revoking a key requires the signature that names WHO revokes it; re-run with --sign'];
+        }
+        if (
+            $granted->authorization->operation !== 'identity:revoke'
+            || ($granted->authorization->arguments['fingerprint'] ?? null) !== $fingerprint
+        ) {
+            return ['ok' => false, 'error' => 'the granted signature does not cover revoking THIS fingerprint — nothing was revoked'];
+        }
+
+        $kernel = $this->container->has(\Milpa\Runtime\Kernel::class)
+            ? $this->container->get(\Milpa\Runtime\Kernel::class)
+            : null;
+        if (! $kernel instanceof \Milpa\Runtime\Kernel) {
+            return ['ok' => false, 'error' => 'this app has nowhere to record the revocation'];
+        }
+
+        $revokedBy = 'key:' . $granted->signer->fingerprint;
+        $revoked = (new FileEnrollmentStore($kernel->root() . '/storage/identity/enrollments.json'))
+            ->revoke($fingerprint, $revokedBy);
+        if (!$revoked) {
+            return ['ok' => false, 'error' => 'the house did not recognize ' . $fingerprint . ' (never enrolled, or already revoked) — nothing changed'];
+        }
+
+        return ['ok' => true, 'fingerprint' => $fingerprint, 'revoked_by' => $revokedBy];
     }
 
     private function sessions(): ?SessionStore
