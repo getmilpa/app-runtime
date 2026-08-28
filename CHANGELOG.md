@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.85.0](https://github.com/getmilpa/app-runtime/compare/v0.84.0...v0.85.0) (2026-08-28)
+
+
+### Features
+
+* identity lifecycle — revocation and first-run bootstrap ([#201](https://github.com/getmilpa/app-runtime/issues/201)) ([bd34526](https://github.com/getmilpa/app-runtime/commit/bd345266ee4bdd536ed91e04ed810ccfb390d39c))
+
 ## [0.84.0](https://github.com/getmilpa/app-runtime/compare/v0.83.0...v0.84.0) (2026-08-28)
 
 
