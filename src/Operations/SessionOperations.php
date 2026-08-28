@@ -519,6 +519,10 @@ final class SessionOperations implements CommandProvider
                     ],
                     'required' => ['ok'],
                 ],
+                // The gate enforces this on a permission-aware surface: only a principal that carries
+                // identity:enroll may enroll another. Without it the door would be open on HTTP.
+                scopes: ['identity:enroll'],
+                surfaces: ['cli', 'tui', 'mcp', 'http'],
                 mutating: true,
                 // The signature names WHO is recognizing: only a verified principal with the
                 // identity:enroll scope may enroll another, and the signed payload binds this call.
