@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.83.0](https://github.com/getmilpa/app-runtime/compare/v0.82.0...v0.83.0) (2026-08-28)
+
+
+### Features
+
+* governed identity:enroll and the model_returned usage bridge ([#197](https://github.com/getmilpa/app-runtime/issues/197)) ([d82fda0](https://github.com/getmilpa/app-runtime/commit/d82fda06fefb9f7c9bd1fe70ed17093eb21d27d1))
+
 ## [0.82.0](https://github.com/getmilpa/app-runtime/compare/v0.81.0...v0.82.0) (2026-08-27)
 
 
