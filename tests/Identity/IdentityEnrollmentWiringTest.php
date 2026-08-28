@@ -101,7 +101,7 @@ final class IdentityEnrollmentWiringTest extends TestCase
 
     private function identity(?array $scopesForSigner): SessionIdentity
     {
-        $verifier = new class implements SignatureVerifier {
+        $verifier = new class () implements SignatureVerifier {
             public function verify(string $payload, string $signature): ?VerifiedSigner
             {
                 return new VerifiedSigner(IdentityEnrollmentWiringTest::FP, 'Rod <rodrigo@teamx.agency>');

@@ -30,8 +30,8 @@ final readonly class IdentityEnrollment
     }
 
     /**
-     * @param list<string> $scopes         what policy assigns this identity at the moment of recognition
-     * @param string       $authorizedBy   the verified principal running the enrollment (key:<fingerprint>)
+     * @param list<string> $scopes       what policy assigns this identity at the moment of recognition
+     * @param string       $authorizedBy the verified principal running the enrollment (key:<fingerprint>)
      *
      * @throws IdentityNotRooted when the fingerprint is not in the out-of-band root
      */
