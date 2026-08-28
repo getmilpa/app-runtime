@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Operations;
 
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
+use Milpa\AppRuntime\Identity\IdentityEnrolled;
 use Milpa\AppRuntime\Operations\SessionOperations;
 use Milpa\Container\DIContainer;
 use Milpa\Runtime\Kernel;
@@ -114,11 +115,145 @@ final class IdentityEnrollOperationTest extends TestCase
         self::assertFalse($this->call($c, ['fingerprint' => self::ROOTED, 'scopes' => []])['ok']);
     }
 
+    public function testRevokingARecognizedKeyStopsAdmittingItButKeepsTheFact(): void
+    {
+        [$c, $root] = $this->containerWithRoot(self::ROOTED);
+        $store = new FileEnrollmentStore($root . '/storage/identity/enrollments.json');
+
+        // The key is already recognized (the enrollment path is covered elsewhere).
+        $store->record(new IdentityEnrolled(self::ROOTED, ['agent:read'], 'key:' . self::ROOTED));
+        self::assertSame(['agent:read'], $store->scopesFor(self::ROOTED));
+
+        // Revoke it through the operation.
+        $this->grant($c, self::ROOTED, 'identity:revoke');
+        $r = $this->call($c, ['fingerprint' => self::ROOTED], 'identity:revoke');
+
+        self::assertTrue($r['ok']);
+        self::assertSame(self::ROOTED, $r['fingerprint']);
+        self::assertSame('key:' . self::ROOTED, $r['revoked_by']);
+        self::assertNull($store->scopesFor(self::ROOTED), 'a revoked key is no longer admitted');
+    }
+
+    public function testRevokingWhatWasNeverRecognizedIsRefused(): void
+    {
+        $c = $this->container(self::ROOTED);
+        $this->grant($c, self::UNROOTED, 'identity:revoke');
+
+        $r = $this->call($c, ['fingerprint' => self::UNROOTED], 'identity:revoke');
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('did not recognize', (string) $r['error']);
+    }
+
+    public function testRevokingNeedsTheSignatureThatNamesTheRevoker(): void
+    {
+        $c = $this->container(self::ROOTED);
+
+        $r = $this->call($c, ['fingerprint' => self::ROOTED], 'identity:revoke');
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('--sign', (string) $r['error']);
+    }
+
+    public function testTheRevokeCatalogueEntryIsSignedAndScoped(): void
+    {
+        $op = $this->operation(new DIContainer(), 'identity:revoke');
+
+        self::assertTrue($op->requiresConfirmation);
+        self::assertTrue($op->mutating);
+        self::assertContains('identity:revoke', $op->scopes);
+    }
+
+    public function testBootstrapSelfEnrollsTheFirstSignerOnAGreenfieldThatOptedIn(): void
+    {
+        [$c, $root] = $this->containerGreenfield();
+        $this->grant($c, self::ROOTED, 'identity:bootstrap');
+
+        $r = $this->call($c, ['scopes' => ['*']], 'identity:bootstrap');
+
+        self::assertTrue($r['ok']);
+        self::assertSame(self::ROOTED, $r['fingerprint'], 'the signer becomes the root');
+        self::assertSame(['*'], $r['scopes']);
+
+        $store = new FileEnrollmentStore($root . '/storage/identity/enrollments.json');
+        self::assertSame(['*'], $store->scopesFor(self::ROOTED));
+    }
+
+    public function testBootstrapSealsAfterTheFirstRecognition(): void
+    {
+        [$c, $root] = $this->containerGreenfield();
+        // A recognition already stands.
+        (new FileEnrollmentStore($root . '/storage/identity/enrollments.json'))
+            ->record(new IdentityEnrolled('SOMEONE0000000000000000000000000000ELSE0', ['agent:read'], 'bootstrap'));
+        $this->grant($c, self::ROOTED, 'identity:bootstrap');
+
+        $r = $this->call($c, ['scopes' => ['*']], 'identity:bootstrap');
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('no longer a greenfield', (string) $r['error']);
+    }
+
+    public function testBootstrapRefusesWhenTheAppDidNotOptIn(): void
+    {
+        // A root declared out of band (containerWithRoot) is NOT a bootstrap opt-in.
+        $c = $this->container(self::ROOTED);
+        $this->grant($c, self::ROOTED, 'identity:bootstrap');
+
+        $r = $this->call($c, ['scopes' => ['*']], 'identity:bootstrap');
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('did not opt into', (string) $r['error']);
+    }
+
+    public function testBootstrapRefusesWhenARootWasDeclaredOutOfBand(): void
+    {
+        // Opted in AND a root declared — bootstrap steps aside for identity:enroll.
+        [$c, $root] = $this->containerGreenfield(rooted: self::UNROOTED);
+        $this->grant($c, self::ROOTED, 'identity:bootstrap');
+
+        $r = $this->call($c, ['scopes' => ['*']], 'identity:bootstrap');
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('already declared a root', (string) $r['error']);
+    }
+
+    public function testBootstrapNeedsTheSignatureThatBecomesTheRoot(): void
+    {
+        [$c] = $this->containerGreenfield();
+
+        $r = $this->call($c, ['scopes' => ['*']], 'identity:bootstrap');
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('--sign', (string) $r['error']);
+    }
+
     // --- helpers ---
 
     private function container(string $rooted): DIContainer
     {
         return $this->containerWithRoot($rooted)[0];
+    }
+
+    /** @return array{0: DIContainer, 1: string} */
+    private function containerGreenfield(?string $rooted = null): array
+    {
+        $root = sys_get_temp_dir() . '/milpa-boot-' . bin2hex(random_bytes(4));
+        mkdir($root . '/config', 0o777, true);
+        mkdir($root . '/storage/identity', 0o777, true);
+        $decl = "['bootstrap' => true" . ($rooted === null ? '' : ", 'rooted' => ['" . $rooted . "']") . ']';
+        file_put_contents($root . '/config/identity.php', '<?php return ' . $decl . ';');
+        $this->dirs[] = $root;
+
+        $c = new DIContainer();
+        $kernel = (new \ReflectionClass(Kernel::class))->newInstanceWithoutConstructor();
+        foreach (['root' => $root, 'commands' => []] as $name => $value) {
+            $p = new \ReflectionProperty(Kernel::class, $name);
+            $p->setAccessible(true);
+            $p->setValue($kernel, $value);
+        }
+        $c->registerService(Kernel::class, $kernel);
+
+        return [$c, $root];
     }
 
     /** @return array{0: DIContainer, 1: string} */
@@ -142,10 +277,10 @@ final class IdentityEnrollOperationTest extends TestCase
         return [$c, $root];
     }
 
-    private function grant(DIContainer $c, string $fingerprint): void
+    private function grant(DIContainer $c, string $fingerprint, string $operation = 'identity:enroll'): void
     {
         $authorization = new OperationAuthorization(
-            operation: 'identity:enroll',
+            operation: $operation,
             arguments: ['fingerprint' => $fingerprint],
             host: 'lab-host',
             issuedAt: '2026-08-18T00:00:00+00:00',
@@ -159,14 +294,14 @@ final class IdentityEnrollOperationTest extends TestCase
         ));
     }
 
-    private function operation(DIContainer $c): \Milpa\Command\Operation
+    private function operation(DIContainer $c, string $name = 'identity:enroll'): \Milpa\Command\Operation
     {
         foreach ((new SessionOperations($c))->operations() as $op) {
-            if ($op->name === 'identity:enroll') {
+            if ($op->name === $name) {
                 return $op;
             }
         }
-        self::fail('identity:enroll is not offered');
+        self::fail($name . ' is not offered');
     }
 
     /**
@@ -174,9 +309,9 @@ final class IdentityEnrollOperationTest extends TestCase
      *
      * @return array<string, mixed>
      */
-    private function call(DIContainer $c, array $input): array
+    private function call(DIContainer $c, array $input, string $name = 'identity:enroll'): array
     {
-        $handler = $this->operation($c)->handler;
+        $handler = $this->operation($c, $name)->handler;
         self::assertIsCallable($handler);
 
         /** @var array<string, mixed> */

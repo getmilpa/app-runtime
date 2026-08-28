@@ -28,9 +28,22 @@ interface EnrollmentStore
     public function record(IdentityEnrolled $enrolled): void;
 
     /**
-     * The scopes the house recognized for this fingerprint, or null for one it never enrolled.
+     * The scopes the house recognized for this fingerprint, or null for one it never enrolled — and
+     * null once revoked, because a revocation is a fact laid over the recognition, not its erasure.
      *
      * @return list<string>|null
      */
     public function scopesFor(string $fingerprint): ?array;
+
+    /**
+     * Lay a revocation over an existing recognition: the enrollment fact stays for the audit trail,
+     * but the key is no longer admitted. Returns false when there was no live recognition to revoke.
+     */
+    public function revoke(string $fingerprint, string $revokedBy): bool;
+
+    /**
+     * True when the house has recognized no key at all — the greenfield in which a first-run bootstrap
+     * may mint a root. Any recognition (revoked or not) seals it: bootstrap is a one-time act.
+     */
+    public function isEmpty(): bool;
 }

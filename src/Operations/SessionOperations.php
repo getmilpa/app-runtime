@@ -35,6 +35,7 @@ use Milpa\Command\Effect\Subject;
 use Milpa\Command\Operation;
 use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
+use Milpa\AppRuntime\Identity\IdentityEnrolled;
 use Milpa\AppRuntime\Identity\IdentityConfig;
 use Milpa\AppRuntime\Identity\IdentityEnrollment;
 use Milpa\AppRuntime\Identity\IdentityNotRooted;
@@ -526,6 +527,86 @@ final class SessionOperations implements CommandProvider
                 mutating: true,
                 // The signature names WHO is recognizing: only a verified principal with the
                 // identity:enroll scope may enroll another, and the signed payload binds this call.
+                requiresConfirmation: true,
+            ),
+            new Operation(
+                name: 'identity:revoke',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    // A revocation is itself a fact laid over the recognition; withdrawing THAT would
+                    // be its own act. The enrollment is never erased (greenhouse decisions/0117).
+                    Reversibility::Irreversible,
+                    Authority::Privileged,
+                    subject: Subject::Configuration,
+                ),
+                description: 'Revoke a key the house recognized — the enrollment fact stays for the audit trail; the key is no longer admitted',
+                handler: fn (array $input): array => $this->revocar($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'fingerprint' => [
+                            'type' => 'string',
+                            'description' => 'The recognized key to revoke — revocation refuses one that was never enrolled',
+                        ],
+                    ],
+                    'required' => ['fingerprint'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean', 'description' => 'False when there was no live recognition to revoke — the error says so'],
+                        'fingerprint' => ['type' => 'string', 'description' => 'The key no longer admitted'],
+                        'revoked_by' => ['type' => 'string', 'description' => 'The verified principal that authorized the revocation, as key:<fingerprint>'],
+                        'error' => ['type' => 'string', 'description' => 'Why revocation did not happen; absent when ok'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                scopes: ['identity:revoke'],
+                surfaces: ['cli', 'tui', 'mcp', 'http'],
+                mutating: true,
+                // The signature names WHO revokes: only a verified principal with identity:revoke may,
+                // and the signed payload binds this fingerprint.
+                requiresConfirmation: true,
+            ),
+            new Operation(
+                name: 'identity:bootstrap',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    Reversibility::Irreversible,
+                    // The ONLY act that mints a root — deliberately its own scary door, so
+                    // identity:enroll never has to (greenhouse decisions/0119). Bounded hard: opt-in,
+                    // greenfield only, self only, sealed after the first.
+                    Authority::Privileged,
+                    subject: Subject::Configuration,
+                ),
+                description: 'First-run only: the first signer self-enrolls as root of an EMPTY house that opted in — the one act that mints a root, sealed forever after',
+                handler: fn (array $input): array => $this->bootstrapear($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'scopes' => [
+                            'type' => 'array',
+                            'items' => ['type' => 'string'],
+                            'description' => 'What the first identity may do — it recognizes its OWN signing key, no other',
+                        ],
+                    ],
+                    'required' => ['scopes'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean', 'description' => 'False when the house is not a greenfield that opted in — the error says why'],
+                        'fingerprint' => ['type' => 'string', 'description' => 'The signing key, now the root of this house'],
+                        'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'What it may do'],
+                        'error' => ['type' => 'string', 'description' => 'Why bootstrap did not happen; absent when ok'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                scopes: ['identity:bootstrap'],
+                surfaces: ['cli', 'tui', 'mcp', 'http'],
+                mutating: true,
                 requiresConfirmation: true,
             ),
         ];
@@ -1505,6 +1586,114 @@ final class SessionOperations implements CommandProvider
             'scopes' => $enrolled->scopes,
             'authorized_by' => $enrolled->authorizedBy,
         ];
+    }
+
+    /**
+     * Revoke a key the house recognized — or refuse when there is nothing live to revoke.
+     *
+     * A revocation is a fact laid over the recognition (greenhouse decisions/0117): the enrollment is
+     * not erased, so the audit trail survives, but admission stops honoring the key. It needs no root
+     * gate — revoking removes recognition, it does not consume the root.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array{ok: bool, fingerprint?: string, revoked_by?: string, error?: string}
+     */
+    private function revocar(array $input): array
+    {
+        $fingerprint = \is_string($input['fingerprint'] ?? null) ? trim($input['fingerprint']) : '';
+        if ($fingerprint === '') {
+            return ['ok' => false, 'error' => 'which key? `fingerprint` is required — it must be one the house currently recognizes'];
+        }
+
+        $granted = $this->container->has(GrantedAuthorization::class)
+            ? $this->container->get(GrantedAuthorization::class)
+            : null;
+        if (! $granted instanceof GrantedAuthorization) {
+            return ['ok' => false, 'error' => 'revoking a key requires the signature that names WHO revokes it; re-run with --sign'];
+        }
+        if (
+            $granted->authorization->operation !== 'identity:revoke'
+            || ($granted->authorization->arguments['fingerprint'] ?? null) !== $fingerprint
+        ) {
+            return ['ok' => false, 'error' => 'the granted signature does not cover revoking THIS fingerprint — nothing was revoked'];
+        }
+
+        $kernel = $this->container->has(\Milpa\Runtime\Kernel::class)
+            ? $this->container->get(\Milpa\Runtime\Kernel::class)
+            : null;
+        if (! $kernel instanceof \Milpa\Runtime\Kernel) {
+            return ['ok' => false, 'error' => 'this app has nowhere to record the revocation'];
+        }
+
+        $revokedBy = 'key:' . $granted->signer->fingerprint;
+        $revoked = (new FileEnrollmentStore($kernel->root() . '/storage/identity/enrollments.json'))
+            ->revoke($fingerprint, $revokedBy);
+        if (!$revoked) {
+            return ['ok' => false, 'error' => 'the house did not recognize ' . $fingerprint . ' (never enrolled, or already revoked) — nothing changed'];
+        }
+
+        return ['ok' => true, 'fingerprint' => $fingerprint, 'revoked_by' => $revokedBy];
+    }
+
+    /**
+     * First-run self-enrollment: the first signer becomes the root of a house that has none — or refuse.
+     *
+     * This is the ONLY operation that mints a root, and it is fenced so identity:enroll never has to be
+     * (greenhouse decisions/0119). It fires only when ALL hold: the app opted in (config/identity.php
+     * `bootstrap => true`), no root was declared out of band, and nothing was ever recognized. It
+     * recognizes the CALLER'S OWN key and no other. The recognition it writes seals it: the next call
+     * finds a non-empty registry and refuses. Whoever signs first is root — which is why it is opt-in.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array{ok: bool, fingerprint?: string, scopes?: list<string>, error?: string}
+     */
+    private function bootstrapear(array $input): array
+    {
+        $scopes = [];
+        foreach (\is_array($input['scopes'] ?? null) ? $input['scopes'] : [] as $scope) {
+            if (\is_string($scope) && trim($scope) !== '') {
+                $scopes[] = trim($scope);
+            }
+        }
+        if ($scopes === []) {
+            return ['ok' => false, 'error' => '`scopes` is required — a root that may do nothing is not a root'];
+        }
+
+        $granted = $this->container->has(GrantedAuthorization::class)
+            ? $this->container->get(GrantedAuthorization::class)
+            : null;
+        if (! $granted instanceof GrantedAuthorization) {
+            return ['ok' => false, 'error' => 'bootstrapping a root requires the signature that becomes it; re-run with --sign'];
+        }
+        if ($granted->authorization->operation !== 'identity:bootstrap') {
+            return ['ok' => false, 'error' => 'the granted signature does not cover bootstrapping — nothing was minted'];
+        }
+
+        $kernel = $this->container->has(\Milpa\Runtime\Kernel::class)
+            ? $this->container->get(\Milpa\Runtime\Kernel::class)
+            : null;
+        if (! $kernel instanceof \Milpa\Runtime\Kernel) {
+            return ['ok' => false, 'error' => 'this app has no root to write its first recognition to'];
+        }
+        $root = $kernel->root();
+
+        if (!IdentityConfig::bootstrapAllowed($root)) {
+            return ['ok' => false, 'error' => 'this house did not opt into a first-run bootstrap (config/identity.php must declare bootstrap => true)'];
+        }
+        if (!IdentityConfig::load($root)->isEmpty()) {
+            return ['ok' => false, 'error' => 'this house already declared a root out of band — use identity:enroll, not bootstrap'];
+        }
+        $store = new FileEnrollmentStore($root . '/storage/identity/enrollments.json');
+        if (!$store->isEmpty()) {
+            return ['ok' => false, 'error' => 'this house is no longer a greenfield — a first recognition already stands, and bootstrap is a one-time act'];
+        }
+
+        $fingerprint = $granted->signer->fingerprint;
+        $store->record(new IdentityEnrolled($fingerprint, $scopes, 'bootstrap'));
+
+        return ['ok' => true, 'fingerprint' => $fingerprint, 'scopes' => $scopes];
     }
 
     private function sessions(): ?SessionStore
