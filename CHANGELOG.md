@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.87.0](https://github.com/getmilpa/app-runtime/compare/v0.86.1...v0.87.0) (2026-08-28)
+
+
+### Features
+
+* PasskeyPlugin — the HTTP door of a passkey login, where the two surfaces converge ([#207](https://github.com/getmilpa/app-runtime/issues/207)) ([25117ab](https://github.com/getmilpa/app-runtime/commit/25117ab9fd3b7fd7e72cf1699d4549a5ca328a26))
+
 ## [0.86.1](https://github.com/getmilpa/app-runtime/compare/v0.86.0...v0.86.1) (2026-08-28)
 
 
