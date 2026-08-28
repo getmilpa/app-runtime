@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.86.0](https://github.com/getmilpa/app-runtime/compare/v0.85.0...v0.86.0) (2026-08-28)
+
+
+### Features
+
+* session:owner — the read half of identity, produced live ([#203](https://github.com/getmilpa/app-runtime/issues/203)) ([f49605f](https://github.com/getmilpa/app-runtime/commit/f49605f804fdae5b50f34d23698c6658aa0f45f3))
+
 ## [0.85.0](https://github.com/getmilpa/app-runtime/compare/v0.84.0...v0.85.0) (2026-08-28)
 
 
