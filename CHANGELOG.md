@@ -1,6 +1,16 @@
 # Changelog
 
 
+## [0.90.0](https://github.com/getmilpa/app-runtime/compare/v0.89.0...v0.90.0) (2026-08-29)
+
+
+### Features
+
+* compose declared screens out of many components (layout screens) ([cf88f6b](https://github.com/getmilpa/app-runtime/commit/cf88f6b2828715d7be6fe4d395b2bd2136fc39a4))
+* composite layout screens with coordinated, server-authoritative shared state ([29fb611](https://github.com/getmilpa/app-runtime/commit/29fb611efac076b7f39e02beb1bb60badd3ac038))
+* layout state — one truth shared between a layout's children, server-authoritative ([0674271](https://github.com/getmilpa/app-runtime/commit/06742716eb67c6b9ef6a1a19ff57825a454022d5))
+* round-trip actions on a composite screen's children ([10cdf56](https://github.com/getmilpa/app-runtime/commit/10cdf56a6912361c1d0d450fce41b5eb3716225b))
+
 ## [0.89.0](https://github.com/getmilpa/app-runtime/compare/v0.88.0...v0.89.0) (2026-08-29)
 
 
