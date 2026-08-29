@@ -41,9 +41,9 @@ final class DeclaredScreensPageProvider implements LivePageProvider
             return null;
         }
 
-        return [
-            'columns' => \is_array($screen['columns'] ?? null) ? $screen['columns'] : [],
-            'rows' => \is_array($screen['rows'] ?? null) ? $screen['rows'] : [],
-        ];
+        // The stored props pass through verbatim — a data-table's columns/rows, a state-machine's `machine`
+        // spec, whatever the component's contract declares. The type is fixed at registration (LivePlugin
+        // registers the screen under the class for its type); here the framework only supplies the data.
+        return $screen['props'];
     }
 }

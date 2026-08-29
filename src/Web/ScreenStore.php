@@ -30,6 +30,9 @@ final class ScreenStore
 {
     private const NAME = '/^[a-z][a-z0-9-]{0,40}$/';
 
+    /** A declaration with no `type` is a data-table — the shape the store shipped with (decisions/0159). */
+    public const DEFAULT_TYPE = 'data-table';
+
     public function __construct(private readonly string $path)
     {
     }
@@ -58,39 +61,79 @@ final class ScreenStore
     }
 
     /**
-     * The declaration for one screen — `['columns' => [...], 'rows' => [...]]` — or null if undeclared.
+     * The declaration for one screen — `['type' => <component>, 'props' => [...]]` — or null if undeclared.
+     * A legacy bare `{ columns, rows }` entry is read as a `data-table` (see {@see normalize()}).
      *
-     * @return array<string, mixed>|null
+     * @return array{type: string, props: array<string, mixed>}|null
      */
     public function screen(string $name): ?array
     {
         $all = $this->all();
 
-        return isset($all[$name]) && \is_array($all[$name]) ? $all[$name] : null;
+        return isset($all[$name]) && \is_array($all[$name]) ? $this->normalize($all[$name]) : null;
     }
 
     /**
-     * A summary of every declared screen — name, where it is served, and its shape (column/row counts) —
-     * in declaration order. The readonly view `screen:list` projects.
+     * Every declared screen's component type, keyed by name, in declaration order — what {@see LivePlugin}
+     * reads to register each screen under the class for its type.
      *
-     * @return list<array{name: string, servedAt: string, columns: int, rows: int}>
+     * @return array<string, string>
+     */
+    public function typedNames(): array
+    {
+        $out = [];
+        foreach ($this->all() as $name => $entry) {
+            if (\is_string($name) && \is_array($entry)) {
+                $out[$name] = $this->normalize($entry)['type'];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * A summary of every declared screen — name, component type, where it is served, and how many props it
+     * carries — in declaration order. The readonly view `screen:list` projects.
+     *
+     * @return list<array{name: string, type: string, servedAt: string, props: int}>
      */
     public function catalogue(): array
     {
         $out = [];
-        foreach ($this->all() as $name => $screen) {
-            if (! \is_string($name) || ! \is_array($screen)) {
+        foreach ($this->all() as $name => $entry) {
+            if (! \is_string($name) || ! \is_array($entry)) {
                 continue;
             }
+            $screen = $this->normalize($entry);
             $out[] = [
                 'name' => $name,
+                'type' => $screen['type'],
                 'servedAt' => '/live/page?component=' . $name,
-                'columns' => \is_array($screen['columns'] ?? null) ? \count($screen['columns']) : 0,
-                'rows' => \is_array($screen['rows'] ?? null) ? \count($screen['rows']) : 0,
+                'props' => \count($screen['props']),
             ];
         }
 
         return $out;
+    }
+
+    /**
+     * Normalize a stored entry to `{ type, props }`, upgrading a legacy bare `{ columns, rows }` data-table
+     * so screens declared before types existed keep serving without a migration.
+     *
+     * @param array<string, mixed> $entry
+     *
+     * @return array{type: string, props: array<string, mixed>}
+     */
+    private function normalize(array $entry): array
+    {
+        if (\is_string($entry['type'] ?? null)) {
+            return ['type' => $entry['type'], 'props' => \is_array($entry['props'] ?? null) ? $entry['props'] : []];
+        }
+
+        return ['type' => self::DEFAULT_TYPE, 'props' => [
+            'columns' => \is_array($entry['columns'] ?? null) ? $entry['columns'] : [],
+            'rows' => \is_array($entry['rows'] ?? null) ? $entry['rows'] : [],
+        ]];
     }
 
     /**
@@ -114,7 +157,9 @@ final class ScreenStore
     }
 
     /**
-     * Declare (or redeclare) a screen. Validates the name shape; persists `{ columns, rows }`.
+     * Declare (or redeclare) a screen of a component `type` (default `data-table`) with its `props`. For a
+     * data-table, `columns`/`rows` may be given at the top level as a convenience; any type may pass its
+     * props under `props`. Validates the name shape; persists `{ type, props }`.
      *
      * @param array<string, mixed> $input
      *
@@ -126,19 +171,30 @@ final class ScreenStore
         if ($name === '' || ! preg_match(self::NAME, $name)) {
             return ['ok' => false, 'error' => 'a screen name is a-z, 0-9, dash; starts with a letter'];
         }
-        $columns = \is_array($input['columns'] ?? null) ? $input['columns'] : [];
-        $rows = \is_array($input['rows'] ?? null) ? $input['rows'] : [];
+        $type = trim((string) ($input['type'] ?? self::DEFAULT_TYPE));
+        if ($type === '') {
+            $type = self::DEFAULT_TYPE;
+        }
+        $props = \is_array($input['props'] ?? null) ? $input['props'] : [];
+        // data-table convenience: columns/rows at the top level fold into props.
+        if (\array_key_exists('columns', $input)) {
+            $props['columns'] = \is_array($input['columns']) ? $input['columns'] : [];
+        }
+        if (\array_key_exists('rows', $input)) {
+            $props['rows'] = \is_array($input['rows']) ? $input['rows'] : [];
+        }
+        $props['name'] ??= $name;
 
         $screens = $this->all();
-        $screens[$name] = ['columns' => $columns, 'rows' => $rows];
+        $screens[$name] = ['type' => $type, 'props' => $props];
         $this->write($screens);
 
         return [
             'ok' => true,
             'screen' => $name,
+            'type' => $type,
             'servedAt' => '/live/page?component=' . $name,
-            'columns' => \count($columns),
-            'rows' => \count($rows),
+            'props' => \count($props),
         ];
     }
 

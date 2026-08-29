@@ -84,6 +84,27 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         'metric-card', 'data-table',
     ];
 
+    /**
+     * The SDK component types a screen may be DECLARED as (greenhouse decisions/0163): a declaration names
+     * one of these, and `LivePlugin` registers the screen under the mapped class. Two conditions gate a type
+     * in here — measured, not assumed (evidence/0425):
+     *   1. it is DEFAULT-CONSTRUCTABLE (a declaration supplies data, not collaborators), and
+     *   2. the page controller's wired renderer can render it AS A PAGE.
+     * Today the shipped page renderer is {@see DashboardHtmlRenderer}, so the declarable set is its full
+     * standalone primitives: `data-table` and `metric-card`.
+     *
+     * DELIBERATELY ABSENT, each for a concrete reason:
+     *   - `state-machine`: default-constructable, but NO server-side HTML renderer exists for it and the page
+     *     controller wires a single dashboard-only renderer — serving it needs a renderer + multi-renderer
+     *     dispatch (a separate slice). Offering it here would only 500 on GET.
+     *   - `autocomplete`: needs a registered data source injected into its constructor, which a declaration
+     *     cannot provide — authoring one is a separate slice (declare the data source too).
+     */
+    private const DECLARABLE_TYPES = [
+        'data-table' => DataTableComponent::class,
+        'metric-card' => MetricCardComponent::class,
+    ];
+
     private ?string $route = null;
 
     public function __construct(private readonly DIContainerInterface $container)
@@ -253,7 +274,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
      */
     public function operations(): array
     {
-        return (new ScreenOperations($this->screenStore()))->operations();
+        return (new ScreenOperations($this->screenStore(), array_keys(self::DECLARABLE_TYPES)))->operations();
     }
 
     private function screenStore(): ScreenStore
@@ -275,18 +296,30 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
             'metric-card' => MetricCardComponent::class,
             'state-machine' => StateMachineComponent::class,
         ];
-        // Runtime-declared screens (greenhouse decisions/0158): every screen the agent authored through
-        // `screen:declare` is registered as a data-table under its name, so the live door serves it with no
-        // code deploy. A configured component of the same name wins — the app's declaration is explicit.
-        foreach (ScreenStore::fromConfig($live, $this->root())->names() as $screen) {
-            $declared[$screen] ??= DataTableComponent::class;
+        // Runtime-declared screens (greenhouse decisions/0158, typed in 0163): every screen the agent authored
+        // through `screen:declare` is registered under the class for ITS component type — data-table,
+        // state-machine, metric-card, autocomplete — so the live door serves it with no code deploy. A
+        // configured component of the same name wins (the app's declaration is explicit); an unknown type is
+        // skipped rather than registered against a class that does not exist.
+        foreach (ScreenStore::fromConfig($live, $this->root())->typedNames() as $screen => $type) {
+            $class = self::DECLARABLE_TYPES[$type] ?? null;
+            if ($class !== null) {
+                $declared[$screen] ??= $class;
+            }
         }
         $names = [];
         foreach ($declared as $name => $class) {
             if (! \is_string($name) || ! \is_string($class) || ! class_exists($class)) {
                 continue;
             }
-            $component = new $class();
+            // A component that cannot be default-constructed (one that needs a collaborator injected, e.g. a
+            // data source) is SKIPPED, never fatal: one un-constructable type must not take down every live
+            // page. That is also why such types are not offered as declarable (decisions/0163).
+            try {
+                $component = new $class();
+            } catch (\Throwable) {
+                continue;
+            }
             if (! $component instanceof ComponentDefinitionInterface) {
                 continue;
             }

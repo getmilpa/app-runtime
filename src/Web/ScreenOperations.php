@@ -38,7 +38,12 @@ use Milpa\Command\Operation;
  */
 final class ScreenOperations implements CommandProvider
 {
-    public function __construct(private readonly ScreenStore $store)
+    /**
+     * @param list<string> $types the component types a screen may be declared as (data-table, state-machine,
+     *                            …); an unknown type is refused so a screen never registers against a class
+     *                            that does not exist. Empty means «any» (validation deferred to registration).
+     */
+    public function __construct(private readonly ScreenStore $store, private readonly array $types = [])
     {
     }
 
@@ -48,15 +53,19 @@ final class ScreenOperations implements CommandProvider
         return [
             new Operation(
                 name: 'screen:declare',
-                description: 'Declare a live screen (a data-table) by name, columns and rows. It is served at /live/page?component=<name> with no code deploy.',
-                handler: fn (array $input): array => $this->store->declare($input),
+                description: 'Declare a live screen by name and component type (default data-table) with its props. It is served at /live/page?component=<name> with no code deploy. A data-table may pass columns/rows at the top level; any type passes its props under "props".',
+                handler: fn (array $input): array => $this->declare($input),
                 inputSchema: [
                     'type' => 'object',
-                    'required' => ['name', 'columns', 'rows'],
+                    'required' => ['name'],
                     'properties' => [
                         'name' => ['type' => 'string', 'description' => 'a-z, 0-9, dash; starts with a letter'],
-                        'columns' => ['type' => 'array', 'description' => 'list of { key, label }'],
-                        'rows' => ['type' => 'array', 'description' => 'list of row objects keyed by column key'],
+                        'type' => $this->types === []
+                            ? ['type' => 'string', 'description' => 'the SDK component type; default data-table']
+                            : ['type' => 'string', 'enum' => $this->types, 'description' => 'the SDK component type; default data-table'],
+                        'props' => ['type' => 'object', 'description' => 'the component-type props (e.g. state-machine: { machine: { initial, transitions } })'],
+                        'columns' => ['type' => 'array', 'description' => 'data-table convenience: list of { key, label }'],
+                        'rows' => ['type' => 'array', 'description' => 'data-table convenience: list of row objects keyed by column key'],
                     ],
                 ],
                 mutating: true,
@@ -102,5 +111,24 @@ final class ScreenOperations implements CommandProvider
                 ),
             ),
         ];
+    }
+
+    /**
+     * Refuse an unknown component type before it reaches the store, so a screen never registers against a
+     * class that does not exist (the safety net at registration would just 404 it silently). An empty type
+     * list means «any» — validation is deferred to registration.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function declare(array $input): array
+    {
+        $type = trim((string) ($input['type'] ?? ScreenStore::DEFAULT_TYPE));
+        if ($type !== '' && $this->types !== [] && ! \in_array($type, $this->types, true)) {
+            return ['ok' => false, 'error' => 'unknown component type', 'type' => $type, 'known' => $this->types];
+        }
+
+        return $this->store->declare($input);
     }
 }

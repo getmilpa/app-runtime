@@ -52,7 +52,8 @@ final class ScreenStoreTest extends TestCase
         self::assertSame('/live/page?component=equipo', $result['servedAt']);
         self::assertFileExists($this->path);
         self::assertSame(['equipo'], $store->names());
-        self::assertSame([['nombre' => 'Rod']], $store->screen('equipo')['rows']);
+        self::assertSame([['nombre' => 'Rod']], $store->screen('equipo')['props']['rows']);
+        self::assertSame('data-table', $store->screen('equipo')['type']);
         self::assertNull($store->screen('no-existe'));
     }
 
@@ -111,9 +112,8 @@ final class ScreenStoreTest extends TestCase
         $cat = $store->catalogue();
         self::assertCount(2, $cat);
         self::assertSame('equipo', $cat[0]['name']);
+        self::assertSame('data-table', $cat[0]['type']);
         self::assertSame('/live/page?component=equipo', $cat[0]['servedAt']);
-        self::assertSame(1, $cat[0]['columns']);
-        self::assertSame(2, $cat[0]['rows']);
 
         self::assertTrue($store->forget('equipo')['ok']);
         self::assertNull($store->screen('equipo'));
@@ -141,5 +141,44 @@ final class ScreenStoreTest extends TestCase
         self::assertSame('name', $ops['screen:forget']->namedTarget);
         self::assertSame(\Milpa\Command\Effect\Reversibility::Compensatable, $ops['screen:forget']->effects?->reversibility);
         self::assertContains('milpa:component:data-table:*', $ops['screen:forget']->scopes);
+    }
+
+    public function testAScreenCanBeDeclaredWithAComponentTypeAndItsProps(): void
+    {
+        $store = new ScreenStore($this->path);
+        $props = ['title' => 'Uptime', 'value' => '99.9%', 'trend' => 'up'];
+        $result = $store->declare(['name' => 'salud', 'type' => 'metric-card', 'props' => $props]);
+
+        self::assertTrue($result['ok']);
+        self::assertSame('metric-card', $result['type']);
+        self::assertSame('metric-card', $store->screen('salud')['type']);
+        self::assertSame('Uptime', $store->screen('salud')['props']['title']);
+        self::assertSame('metric-card', $store->typedNames()['salud']);
+    }
+
+    public function testALegacyBareColumnsRowsEntryReadsAsADataTable(): void
+    {
+        // A store written before types existed: a bare { columns, rows } with no 'type' key.
+        @mkdir(\dirname($this->path), 0o755, true);
+        file_put_contents($this->path, json_encode(['viejo' => ['columns' => [['key' => 'a', 'label' => 'A']], 'rows' => [['a' => '1']]]]));
+        $store = new ScreenStore($this->path);
+
+        self::assertSame('data-table', $store->screen('viejo')['type']);
+        self::assertSame([['a' => '1']], $store->screen('viejo')['props']['rows']);
+        self::assertSame('data-table', $store->typedNames()['viejo']);
+    }
+
+    public function testAnUnknownTypeIsRefusedByTheOperationBeforeItReachesTheStore(): void
+    {
+        $store = new ScreenStore($this->path);
+        $ops = [];
+        foreach ((new ScreenOperations($store, ['data-table', 'metric-card']))->operations() as $o) {
+            $ops[$o->name] = $o;
+        }
+        $result = ($ops['screen:declare']->handler)(['name' => 'x', 'type' => 'not-a-real-component', 'props' => []]);
+
+        self::assertFalse($result['ok']);
+        self::assertSame('not-a-real-component', $result['type']);
+        self::assertFileDoesNotExist($this->path);   // nothing was written
     }
 }
