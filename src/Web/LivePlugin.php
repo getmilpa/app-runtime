@@ -18,6 +18,7 @@ use Milpa\AppRuntime\Web\Controllers\LiveAssetsController;
 use Milpa\AppRuntime\Web\Controllers\LiveComponentPageController;
 use Milpa\AppRuntime\Web\Controllers\LiveController;
 use Milpa\Attributes\PluginMetadata;
+use Milpa\Command\CommandProvider;
 use Milpa\Http\HttpMethod;
 use Milpa\Http\Routing\HandlerReference;
 use Milpa\Http\Routing\Route;
@@ -66,10 +67,11 @@ use Milpa\Runtime\Http\RouteProviderInterface;
  *       'route'      => '/live',                // optional
  *       'nonce_path' => 'var/live-nonces.json', // optional, relative to the app root
  *       'components' => [ 'data-table' => \Milpa\Live\Components\Dashboard\DataTableComponent::class, … ], // optional; the dashboard set by default
+ *       'screens_path' => 'var/screens.json',  // optional; where `screen:declare` stores runtime-declared screens
  *   ]
  */
 #[PluginMetadata(version: '0.1.0', author: 'Rodrigo Vicente - TeamX Agency', site: 'https://teamx.agency', name: 'Live', type: 'Web')]
-final class LivePlugin implements PluginInterface, RouteProviderInterface
+final class LivePlugin implements PluginInterface, RouteProviderInterface, CommandProvider
 {
     public const DEFAULT_ROUTE = '/live';
 
@@ -147,6 +149,13 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface
         // The shipped interactive render path: a page that carries ownership by construction (decisions/0092).
         // The app owns DATA via a registered LivePageProvider; the framework owns OWNERSHIP via LiveRender.
         $provider = $this->container->has(LivePageProvider::class) ? $this->container->get(LivePageProvider::class) : null;
+        // When the app owns no provider, the runtime serves runtime-declared screens itself (decisions/0158),
+        // so a fresh app that enables the live door serves `screen:declare`'d screens with zero wiring. An app
+        // that registered its own provider keeps ownership; composing the two (a provider chain) is a residue.
+        if (! $provider instanceof LivePageProvider) {
+            $provider = new DeclaredScreensPageProvider(ScreenStore::fromConfig($live, $this->root()));
+            $this->container->registerService(LivePageProvider::class, $provider);
+        }
         $this->container->registerService(
             LiveComponentPageController::class,
             new LiveComponentPageController(
@@ -229,6 +238,25 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface
     }
 
     /**
+     * The operations the live door contributes to the command table (greenhouse decisions/0158):
+     * `screen:declare`, the primitive that lets the agent author a live screen MATERIALLY. Because
+     * LivePlugin is a booted {@see CommandProvider}, enabling the door in `config/plugins.php` enables
+     * the author-material loop too — the operation, the component registration and the store-backed
+     * serving arrive as ONE capability, with no per-app wiring.
+     *
+     * @return list<\Milpa\Command\Operation>
+     */
+    public function operations(): array
+    {
+        return (new ScreenOperations($this->screenStore()))->operations();
+    }
+
+    private function screenStore(): ScreenStore
+    {
+        return ScreenStore::fromConfig($this->config(), $this->root());
+    }
+
+    /**
      * The components this app serves live: the dashboard set by default, or exactly what
      * `live.components` names (name => class-string of a {@see ComponentDefinitionInterface}).
      *
@@ -242,6 +270,12 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface
             'metric-card' => MetricCardComponent::class,
             'state-machine' => StateMachineComponent::class,
         ];
+        // Runtime-declared screens (greenhouse decisions/0158): every screen the agent authored through
+        // `screen:declare` is registered as a data-table under its name, so the live door serves it with no
+        // code deploy. A configured component of the same name wins — the app's declaration is explicit.
+        foreach (ScreenStore::fromConfig($live, $this->root())->names() as $screen) {
+            $declared[$screen] ??= DataTableComponent::class;
+        }
         $names = [];
         foreach ($declared as $name => $class) {
             if (! \is_string($name) || ! \is_string($class) || ! class_exists($class)) {
