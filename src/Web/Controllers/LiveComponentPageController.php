@@ -19,7 +19,7 @@ use Milpa\AppRuntime\Web\LiveRender;
 use Milpa\Live\Contracts\Component\ComponentRegistryInterface;
 use Milpa\Live\Contracts\Security\CsrfGuardInterface;
 use Milpa\Live\Http\LiveBoot;
-use Milpa\Live\Rendering\DashboardHtmlRenderer;
+use Milpa\Live\Contracts\Rendering\ComponentRendererInterface;
 use Milpa\Live\ValueObjects\RenderRequest;
 use Milpa\Live\ValueObjects\RenderTarget;
 use Nyholm\Psr7\Response;
@@ -41,7 +41,7 @@ final class LiveComponentPageController
 {
     public function __construct(
         private readonly ComponentRegistryInterface $registry,
-        private readonly DashboardHtmlRenderer $renderer,
+        private readonly ComponentRendererInterface $renderer,
         private readonly CsrfGuardInterface $csrf,
         private readonly string $route,
         private readonly ?LivePageProvider $provider = null,
