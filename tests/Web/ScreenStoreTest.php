@@ -80,9 +80,11 @@ final class ScreenStoreTest extends TestCase
 
     public function testScreenDeclareGraduatesWithItsGovernanceMetadata(): void
     {
-        $ops = (new ScreenOperations(new ScreenStore($this->path)))->operations();
-        self::assertCount(1, $ops);
-        $op = $ops[0];
+        $byName = [];
+        foreach ((new ScreenOperations(new ScreenStore($this->path)))->operations() as $o) {
+            $byName[$o->name] = $o;
+        }
+        $op = $byName['screen:declare'];
 
         self::assertSame('screen:declare', $op->name);
         self::assertTrue($op->mutating);
@@ -98,5 +100,46 @@ final class ScreenStoreTest extends TestCase
         self::assertNull($store->screen('anything'));
         $default = ScreenStore::fromConfig([], '/tmp/app-root');
         self::assertNull($default->screen('anything'));
+    }
+
+    public function testCatalogueAndForgetRoundTrip(): void
+    {
+        $store = new ScreenStore($this->path);
+        $store->declare(['name' => 'equipo', 'columns' => [['key' => 'a', 'label' => 'A']], 'rows' => [['a' => '1'], ['a' => '2']]]);
+        $store->declare(['name' => 'metricas', 'columns' => [], 'rows' => []]);
+
+        $cat = $store->catalogue();
+        self::assertCount(2, $cat);
+        self::assertSame('equipo', $cat[0]['name']);
+        self::assertSame('/live/page?component=equipo', $cat[0]['servedAt']);
+        self::assertSame(1, $cat[0]['columns']);
+        self::assertSame(2, $cat[0]['rows']);
+
+        self::assertTrue($store->forget('equipo')['ok']);
+        self::assertNull($store->screen('equipo'));
+        self::assertSame(['metricas'], $store->names());          // the other survives
+
+        $missing = $store->forget('equipo');                      // already gone
+        self::assertFalse($missing['ok']);
+    }
+
+    public function testListAndForgetGraduateWithTheRightEffects(): void
+    {
+        $ops = [];
+        foreach ((new ScreenOperations(new ScreenStore($this->path)))->operations() as $op) {
+            $ops[$op->name] = $op;
+        }
+        self::assertArrayHasKey('screen:list', $ops);
+        self::assertArrayHasKey('screen:forget', $ops);
+
+        // list is read-only — no gate
+        self::assertFalse($ops['screen:list']->mutating);
+        self::assertSame(\Milpa\Command\Effect\Mutation::None, $ops['screen:list']->effects?->mutation);
+
+        // forget mutates, is COMPENSATABLE, and NAMES its target (ADR-0044)
+        self::assertTrue($ops['screen:forget']->mutating);
+        self::assertSame('name', $ops['screen:forget']->namedTarget);
+        self::assertSame(\Milpa\Command\Effect\Reversibility::Compensatable, $ops['screen:forget']->effects?->reversibility);
+        self::assertContains('milpa:component:data-table:*', $ops['screen:forget']->scopes);
     }
 }

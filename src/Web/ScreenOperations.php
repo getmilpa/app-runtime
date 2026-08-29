@@ -66,7 +66,39 @@ final class ScreenOperations implements CommandProvider
                     Externality::None,
                     Reversibility::Guaranteed,
                     subject: Subject::Data,
-                    rollbackContract: 'delete the screen entry from the live screen store (var/screens.json)',
+                    rollbackContract: 'forget the screen with screen:forget',
+                ),
+            ),
+            new Operation(
+                name: 'screen:list',
+                description: 'List the live screens declared at runtime — name, where each is served, and its shape. Read-only.',
+                handler: fn (array $input): array => ['screens' => $this->store->catalogue()],
+                effects: EffectProfile::readOnly(),
+            ),
+            new Operation(
+                name: 'screen:forget',
+                description: 'Forget a runtime-declared screen by name — the rollback of screen:declare. It stops being served at /live/page?component=<name>.',
+                handler: fn (array $input): array => $this->store->forget((string) ($input['name'] ?? '')),
+                inputSchema: [
+                    'type' => 'object',
+                    'required' => ['name'],
+                    'properties' => [
+                        'name' => ['type' => 'string', 'description' => 'the declared screen to forget'],
+                    ],
+                ],
+                mutating: true,
+                scopes: ['milpa:component:data-table:*'],
+                // The screen to forget must be NAMED by the request (ADR-0044): «remove the old screen» does
+                // not execute against a guessed target — it asks, with the operation and the name in the ask.
+                namedTarget: 'name',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    // COMPENSATABLE, not Guaranteed: re-declaring the screen restores it, but the delete is not
+                    // free — the prior rows/columns are gone unless the caller re-supplies them.
+                    Reversibility::Compensatable,
+                    subject: Subject::Data,
+                    rollbackContract: 'declare the screen again with screen:declare',
                 ),
             ),
         ];

@@ -70,6 +70,50 @@ final class ScreenStore
     }
 
     /**
+     * A summary of every declared screen — name, where it is served, and its shape (column/row counts) —
+     * in declaration order. The readonly view `screen:list` projects.
+     *
+     * @return list<array{name: string, servedAt: string, columns: int, rows: int}>
+     */
+    public function catalogue(): array
+    {
+        $out = [];
+        foreach ($this->all() as $name => $screen) {
+            if (! \is_string($name) || ! \is_array($screen)) {
+                continue;
+            }
+            $out[] = [
+                'name' => $name,
+                'servedAt' => '/live/page?component=' . $name,
+                'columns' => \is_array($screen['columns'] ?? null) ? \count($screen['columns']) : 0,
+                'rows' => \is_array($screen['rows'] ?? null) ? \count($screen['rows']) : 0,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Forget a declared screen — the rollback of {@see declare()}. Removing an entry is COMPENSATABLE, not
+     * free: re-declaring the screen restores it, which is why the operation that calls this declares
+     * `Reversibility::Compensatable` and names the screen it targets.
+     *
+     * @return array<string, mixed>
+     */
+    public function forget(string $name): array
+    {
+        $name = trim($name);
+        $screens = $this->all();
+        if ($name === '' || ! \array_key_exists($name, $screens)) {
+            return ['ok' => false, 'error' => 'no such declared screen', 'screen' => $name];
+        }
+        unset($screens[$name]);
+        $this->write($screens);
+
+        return ['ok' => true, 'forgotten' => $name];
+    }
+
+    /**
      * Declare (or redeclare) a screen. Validates the name shape; persists `{ columns, rows }`.
      *
      * @param array<string, mixed> $input
