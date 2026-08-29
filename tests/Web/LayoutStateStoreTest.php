@@ -64,6 +64,46 @@ final class LayoutStateStoreTest extends TestCase
         self::assertFileDoesNotExist($this->path);
     }
 
+    public function testFromConfigResolvesRelativeAbsoluteAndDefaultPaths(): void
+    {
+        self::assertSame([], LayoutStateStore::fromConfig(['layout_state_path' => 'var/x.json'], '/tmp/app')->values('a', 'b'));
+        self::assertSame([], LayoutStateStore::fromConfig(['layout_state_path' => '/tmp/milpa-abs.json'], '/tmp/app')->values('a', 'b'));
+        self::assertSame([], LayoutStateStore::fromConfig([], '/tmp/app')->values('a', 'b'));
+    }
+
+    public function testValuesCoercesScalarsAndSkipsNonScalars(): void
+    {
+        @mkdir(\dirname($this->path), 0o755, true);
+        file_put_contents($this->path, json_encode(['A' => ['equipo' => ['role' => 'x', 'n' => 5, 'bad' => ['nested']]]]));
+        $store = new LayoutStateStore($this->path);
+
+        self::assertSame(['role' => 'x', 'n' => '5'], $store->values('A', 'equipo'));   // scalar coerced, non-scalar skipped
+        self::assertSame([], $store->values('missing', 'equipo'));                       // absent session → empty
+    }
+
+    public function testSetStateWithoutAWiredStoreIsANoOpThatSaysSo(): void
+    {
+        $ops = [];
+        foreach ((new ScreenOperations(new ScreenStore($this->path . '.screens'), []))->operations() as $o) {
+            $ops[$o->name] = $o;
+        }
+        $result = ($ops['screen:set-state']->handler)(['session' => 'A', 'screen' => 'x', 'key' => 'k', 'value' => 'v']);
+
+        self::assertFalse($result['ok']);
+    }
+
+    public function testSetStateThroughTheOperationWritesTheValue(): void
+    {
+        $ops = [];
+        foreach ((new ScreenOperations(new ScreenStore($this->path . '.screens'), [], new LayoutStateStore($this->path)))->operations() as $o) {
+            $ops[$o->name] = $o;
+        }
+        $result = ($ops['screen:set-state']->handler)(['session' => 'A', 'screen' => 'equipo', 'key' => 'role', 'value' => 'fundador']);
+
+        self::assertTrue($result['ok']);
+        self::assertSame(['role' => 'fundador'], (new LayoutStateStore($this->path))->values('A', 'equipo'));
+    }
+
     public function testSetStateGraduatesAsACheapEffectByItsContract(): void
     {
         $ops = [];

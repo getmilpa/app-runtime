@@ -64,6 +64,64 @@ final class CompositeHtmlRendererTest extends TestCase
         self::assertSame('<dashboard-grid><leaf-a></leaf-a><leaf-b></leaf-b></dashboard-grid>', $out);
     }
 
+    /** An inner renderer that echoes the `nombre` of each row its child was handed — so filtering is visible. */
+    private function rowsEcho(): ComponentRendererInterface
+    {
+        return new class () implements ComponentRendererInterface {
+            public function supportsTarget(RenderTarget $target): bool
+            {
+                return $target === RenderTarget::HTML;
+            }
+
+            public function render(ComponentDefinitionInterface $component, RenderRequest $request): RenderResult
+            {
+                $rows = \is_array($request->props['rows'] ?? null) ? $request->props['rows'] : [];
+                $names = implode(',', array_map(static fn (mixed $r): string => \is_array($r) ? (string) ($r['nombre'] ?? '') : '', $rows));
+                $children = (string) ($request->props['childrenHtml'] ?? '');
+
+                return new RenderResult(output: "[{$names}]{$children}", state: null, assets: [], format: RenderTarget::HTML);
+            }
+        };
+    }
+
+    public function testAReaderChildIsFilteredByTheLayoutState(): void
+    {
+        $factory = fn (string $type, array $props): ?ComponentDefinitionInterface => $this->realComponent('leaf-a');
+        $renderer = new CompositeHtmlRenderer($this->rowsEcho(), $factory);
+        $context = new ComponentContext('panel', route: '/live');
+        $rows = [['nombre' => 'Rod', 'rol' => 'fundador'], ['nombre' => 'Ana', 'rol' => 'agente']];
+        $props = [
+            'layoutState' => ['role' => 'fundador'],
+            'children' => [
+                ['type' => 'data-table', 'props' => ['filterBy' => ['state' => 'role', 'column' => 'rol'], 'rows' => $rows]],
+            ],
+        ];
+
+        $out = $renderer->render($this->realComponent('dashboard-grid'), new RenderRequest($context, $props))->output;
+
+        self::assertStringContainsString('[Rod]', $out);   // only the fundador row survives
+        self::assertStringNotContainsString('Ana', $out);
+    }
+
+    public function testTheNeutralLayoutStateValueLeavesAllRows(): void
+    {
+        $factory = fn (string $type, array $props): ?ComponentDefinitionInterface => $this->realComponent('leaf-a');
+        $renderer = new CompositeHtmlRenderer($this->rowsEcho(), $factory);
+        $context = new ComponentContext('panel', route: '/live');
+        $rows = [['nombre' => 'Rod', 'rol' => 'fundador'], ['nombre' => 'Ana', 'rol' => 'agente']];
+        $props = [
+            'layoutState' => ['role' => ''],   // neutral: the whole, unfiltered truth
+            'children' => [
+                ['type' => 'data-table', 'props' => ['filterBy' => ['state' => 'role', 'column' => 'rol'], 'rows' => $rows]],
+            ],
+        ];
+
+        $out = $renderer->render($this->realComponent('dashboard-grid'), new RenderRequest($context, $props))->output;
+
+        self::assertStringContainsString('Rod', $out);
+        self::assertStringContainsString('Ana', $out);
+    }
+
     public function testALeafPassesStraightThrough(): void
     {
         $factory = fn (string $type, array $props): ?ComponentDefinitionInterface => null;
