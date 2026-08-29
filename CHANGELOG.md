@@ -1,6 +1,26 @@
 # Changelog
 
 
+## [0.89.0](https://github.com/getmilpa/app-runtime/compare/v0.88.0...v0.89.0) (2026-08-29)
+
+
+### Features
+
+* add screen:list and screen:forget to the live screen capability ([8eb1ced](https://github.com/getmilpa/app-runtime/commit/8eb1ceda9ad0f21e0994abcd35741e4fe51fba4f))
+* chain the declared-screens provider behind the app's own ([1ff04fa](https://github.com/getmilpa/app-runtime/commit/1ff04fab238e639ec5789de6e088afc44b14daa1))
+* dispatch live page rendering by component type; serve state-machine ([def6367](https://github.com/getmilpa/app-runtime/commit/def636731884687d8e79828ed80f06a54d82d56b))
+* graduate screen:declare — runtime-declared live screens across all SDK families ([dd7fe35](https://github.com/getmilpa/app-runtime/commit/dd7fe3512295dbd421837d55b339b50bda85eb0a))
+* graduate screen:declare into a cohesive LivePlugin capability ([5360052](https://github.com/getmilpa/app-runtime/commit/5360052b70df63902137ddc57b1c4e885ee324ba))
+* serve autocomplete screens — the data source is the declaration ([217c2e1](https://github.com/getmilpa/app-runtime/commit/217c2e1091f6b6c94b3768c89406e4bac42803ed))
+* serve the Form family (input/textarea/select/checkbox) as declared screens ([4c39c4e](https://github.com/getmilpa/app-runtime/commit/4c39c4edb7f4a4afae9ba0197a23153046ee3aef))
+* typed screen declarations (data-table + metric-card), served by type ([20d3514](https://github.com/getmilpa/app-runtime/commit/20d35148d7f1024e8df834cdb1b66db0db13796c))
+
+
+### Bug Fixes
+
+* boot against an older live-web without StateMachineHtmlRenderer ([c070c57](https://github.com/getmilpa/app-runtime/commit/c070c57139f9e01566c5b7c5c28e08219cdb84d5))
+* satisfy PHPStan on the new live surfaces (variadic [@param](https://github.com/param), list key types, redundant guards) ([8b72cf9](https://github.com/getmilpa/app-runtime/commit/8b72cf93f05a91f43c850e82e86bd1a59b129f8d))
+
 ## [0.88.0](https://github.com/getmilpa/app-runtime/compare/v0.87.0...v0.88.0) (2026-08-28)
 
 
