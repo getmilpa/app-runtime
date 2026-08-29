@@ -370,15 +370,10 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 continue;
             }
             $declared[$screen] = $class;
-            $usedTypes[$type] = $class;
-            if ($class === AutocompleteComponent::class) {
-                $props = \is_array($store->screen($screen)['props'] ?? null) ? $store->screen($screen)['props'] : [];
-                $source = \is_string($props['source'] ?? null) ? $props['source'] : '';
-                $options = \is_array($props['options'] ?? null) ? array_values(array_filter($props['options'], 'is_array')) : [];
-                if ($source !== '') {
-                    $sources->register(new ArrayDataSource($source, $options));
-                }
-            }
+            $props = \is_array($store->screen($screen)['props'] ?? null) ? $store->screen($screen)['props'] : [];
+            // Collect the screen's type AND, for a composite, its children's types (recursively): each must be
+            // registered by contract name so a CHILD's action round-trips (greenhouse decisions/0168).
+            $this->collectComposite($type, $props, $usedTypes, $sources);
         }
         $names = [];
         foreach ($declared as $name => $class) {
@@ -427,6 +422,39 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         }
 
         return $component instanceof ComponentDefinitionInterface ? $component : null;
+    }
+
+    /**
+     * Collect every component type a declared screen uses — itself and, for a container, its children
+     * (recursively) — so each type's contract name is registered and a CHILD's action round-trips (greenhouse
+     * decisions/0168). An autocomplete (top-level or child) contributes its inline options to the shared source
+     * registry, so its search resolves wherever it sits.
+     *
+     * @param array<string, mixed>        $props
+     * @param array<string, class-string> $usedTypes
+     */
+    private function collectComposite(string $type, array $props, array &$usedTypes, InMemoryDataSourceRegistry $sources): void
+    {
+        $class = self::DECLARABLE_TYPES[$type] ?? null;
+        if ($class === null) {
+            return;
+        }
+        $usedTypes[$type] = $class;
+        if ($class === AutocompleteComponent::class) {
+            $source = \is_string($props['source'] ?? null) ? $props['source'] : '';
+            $options = \is_array($props['options'] ?? null) ? array_values(array_filter($props['options'], 'is_array')) : [];
+            if ($source !== '') {
+                $sources->register(new ArrayDataSource($source, $options));
+            }
+        }
+        $children = \is_array($props['children'] ?? null) ? $props['children'] : [];
+        foreach ($children as $child) {
+            if (\is_array($child)) {
+                $childType = \is_string($child['type'] ?? null) ? $child['type'] : '';
+                $childProps = \is_array($child['props'] ?? null) ? $child['props'] : [];
+                $this->collectComposite($childType, $childProps, $usedTypes, $sources);
+            }
+        }
     }
 
     /**
