@@ -47,7 +47,11 @@ final class ScreenOperations implements CommandProvider
     {
     }
 
-    /** @return list<Operation> */
+    /**
+     * The operations the live screen store contributes: screen:declare, screen:list and screen:forget.
+     *
+     * @return list<Operation>
+     */
     public function operations(): array
     {
         return [

@@ -20,7 +20,7 @@ final class ChainedLivePageProviderTest extends TestCase
 {
     private function provider(array $table): LivePageProvider
     {
-        return new class($table) implements LivePageProvider {
+        return new class ($table) implements LivePageProvider {
             public function __construct(private readonly array $table)
             {
             }

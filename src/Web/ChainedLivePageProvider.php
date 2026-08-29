@@ -43,7 +43,11 @@ final class ChainedLivePageProvider implements LivePageProvider
         $this->providers = array_values($providers);
     }
 
-    /** @return array<string, mixed>|null */
+    /**
+     * The props from the first provider in the chain that serves `$component`, or null when none does.
+     *
+     * @return array<string, mixed>|null
+     */
     public function propsFor(string $component, ServerRequestInterface $request): ?array
     {
         foreach ($this->providers as $provider) {

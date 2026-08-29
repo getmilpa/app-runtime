@@ -33,7 +33,11 @@ final class DeclaredScreensPageProvider implements LivePageProvider
     {
     }
 
-    /** @return array<string, mixed>|null */
+    /**
+     * The stored props for a runtime-declared screen, or null when `$component` was not declared.
+     *
+     * @return array<string, mixed>|null
+     */
     public function propsFor(string $component, ServerRequestInterface $request): ?array
     {
         $screen = $this->store->screen($component);

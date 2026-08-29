@@ -39,11 +39,13 @@ final class DispatchingHtmlRenderer implements ComponentRendererInterface
     ) {
     }
 
+    /** This dispatcher targets HTML only; every renderer it routes to is an HTML renderer. */
     public function supportsTarget(RenderTarget $target): bool
     {
         return $target === RenderTarget::HTML;
     }
 
+    /** Route `$component` to the renderer registered for its contract type, or the fallback, and render it. */
     public function render(ComponentDefinitionInterface $component, RenderRequest $request): RenderResult
     {
         $contract = $component::contract()->name;
