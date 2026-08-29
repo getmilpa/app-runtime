@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Web;
 
 use Milpa\Command\CommandProvider;
+use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Externality;
 use Milpa\Command\Effect\Mutation;
@@ -43,8 +44,11 @@ final class ScreenOperations implements CommandProvider
      *                            …); an unknown type is refused so a screen never registers against a class
      *                            that does not exist. Empty means «any» (validation deferred to registration).
      */
-    public function __construct(private readonly ScreenStore $store, private readonly array $types = [])
-    {
+    public function __construct(
+        private readonly ScreenStore $store,
+        private readonly array $types = [],
+        private readonly ?LayoutStateStore $layout = null,
+    ) {
     }
 
     /**
@@ -114,7 +118,58 @@ final class ScreenOperations implements CommandProvider
                     rollbackContract: 'declare the screen again with screen:declare',
                 ),
             ),
+            new Operation(
+                name: 'screen:set-state',
+                description: 'Set one shared value of a layout (its layout state) for a session — what a child WRITES so another child READS it. Server-authoritative and isolated per session; the layout recomputes from it.',
+                handler: fn (array $input): array => $this->setState($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'required' => ['session', 'screen', 'key', 'value'],
+                    'properties' => [
+                        'session' => ['type' => 'string', 'description' => 'the session whose layout state to set (its owner)'],
+                        'screen' => ['type' => 'string', 'description' => 'the layout screen'],
+                        'key' => ['type' => 'string', 'description' => 'the shared key (e.g. a filter name)'],
+                        'value' => ['type' => 'string', 'description' => 'the shared value'],
+                    ],
+                ],
+                mutating: true,
+                // The contract decides the cost, not the syntax (greenhouse decisions/0169): setting a layout's
+                // shared value is EPHEMERAL, touches only the caller's own session (WriteAsUser), reaches nothing
+                // outside it, and is fully reversible. So the composition can conclude it is cheap — no human
+                // ceremony — while a heavier write that happened to use the same shape would NOT, because its
+                // profile would say so.
+                effects: new EffectProfile(
+                    Mutation::Ephemeral,
+                    Externality::None,
+                    Reversibility::Guaranteed,
+                    Authority::WriteAsUser,
+                    subject: Subject::Data,
+                    rollbackContract: 'set the key back with screen:set-state',
+                ),
+            ),
         ];
+    }
+
+    /**
+     * Set one shared value of a layout's state for a session (greenhouse decisions/0169). Needs a wired
+     * {@see LayoutStateStore}; without one it is a no-op that says so, never a silent success.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function setState(array $input): array
+    {
+        if (! $this->layout instanceof LayoutStateStore) {
+            return ['ok' => false, 'error' => 'no layout state store is wired'];
+        }
+
+        return $this->layout->set(
+            (string) ($input['session'] ?? ''),
+            (string) ($input['screen'] ?? ''),
+            (string) ($input['key'] ?? ''),
+            (string) ($input['value'] ?? ''),
+        );
     }
 
     /**

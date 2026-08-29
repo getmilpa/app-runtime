@@ -244,6 +244,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 $csrf,
                 $route,
                 $provider,
+                $this->layoutStateStore(),
             ),
         );
         $this->route = $route;
@@ -328,12 +329,17 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
      */
     public function operations(): array
     {
-        return (new ScreenOperations($this->screenStore(), array_keys(self::DECLARABLE_TYPES)))->operations();
+        return (new ScreenOperations($this->screenStore(), array_keys(self::DECLARABLE_TYPES), $this->layoutStateStore()))->operations();
     }
 
     private function screenStore(): ScreenStore
     {
         return ScreenStore::fromConfig($this->config(), $this->root());
+    }
+
+    private function layoutStateStore(): LayoutStateStore
+    {
+        return LayoutStateStore::fromConfig($this->config(), $this->root());
     }
 
     /**
