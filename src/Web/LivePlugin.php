@@ -26,6 +26,10 @@ use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\Interfaces\Plugin\PluginInterface;
 use Milpa\Live\Adapters\Alpine\AlpineRuntimeAdapter;
 use Milpa\Live\Components\Autocomplete\AutocompleteComponent;
+use Milpa\Live\Components\Form\CheckboxComponent;
+use Milpa\Live\Components\Form\InputComponent;
+use Milpa\Live\Components\Form\SelectComponent;
+use Milpa\Live\Components\Form\TextareaComponent;
 use Milpa\Live\Components\Dashboard\DataTableComponent;
 use Milpa\Live\Components\StateMachineComponent;
 use Milpa\Live\Components\Dashboard\MetricCardComponent;
@@ -40,6 +44,7 @@ use Milpa\Live\Http\LiveBoot;
 use Milpa\Live\Http\LiveEndpoint;
 use Milpa\Live\Rendering\AutocompleteHtmlRenderer;
 use Milpa\Live\Rendering\DashboardHtmlRenderer;
+use Milpa\Live\Rendering\FormPrimitiveHtmlRenderer;
 use Milpa\Live\Rendering\StateMachineHtmlRenderer;
 use Milpa\Live\Runtime\InMemoryComponentRegistry;
 use Milpa\Live\Security\ContractInteractionAuthorizer;
@@ -97,9 +102,10 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
      *   1. it is DEFAULT-CONSTRUCTABLE (a declaration supplies data, not collaborators), and
      *   2. a renderer the page controller dispatches to can render it AS A PAGE.
      * `data-table` and `metric-card` render via {@see DashboardHtmlRenderer}; `state-machine` via
-     * {@see StateMachineHtmlRenderer}; `autocomplete` via {@see AutocompleteHtmlRenderer} — all dispatched by
-     * {@see DispatchingHtmlRenderer} (decisions/0164). A state-machine's machine is declared by data (initial +
-     * transitions, decisions/0095); an autocomplete's options are declared inline and built into an
+     * {@see StateMachineHtmlRenderer}; `autocomplete` via {@see AutocompleteHtmlRenderer}; the form fields
+     * `input`/`textarea`/`select`/`checkbox` via {@see FormPrimitiveHtmlRenderer} — all dispatched by
+     * {@see DispatchingHtmlRenderer} (decisions/0164, 0166). A state-machine's machine is declared by data
+     * (initial + transitions, decisions/0095); an autocomplete's options are declared inline and built into an
      * {@see ArrayDataSource} at registration (decisions/0165), so the data source IS the declaration.
      */
     private const DECLARABLE_TYPES = [
@@ -107,6 +113,10 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         'metric-card' => MetricCardComponent::class,
         'state-machine' => StateMachineComponent::class,
         'autocomplete' => AutocompleteComponent::class,
+        'input' => InputComponent::class,
+        'textarea' => TextareaComponent::class,
+        'select' => SelectComponent::class,
+        'checkbox' => CheckboxComponent::class,
     ];
 
     private ?string $route = null;
@@ -147,12 +157,17 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         $dashboard = new DashboardHtmlRenderer(new AlpineRuntimeAdapter(), $codec);
         $stateMachine = new StateMachineHtmlRenderer(new AlpineRuntimeAdapter(), $codec);
         $autocomplete = new AutocompleteHtmlRenderer(new AlpineRuntimeAdapter(), $codec);
+        $form = new FormPrimitiveHtmlRenderer(new AlpineRuntimeAdapter(), $codec);
         // Dispatch to a renderer by the component's contract type (greenhouse decisions/0164): the shipped
         // renderers are each single-family and throw for the rest, so the page controller cannot hold one for
         // every component. The endpoint re-renders after an action by the SAME key — the state snapshot's
         // componentName IS the contract name — so both are wired from one pass: a new component type is served
         // on GET and round-trips faithfully on POST.
-        $pageRenderer = new DispatchingHtmlRenderer(['state-machine' => $stateMachine, 'autocomplete' => $autocomplete], $dashboard);
+        $pageRenderer = new DispatchingHtmlRenderer([
+            'state-machine' => $stateMachine,
+            'autocomplete' => $autocomplete,
+            'input' => $form, 'textarea' => $form, 'select' => $form, 'checkbox' => $form,
+        ], $dashboard);
         $renderers = [];
         $renderProps = [];
         foreach ($components->names() as $name) {
@@ -163,6 +178,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
             $renderer = match (true) {
                 $contract === 'state-machine' => $stateMachine,
                 $contract === 'autocomplete' => $autocomplete,
+                \in_array($contract, ['input', 'textarea', 'select', 'checkbox'], true) => $form,
                 \in_array($contract, self::DASHBOARD_CONTRACTS, true) => $dashboard,
                 default => null,
             };
@@ -331,12 +347,14 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         // source name and the shared registry resolves it (greenhouse decisions/0165).
         $store = ScreenStore::fromConfig($live, $this->root());
         $sources = new InMemoryDataSourceRegistry();
+        $usedTypes = [];
         foreach ($store->typedNames() as $screen => $type) {
             $class = self::DECLARABLE_TYPES[$type] ?? null;
             if ($class === null || isset($declared[$screen])) {
                 continue;
             }
             $declared[$screen] = $class;
+            $usedTypes[$type] = $class;
             if ($class === AutocompleteComponent::class) {
                 $props = \is_array($store->screen($screen)['props'] ?? null) ? $store->screen($screen)['props'] : [];
                 $source = \is_string($props['source'] ?? null) ? $props['source'] : '';
@@ -347,7 +365,6 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
             }
         }
         $names = [];
-        $hasAutocomplete = false;
         foreach ($declared as $name => $class) {
             if (! \is_string($name) || ! \is_string($class) || ! class_exists($class)) {
                 continue;
@@ -356,16 +373,22 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
             if ($component === null) {
                 continue;
             }
-            $hasAutocomplete = $hasAutocomplete || $class === AutocompleteComponent::class;
             $registry->register($name, $component);
             $names[] = $name;
         }
-        // Register the `autocomplete` contract name too (with the shared sources) so the endpoint can resolve a
-        // declared autocomplete screen's search action — it looks the component up by contract name, not by the
-        // screen alias the page is registered under (decisions/0165).
-        if ($hasAutocomplete && ! $registry->has('autocomplete')) {
-            $registry->register('autocomplete', new AutocompleteComponent($sources));
-            $names[] = 'autocomplete';
+        // The endpoint resolves a component by its CONTRACT name to handle an action, but a declared screen
+        // registers under its screen ALIAS — so a declared type that is not already in the base set (autocomplete,
+        // the form fields) would 404 on its action. Register each declared type's contract name too, so a
+        // declared screen's round-trip resolves; autocomplete shares the one sources registry (decisions/0165, 0166).
+        foreach ($usedTypes as $type => $class) {
+            if ($registry->has($type)) {
+                continue;
+            }
+            $component = $this->instantiate($class, $sources);
+            if ($component !== null) {
+                $registry->register($type, $component);
+                $names[] = $type;
+            }
         }
 
         return new LiveComponents($registry, $names);
