@@ -205,6 +205,31 @@ final class LivePluginTest extends TestCase
     }
 
     /** @param array<string, mixed> $config */
+    public function testItRegistersDeclaredCompositeScreensAndTheirChildTypes(): void
+    {
+        $screens = sys_get_temp_dir() . '/milpa-screens-' . bin2hex(random_bytes(4)) . '.json';
+        $this->tmp[] = $screens;
+        file_put_contents($screens, (string) json_encode(['panel' => ['type' => 'dashboard-grid', 'props' => ['children' => [
+            ['type' => 'autocomplete', 'props' => ['name' => 'q', 'source' => 'people', 'options' => [['value' => 'a', 'label' => 'A']]]],
+            ['type' => 'data-table', 'props' => ['filterBy' => ['state' => 'role', 'column' => 'rol'], 'rows' => []]],
+        ]]]]));
+        $config = $this->config();
+        $config['live']['screens_path'] = $screens;
+
+        $container = $this->container($config);
+        $plugin = new LivePlugin($container);
+        $plugin->boot();
+
+        $registry = $container->get(ComponentRegistryInterface::class);
+        self::assertTrue($registry->has('panel'), 'the composite screen registers under its name');
+        self::assertTrue($registry->has('autocomplete'), 'a non-default child type registers by contract for its round-trip');
+        self::assertTrue($registry->has('data-table'), 'the default child type is registered');
+
+        $operations = array_map(static fn ($o): string => $o->name, $plugin->operations());
+        self::assertContains('screen:declare', $operations);
+        self::assertContains('screen:set-state', $operations);
+    }
+
     private function container(array $config): DIContainer
     {
         $c = new DIContainer();

@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Web\Controllers;
 
+use Milpa\AppRuntime\Web\LayoutStateStore;
 use Milpa\AppRuntime\Web\LivePageProvider;
 use Milpa\AppRuntime\Web\LiveRender;
 use Milpa\Live\Contracts\Component\ComponentRegistryInterface;
@@ -45,6 +46,7 @@ final class LiveComponentPageController
         private readonly CsrfGuardInterface $csrf,
         private readonly string $route,
         private readonly ?LivePageProvider $provider = null,
+        private readonly ?LayoutStateStore $layoutState = null,
     ) {
     }
 
@@ -69,6 +71,14 @@ final class LiveComponentPageController
         $props['endpoint'] ??= $this->route;
         $props['name'] ??= $name;
 
+        // A layout renders FROM its shared, server-authoritative, per-session state (greenhouse decisions/0169):
+        // inject the values this session set for this screen, so a reader child projects them. The session is
+        // the request's verified actor, or a `?session=` identifier when there is none (the lab / anonymous
+        // case) — never process-global, so one viewer's filter never leaks into another's.
+        if ($this->layoutState instanceof LayoutStateStore) {
+            $props['layoutState'] = $this->layoutState->values($this->sessionOf($request), $name);
+        }
+
         // OWNERSHIP is the framework's half: the state is born owned by the request's verified actor, the same
         // `actor:<id>` the endpoint verifies on the action — never a hand-written string (decisions/0091, the trap).
         $context = LiveRender::contextForRequest($request, componentId: $name, route: $this->route);
@@ -86,6 +96,22 @@ final class LiveComponentPageController
             ['Content-Type' => 'text/html; charset=utf-8', 'Cache-Control' => 'no-store'],
             $rendered->output . "\n" . $boot->scriptTag(),
         );
+    }
+
+    /**
+     * The session whose layout state to read: the request's verified actor, or a `?session=` identifier when
+     * there is none (the anonymous / lab case). Never process-global — that would coordinate two viewers by
+     * accident, the contamination the per-session key exists to refuse (greenhouse decisions/0169).
+     */
+    private function sessionOf(ServerRequestInterface $request): string
+    {
+        $principal = \Milpa\AppRuntime\Auth\LivePrincipal::fromRequest($request);
+        if ($principal !== null && $principal->id !== '') {
+            return $principal->id;
+        }
+        $session = $request->getQueryParams()['session'] ?? null;
+
+        return \is_string($session) ? $session : '';
     }
 
     /** @param array<string, mixed> $body */

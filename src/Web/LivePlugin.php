@@ -30,6 +30,7 @@ use Milpa\Live\Components\Form\CheckboxComponent;
 use Milpa\Live\Components\Form\InputComponent;
 use Milpa\Live\Components\Form\SelectComponent;
 use Milpa\Live\Components\Form\TextareaComponent;
+use Milpa\Live\Components\Dashboard\DashboardGridComponent;
 use Milpa\Live\Components\Dashboard\DataTableComponent;
 use Milpa\Live\Components\StateMachineComponent;
 use Milpa\Live\Components\Dashboard\MetricCardComponent;
@@ -117,6 +118,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         'textarea' => TextareaComponent::class,
         'select' => SelectComponent::class,
         'checkbox' => CheckboxComponent::class,
+        'dashboard-grid' => DashboardGridComponent::class,
     ];
 
     private ?string $route = null;
@@ -176,7 +178,12 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         if ($stateMachine !== null) {
             $byContract['state-machine'] = $stateMachine;
         }
-        $pageRenderer = new DispatchingHtmlRenderer($byContract, $dashboard);
+        // Compose declared screens out of many components (decisions/0167): a container screen's children are
+        // rendered by this same factory (any declarable type — data, not code) and assembled into the container.
+        $pageRenderer = new CompositeHtmlRenderer(
+            new DispatchingHtmlRenderer($byContract, $dashboard),
+            fn (string $type, array $props): ?ComponentDefinitionInterface => $this->componentFor($type, $props),
+        );
         $renderers = [];
         $renderProps = [];
         foreach ($components->names() as $name) {
@@ -237,6 +244,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 $csrf,
                 $route,
                 $provider,
+                $this->layoutStateStore(),
             ),
         );
         $this->route = $route;
@@ -321,12 +329,17 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
      */
     public function operations(): array
     {
-        return (new ScreenOperations($this->screenStore(), array_keys(self::DECLARABLE_TYPES)))->operations();
+        return (new ScreenOperations($this->screenStore(), array_keys(self::DECLARABLE_TYPES), $this->layoutStateStore()))->operations();
     }
 
     private function screenStore(): ScreenStore
     {
         return ScreenStore::fromConfig($this->config(), $this->root());
+    }
+
+    private function layoutStateStore(): LayoutStateStore
+    {
+        return LayoutStateStore::fromConfig($this->config(), $this->root());
     }
 
     /**
@@ -363,15 +376,10 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 continue;
             }
             $declared[$screen] = $class;
-            $usedTypes[$type] = $class;
-            if ($class === AutocompleteComponent::class) {
-                $props = \is_array($store->screen($screen)['props'] ?? null) ? $store->screen($screen)['props'] : [];
-                $source = \is_string($props['source'] ?? null) ? $props['source'] : '';
-                $options = \is_array($props['options'] ?? null) ? array_values(array_filter($props['options'], 'is_array')) : [];
-                if ($source !== '') {
-                    $sources->register(new ArrayDataSource($source, $options));
-                }
-            }
+            $props = \is_array($store->screen($screen)['props'] ?? null) ? $store->screen($screen)['props'] : [];
+            // Collect the screen's type AND, for a composite, its children's types (recursively): each must be
+            // registered by contract name so a CHILD's action round-trips (greenhouse decisions/0168).
+            $this->collectComposite($type, $props, $usedTypes, $sources);
         }
         $names = [];
         foreach ($declared as $name => $class) {
@@ -420,5 +428,67 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         }
 
         return $component instanceof ComponentDefinitionInterface ? $component : null;
+    }
+
+    /**
+     * Collect every component type a declared screen uses — itself and, for a container, its children
+     * (recursively) — so each type's contract name is registered and a CHILD's action round-trips (greenhouse
+     * decisions/0168). An autocomplete (top-level or child) contributes its inline options to the shared source
+     * registry, so its search resolves wherever it sits.
+     *
+     * @param array<string, mixed>        $props
+     * @param array<string, class-string> $usedTypes
+     */
+    private function collectComposite(string $type, array $props, array &$usedTypes, InMemoryDataSourceRegistry $sources): void
+    {
+        $class = self::DECLARABLE_TYPES[$type] ?? null;
+        if ($class === null) {
+            return;
+        }
+        $usedTypes[$type] = $class;
+        if ($class === AutocompleteComponent::class) {
+            $source = \is_string($props['source'] ?? null) ? $props['source'] : '';
+            $options = \is_array($props['options'] ?? null) ? array_values(array_filter($props['options'], 'is_array')) : [];
+            if ($source !== '') {
+                $sources->register(new ArrayDataSource($source, $options));
+            }
+        }
+        $children = \is_array($props['children'] ?? null) ? $props['children'] : [];
+        foreach ($children as $child) {
+            if (\is_array($child)) {
+                $childType = \is_string($child['type'] ?? null) ? $child['type'] : '';
+                $childProps = \is_array($child['props'] ?? null) ? $child['props'] : [];
+                $this->collectComposite($childType, $childProps, $usedTypes, $sources);
+            }
+        }
+    }
+
+    /**
+     * Build a component from a declared type and its props — the factory the composite renderer uses for a
+     * container's children (greenhouse decisions/0167). Unlike {@see instantiate()}, an autocomplete CHILD
+     * carries its own inline options, so its data source is built from THIS declaration, not the shared store
+     * registry. An unknown type yields null (the composer skips it), never a fatal.
+     *
+     * @param array<string, mixed> $props
+     */
+    private function componentFor(string $type, array $props): ?ComponentDefinitionInterface
+    {
+        $class = self::DECLARABLE_TYPES[$type] ?? null;
+        if ($class === null) {
+            return null;
+        }
+        if ($class === AutocompleteComponent::class) {
+            $sources = new InMemoryDataSourceRegistry();
+            $source = \is_string($props['source'] ?? null) ? $props['source'] : '';
+            $options = \is_array($props['options'] ?? null) ? array_values(array_filter($props['options'], 'is_array')) : [];
+            if ($source !== '') {
+                $sources->register(new ArrayDataSource($source, $options));
+            }
+            $sourcesRegistry = $sources;
+        } else {
+            $sourcesRegistry = new InMemoryDataSourceRegistry();
+        }
+
+        return $this->instantiate($class, $sourcesRegistry);
     }
 }
