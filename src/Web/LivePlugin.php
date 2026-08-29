@@ -148,13 +148,18 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
 
         // The shipped interactive render path: a page that carries ownership by construction (decisions/0092).
         // The app owns DATA via a registered LivePageProvider; the framework owns OWNERSHIP via LiveRender.
-        $provider = $this->container->has(LivePageProvider::class) ? $this->container->get(LivePageProvider::class) : null;
-        // When the app owns no provider, the runtime serves runtime-declared screens itself (decisions/0158),
-        // so a fresh app that enables the live door serves `screen:declare`'d screens with zero wiring. An app
-        // that registered its own provider keeps ownership; composing the two (a provider chain) is a residue.
-        if (! $provider instanceof LivePageProvider) {
-            $provider = new DeclaredScreensPageProvider(ScreenStore::fromConfig($live, $this->root()));
-            $this->container->registerService(LivePageProvider::class, $provider);
+        $appProvider = $this->container->has(LivePageProvider::class) ? $this->container->get(LivePageProvider::class) : null;
+        $declaredScreens = new DeclaredScreensPageProvider(ScreenStore::fromConfig($live, $this->root()));
+        // The runtime always serves the screens the agent declared at runtime (decisions/0158). When the app
+        // owns no provider, that IS the provider (registered, so `screen:declare`'d screens are served with
+        // zero wiring). When the app DID register one, the container forbids replacing it (decisions/0157), so
+        // the two are chained INTO the page controller — the plugin's own fresh service — instead: the app's
+        // provider first, the declared screens filling in only what it declines (decisions/0159, the chain).
+        if ($appProvider instanceof LivePageProvider) {
+            $provider = new ChainedLivePageProvider($appProvider, $declaredScreens);
+        } else {
+            $provider = $declaredScreens;
+            $this->container->registerService(LivePageProvider::class, $declaredScreens);
         }
         $this->container->registerService(
             LiveComponentPageController::class,
@@ -163,7 +168,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 $renderer,
                 $csrf,
                 $route,
-                $provider instanceof LivePageProvider ? $provider : null,
+                $provider,
             ),
         );
         $this->route = $route;
