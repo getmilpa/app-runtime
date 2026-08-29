@@ -155,19 +155,28 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         $csrf = new HmacCsrfGuard($secret);
         $components = $this->components($live);
         $dashboard = new DashboardHtmlRenderer(new AlpineRuntimeAdapter(), $codec);
-        $stateMachine = new StateMachineHtmlRenderer(new AlpineRuntimeAdapter(), $codec);
         $autocomplete = new AutocompleteHtmlRenderer(new AlpineRuntimeAdapter(), $codec);
         $form = new FormPrimitiveHtmlRenderer(new AlpineRuntimeAdapter(), $codec);
+        // `StateMachineHtmlRenderer` ships in milpa/live-web only from the version that added it (decisions/0164);
+        // guard its use so a newer app-runtime still BOOTS against an older live-web instead of a hard fatal —
+        // graceful degradation, a state-machine screen simply has no renderer there. The dashboard, autocomplete
+        // and form renderers predate it, so they are unconditional.
+        $stateMachine = class_exists(StateMachineHtmlRenderer::class)
+            ? new StateMachineHtmlRenderer(new AlpineRuntimeAdapter(), $codec)
+            : null;
         // Dispatch to a renderer by the component's contract type (greenhouse decisions/0164): the shipped
         // renderers are each single-family and throw for the rest, so the page controller cannot hold one for
         // every component. The endpoint re-renders after an action by the SAME key — the state snapshot's
         // componentName IS the contract name — so both are wired from one pass: a new component type is served
         // on GET and round-trips faithfully on POST.
-        $pageRenderer = new DispatchingHtmlRenderer([
-            'state-machine' => $stateMachine,
+        $byContract = [
             'autocomplete' => $autocomplete,
             'input' => $form, 'textarea' => $form, 'select' => $form, 'checkbox' => $form,
-        ], $dashboard);
+        ];
+        if ($stateMachine !== null) {
+            $byContract['state-machine'] = $stateMachine;
+        }
+        $pageRenderer = new DispatchingHtmlRenderer($byContract, $dashboard);
         $renderers = [];
         $renderProps = [];
         foreach ($components->names() as $name) {
