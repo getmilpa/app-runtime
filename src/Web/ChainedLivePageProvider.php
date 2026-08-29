@@ -37,7 +37,7 @@ final class ChainedLivePageProvider implements LivePageProvider
     /** @var list<LivePageProvider> */
     private readonly array $providers;
 
-    /** @param list<LivePageProvider> $providers asked in order; the first non-null answer wins */
+    /** @param LivePageProvider ...$providers asked in order; the first non-null answer wins */
     public function __construct(LivePageProvider ...$providers)
     {
         $this->providers = array_values($providers);

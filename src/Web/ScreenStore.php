@@ -54,10 +54,14 @@ final class ScreenStore
         return new self($path);
     }
 
-    /** The names of every declared screen, in declaration order. @return list<string> */
+    /**
+     * The names of every declared screen, in declaration order.
+     *
+     * @return list<string>
+     */
     public function names(): array
     {
-        return array_values(array_keys($this->all()));
+        return array_keys($this->all());
     }
 
     /**
@@ -83,7 +87,7 @@ final class ScreenStore
     {
         $out = [];
         foreach ($this->all() as $name => $entry) {
-            if (\is_string($name) && \is_array($entry)) {
+            if (\is_array($entry)) {
                 $out[$name] = $this->normalize($entry)['type'];
             }
         }
@@ -101,7 +105,7 @@ final class ScreenStore
     {
         $out = [];
         foreach ($this->all() as $name => $entry) {
-            if (! \is_string($name) || ! \is_array($entry)) {
+            if (! \is_array($entry)) {
                 continue;
             }
             $screen = $this->normalize($entry);
