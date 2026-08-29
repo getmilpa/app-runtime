@@ -30,6 +30,7 @@ use Milpa\Live\Components\Form\CheckboxComponent;
 use Milpa\Live\Components\Form\InputComponent;
 use Milpa\Live\Components\Form\SelectComponent;
 use Milpa\Live\Components\Form\TextareaComponent;
+use Milpa\Live\Components\Dashboard\DashboardGridComponent;
 use Milpa\Live\Components\Dashboard\DataTableComponent;
 use Milpa\Live\Components\StateMachineComponent;
 use Milpa\Live\Components\Dashboard\MetricCardComponent;
@@ -117,6 +118,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         'textarea' => TextareaComponent::class,
         'select' => SelectComponent::class,
         'checkbox' => CheckboxComponent::class,
+        'dashboard-grid' => DashboardGridComponent::class,
     ];
 
     private ?string $route = null;
@@ -176,7 +178,12 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         if ($stateMachine !== null) {
             $byContract['state-machine'] = $stateMachine;
         }
-        $pageRenderer = new DispatchingHtmlRenderer($byContract, $dashboard);
+        // Compose declared screens out of many components (decisions/0167): a container screen's children are
+        // rendered by this same factory (any declarable type — data, not code) and assembled into the container.
+        $pageRenderer = new CompositeHtmlRenderer(
+            new DispatchingHtmlRenderer($byContract, $dashboard),
+            fn (string $type, array $props): ?ComponentDefinitionInterface => $this->componentFor($type, $props),
+        );
         $renderers = [];
         $renderProps = [];
         foreach ($components->names() as $name) {
@@ -420,5 +427,34 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         }
 
         return $component instanceof ComponentDefinitionInterface ? $component : null;
+    }
+
+    /**
+     * Build a component from a declared type and its props — the factory the composite renderer uses for a
+     * container's children (greenhouse decisions/0167). Unlike {@see instantiate()}, an autocomplete CHILD
+     * carries its own inline options, so its data source is built from THIS declaration, not the shared store
+     * registry. An unknown type yields null (the composer skips it), never a fatal.
+     *
+     * @param array<string, mixed> $props
+     */
+    private function componentFor(string $type, array $props): ?ComponentDefinitionInterface
+    {
+        $class = self::DECLARABLE_TYPES[$type] ?? null;
+        if ($class === null) {
+            return null;
+        }
+        if ($class === AutocompleteComponent::class) {
+            $sources = new InMemoryDataSourceRegistry();
+            $source = \is_string($props['source'] ?? null) ? $props['source'] : '';
+            $options = \is_array($props['options'] ?? null) ? array_values(array_filter($props['options'], 'is_array')) : [];
+            if ($source !== '') {
+                $sources->register(new ArrayDataSource($source, $options));
+            }
+            $sourcesRegistry = $sources;
+        } else {
+            $sourcesRegistry = new InMemoryDataSourceRegistry();
+        }
+
+        return $this->instantiate($class, $sourcesRegistry);
     }
 }
