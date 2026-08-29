@@ -25,15 +25,20 @@ use Milpa\Http\Routing\Route;
 use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\Interfaces\Plugin\PluginInterface;
 use Milpa\Live\Adapters\Alpine\AlpineRuntimeAdapter;
+use Milpa\Live\Components\Autocomplete\AutocompleteComponent;
 use Milpa\Live\Components\Dashboard\DataTableComponent;
 use Milpa\Live\Components\StateMachineComponent;
 use Milpa\Live\Components\Dashboard\MetricCardComponent;
 use Milpa\Live\Contracts\Component\ComponentDefinitionInterface;
+use Milpa\Live\Contracts\Data\DataSourceRegistryInterface;
+use Milpa\Live\DataSource\ArrayDataSource;
+use Milpa\Live\DataSource\InMemoryDataSourceRegistry;
 use Milpa\Live\Contracts\Component\ComponentRegistryInterface;
 use Milpa\Live\Contracts\Security\CsrfGuardInterface;
 use Milpa\Live\Contracts\Transport\StateTransferCodecInterface;
 use Milpa\Live\Http\LiveBoot;
 use Milpa\Live\Http\LiveEndpoint;
+use Milpa\Live\Rendering\AutocompleteHtmlRenderer;
 use Milpa\Live\Rendering\DashboardHtmlRenderer;
 use Milpa\Live\Rendering\StateMachineHtmlRenderer;
 use Milpa\Live\Runtime\InMemoryComponentRegistry;
@@ -92,16 +97,16 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
      *   1. it is DEFAULT-CONSTRUCTABLE (a declaration supplies data, not collaborators), and
      *   2. a renderer the page controller dispatches to can render it AS A PAGE.
      * `data-table` and `metric-card` render via {@see DashboardHtmlRenderer}; `state-machine` via
-     * {@see StateMachineHtmlRenderer}, dispatched by {@see DispatchingHtmlRenderer} (decisions/0164) — its
-     * machine is declared by data (initial + transitions, decisions/0095).
-     *
-     * DELIBERATELY ABSENT: `autocomplete` needs a registered data source injected into its constructor, which
-     * a declaration cannot provide — authoring one is a separate slice (declare the data source too).
+     * {@see StateMachineHtmlRenderer}; `autocomplete` via {@see AutocompleteHtmlRenderer} — all dispatched by
+     * {@see DispatchingHtmlRenderer} (decisions/0164). A state-machine's machine is declared by data (initial +
+     * transitions, decisions/0095); an autocomplete's options are declared inline and built into an
+     * {@see ArrayDataSource} at registration (decisions/0165), so the data source IS the declaration.
      */
     private const DECLARABLE_TYPES = [
         'data-table' => DataTableComponent::class,
         'metric-card' => MetricCardComponent::class,
         'state-machine' => StateMachineComponent::class,
+        'autocomplete' => AutocompleteComponent::class,
     ];
 
     private ?string $route = null;
@@ -141,12 +146,13 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         $components = $this->components($live);
         $dashboard = new DashboardHtmlRenderer(new AlpineRuntimeAdapter(), $codec);
         $stateMachine = new StateMachineHtmlRenderer(new AlpineRuntimeAdapter(), $codec);
+        $autocomplete = new AutocompleteHtmlRenderer(new AlpineRuntimeAdapter(), $codec);
         // Dispatch to a renderer by the component's contract type (greenhouse decisions/0164): the shipped
         // renderers are each single-family and throw for the rest, so the page controller cannot hold one for
         // every component. The endpoint re-renders after an action by the SAME key — the state snapshot's
         // componentName IS the contract name — so both are wired from one pass: a new component type is served
         // on GET and round-trips faithfully on POST.
-        $pageRenderer = new DispatchingHtmlRenderer(['state-machine' => $stateMachine], $dashboard);
+        $pageRenderer = new DispatchingHtmlRenderer(['state-machine' => $stateMachine, 'autocomplete' => $autocomplete], $dashboard);
         $renderers = [];
         $renderProps = [];
         foreach ($components->names() as $name) {
@@ -154,9 +160,12 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 continue;
             }
             $contract = $components->registry->get($name)::contract()->name;
-            $renderer = $contract === 'state-machine'
-                ? $stateMachine
-                : (\in_array($contract, self::DASHBOARD_CONTRACTS, true) ? $dashboard : null);
+            $renderer = match (true) {
+                $contract === 'state-machine' => $stateMachine,
+                $contract === 'autocomplete' => $autocomplete,
+                \in_array($contract, self::DASHBOARD_CONTRACTS, true) => $dashboard,
+                default => null,
+            };
             if ($renderer !== null) {
                 $renderers[$contract] = $renderer;
                 $renderProps[$contract] = ['endpoint' => $route];
@@ -309,37 +318,75 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
             'metric-card' => MetricCardComponent::class,
             'state-machine' => StateMachineComponent::class,
         ];
-        // Runtime-declared screens (greenhouse decisions/0158, typed in 0163): every screen the agent authored
-        // through `screen:declare` is registered under the class for ITS component type — data-table,
-        // state-machine, metric-card, autocomplete — so the live door serves it with no code deploy. A
+        // Runtime-declared screens (greenhouse decisions/0158, typed in 0163/0164): every screen the agent
+        // authored through `screen:declare` is registered under the class for ITS component type — data-table,
+        // metric-card, state-machine, autocomplete — so the live door serves it with no code deploy. A
         // configured component of the same name wins (the app's declaration is explicit); an unknown type is
-        // skipped rather than registered against a class that does not exist.
-        foreach (ScreenStore::fromConfig($live, $this->root())->typedNames() as $screen => $type) {
+        // skipped rather than registered against a class that does not exist. A store screen carries its
+        // PROPS, which a type that needs data (autocomplete: its options) is built from.
+        // One data source registry shared by every declared autocomplete: each screen's inline options become
+        // an ArrayDataSource named by its `source` prop. It is SHARED because the endpoint resolves a component
+        // by CONTRACT name to handle an action (a declared screen registers under its screen name), so the one
+        // `autocomplete`-named registration below must reach every screen's source — the search carries the
+        // source name and the shared registry resolves it (greenhouse decisions/0165).
+        $store = ScreenStore::fromConfig($live, $this->root());
+        $sources = new InMemoryDataSourceRegistry();
+        foreach ($store->typedNames() as $screen => $type) {
             $class = self::DECLARABLE_TYPES[$type] ?? null;
-            if ($class !== null) {
-                $declared[$screen] ??= $class;
+            if ($class === null || isset($declared[$screen])) {
+                continue;
+            }
+            $declared[$screen] = $class;
+            if ($class === AutocompleteComponent::class) {
+                $props = \is_array($store->screen($screen)['props'] ?? null) ? $store->screen($screen)['props'] : [];
+                $source = \is_string($props['source'] ?? null) ? $props['source'] : '';
+                $options = \is_array($props['options'] ?? null) ? array_values(array_filter($props['options'], 'is_array')) : [];
+                if ($source !== '') {
+                    $sources->register(new ArrayDataSource($source, $options));
+                }
             }
         }
         $names = [];
+        $hasAutocomplete = false;
         foreach ($declared as $name => $class) {
             if (! \is_string($name) || ! \is_string($class) || ! class_exists($class)) {
                 continue;
             }
-            // A component that cannot be default-constructed (one that needs a collaborator injected, e.g. a
-            // data source) is SKIPPED, never fatal: one un-constructable type must not take down every live
-            // page. That is also why such types are not offered as declarable (decisions/0163).
-            try {
-                $component = new $class();
-            } catch (\Throwable) {
+            $component = $this->instantiate($class, $sources);
+            if ($component === null) {
                 continue;
             }
-            if (! $component instanceof ComponentDefinitionInterface) {
-                continue;
-            }
+            $hasAutocomplete = $hasAutocomplete || $class === AutocompleteComponent::class;
             $registry->register($name, $component);
             $names[] = $name;
         }
+        // Register the `autocomplete` contract name too (with the shared sources) so the endpoint can resolve a
+        // declared autocomplete screen's search action — it looks the component up by contract name, not by the
+        // screen alias the page is registered under (decisions/0165).
+        if ($hasAutocomplete && ! $registry->has('autocomplete')) {
+            $registry->register('autocomplete', new AutocompleteComponent($sources));
+            $names[] = 'autocomplete';
+        }
 
         return new LiveComponents($registry, $names);
+    }
+
+    /**
+     * Build one component from its class (greenhouse decisions/0165). Most types are default-constructable — a
+     * declaration gives them DATA, not collaborators. `autocomplete` is the exception the pair closed on: it
+     * needs a data source registry, so it is built with the SHARED `$sources` (holding every declared
+     * autocomplete's inline options as {@see ArrayDataSource}s) — the data source IS the declaration, no server
+     * wiring. A type that still cannot be built is SKIPPED, never fatal: one un-constructable component must not
+     * take down every live page.
+     */
+    private function instantiate(string $class, DataSourceRegistryInterface $sources): ?ComponentDefinitionInterface
+    {
+        try {
+            $component = $class === AutocompleteComponent::class ? new AutocompleteComponent($sources) : new $class();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $component instanceof ComponentDefinitionInterface ? $component : null;
     }
 }
