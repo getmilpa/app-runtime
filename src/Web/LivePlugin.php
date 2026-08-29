@@ -35,6 +35,7 @@ use Milpa\Live\Contracts\Transport\StateTransferCodecInterface;
 use Milpa\Live\Http\LiveBoot;
 use Milpa\Live\Http\LiveEndpoint;
 use Milpa\Live\Rendering\DashboardHtmlRenderer;
+use Milpa\Live\Rendering\StateMachineHtmlRenderer;
 use Milpa\Live\Runtime\InMemoryComponentRegistry;
 use Milpa\Live\Security\ContractInteractionAuthorizer;
 use Milpa\Live\Security\FileNonceStore;
@@ -85,24 +86,22 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
     ];
 
     /**
-     * The SDK component types a screen may be DECLARED as (greenhouse decisions/0163): a declaration names
-     * one of these, and `LivePlugin` registers the screen under the mapped class. Two conditions gate a type
-     * in here — measured, not assumed (evidence/0425):
+     * The SDK component types a screen may be DECLARED as (greenhouse decisions/0163, 0164): a declaration
+     * names one of these, and `LivePlugin` registers the screen under the mapped class. Two conditions gate a
+     * type in here — measured, not assumed (evidence/0425, 0426):
      *   1. it is DEFAULT-CONSTRUCTABLE (a declaration supplies data, not collaborators), and
-     *   2. the page controller's wired renderer can render it AS A PAGE.
-     * Today the shipped page renderer is {@see DashboardHtmlRenderer}, so the declarable set is its full
-     * standalone primitives: `data-table` and `metric-card`.
+     *   2. a renderer the page controller dispatches to can render it AS A PAGE.
+     * `data-table` and `metric-card` render via {@see DashboardHtmlRenderer}; `state-machine` via
+     * {@see StateMachineHtmlRenderer}, dispatched by {@see DispatchingHtmlRenderer} (decisions/0164) — its
+     * machine is declared by data (initial + transitions, decisions/0095).
      *
-     * DELIBERATELY ABSENT, each for a concrete reason:
-     *   - `state-machine`: default-constructable, but NO server-side HTML renderer exists for it and the page
-     *     controller wires a single dashboard-only renderer — serving it needs a renderer + multi-renderer
-     *     dispatch (a separate slice). Offering it here would only 500 on GET.
-     *   - `autocomplete`: needs a registered data source injected into its constructor, which a declaration
-     *     cannot provide — authoring one is a separate slice (declare the data source too).
+     * DELIBERATELY ABSENT: `autocomplete` needs a registered data source injected into its constructor, which
+     * a declaration cannot provide — authoring one is a separate slice (declare the data source too).
      */
     private const DECLARABLE_TYPES = [
         'data-table' => DataTableComponent::class,
         'metric-card' => MetricCardComponent::class,
+        'state-machine' => StateMachineComponent::class,
     ];
 
     private ?string $route = null;
@@ -140,13 +139,27 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         $codec = new SignedXhtmlStateTransferCodec(new XhtmlStateTransferCodec(), new HmacStateSigner($secret), new FileNonceStore($noncePath));
         $csrf = new HmacCsrfGuard($secret);
         $components = $this->components($live);
-        $renderer = new DashboardHtmlRenderer(new AlpineRuntimeAdapter(), $codec);
+        $dashboard = new DashboardHtmlRenderer(new AlpineRuntimeAdapter(), $codec);
+        $stateMachine = new StateMachineHtmlRenderer(new AlpineRuntimeAdapter(), $codec);
+        // Dispatch to a renderer by the component's contract type (greenhouse decisions/0164): the shipped
+        // renderers are each single-family and throw for the rest, so the page controller cannot hold one for
+        // every component. The endpoint re-renders after an action by the SAME key — the state snapshot's
+        // componentName IS the contract name — so both are wired from one pass: a new component type is served
+        // on GET and round-trips faithfully on POST.
+        $pageRenderer = new DispatchingHtmlRenderer(['state-machine' => $stateMachine], $dashboard);
         $renderers = [];
         $renderProps = [];
         foreach ($components->names() as $name) {
-            if (\in_array($name, self::DASHBOARD_CONTRACTS, true)) {
-                $renderers[$name] = $renderer;
-                $renderProps[$name] = ['endpoint' => $route];
+            if (! $components->registry->has($name)) {
+                continue;
+            }
+            $contract = $components->registry->get($name)::contract()->name;
+            $renderer = $contract === 'state-machine'
+                ? $stateMachine
+                : (\in_array($contract, self::DASHBOARD_CONTRACTS, true) ? $dashboard : null);
+            if ($renderer !== null) {
+                $renderers[$contract] = $renderer;
+                $renderProps[$contract] = ['endpoint' => $route];
             }
         }
         $endpoint = new LiveEndpoint(
@@ -162,7 +175,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         $this->container->registerService(StateTransferCodecInterface::class, $codec);
         $this->container->registerService(CsrfGuardInterface::class, $csrf);
         $this->container->registerService(ComponentRegistryInterface::class, $components->registry);
-        $this->container->registerService(DashboardHtmlRenderer::class, $renderer);
+        $this->container->registerService(DashboardHtmlRenderer::class, $dashboard);
         $this->container->registerService(LiveEndpoint::class, $endpoint);
         $this->container->registerService(LiveController::class, new LiveController($endpoint, (bool) ($live['anonymous'] ?? false)));
         $this->container->registerService(LiveAssetsController::class, new LiveAssetsController());
@@ -186,7 +199,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
             LiveComponentPageController::class,
             new LiveComponentPageController(
                 $components->registry,
-                $renderer,
+                $pageRenderer,
                 $csrf,
                 $route,
                 $provider,
