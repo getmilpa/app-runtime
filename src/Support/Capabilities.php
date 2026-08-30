@@ -183,6 +183,46 @@ final class Capabilities
         return $declarado;
     }
 
+    /**
+     * Declare a third-party capability's operation providers in `config/operations.php`, so its
+     * operations project after install. The app DECLARES what it runs (a versioned decision written
+     * into config), it does NOT scan the vendor directory — the same law `config/plugins.php` lives
+     * under (ADR-0044): what runs in an app is a decision that shows in a diff, not the result of a
+     * scan. Idempotent — a provider already declared is left alone.
+     *
+     * @param list<string> $classes the CommandProvider class-strings the capability names
+     *
+     * @return list<string> the providers newly written (already-present ones are skipped)
+     */
+    public static function registerOperations(string $root, array $classes): array
+    {
+        $file = rtrim($root, '/') . '/config/operations.php';
+        if (!is_file($file)) {
+            return [];
+        }
+
+        $src = (string) file_get_contents($file);
+        $escritas = [];
+        foreach ($classes as $clase) {
+            $clase = trim((string) $clase, " \\");
+            if ($clase === '' || str_contains($src, $clase)) {
+                continue;
+            }
+            $pos = strrpos($src, '];');
+            if ($pos === false) {
+                continue;
+            }
+            $src = substr($src, 0, $pos) . '    \\' . $clase . "::class,\n" . substr($src, $pos);
+            $escritas[] = $clase;
+        }
+
+        if ($escritas !== []) {
+            file_put_contents($file, $src);
+        }
+
+        return $escritas;
+    }
+
     /** ¿Está puesta esta capacidad, por su `id`? */
     public static function installed(string $id, ?string $vendor = null): bool
     {
@@ -482,10 +522,19 @@ final class Capabilities
             ];
         }
 
+        // The capability's operations must be DECLARED to project — composer landed the code, but a
+        // third-party package's provider does not register itself (its ops live in the package, not in
+        // app-runtime's gated list). The capability names its providers; enable writes them.
+        $registered = self::registerOperations(self::raizDeLaApp(), array_values(array_filter(
+            (array) ($delivered0['operations'] ?? []),
+            static fn ($c): bool => \is_string($c) && $c !== '',
+        )));
+
         $okOut = [
             'ok' => true,
             'capability' => $objetivo['package'],
             'command' => $comando,
+            'registered' => $registered,
             // WHAT IT UNLOCKED, read AFTER installing — the package could not declare anything
             // before it was on disk, so reading `$objetivo` here would always return an empty list:
             // a field that is always empty is the same defect this repo keeps finding, something
