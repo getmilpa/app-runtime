@@ -44,7 +44,7 @@ final class AgentKeysTest extends TestCase
         self::assertArrayHasKey('agent.instructions', $r['keys']);
         self::assertArrayHasKey('type', $r['keys']['agent.instructions']);
         self::assertNotSame('', $r['keys']['agent.instructions']['does']);
-        self::assertCount(18, $r['keys']);
+        self::assertCount(19, $r['keys']);
         self::assertArrayHasKey('agent.trialWorkspace', $r['keys'], 'the trial leaf is one of the keys a human can set');
     }
 
