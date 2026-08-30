@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.92.0](https://github.com/getmilpa/app-runtime/compare/v0.91.1...v0.92.0) (2026-08-30)
+
+
+### Features
+
+* wire the lazy toolbox (agent.lazyTools) — opt-in, off by default ([#222](https://github.com/getmilpa/app-runtime/issues/222)) ([937ad91](https://github.com/getmilpa/app-runtime/commit/937ad9178801bc4cd592985e0ffee173e6fdea0d))
+
 ## [0.91.1](https://github.com/getmilpa/app-runtime/compare/v0.91.0...v0.91.1) (2026-08-30)
 
 
