@@ -272,6 +272,41 @@ class AgentOperations implements CommandProvider
                     rollbackContract: 'reads only: there is nothing to roll back',
                 ),
             ),
+            new Operation(
+                name: 'skill:list',
+                description: 'The skills this app carries — each one\'s name, description, and who may invoke it (the agent, the human, or both). A skill guides judgment; it is not a tool that runs.',
+                handler: fn (array $input): array => $this->listSkills(),
+                inputSchema: ['type' => 'object', 'properties' => []],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean'],
+                        'skills' => [
+                            'type' => 'array',
+                            'items' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'name' => ['type' => 'string'],
+                                    'description' => ['type' => 'string'],
+                                    'modelInvocable' => ['type' => 'boolean', 'description' => 'The agent may reach for it on its own'],
+                                    'userInvocable' => ['type' => 'boolean', 'description' => 'The human may invoke it directly'],
+                                    'bodyChars' => ['type' => 'integer', 'description' => 'Size of the full instructions loaded on demand'],
+                                ],
+                            ],
+                        ],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // Reads the app's skills directory: changes nothing, reaches nobody.
+                effects: new EffectProfile(
+                    mutation: Mutation::None,
+                    externality: Externality::None,
+                    reversibility: Reversibility::Guaranteed,
+                    authority: Authority::Read,
+                    subject: Subject::None,
+                    rollbackContract: 'reads only: there is nothing to roll back',
+                ),
+            ),
         ];
 
         if (!Capabilities::installed('agent-runs')) {
@@ -2318,6 +2353,30 @@ class AgentOperations implements CommandProvider
      *
      * @return array{ok: bool, name?: string, body?: string, error?: string}
      */
+    /**
+     * Project every skill this app carries, for a surface to show. Reads only — the invocation flags
+     * come from the backend, never computed by a client that must not decide them.
+     *
+     * @return array{ok: bool, skills: list<array{name: string, description: string, modelInvocable: bool, userInvocable: bool, bodyChars: int}>}
+     */
+    private function listSkills(): array
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return ['ok' => false, 'skills' => []];
+        }
+
+        $skills = array_map(static fn (Skill $s): array => [
+            'name' => $s->name,
+            'description' => $s->description,
+            'modelInvocable' => $s->modelInvocable,
+            'userInvocable' => $s->userInvocable,
+            'bodyChars' => \strlen($s->body),
+        ], (new SkillRegistry($kernel->root()))->all());
+
+        return ['ok' => true, 'skills' => $skills];
+    }
+
     private function loadSkill(string $name): array
     {
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
