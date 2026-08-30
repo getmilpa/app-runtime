@@ -58,8 +58,8 @@ final class PlanInstructionTest extends TestCase
         $sin = $this->promptCon([]);
         $con = $this->promptCon(['plan', 'todo']);
 
-        self::assertStringContainsString('Eres el agente de esta app Milpa', $sin);
-        self::assertStringContainsString('Eres el agente de esta app Milpa', $con);
+        self::assertStringContainsString('You are the agent of this Milpa app', $sin);
+        self::assertStringContainsString('You are the agent of this Milpa app', $con);
         self::assertLessThan(mb_strlen($con), mb_strlen($sin), 'callar la orden tiene que quitar texto');
     }
 

@@ -644,6 +644,8 @@ class AgentOperations implements CommandProvider
             },
             $this->presupuestoDelArbol(self::PASOS_POR_DEFECTO),
             prologue: fn (): ?string => $this->foundationArrow()?->teaching(),
+            roles: $this->rolesRegistry(),
+            skills: $this->skillsRegistryForSpawn(),
         );
 
         return [...$ops, $spawner->operation(), $spawner->resumeOperation(), $spawner->messageOperation(), $spawner->rolesOperation()];
@@ -932,6 +934,8 @@ class AgentOperations implements CommandProvider
                     // goal, which is what the child's window derives from. Caught by rental v5:
                     // zero taught briefs in three runs (the arm was inert).
                     prologue: fn (): ?string => $this->foundationArrow()?->teaching(),
+                    roles: $this->rolesRegistry(),
+                    skills: $this->skillsRegistryForSpawn(),
                 );
                 $contabilidad[] = $spawner->operation();
                 $contabilidad[] = $spawner->resumeOperation();
@@ -2490,6 +2494,26 @@ class AgentOperations implements CommandProvider
         }
 
         return ['ok' => true, 'name' => $name, 'path' => ".milpa/agents/{$name}.md"];
+    }
+
+    /** A RoleRegistry loaded with this app's roles (`.milpa/agents/*.md`) — the spawner delegates by these. */
+    private function rolesRegistry(): RoleRegistry
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        $registry = new RoleRegistry();
+        if ($kernel instanceof Kernel) {
+            $registry->loadFrom($kernel->root() . '/.milpa/agents');
+        }
+
+        return $registry;
+    }
+
+    /** A SkillRegistry rooted at this app, so a spawned role can be born with its skills' bodies. */
+    private function skillsRegistryForSpawn(): SkillRegistry
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+
+        return new SkillRegistry($kernel instanceof Kernel ? $kernel->root() : '');
     }
 
     private function listRoles(): array
