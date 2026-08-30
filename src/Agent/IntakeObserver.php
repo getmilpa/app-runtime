@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Agent;
 use Milpa\Agent\ModelCallIntake;
 use Milpa\Agent\SessionStore;
 use Milpa\AiGateway\ChannelObserver;
+use Milpa\AiGateway\ReasoningObserver;
 use Milpa\AiGateway\ReturnObserver;
 
 /**
@@ -36,7 +37,7 @@ use Milpa\AiGateway\ReturnObserver;
  * provider received after gateway composition; the second says why each Session-composed history
  * message existed. Joining them here by index or content would turn this reader into the classifier.
  */
-final class IntakeObserver implements ChannelObserver, ReturnObserver
+final class IntakeObserver implements ChannelObserver, ReasoningObserver, ReturnObserver
 {
     /** @param list<array{role: string, content: string, class: string}>|null $window */
     public function __construct(
@@ -74,6 +75,21 @@ final class IntakeObserver implements ChannelObserver, ReturnObserver
     {
         try {
             $this->sessions->recordModelReturn($this->session, $meta);
+        } catch (\Throwable) {
+            // Same contract as observe(): observing a channel may not change it.
+        }
+    }
+
+    /**
+     * Records what the model call reasoned as its own fact on the same session, beside its input and its
+     * cost. The gateway hands over the provider's `reasoning_content` verbatim and only when it exists;
+     * this lands it on the stream under {@see observe()}'s discipline — a failed write loses the
+     * reasoning, never the corrida.
+     */
+    public function observeReasoning(string $uri, string $reasoning): void
+    {
+        try {
+            $this->sessions->recordModelReasoning($this->session, $reasoning);
         } catch (\Throwable) {
             // Same contract as observe(): observing a channel may not change it.
         }
