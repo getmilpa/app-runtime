@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.93.0](https://github.com/getmilpa/app-runtime/compare/v0.92.0...v0.93.0) (2026-08-30)
+
+
+### Features
+
+* wire the reasoning seam — IntakeObserver lands model reasoning on the stream ([#224](https://github.com/getmilpa/app-runtime/issues/224)) ([723f67a](https://github.com/getmilpa/app-runtime/commit/723f67a8ec27ae2195cb8199d9fd1da764e75906))
+
 ## [0.92.0](https://github.com/getmilpa/app-runtime/compare/v0.91.1...v0.92.0) (2026-08-30)
 
 
