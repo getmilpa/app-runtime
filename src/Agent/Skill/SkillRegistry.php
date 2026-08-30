@@ -20,7 +20,7 @@ final class SkillRegistry
     public function __construct(string $root)
     {
         foreach (glob(rtrim($root, '/') . '/skills/*/SKILL.md') ?: [] as $file) {
-            $skill = self::parse((string) @file_get_contents($file), basename(\dirname($file)));
+            $skill = self::parse((string) @file_get_contents($file), basename(\dirname($file)), \dirname($file));
             if ($skill !== null) {
                 $this->skills[$skill->name] = $skill;
             }
@@ -44,7 +44,7 @@ final class SkillRegistry
         return $this->skills[$name] ?? null;
     }
 
-    public static function parse(string $content, string $fallbackName): ?Skill
+    public static function parse(string $content, string $fallbackName, string $directory = ''): ?Skill
     {
         if (preg_match('/^---\R(.*?)\R---\R(.*)$/s', trim($content), $m) !== 1) {
             return null;
@@ -72,6 +72,7 @@ final class SkillRegistry
             body: trim($m[2]),
             modelInvocable: !$isTrue($front['disable-model-invocation'] ?? null),
             userInvocable: !\array_key_exists('user-invocable', $front) || $isTrue($front['user-invocable']),
+            directory: $directory,
         );
     }
 }

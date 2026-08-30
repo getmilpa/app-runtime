@@ -23,6 +23,9 @@ final readonly class Skill
         public bool $modelInvocable = true,
         // false when `user-invocable: false` — background knowledge, not a human command.
         public bool $userInvocable = true,
+        // Absolute directory of this skill's folder — where its bundled scripts/ and references/ live,
+        // reported to the agent as <skill_resources> so it can reach them.
+        public string $directory = '',
     ) {
     }
 }

@@ -2392,7 +2392,14 @@ class AgentOperations implements CommandProvider
             return ['ok' => false, 'error' => "skill '{$name}' is user-invocable only; ask the human to run it"];
         }
 
-        return ['ok' => true, 'name' => $skill->name, 'body' => $skill->body];
+        // Wrap the body the way the reference harnesses do: name it, and hand the agent the skill's
+        // base directory so it can reach any bundled scripts/ or references/ this skill ships.
+        $resources = $skill->directory !== ''
+            ? "<skill_resources>Base directory for this skill: {$skill->directory}</skill_resources>\n"
+            : '';
+        $wrapped = "<skill_content name=\"{$skill->name}\">\n{$resources}{$skill->body}\n</skill_content>";
+
+        return ['ok' => true, 'name' => $skill->name, 'body' => $wrapped];
     }
 
     protected function systemPrompt(array $herramientas = []): string
@@ -2454,9 +2461,12 @@ class AgentOperations implements CommandProvider
             $skills = (new SkillRegistry($kernelSkills->root()))->modelInvocable();
             if ($skills !== []) {
                 $lineas = array_map(static fn (Skill $s): string => "- {$s->name}: {$s->description}", $skills);
-                $partes[] = "Skills disponibles — guías de criterio, no herramientas. Cuando una haga match con la "
-                    . "tarea, llama `skill:load` con su `name`, LEE sus instrucciones y SÍGUELAS antes de actuar:\n"
-                    . implode("\n", $lineas);
+                $partes[] = "<system-reminder> A skill is a reusable set of task-specific instructions. "
+                    . "The following skills are available in this session:\n<available_skills>\n"
+                    . implode("\n", $lineas)
+                    . "\n</available_skills>\n"
+                    . "When a skill matches the task, call `skill:load` with its name, read its instructions, "
+                    . "and follow them before you act. </system-reminder>";
             }
         }
 
