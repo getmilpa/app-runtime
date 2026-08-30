@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.91.1](https://github.com/getmilpa/app-runtime/compare/v0.91.0...v0.91.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* window-aware compaction — pass a token budget to the Compactor ([#220](https://github.com/getmilpa/app-runtime/issues/220)) ([8f1c1fb](https://github.com/getmilpa/app-runtime/commit/8f1c1fbd139e979a14d67748f47fd5e93fb124d5))
+
 ## [0.91.0](https://github.com/getmilpa/app-runtime/compare/v0.90.0...v0.91.0) (2026-08-30)
 
 
