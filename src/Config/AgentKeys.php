@@ -111,6 +111,7 @@ final class AgentKeys
                 'type' => DeclaredType::shape([
                     'maxTurns' => ['type' => DeclaredType::integer(), 'optional' => true],
                     'keepLast' => ['type' => DeclaredType::integer(), 'optional' => true],
+                    'maxTokens' => ['type' => DeclaredType::integer(), 'optional' => true],
                 ]),
                 'does' => 'When a long session gets compacted, and how much of the tail survives it',
             ],

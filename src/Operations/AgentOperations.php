@@ -1526,6 +1526,11 @@ class AgentOperations implements CommandProvider
 
         $maximo = 40;
         $recientes = 12;
+        // Presupuesto de tokens de la ventana sin resumir. El default supone un modelo de ~32k y deja
+        // espacio para el catálogo + el system prompt + la respuesta; un modelo de ventana grande lo
+        // sube por config. Sin esto la compactación sólo cuenta turnos y la ventana revienta a media
+        // jornada (greenhouse evidence/0436).
+        $maxTokens = 16000;
         if (\is_array($ajustes)) {
             $maximo = \is_int($ajustes['maxTurns'] ?? null) ? $ajustes['maxTurns'] : $maximo;
             // `keepLast` ES EL NOMBRE DEL CONTRATO, y este puente leía `keepRecent`.
@@ -1545,9 +1550,10 @@ class AgentOperations implements CommandProvider
             // implementación sería dejar que el defecto legisle. Y NO se aceptan las dos: dos
             // ortografías para una decisión terminan siendo dos contratos (evidence/0141).
             $recientes = \is_int($ajustes['keepLast'] ?? null) ? $ajustes['keepLast'] : $recientes;
+            $maxTokens = \is_int($ajustes['maxTokens'] ?? null) ? $ajustes['maxTokens'] : $maxTokens;
         }
 
-        return new Compactor($maximo, $recientes);
+        return new Compactor(maxTurns: $maximo, keepRecent: $recientes, maxTokens: $maxTokens);
     }
 
     /**
