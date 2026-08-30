@@ -194,6 +194,7 @@ final class RoleRegistry
             deny: $list($front['deny'] ?? null),
             first: $list($front['first'] ?? null),
             origin: $origin,
+            skills: $list($front['skills'] ?? null),
         );
     }
 }

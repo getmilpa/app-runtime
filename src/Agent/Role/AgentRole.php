@@ -53,6 +53,8 @@ final class AgentRole
      * @param list<string> $deny     tools removed from its catalogue — executed, not requested
      * @param list<string> $first    tools that must run before any other — executed, not requested
      * @param string       $origin   where it came from: a package name, or the app's own directory
+     * @param list<string>  $skills   skills this role preloads — SUGGESTS (guidance for its judgment),
+     *                                like the prompt; the runtime injects them, it does not govern by them
      */
     public function __construct(
         public readonly string $name,
@@ -61,6 +63,7 @@ final class AgentRole
         public readonly array $deny = [],
         public readonly array $first = [],
         public readonly string $origin = '(unknown)',
+        public readonly array $skills = [],
     ) {
         if (trim($name) === '') {
             throw new \InvalidArgumentException('a role without a name cannot be delegated to by name');
@@ -111,6 +114,7 @@ final class AgentRole
             'produces' => $this->produces,
             'deny' => $this->deny,
             'first' => $this->first,
+            'skills' => $this->skills,
         ];
     }
 }

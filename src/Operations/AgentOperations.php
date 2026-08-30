@@ -88,6 +88,8 @@ use Milpa\EventStore\FileEventStore;
 use Milpa\Runtime\Kernel;
 use Milpa\AppRuntime\Agent\Skill\Skill;
 use Milpa\AppRuntime\Agent\Skill\SkillRegistry;
+use Milpa\AppRuntime\Agent\Role\AgentRole;
+use Milpa\AppRuntime\Agent\Role\RoleRegistry;
 use Milpa\ToolRuntime\ToolRegistry;
 use Psr\Log\NullLogger;
 
@@ -298,6 +300,41 @@ class AgentOperations implements CommandProvider
                     'required' => ['ok'],
                 ],
                 // Reads the app's skills directory: changes nothing, reaches nobody.
+                effects: new EffectProfile(
+                    mutation: Mutation::None,
+                    externality: Externality::None,
+                    reversibility: Reversibility::Guaranteed,
+                    authority: Authority::Read,
+                    subject: Subject::None,
+                    rollbackContract: 'reads only: there is nothing to roll back',
+                ),
+            ),
+            new Operation(
+                name: 'agent:role:list',
+                description: 'The specialized agent roles this app declares — each with the skills it preloads and the tools it is denied. A role names authority that already governs; the skills only suggest.',
+                handler: fn (array $input): array => $this->listRoles(),
+                inputSchema: ['type' => 'object', 'properties' => []],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean'],
+                        'roles' => [
+                            'type' => 'array',
+                            'items' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'name' => ['type' => 'string'],
+                                    'origin' => ['type' => 'string'],
+                                    'produces' => ['type' => ['string', 'null']],
+                                    'deny' => ['type' => 'array', 'items' => ['type' => 'string']],
+                                    'first' => ['type' => 'array', 'items' => ['type' => 'string']],
+                                    'skills' => ['type' => 'array', 'items' => ['type' => 'string']],
+                                ],
+                            ],
+                        ],
+                    ],
+                    'required' => ['ok'],
+                ],
                 effects: new EffectProfile(
                     mutation: Mutation::None,
                     externality: Externality::None,
@@ -2359,6 +2396,26 @@ class AgentOperations implements CommandProvider
      *
      * @return array{ok: bool, skills: list<array{name: string, description: string, modelInvocable: bool, userInvocable: bool, bodyChars: int}>}
      */
+    /**
+     * Project the specialist roles this app declares (`.milpa/agents/*.md`), each with the skills it
+     * preloads. Reads only. A role NAMES authority that already governs (deny/first/produces); the
+     * skills it lists only suggest — the runtime injects them, it does not govern by them.
+     *
+     * @return array{ok: bool, roles: list<array<string, mixed>>}
+     */
+    private function listRoles(): array
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return ['ok' => false, 'roles' => []];
+        }
+
+        $registry = new RoleRegistry();
+        $registry->loadFrom($kernel->root() . '/.milpa/agents');
+
+        return ['ok' => true, 'roles' => array_map(static fn (AgentRole $r): array => $r->toArray(), $registry->all())];
+    }
+
     private function listSkills(): array
     {
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
