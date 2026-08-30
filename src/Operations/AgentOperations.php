@@ -2405,20 +2405,20 @@ class AgentOperations implements CommandProvider
     protected function systemPrompt(array $herramientas = []): string
     {
         $partes = [
-            'Eres el agente de esta app Milpa. Usa las herramientas para responder; no inventes '
-            . 'resultados. Si una herramienta contesta con `guidance`, esa guía es el siguiente paso '
-            . 'real: repítela en vez de improvisar uno.',
+            'You are the agent of this Milpa app. Use the tools to answer; do not invent results. If '
+            . 'a tool answers with `guidance`, that guidance is the real next step: repeat it instead of '
+            . 'improvising one.',
 
             // Lo que un agente necesita para no inventar un plugin donde había una línea de config.
-            "Cómo está armada esta app:\n"
-            . "- Cada cosa que sabe hacer es una operación declarada; las herramientas que ves SON esas operaciones.\n"
-            . "- Los plugins se declaran en `config/plugins.php`. Andamiar uno NO lo enciende: hay que agregar su clase a esa lista.\n"
-            . "- La persistencia sale de `config/app.php`, bloque `storage`: `driver` es `file`, `sqlite`, `mysql` o `memory`\n"
-            . "  (con su `path` o su `dsn`). Lo que `make entity` y `make crud` escriben ya lee ese bloque a través de\n"
-            . "  `Milpa\\Data\\RepositoryFactory`, así que cambiar de backend es esa línea y nada más. NO hace falta un plugin\n"
-            . "  de persistencia, y no existe uno.\n"
-            . "- Doctrine es de la convención legacy, no de ésta. Las entidades que `make` escribe implementan\n"
-            . '  `Milpa\\Data\\EntityInterface`: sin atributos de ORM, sin mapeo.',
+            "How this app is built:\n"
+            . "- Everything it can do is a declared operation; the tools you see ARE those operations.\n"
+            . "- Plugins are declared in `config/plugins.php`. Scaffolding one does NOT enable it: you must add its class to that list.\n"
+            . "- Persistence comes from `config/app.php`, the `storage` block: `driver` is `file`, `sqlite`, `mysql` or `memory`\n"
+            . "  (with its `path` or its `dsn`). What `make entity` and `make crud` write already reads that block through\n"
+            . "  `Milpa\\Data\\RepositoryFactory`, so switching backend is that one line and nothing more. You do NOT need a\n"
+            . "  persistence plugin, and none exists.\n"
+            . "- Doctrine belongs to the legacy convention, not this one. The entities `make` writes implement\n"
+            . '  `Milpa\\Data\\EntityInterface`: no ORM attributes, no mapping.',
 
         ];
 
@@ -2433,10 +2433,10 @@ class AgentOperations implements CommandProvider
         // plan que **el bucle nunca le enseña** — `AgentOrchestrator` no conocía `Todo` hasta que
         // apareció {@see \Milpa\AiGateway\PlanBoard}. Ésa es la pregunta entera en una frase.
         if ($this->instruccionDePlan($herramientas)) {
-            $partes[] = "Cuando el trabajo lleve más de dos o tres pasos:\n"
-                . "- Escribe un plan con `plan` ANTES de empezar, y agrega un pendiente con `todo` por cada parte.\n"
-                . "- Marca `todo` con status `done` EN CUANTO termines cada una, no al final.\n"
-                . '- Si una sesión ya trae plan y pendientes, sigue ésos en vez de escribir otros: son tuyos, de antes.';
+            $partes[] = "When the work takes more than two or three steps:\n"
+                . "- Write a plan with `plan` BEFORE you start, and add a todo with `todo` for each part.\n"
+                . "- Mark a `todo` `done` AS SOON AS you finish each one, not at the end.\n"
+                . '- If a session already carries a plan and todos, follow those instead of writing new ones: they are yours, from before.';
         }
 
         // LO QUE ESTA APP TRAE PUESTO, dicho por los paquetes mismos.
@@ -2450,7 +2450,7 @@ class AgentOperations implements CommandProvider
         // prompt que hablara de tokens en una app sin identidad estaría describiendo otra.
         $puesto = Capabilities::briefing();
         if ($puesto !== []) {
-            $partes[] = "Lo que esta app trae puesto:\n- " . implode("\n- ", $puesto);
+            $partes[] = "What this app has installed:\n- " . implode("\n- ", $puesto);
         }
 
         // Skills — non-deterministic guidance the agent reaches for by judgment, not tools it runs.
