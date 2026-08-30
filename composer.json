@@ -31,7 +31,7 @@
     "require-dev": {
         "milpa/agent": ">=0.28 <1.0",
         "friendsofphp/php-cs-fixer": "^3.75",
-        "milpa/ai-gateway": ">=0.12 <1.0",
+        "milpa/ai-gateway": ">=0.13 <1.0",
         "milpa/auth": ">=0.7 <1.0",
         "milpa/data": ">=0.2.2 <1.0",
         "milpa/devtools": ">=0.14 <1.0",

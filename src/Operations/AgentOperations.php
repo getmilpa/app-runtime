@@ -1444,9 +1444,21 @@ class AgentOperations implements CommandProvider
         // El `conflict: milpa/ai-gateway <0.8` declara la exigencia; no la garantiza, porque nadie
         // obliga a correr `composer update`. Ya pasó una vez con `Operation::$namedTarget`, y el modo
         // de falla es el peor: un desajuste de versiones que se ve como un sistema roto.
-        $orquestador = $tablero === null
-            ? new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger())
-            : new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger(), null, $tablero);
+        // The lazy toolbox is opt-in (agent.lazyTools). It serves tool schemas on demand instead of
+        // inlining all of them — worth it for a small-context model, at one describe round-trip per tool.
+        $configTB = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $lazyTools = ($configTB instanceof Config ? $configTB->get('agent.lazyTools') : null) === true;
+
+        // Three shapes, not one array: the named `lazyTools` argument only appears when the toolbox is
+        // on, because passing an argument an OLDER ai-gateway does not declare throws «Unknown named
+        // parameter» on every turn (the planBoard trap). When it is off, the old positional shape rides.
+        if ($lazyTools) {
+            $orquestador = new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger(), null, $tablero, true);
+        } elseif ($tablero !== null) {
+            $orquestador = new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger(), null, $tablero);
+        } else {
+            $orquestador = new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger());
+        }
 
         return $orquestador->run(
             $prompt,
