@@ -73,6 +73,30 @@ final class IntakeObserverTest extends TestCase
         self::assertSame(33, $payload['usage']['total_tokens']);
     }
 
+    public function testTheReasoningOfACallBecomesItsOwnFactBesideTheIntake(): void
+    {
+        $eventos = new InMemoryEventStore();
+        $almacen = new SessionStore($eventos);
+        $almacen->start('s1', 'listar plugins');
+
+        // The same wire carries reasoning: the gateway reports the provider's reasoning_content and
+        // this lands it on the stream as its own event, verbatim, beside the intake and the cost.
+        (new IntakeObserver($almacen, 's1'))->observeReasoning(
+            'https://llama.local/v1/chat/completions',
+            'The user asked for the plugins; I will call plugins_list.',
+        );
+
+        $payload = null;
+        foreach ($eventos->replay(SessionStore::PREFIX . 's1') as $event) {
+            if ($event->type === 'session.model_reasoned') {
+                $payload = $event->payload;
+            }
+        }
+
+        self::assertNotNull($payload, 'the reasoning reached the stream as its own event');
+        self::assertSame('The user asked for the plugins; I will call plugins_list.', $payload['reasoning']);
+    }
+
     public function testTheDeclaredWindowReachesTheStreamWithoutEnteringTheProviderPayload(): void
     {
         $events = new InMemoryEventStore();
