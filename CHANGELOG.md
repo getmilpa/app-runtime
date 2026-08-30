@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.91.0](https://github.com/getmilpa/app-runtime/compare/v0.90.0...v0.91.0) (2026-08-30)
+
+
+### Features
+
+* skills, the specialist organization, English prompt, and marketplace registration ([bf34a8e](https://github.com/getmilpa/app-runtime/commit/bf34a8ec512997bfe22fbae25aa5d2b504fc5284))
+* skills, the specialist organization, English prompt, and marketplace registration ([2e92a50](https://github.com/getmilpa/app-runtime/commit/2e92a504a96118c11982d23f73cc8b96b19e1f3f))
+
 ## [0.90.0](https://github.com/getmilpa/app-runtime/compare/v0.89.0...v0.90.0) (2026-08-29)
 
 
