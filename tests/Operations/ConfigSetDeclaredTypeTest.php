@@ -103,7 +103,7 @@ final class ConfigSetDeclaredTypeTest extends TestCase
         $result = $this->write('agent.compaction', '[]');
 
         self::assertFalse($result['ok']);
-        self::assertStringContainsString('array{maxTurns?: int, keepLast?: int}', $result['error']);
+        self::assertStringContainsString('array{maxTurns?: int, keepLast?: int, maxTokens?: int}', $result['error']);
         self::assertFileDoesNotExist($this->root . MachineOverlay::RUTA);
     }
 
@@ -112,7 +112,7 @@ final class ConfigSetDeclaredTypeTest extends TestCase
         $result = $this->write('agent.compaction', []);
 
         self::assertFalse($result['ok']);
-        self::assertStringContainsString('array{maxTurns?: int, keepLast?: int}', $result['error']);
+        self::assertStringContainsString('array{maxTurns?: int, keepLast?: int, maxTokens?: int}', $result['error']);
         self::assertFileDoesNotExist($this->root . MachineOverlay::RUTA);
     }
 
