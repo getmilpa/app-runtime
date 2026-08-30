@@ -115,6 +115,11 @@ final class AgentKeys
                 ]),
                 'does' => 'When a long session gets compacted, and how much of the tail survives it',
             ],
+            'agent.lazyTools' => [
+                'type' => DeclaredType::boolean(),
+                'does' => 'Whether the agent sees tools by name and description only, fetching each schema '
+                    . 'on demand — smaller context for small-window models, at one describe round-trip per tool',
+            ],
             'agent.treeBudget' => [
                 'type' => DeclaredType::integer(),
                 'does' => 'How many nodes of the project tree the agent is shown',
