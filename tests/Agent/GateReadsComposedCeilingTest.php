@@ -144,9 +144,12 @@ final class GateReadsComposedCeilingTest extends TestCase
     {
         $handler = static fn (array $i): array => ['ok' => true];
         $digest = (new Operation('probe', 'digest', $handler))->handlerDigest();
+        // SamePrincipal, not ThirdParty: this test exercises the mutation+authority DESCENT path, and
+        // egress is an orthogonal axis — a ThirdParty read now pauses on egress regardless of the
+        // descent (greenhouse decisions/0171), which would shadow what this test means to measure.
         $to = new EffectProfile(
             mutation: Mutation::None,
-            externality: Externality::ThirdParty,
+            externality: Externality::SamePrincipal,
             reversibility: Reversibility::Compensatable,
             authority: Authority::Read,
             subject: Subject::None,
@@ -169,7 +172,7 @@ final class GateReadsComposedCeilingTest extends TestCase
             mutating: true,
             effects: new EffectProfile(
                 mutation: Mutation::Persistent,
-                externality: Externality::ThirdParty,
+                externality: Externality::SamePrincipal,
                 reversibility: Reversibility::Compensatable,
                 authority: Authority::Privileged,
                 subject: Subject::None,
