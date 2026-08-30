@@ -344,6 +344,37 @@ class AgentOperations implements CommandProvider
                     rollbackContract: 'reads only: there is nothing to roll back',
                 ),
             ),
+            new Operation(
+                name: 'agent:role:declare',
+                description: 'Compose a specialist agent: write .milpa/agents/<name>.md from a name, a brief (prompt), the skills it preloads, the tools it is denied, and what it produces. A role names authority that already governs — a role without a brief is a muzzle, not a specialist, and is refused.',
+                handler: fn (array $input): array => $this->declareRole($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'name' => ['type' => 'string', 'description' => 'lowercase letters, numbers, hyphens'],
+                        'prompt' => ['type' => 'string', 'description' => 'the brief — who this specialist is and how it works'],
+                        'skills' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'skills it preloads (they suggest)'],
+                        'deny' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'tools withdrawn from its catalogue (this governs)'],
+                        'produces' => ['type' => 'string', 'description' => 'the artifact kind its answer is checked against, if any'],
+                    ],
+                    'required' => ['name', 'prompt'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => ['ok' => ['type' => 'boolean'], 'name' => ['type' => 'string'], 'path' => ['type' => 'string'], 'error' => ['type' => 'string']],
+                    'required' => ['ok'],
+                ],
+                mutating: true,
+                // Writes one role file the operator owns: a local persistent change, no third party,
+                // undone by editing or deleting the file.
+                effects: new EffectProfile(
+                    mutation: Mutation::Persistent,
+                    externality: Externality::None,
+                    reversibility: Reversibility::Compensatable,
+                    authority: Authority::WriteAsUser,
+                    subject: Subject::None,
+                ),
+            ),
         ];
 
         if (!Capabilities::installed('agent-runs')) {
@@ -2403,6 +2434,64 @@ class AgentOperations implements CommandProvider
      *
      * @return array{ok: bool, roles: list<array<string, mixed>>}
      */
+    /**
+     * Compose a specialist role from the UI: write `.milpa/agents/<name>.md`. A role without a brief
+     * is refused — restrictions with no prose are a muzzle wearing a name, not a specialist (the same
+     * invariant {@see AgentRole} enforces at construction).
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array{ok: bool, name?: string, path?: string, error?: string}
+     */
+    private function declareRole(array $input): array
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return ['ok' => false, 'error' => 'no kernel: roles are written under the app root'];
+        }
+
+        $name = strtolower(trim((string) ($input['name'] ?? '')));
+        if ($name === '' || preg_match('/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/', $name) !== 1) {
+            return ['ok' => false, 'error' => 'name must be lowercase letters, numbers and single hyphens'];
+        }
+        $prompt = trim((string) ($input['prompt'] ?? ''));
+        if ($prompt === '') {
+            return ['ok' => false, 'error' => 'a role needs a brief: restrictions without a prompt are a muzzle, not a specialist'];
+        }
+
+        $list = static function (mixed $v): array {
+            $items = \is_array($v) ? $v : (\is_string($v) ? explode(',', $v) : []);
+
+            return array_values(array_filter(array_map(static fn ($x): string => trim((string) $x), $items), static fn (string $x): bool => $x !== ''));
+        };
+        $skills = $list($input['skills'] ?? null);
+        $deny = $list($input['deny'] ?? null);
+        $produces = trim((string) ($input['produces'] ?? ''));
+
+        $front = "---\nname: {$name}\n";
+        if ($produces !== '') {
+            $front .= "produces: {$produces}\n";
+        }
+        if ($skills !== []) {
+            $front .= 'skills: ' . implode(', ', $skills) . "\n";
+        }
+        if ($deny !== []) {
+            $front .= 'deny: ' . implode(', ', $deny) . "\n";
+        }
+        $front .= "---\n";
+
+        $dir = $kernel->root() . '/.milpa/agents';
+        if (!is_dir($dir) && !@mkdir($dir, 0o777, true) && !is_dir($dir)) {
+            return ['ok' => false, 'error' => "could not create {$dir}"];
+        }
+        $path = "{$dir}/{$name}.md";
+        if (@file_put_contents($path, $front . $prompt . "\n") === false) {
+            return ['ok' => false, 'error' => "could not write {$path}"];
+        }
+
+        return ['ok' => true, 'name' => $name, 'path' => ".milpa/agents/{$name}.md"];
+    }
+
     private function listRoles(): array
     {
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
