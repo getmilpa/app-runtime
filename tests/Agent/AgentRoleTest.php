@@ -234,7 +234,7 @@ final class AgentRoleTest extends TestCase
     public function testItSerialisesWithItsOrigin(): void
     {
         self::assertSame(
-            ['name' => 'reviewer', 'origin' => 'milpa/ops', 'produces' => 'review', 'deny' => ['plugins_lock'], 'first' => ['plan']],
+            ['name' => 'reviewer', 'origin' => 'milpa/ops', 'produces' => 'review', 'deny' => ['plugins_lock'], 'first' => ['plan'], 'skills' => []],
             $this->reviewer()->toArray(),
         );
     }

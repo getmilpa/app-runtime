@@ -86,6 +86,10 @@ use Milpa\AppRuntime\Agent\MercureBroadcaster;
 use Milpa\AppRuntime\Agent\SurfaceBroadcaster;
 use Milpa\EventStore\FileEventStore;
 use Milpa\Runtime\Kernel;
+use Milpa\AppRuntime\Agent\Skill\Skill;
+use Milpa\AppRuntime\Agent\Skill\SkillRegistry;
+use Milpa\AppRuntime\Agent\Role\AgentRole;
+use Milpa\AppRuntime\Agent\Role\RoleRegistry;
 use Milpa\ToolRuntime\ToolRegistry;
 use Psr\Log\NullLogger;
 
@@ -237,6 +241,138 @@ class AgentOperations implements CommandProvider
                     authority: Authority::Read,
                     subject: Subject::None,
                     rollbackContract: 'reads only: there is nothing to roll back',
+                ),
+            ),
+            new Operation(
+                name: 'skill:load',
+                description: 'Load a skill by name and follow its instructions for this task. Call this when a listed skill matches what you are about to do — its guidance is the real next step, not optional.',
+                handler: fn (array $input): array => $this->loadSkill((string) ($input['name'] ?? '')),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'name' => ['type' => 'string', 'description' => 'the skill name, e.g. governed-discovery'],
+                    ],
+                    'required' => ['name'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean'],
+                        'name' => ['type' => 'string'],
+                        'body' => ['type' => 'string', 'description' => 'the full skill instructions to follow'],
+                        'error' => ['type' => 'string'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // Reads a local skill file: changes nothing, reaches nobody.
+                effects: new EffectProfile(
+                    mutation: Mutation::None,
+                    externality: Externality::None,
+                    reversibility: Reversibility::Guaranteed,
+                    authority: Authority::Read,
+                    subject: Subject::None,
+                    rollbackContract: 'reads only: there is nothing to roll back',
+                ),
+            ),
+            new Operation(
+                name: 'skill:list',
+                description: 'The skills this app carries — each one\'s name, description, and who may invoke it (the agent, the human, or both). A skill guides judgment; it is not a tool that runs.',
+                handler: fn (array $input): array => $this->listSkills(),
+                inputSchema: ['type' => 'object', 'properties' => []],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean'],
+                        'skills' => [
+                            'type' => 'array',
+                            'items' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'name' => ['type' => 'string'],
+                                    'description' => ['type' => 'string'],
+                                    'modelInvocable' => ['type' => 'boolean', 'description' => 'The agent may reach for it on its own'],
+                                    'userInvocable' => ['type' => 'boolean', 'description' => 'The human may invoke it directly'],
+                                    'bodyChars' => ['type' => 'integer', 'description' => 'Size of the full instructions loaded on demand'],
+                                ],
+                            ],
+                        ],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // Reads the app's skills directory: changes nothing, reaches nobody.
+                effects: new EffectProfile(
+                    mutation: Mutation::None,
+                    externality: Externality::None,
+                    reversibility: Reversibility::Guaranteed,
+                    authority: Authority::Read,
+                    subject: Subject::None,
+                    rollbackContract: 'reads only: there is nothing to roll back',
+                ),
+            ),
+            new Operation(
+                name: 'agent:role:list',
+                description: 'The specialized agent roles this app declares — each with the skills it preloads and the tools it is denied. A role names authority that already governs; the skills only suggest.',
+                handler: fn (array $input): array => $this->listRoles(),
+                inputSchema: ['type' => 'object', 'properties' => []],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean'],
+                        'roles' => [
+                            'type' => 'array',
+                            'items' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'name' => ['type' => 'string'],
+                                    'origin' => ['type' => 'string'],
+                                    'produces' => ['type' => ['string', 'null']],
+                                    'deny' => ['type' => 'array', 'items' => ['type' => 'string']],
+                                    'first' => ['type' => 'array', 'items' => ['type' => 'string']],
+                                    'skills' => ['type' => 'array', 'items' => ['type' => 'string']],
+                                ],
+                            ],
+                        ],
+                    ],
+                    'required' => ['ok'],
+                ],
+                effects: new EffectProfile(
+                    mutation: Mutation::None,
+                    externality: Externality::None,
+                    reversibility: Reversibility::Guaranteed,
+                    authority: Authority::Read,
+                    subject: Subject::None,
+                    rollbackContract: 'reads only: there is nothing to roll back',
+                ),
+            ),
+            new Operation(
+                name: 'agent:role:declare',
+                description: 'Compose a specialist agent: write .milpa/agents/<name>.md from a name, a brief (prompt), the skills it preloads, the tools it is denied, and what it produces. A role names authority that already governs — a role without a brief is a muzzle, not a specialist, and is refused.',
+                handler: fn (array $input): array => $this->declareRole($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'name' => ['type' => 'string', 'description' => 'lowercase letters, numbers, hyphens'],
+                        'prompt' => ['type' => 'string', 'description' => 'the brief — who this specialist is and how it works'],
+                        'skills' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'skills it preloads (they suggest)'],
+                        'deny' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'tools withdrawn from its catalogue (this governs)'],
+                        'produces' => ['type' => 'string', 'description' => 'the artifact kind its answer is checked against, if any'],
+                    ],
+                    'required' => ['name', 'prompt'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => ['ok' => ['type' => 'boolean'], 'name' => ['type' => 'string'], 'path' => ['type' => 'string'], 'error' => ['type' => 'string']],
+                    'required' => ['ok'],
+                ],
+                mutating: true,
+                // Writes one role file the operator owns: a local persistent change, no third party,
+                // undone by editing or deleting the file.
+                effects: new EffectProfile(
+                    mutation: Mutation::Persistent,
+                    externality: Externality::None,
+                    reversibility: Reversibility::Compensatable,
+                    authority: Authority::WriteAsUser,
+                    subject: Subject::None,
                 ),
             ),
         ];
@@ -508,6 +644,8 @@ class AgentOperations implements CommandProvider
             },
             $this->presupuestoDelArbol(self::PASOS_POR_DEFECTO),
             prologue: fn (): ?string => $this->foundationArrow()?->teaching(),
+            roles: $this->rolesRegistry(),
+            skills: $this->skillsRegistryForSpawn(),
         );
 
         return [...$ops, $spawner->operation(), $spawner->resumeOperation(), $spawner->messageOperation(), $spawner->rolesOperation()];
@@ -796,6 +934,8 @@ class AgentOperations implements CommandProvider
                     // goal, which is what the child's window derives from. Caught by rental v5:
                     // zero taught briefs in three runs (the arm was inert).
                     prologue: fn (): ?string => $this->foundationArrow()?->teaching(),
+                    roles: $this->rolesRegistry(),
+                    skills: $this->skillsRegistryForSpawn(),
                 );
                 $contabilidad[] = $spawner->operation();
                 $contabilidad[] = $spawner->resumeOperation();
@@ -2278,23 +2418,181 @@ class AgentOperations implements CommandProvider
     /**
      * @param list<string> $herramientas los nombres que de verdad viajan en esta corrida
      */
+    /**
+     * Load one skill's body for the agent to follow. Blocks skills the author barred from the model
+     * (`disable-model-invocation: true`): the tool the agent calls must honour that flag, or the bar
+     * is decorative.
+     *
+     * @return array{ok: bool, name?: string, body?: string, error?: string}
+     */
+    /**
+     * Project every skill this app carries, for a surface to show. Reads only — the invocation flags
+     * come from the backend, never computed by a client that must not decide them.
+     *
+     * @return array{ok: bool, skills: list<array{name: string, description: string, modelInvocable: bool, userInvocable: bool, bodyChars: int}>}
+     */
+    /**
+     * Project the specialist roles this app declares (`.milpa/agents/*.md`), each with the skills it
+     * preloads. Reads only. A role NAMES authority that already governs (deny/first/produces); the
+     * skills it lists only suggest — the runtime injects them, it does not govern by them.
+     *
+     * @return array{ok: bool, roles: list<array<string, mixed>>}
+     */
+    /**
+     * Compose a specialist role from the UI: write `.milpa/agents/<name>.md`. A role without a brief
+     * is refused — restrictions with no prose are a muzzle wearing a name, not a specialist (the same
+     * invariant {@see AgentRole} enforces at construction).
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array{ok: bool, name?: string, path?: string, error?: string}
+     */
+    private function declareRole(array $input): array
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return ['ok' => false, 'error' => 'no kernel: roles are written under the app root'];
+        }
+
+        $name = strtolower(trim((string) ($input['name'] ?? '')));
+        if ($name === '' || preg_match('/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/', $name) !== 1) {
+            return ['ok' => false, 'error' => 'name must be lowercase letters, numbers and single hyphens'];
+        }
+        $prompt = trim((string) ($input['prompt'] ?? ''));
+        if ($prompt === '') {
+            return ['ok' => false, 'error' => 'a role needs a brief: restrictions without a prompt are a muzzle, not a specialist'];
+        }
+
+        $list = static function (mixed $v): array {
+            $items = \is_array($v) ? $v : (\is_string($v) ? explode(',', $v) : []);
+
+            return array_values(array_filter(array_map(static fn ($x): string => trim((string) $x), $items), static fn (string $x): bool => $x !== ''));
+        };
+        $skills = $list($input['skills'] ?? null);
+        $deny = $list($input['deny'] ?? null);
+        $produces = trim((string) ($input['produces'] ?? ''));
+
+        $front = "---\nname: {$name}\n";
+        if ($produces !== '') {
+            $front .= "produces: {$produces}\n";
+        }
+        if ($skills !== []) {
+            $front .= 'skills: ' . implode(', ', $skills) . "\n";
+        }
+        if ($deny !== []) {
+            $front .= 'deny: ' . implode(', ', $deny) . "\n";
+        }
+        $front .= "---\n";
+
+        $dir = $kernel->root() . '/.milpa/agents';
+        if (!is_dir($dir) && !@mkdir($dir, 0o777, true) && !is_dir($dir)) {
+            return ['ok' => false, 'error' => "could not create {$dir}"];
+        }
+        $path = "{$dir}/{$name}.md";
+        if (@file_put_contents($path, $front . $prompt . "\n") === false) {
+            return ['ok' => false, 'error' => "could not write {$path}"];
+        }
+
+        return ['ok' => true, 'name' => $name, 'path' => ".milpa/agents/{$name}.md"];
+    }
+
+    /** A RoleRegistry loaded with this app's roles (`.milpa/agents/*.md`) — the spawner delegates by these. */
+    private function rolesRegistry(): RoleRegistry
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        $registry = new RoleRegistry();
+        if ($kernel instanceof Kernel) {
+            $registry->loadFrom($kernel->root() . '/.milpa/agents');
+        }
+
+        return $registry;
+    }
+
+    /** A SkillRegistry rooted at this app, so a spawned role can be born with its skills' bodies. */
+    private function skillsRegistryForSpawn(): SkillRegistry
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+
+        return new SkillRegistry($kernel instanceof Kernel ? $kernel->root() : '');
+    }
+
+    /** @return array{ok: bool, roles: list<array<string, mixed>>} */
+    private function listRoles(): array
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return ['ok' => false, 'roles' => []];
+        }
+
+        $registry = new RoleRegistry();
+        $registry->loadFrom($kernel->root() . '/.milpa/agents');
+
+        return ['ok' => true, 'roles' => array_map(static fn (AgentRole $r): array => $r->toArray(), $registry->all())];
+    }
+
+    /** @return array{ok: bool, skills: list<array<string, mixed>>} */
+    private function listSkills(): array
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return ['ok' => false, 'skills' => []];
+        }
+
+        $skills = array_map(static fn (Skill $s): array => [
+            'name' => $s->name,
+            'description' => $s->description,
+            'modelInvocable' => $s->modelInvocable,
+            'userInvocable' => $s->userInvocable,
+            'bodyChars' => \strlen($s->body),
+        ], (new SkillRegistry($kernel->root()))->all());
+
+        return ['ok' => true, 'skills' => $skills];
+    }
+
+    /** @return array{ok: bool, name?: string, body?: string, error?: string} */
+    private function loadSkill(string $name): array
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return ['ok' => false, 'error' => 'no kernel: skills are read from the app root'];
+        }
+
+        $skill = (new SkillRegistry($kernel->root()))->get($name);
+        if ($skill === null) {
+            return ['ok' => false, 'error' => "unknown skill: {$name}"];
+        }
+        if (!$skill->modelInvocable) {
+            return ['ok' => false, 'error' => "skill '{$name}' is user-invocable only; ask the human to run it"];
+        }
+
+        // Wrap the body the way the reference harnesses do: name it, and hand the agent the skill's
+        // base directory so it can reach any bundled scripts/ or references/ this skill ships.
+        $resources = $skill->directory !== ''
+            ? "<skill_resources>Base directory for this skill: {$skill->directory}</skill_resources>\n"
+            : '';
+        $wrapped = "<skill_content name=\"{$skill->name}\">\n{$resources}{$skill->body}\n</skill_content>";
+
+        return ['ok' => true, 'name' => $skill->name, 'body' => $wrapped];
+    }
+
+    /** @param list<string> $herramientas */
     protected function systemPrompt(array $herramientas = []): string
     {
         $partes = [
-            'Eres el agente de esta app Milpa. Usa las herramientas para responder; no inventes '
-            . 'resultados. Si una herramienta contesta con `guidance`, esa guía es el siguiente paso '
-            . 'real: repítela en vez de improvisar uno.',
+            'You are the agent of this Milpa app. Use the tools to answer; do not invent results. If '
+            . 'a tool answers with `guidance`, that guidance is the real next step: repeat it instead of '
+            . 'improvising one.',
 
             // Lo que un agente necesita para no inventar un plugin donde había una línea de config.
-            "Cómo está armada esta app:\n"
-            . "- Cada cosa que sabe hacer es una operación declarada; las herramientas que ves SON esas operaciones.\n"
-            . "- Los plugins se declaran en `config/plugins.php`. Andamiar uno NO lo enciende: hay que agregar su clase a esa lista.\n"
-            . "- La persistencia sale de `config/app.php`, bloque `storage`: `driver` es `file`, `sqlite`, `mysql` o `memory`\n"
-            . "  (con su `path` o su `dsn`). Lo que `make entity` y `make crud` escriben ya lee ese bloque a través de\n"
-            . "  `Milpa\\Data\\RepositoryFactory`, así que cambiar de backend es esa línea y nada más. NO hace falta un plugin\n"
-            . "  de persistencia, y no existe uno.\n"
-            . "- Doctrine es de la convención legacy, no de ésta. Las entidades que `make` escribe implementan\n"
-            . '  `Milpa\\Data\\EntityInterface`: sin atributos de ORM, sin mapeo.',
+            "How this app is built:\n"
+            . "- Everything it can do is a declared operation; the tools you see ARE those operations.\n"
+            . "- Plugins are declared in `config/plugins.php`. Scaffolding one does NOT enable it: you must add its class to that list.\n"
+            . "- Persistence comes from `config/app.php`, the `storage` block: `driver` is `file`, `sqlite`, `mysql` or `memory`\n"
+            . "  (with its `path` or its `dsn`). What `make entity` and `make crud` write already reads that block through\n"
+            . "  `Milpa\\Data\\RepositoryFactory`, so switching backend is that one line and nothing more. You do NOT need a\n"
+            . "  persistence plugin, and none exists.\n"
+            . "- Doctrine belongs to the legacy convention, not this one. The entities `make` writes implement\n"
+            . '  `Milpa\\Data\\EntityInterface`: no ORM attributes, no mapping.',
 
         ];
 
@@ -2309,10 +2607,10 @@ class AgentOperations implements CommandProvider
         // plan que **el bucle nunca le enseña** — `AgentOrchestrator` no conocía `Todo` hasta que
         // apareció {@see \Milpa\AiGateway\PlanBoard}. Ésa es la pregunta entera en una frase.
         if ($this->instruccionDePlan($herramientas)) {
-            $partes[] = "Cuando el trabajo lleve más de dos o tres pasos:\n"
-                . "- Escribe un plan con `plan` ANTES de empezar, y agrega un pendiente con `todo` por cada parte.\n"
-                . "- Marca `todo` con status `done` EN CUANTO termines cada una, no al final.\n"
-                . '- Si una sesión ya trae plan y pendientes, sigue ésos en vez de escribir otros: son tuyos, de antes.';
+            $partes[] = "When the work takes more than two or three steps:\n"
+                . "- Write a plan with `plan` BEFORE you start, and add a todo with `todo` for each part.\n"
+                . "- Mark a `todo` `done` AS SOON AS you finish each one, not at the end.\n"
+                . '- If a session already carries a plan and todos, follow those instead of writing new ones: they are yours, from before.';
         }
 
         // LO QUE ESTA APP TRAE PUESTO, dicho por los paquetes mismos.
@@ -2326,7 +2624,24 @@ class AgentOperations implements CommandProvider
         // prompt que hablara de tokens en una app sin identidad estaría describiendo otra.
         $puesto = Capabilities::briefing();
         if ($puesto !== []) {
-            $partes[] = "Lo que esta app trae puesto:\n- " . implode("\n- ", $puesto);
+            $partes[] = "What this app has installed:\n- " . implode("\n- ", $puesto);
+        }
+
+        // Skills — non-deterministic guidance the agent reaches for by judgment, not tools it runs.
+        // Only the model-invocable ones are advertised: a skill barred from the model
+        // (`disable-model-invocation`) is withheld here so the agent never reaches for it.
+        $kernelSkills = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if ($kernelSkills instanceof Kernel) {
+            $skills = (new SkillRegistry($kernelSkills->root()))->modelInvocable();
+            if ($skills !== []) {
+                $lineas = array_map(static fn (Skill $s): string => "- {$s->name}: {$s->description}", $skills);
+                $partes[] = "<system-reminder> A skill is a reusable set of task-specific instructions. "
+                    . "The following skills are available in this session:\n<available_skills>\n"
+                    . implode("\n", $lineas)
+                    . "\n</available_skills>\n"
+                    . "When a skill matches the task, call `skill:load` with its name, read its instructions, "
+                    . "and follow them before you act. </system-reminder>";
+            }
         }
 
         $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;

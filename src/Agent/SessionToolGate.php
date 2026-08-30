@@ -250,7 +250,10 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             // cacheado se queda viejo exactamente cuando el humano acaba de decidir supervisar —
             // la clase de defecto que Q-P20-B midió (la foto contra el estado vigente).
             $this->sessions->ceilingFor($this->session->id),
-            composed: $composicion?->effective,
+            // For a mutation, the composed (possibly trial-lowered) ceiling. For a READ there is
+            // nothing to compose, but a read can still carry externality — the egress axis — so the
+            // declared ceiling is handed over instead of null, and the policy judges the crossing.
+            composed: $composicion !== null ? $composicion->effective : $operacion->effectCeiling(),
             composition: $composicion,
         );
 

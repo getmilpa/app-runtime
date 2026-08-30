@@ -21,6 +21,7 @@ use Milpa\AppRuntime\Agent\Artifact\ArtifactContract;
 use Milpa\AppRuntime\Agent\Artifact\ArtifactRegistry;
 use Milpa\AppRuntime\Agent\Role\AgentRole;
 use Milpa\AppRuntime\Agent\Role\RoleRegistry;
+use Milpa\AppRuntime\Agent\Skill\SkillRegistry;
 use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Externality;
@@ -77,6 +78,10 @@ final class SubAgentSpawner implements ContractProducer
         // vocabulary does: picking a role is a decision of the DELEGATION, and an unknown name has to
         // be refusable at the door rather than discovered on the way back.
         private readonly RoleRegistry $roles = new RoleRegistry(),
+        // THE SKILLS A ROLE PRELOADS. A specialist's role names the skills it works by; at spawn the
+        // child is born with their FULL bodies in its brief (agentskills.io: a subagent gets the skill
+        // content injected at startup, not just its description). Empty by default, like the roles.
+        private readonly SkillRegistry $skills = new SkillRegistry(''),
         // THE PROLOGUE (greenhouse decisions/0007): what every child must be born knowing —
         // the unearned transition's teaching, derived at SPAWN TIME by whoever delegates. It
         // lives here because the goal is composed here: prepending it anywhere later misses the
@@ -280,7 +285,18 @@ final class SubAgentSpawner implements ContractProducer
                 )];
             }
             $role = $this->roles->get($rolePedido);
-            $brief = $role->prompt . "\n\n" . $brief;
+
+            // 2c: the child is born with the FULL body of each skill its role preloads, so the
+            // specialist works by its skill's instructions without having to reach for them.
+            $preloaded = '';
+            foreach ($role->skills as $skillName) {
+                $skill = $this->skills->get($skillName);
+                if ($skill !== null) {
+                    $preloaded .= "<skill_content name=\"{$skill->name}\">\n{$skill->body}\n</skill_content>\n\n";
+                }
+            }
+
+            $brief = $preloaded . $role->prompt . "\n\n" . $brief;
 
             // ITS ARTIFACT APPLIES WHEN THE DELEGATOR ASKED FOR NONE — and this goes HERE, not lower.
             //
