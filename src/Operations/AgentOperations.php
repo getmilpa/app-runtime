@@ -86,6 +86,8 @@ use Milpa\AppRuntime\Agent\MercureBroadcaster;
 use Milpa\AppRuntime\Agent\SurfaceBroadcaster;
 use Milpa\EventStore\FileEventStore;
 use Milpa\Runtime\Kernel;
+use Milpa\AppRuntime\Agent\Skill\Skill;
+use Milpa\AppRuntime\Agent\Skill\SkillRegistry;
 use Milpa\ToolRuntime\ToolRegistry;
 use Psr\Log\NullLogger;
 
@@ -230,6 +232,37 @@ class AgentOperations implements CommandProvider
                 // A projection may not proclaim what only the house can verify: it RE-VERIFIES the
                 // stored assertion live and reports the fact, so a surface can show identity without
                 // inventing it (greenhouse decisions/0117). It reads, reaches nobody, changes nothing.
+                effects: new EffectProfile(
+                    mutation: Mutation::None,
+                    externality: Externality::None,
+                    reversibility: Reversibility::Guaranteed,
+                    authority: Authority::Read,
+                    subject: Subject::None,
+                    rollbackContract: 'reads only: there is nothing to roll back',
+                ),
+            ),
+            new Operation(
+                name: 'skill:load',
+                description: 'Load a skill by name and follow its instructions for this task. Call this when a listed skill matches what you are about to do — its guidance is the real next step, not optional.',
+                handler: fn (array $input): array => $this->loadSkill((string) ($input['name'] ?? '')),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'name' => ['type' => 'string', 'description' => 'the skill name, e.g. governed-discovery'],
+                    ],
+                    'required' => ['name'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean'],
+                        'name' => ['type' => 'string'],
+                        'body' => ['type' => 'string', 'description' => 'the full skill instructions to follow'],
+                        'error' => ['type' => 'string'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // Reads a local skill file: changes nothing, reaches nobody.
                 effects: new EffectProfile(
                     mutation: Mutation::None,
                     externality: Externality::None,
@@ -2278,6 +2311,31 @@ class AgentOperations implements CommandProvider
     /**
      * @param list<string> $herramientas los nombres que de verdad viajan en esta corrida
      */
+    /**
+     * Load one skill's body for the agent to follow. Blocks skills the author barred from the model
+     * (`disable-model-invocation: true`): the tool the agent calls must honour that flag, or the bar
+     * is decorative.
+     *
+     * @return array{ok: bool, name?: string, body?: string, error?: string}
+     */
+    private function loadSkill(string $name): array
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return ['ok' => false, 'error' => 'no kernel: skills are read from the app root'];
+        }
+
+        $skill = (new SkillRegistry($kernel->root()))->get($name);
+        if ($skill === null) {
+            return ['ok' => false, 'error' => "unknown skill: {$name}"];
+        }
+        if (!$skill->modelInvocable) {
+            return ['ok' => false, 'error' => "skill '{$name}' is user-invocable only; ask the human to run it"];
+        }
+
+        return ['ok' => true, 'name' => $skill->name, 'body' => $skill->body];
+    }
+
     protected function systemPrompt(array $herramientas = []): string
     {
         $partes = [
@@ -2327,6 +2385,20 @@ class AgentOperations implements CommandProvider
         $puesto = Capabilities::briefing();
         if ($puesto !== []) {
             $partes[] = "Lo que esta app trae puesto:\n- " . implode("\n- ", $puesto);
+        }
+
+        // Skills — non-deterministic guidance the agent reaches for by judgment, not tools it runs.
+        // Only the model-invocable ones are advertised: a skill barred from the model
+        // (`disable-model-invocation`) is withheld here so the agent never reaches for it.
+        $kernelSkills = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if ($kernelSkills instanceof Kernel) {
+            $skills = (new SkillRegistry($kernelSkills->root()))->modelInvocable();
+            if ($skills !== []) {
+                $lineas = array_map(static fn (Skill $s): string => "- {$s->name}: {$s->description}", $skills);
+                $partes[] = "Skills disponibles — guías de criterio, no herramientas. Cuando una haga match con la "
+                    . "tarea, llama `skill:load` con su `name`, LEE sus instrucciones y SÍGUELAS antes de actuar:\n"
+                    . implode("\n", $lineas);
+            }
         }
 
         $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
