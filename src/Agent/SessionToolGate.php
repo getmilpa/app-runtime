@@ -253,7 +253,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             // For a mutation, the composed (possibly trial-lowered) ceiling. For a READ there is
             // nothing to compose, but a read can still carry externality — the egress axis — so the
             // declared ceiling is handed over instead of null, and the policy judges the crossing.
-            composed: $composicion?->effective ?? $operacion->effectCeiling(),
+            composed: $composicion !== null ? $composicion->effective : $operacion->effectCeiling(),
             composition: $composicion,
         );
 

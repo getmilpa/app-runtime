@@ -2516,6 +2516,7 @@ class AgentOperations implements CommandProvider
         return new SkillRegistry($kernel instanceof Kernel ? $kernel->root() : '');
     }
 
+    /** @return array{ok: bool, roles: list<array<string, mixed>>} */
     private function listRoles(): array
     {
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
@@ -2529,6 +2530,7 @@ class AgentOperations implements CommandProvider
         return ['ok' => true, 'roles' => array_map(static fn (AgentRole $r): array => $r->toArray(), $registry->all())];
     }
 
+    /** @return array{ok: bool, skills: list<array<string, mixed>>} */
     private function listSkills(): array
     {
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
@@ -2547,6 +2549,7 @@ class AgentOperations implements CommandProvider
         return ['ok' => true, 'skills' => $skills];
     }
 
+    /** @return array{ok: bool, name?: string, body?: string, error?: string} */
     private function loadSkill(string $name): array
     {
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
@@ -2572,6 +2575,7 @@ class AgentOperations implements CommandProvider
         return ['ok' => true, 'name' => $skill->name, 'body' => $wrapped];
     }
 
+    /** @param list<string> $herramientas */
     protected function systemPrompt(array $herramientas = []): string
     {
         $partes = [

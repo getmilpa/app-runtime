@@ -53,8 +53,8 @@ final class AgentRole
      * @param list<string> $deny     tools removed from its catalogue — executed, not requested
      * @param list<string> $first    tools that must run before any other — executed, not requested
      * @param string       $origin   where it came from: a package name, or the app's own directory
-     * @param list<string>  $skills   skills this role preloads — SUGGESTS (guidance for its judgment),
-     *                                like the prompt; the runtime injects them, it does not govern by them
+     * @param list<string> $skills   skills this role preloads — SUGGESTS (guidance for its judgment),
+     *                               like the prompt; the runtime injects them, it does not govern by them
      */
     public function __construct(
         public readonly string $name,

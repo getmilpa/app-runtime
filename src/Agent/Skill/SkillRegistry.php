@@ -27,23 +27,33 @@ final class SkillRegistry
         }
     }
 
-    /** @return list<Skill> */
+    /**
+     * Every skill this app carries.
+     *
+     * @return list<Skill>
+     */
     public function all(): array
     {
         return array_values($this->skills);
     }
 
-    /** The skills the agent is allowed to reach for on its own. @return list<Skill> */
+    /**
+     * The skills the agent is allowed to reach for on its own.
+     *
+     * @return list<Skill>
+     */
     public function modelInvocable(): array
     {
         return array_values(array_filter($this->skills, static fn (Skill $s): bool => $s->modelInvocable));
     }
 
+    /** One skill by name, or null if this app declares no such skill. */
     public function get(string $name): ?Skill
     {
         return $this->skills[$name] ?? null;
     }
 
+    /** Parse one SKILL.md into a Skill, or null if it does not parse or declares no description. */
     public static function parse(string $content, string $fallbackName, string $directory = ''): ?Skill
     {
         if (preg_match('/^---\R(.*?)\R---\R(.*)$/s', trim($content), $m) !== 1) {
