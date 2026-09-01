@@ -59,6 +59,38 @@ final class AgentEndpoint
         return \is_string($entorno) && $entorno !== '' ? $entorno : null;
     }
 
+    /**
+     * The model's declared context window in tokens, from the same precedence — or `null` when
+     * nobody declared one.
+     *
+     * It resolves HERE and not in the compaction bridge because it is a property of the endpoint
+     * the same way the model's name is: whoever swaps the model swaps the context that comes with
+     * it, and a second resolver would be the two-copies defect this class exists to close. The
+     * value hands the `Compactor` a whole-window budget — measured need in greenhouse
+     * evidence/0443, where a 32,768-token model was re-entered at 35.6k because only the turn tail
+     * had a budget and nothing bounded the system side.
+     *
+     * A value that is not a positive whole number resolves as undeclared rather than guessed: a
+     * budget of `0` or `-1` would not bound a window, it would poison every derived share.
+     */
+    public static function contextTokens(?Config $config): ?int
+    {
+        $declarado = $config?->get('agent.contextTokens');
+        if (\is_int($declarado) && $declarado > 0) {
+            return $declarado;
+        }
+        if (\is_string($declarado) && ctype_digit($declarado) && (int) $declarado > 0) {
+            return (int) $declarado;
+        }
+
+        $entorno = getenv('MILPA_AGENT_CONTEXT_TOKENS');
+        if (\is_string($entorno) && ctype_digit($entorno) && (int) $entorno > 0) {
+            return (int) $entorno;
+        }
+
+        return null;
+    }
+
     /** The model name, from the same precedence, or null when nobody named one. */
     public static function model(?Config $config): ?string
     {
