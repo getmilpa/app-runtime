@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.100.0](https://github.com/getmilpa/app-runtime/compare/v0.99.0...v0.100.0) (2026-09-01)
+
+
+### Features
+
+* house:context — the house explains itself structurally in one call ([#240](https://github.com/getmilpa/app-runtime/issues/240)) ([b695495](https://github.com/getmilpa/app-runtime/commit/b6954959ed55a0baace1e1af7341da6b79f0ea55))
+
 ## [0.99.0](https://github.com/getmilpa/app-runtime/compare/v0.98.0...v0.99.0) (2026-09-01)
 
 
