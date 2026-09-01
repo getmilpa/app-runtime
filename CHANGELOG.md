@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.99.0](https://github.com/getmilpa/app-runtime/compare/v0.98.0...v0.99.0) (2026-09-01)
+
+
+### Features
+
+* **contract:** operation:contract — one uniform surface to read what an operation declares ([#238](https://github.com/getmilpa/app-runtime/issues/238)) ([777a511](https://github.com/getmilpa/app-runtime/commit/777a5113c9c36552851b5d68ec9efa79e5d894cf))
+
 ## [0.98.0](https://github.com/getmilpa/app-runtime/compare/v0.97.0...v0.98.0) (2026-09-01)
 
 
