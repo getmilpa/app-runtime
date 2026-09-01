@@ -10,6 +10,7 @@ use Milpa\Agent\SessionStore;
 use Milpa\Agent\Todo;
 use Milpa\Agent\TodoStatus;
 use Milpa\AppRuntime\Agent\ClosureVerdict;
+use Milpa\AppRuntime\Tests\Support\LegacyTodoWriter;
 use Milpa\EventStore\InMemoryEventStore;
 use PHPUnit\Framework\TestCase;
 
@@ -58,7 +59,9 @@ final class ClosureVerdictTest extends TestCase
 
     public function testADoneWithoutEvidenceIsNamedNotHidden(): void
     {
-        $this->store->setTodo('s', new Todo('t1', 'ship it', TodoStatus::Done));
+        // A bare done is HISTORY now (greenhouse decisions/0183): the door refuses to write one, so
+        // the stream this verdict must keep naming is simulated raw — old streams exist.
+        LegacyTodoWriter::write($this->eventos, 's', new Todo('t1', 'ship it', TodoStatus::Done));
 
         $sesion = $this->store->load('s');
         self::assertNotNull($sesion);
@@ -84,7 +87,7 @@ final class ClosureVerdictTest extends TestCase
     public function testReasonsAreBoundedTheRestIsCounted(): void
     {
         for ($i = 1; $i <= 20; ++$i) {
-            $this->store->setTodo('s', new Todo("t{$i}", 'unevidenced work', TodoStatus::Done));
+            LegacyTodoWriter::write($this->eventos, 's', new Todo("t{$i}", 'unevidenced work', TodoStatus::Done));
         }
 
         $sesion = $this->store->load('s');

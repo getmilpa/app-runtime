@@ -7,6 +7,7 @@ namespace Milpa\AppRuntime\Tests\Agent;
 use Milpa\AppRuntime\Agent\BroadcastingEventStore;
 use Milpa\AppRuntime\Agent\MercureBroadcaster;
 use Milpa\AppRuntime\Agent\SurfaceBroadcaster;
+use Milpa\Agent\Evidence;
 use Milpa\Agent\PendingQuestion;
 use Milpa\Agent\SessionProjector;
 use Milpa\Agent\SessionStore;
@@ -43,7 +44,7 @@ final class BroadcastingEventStoreTest extends TestCase
         $almacen->setTodo('s1', new Todo('t1', 'A', TodoStatus::Pending));
         $almacen->recordTurn('s1', 'assistant', 'voy');
         $almacen->recordToolCall('s1', 'edit', [], 'ok', true, true);
-        $almacen->setTodo('s1', new Todo('t1', 'A', TodoStatus::Done));
+        $almacen->completeTodo('s1', 't1', Evidence::operationOk('e1', 'edit'));
         $almacen->setPlan('s1', 'mejor B primero');
         $almacen->ask('s1', new PendingQuestion('perm:make', '¿sigo?', ['sí', 'no']));
         $almacen->end('s1', 'listo');

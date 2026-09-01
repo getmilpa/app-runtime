@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Agent;
 
 use Milpa\Agent\AutonomyMode;
+use Milpa\Agent\Evidence;
 use Milpa\Agent\SessionStore;
 use Milpa\Agent\Todo;
 use Milpa\Agent\TodoStatus;
@@ -77,7 +78,7 @@ final class SessionPlanBoardTest extends TestCase
         $antes = (string) $this->tablero()->current();
         self::assertStringContainsString('crear el plugin', $antes);
 
-        $this->almacen->setTodo('j', new Todo('t1', 'crear el plugin', TodoStatus::Done));
+        $this->almacen->completeTodo('j', 't1', Evidence::operationOk('e1', 'plugins:register'));
 
         $despues = (string) $this->tablero()->current();
 
@@ -91,6 +92,13 @@ final class SessionPlanBoardTest extends TestCase
     {
         $this->almacen->start('j', 'x', AutonomyMode::Auto);
         foreach (TodoStatus::cases() as $i => $estado) {
+            if ($estado === TodoStatus::Done) {
+                // done ya no nace por setTodo (greenhouse decisions/0183): se abre y se cierra por su puerta.
+                $this->almacen->setTodo('j', new Todo('t' . $i, 'tarea ' . $i, TodoStatus::Pending));
+                $this->almacen->completeTodo('j', 't' . $i, Evidence::testPassed('e' . $i, 'vendor/bin/phpunit'));
+
+                continue;
+            }
             $this->almacen->setTodo('j', new Todo('t' . $i, 'tarea ' . $i, $estado));
         }
 

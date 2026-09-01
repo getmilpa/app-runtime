@@ -10,6 +10,7 @@ use Milpa\Agent\PendingQuestion;
 use Milpa\Agent\SessionStore;
 use Milpa\Agent\Todo;
 use Milpa\Agent\TodoStatus;
+use Milpa\AppRuntime\Tests\Support\LegacyTodoWriter;
 use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Externality;
@@ -473,7 +474,9 @@ final class SessionOperationsTest extends TestCase
         $almacen = $this->almacen();
         $almacen->start('s1', 'x');
         $almacen->setTodo('s1', new Todo('t1', 'mirar', TodoStatus::Pending));
-        $almacen->setTodo('s1', new Todo('t1', 'mirar', TodoStatus::Done));
+        // The move to done rides as raw history (0183): the timeline pins TODO cards, and the
+        // sanctioned door would add an evidence card that is not what this test measures.
+        LegacyTodoWriter::write($this->eventos, 's1', new Todo('t1', 'mirar', TodoStatus::Done));
 
         $todo = $this->llamar('agent:timeline', ['session' => 's1']);
 
@@ -650,7 +653,7 @@ final class SessionOperationsTest extends TestCase
         $almacen->start('s1', 'x');
         $almacen->setTodo('s1', new Todo('t1', 'algo', TodoStatus::InProgress));
         // Y una ya terminada al lado: lo que cuenta es lo abierto, no cuantas tarjetas hay.
-        $almacen->setTodo('s1', new Todo('t2', 'lo otro', TodoStatus::Done));
+        LegacyTodoWriter::write($this->eventos, 's1', new Todo('t2', 'lo otro', TodoStatus::Done));
         $almacen->recordToolCall('s1', 'edit', ['path' => 'a.php'], 'ok', true, true);
         $almacen->recordToolCall('s1', 'edit', ['path' => 'b.php'], 'ok', true, true);
 
@@ -782,7 +785,7 @@ final class SessionOperationsTest extends TestCase
         $almacen->start('j', 'la tarea');
         $almacen->setTodo('j', new \Milpa\Agent\Todo('t1', 'crear el plugin'));
         $almacen->setTodo('j', new \Milpa\Agent\Todo('t2', 'registrarlo'));
-        $almacen->setTodo('j', new \Milpa\Agent\Todo('t1', 'crear el plugin', \Milpa\Agent\TodoStatus::Done));
+        LegacyTodoWriter::write($this->eventos, 'j', new \Milpa\Agent\Todo('t1', 'crear el plugin', \Milpa\Agent\TodoStatus::Done));
 
         $r = $this->llamar('agent:board', ['session' => 'j']);
 

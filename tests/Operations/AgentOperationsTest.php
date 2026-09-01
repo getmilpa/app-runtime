@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Operations;
 
 use Milpa\Agent\AutonomyMode;
+use Milpa\Agent\Evidence;
 use Milpa\Agent\SessionStore;
 use Milpa\Agent\Todo;
 use Milpa\Agent\TodoStatus;
@@ -131,7 +132,7 @@ final class AgentOperationsTest extends TestCase
             'declared + plan + pending: the system renews with orientation, not curation',
         );
 
-        $this->store->setTodo('s', new Todo('t1', 'pending work', TodoStatus::Done, version: 2));
+        $this->store->completeTodo('s', 't1', Evidence::testPassed('e1', 'vendor/bin/phpunit'));
         self::assertSame(
             [],
             $this->operations->standingObligation(null, 's', $this->store),

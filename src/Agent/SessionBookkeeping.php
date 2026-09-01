@@ -14,11 +14,15 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Agent;
 
+use Milpa\Agent\Evidence;
+use Milpa\Agent\EvidenceKind;
+use Milpa\Agent\SessionFacts;
 use Milpa\Agent\SessionStore;
 use Milpa\Agent\Todo;
 use Milpa\Agent\TodoStatus;
 use Milpa\Command\Operation;
 use Milpa\Console\McpProjector;
+use Milpa\EventStore\EventStoreInterface;
 /**
  * Las herramientas con las que el agente escribe su propio plan y mueve sus pendientes (P16.3).
  *
@@ -54,6 +58,11 @@ final readonly class SessionBookkeeping implements ContractProducer
     public function __construct(
         private SessionStore $sessions,
         private string $sessionId,
+        // THE SESSION'S OWN STREAM, for JUDGING claims (greenhouse decisions/0183). Optional because
+        // not every construction site can reach it: without it the notebook still declares and
+        // gates identically, and `work:claim-verified` FAILS CLOSED — it refuses to judge what it
+        // cannot read, instead of taking the model's word for the work.
+        private ?EventStoreInterface $events = null,
     ) {
     }
 
@@ -67,7 +76,7 @@ final readonly class SessionBookkeeping implements ContractProducer
      */
     public static function names(): array
     {
-        return ['plan', 'todo'];
+        return ['plan', 'todo', 'work:claim-verified'];
     }
 
     /**
@@ -140,7 +149,10 @@ final readonly class SessionBookkeeping implements ContractProducer
             ),
             new Operation(
                 name: 'todo',
-                description: 'Agrega un pendiente o mueve uno que ya existe. Marca `done` en cuanto termines algo',
+                // NO INVITATION TO ASSERT (greenhouse decisions/0183): this tool used to say «mark
+                // done as soon as you finish» — the invitation to claim without evidence, printed in
+                // the model's contract. Finishing is now a CLAIM, and it has its own door.
+                description: 'Add a pending item or move one that already exists. Closing as done does not live here: claim it via work:claim-verified with the evidence that backs it',
                 handler: fn (array $input): array => $this->pendiente($input),
                 inputSchema: [
                     'type' => 'object',
@@ -150,8 +162,8 @@ final readonly class SessionBookkeeping implements ContractProducer
                         'replaces' => ['type' => 'string', 'description' => 'The id of the item this one supersedes, when you reword one that already existed'],
                         'status' => [
                             'type' => 'string',
-                            'enum' => ['pending', 'in_progress', 'done', 'blocked'],
-                            'description' => 'Where it stands; `pending` when unsaid',
+                            'enum' => ['pending', 'in_progress', 'blocked'],
+                            'description' => 'Where it stands; `pending` when unsaid. There is no `done` here: a finished item is claimed via work:claim-verified',
                         ],
                     ],
                     'required' => [],
@@ -174,6 +186,38 @@ final readonly class SessionBookkeeping implements ContractProducer
                 // `Compensatable` y no `Guaranteed`: un pendiente se mueve o se reemplaza, pero un
                 // apéndice no se des-apenda. `Guaranteed` es el único nivel que compra MENOS
                 // escrutinio y habría sido la mentira cómoda (greenhouse evidence/0189).
+                effects: new EffectProfile(
+                    mutation: Mutation::Persistent,
+                    externality: Externality::None,
+                    reversibility: Reversibility::Compensatable,
+                    authority: Authority::None,
+                    subject: Subject::Data,
+                ),
+                surfaces: ['mcp'],
+            ),
+            new Operation(
+                name: 'work:claim-verified',
+                description: 'Claim a todo as verified done: name the todo, the kind of evidence (test-passed, operation-ok, artifact-created) and the reference that backs it. The session judges the claim against its RECORDED facts — a claim nothing covers is refused and the todo stays open',
+                handler: fn (array $input): array => $this->claimVerified($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'todo' => ['type' => 'string', 'description' => 'The id of the todo this claim closes'],
+                        'kind' => [
+                            'type' => 'string',
+                            'enum' => ['test-passed', 'operation-ok', 'artifact-created'],
+                            'description' => 'What kind of recorded evidence backs the claim',
+                        ],
+                        'reference' => ['type' => 'string', 'description' => 'What backs it: the artifact, operation or test a reader can re-check'],
+                    ],
+                    'required' => ['todo', 'kind', 'reference'],
+                ],
+                mutating: true,
+                // THE SAME SELF-LOG PROFILE AS plan/todo (greenhouse evidence/0189, decisions/0183):
+                // the claim appends to this session's own stream and the judging READS it — nothing
+                // leaves the app, nothing asks for privilege. Planning and claiming must never ask
+                // permission; the gate that matters guards the world, not the notebook. What keeps
+                // this honest is not a gate but the judge inside: an uncovered claim is refused.
                 effects: new EffectProfile(
                     mutation: Mutation::Persistent,
                     externality: Externality::None,
@@ -213,6 +257,18 @@ final readonly class SessionBookkeeping implements ContractProducer
         $sesion = $this->sessions->load($this->sessionId);
         if ($sesion === null) {
             return ['ok' => false, 'error' => 'esta sesión ya no existe'];
+        }
+
+        // THE CORRECTING ERROR, never silence (greenhouse decisions/0183): a model that still asks
+        // for `done` here gets told where done now lives, and nothing moves. Checked on the RAW
+        // input — the enum no longer offers it, but an insistent caller is answered, not ignored.
+        if (($input['status'] ?? null) === 'done') {
+            return [
+                'ok' => false,
+                'error' => '`done` is not this tool\'s to write (greenhouse decisions/0183): claim it '
+                    . 'via work:claim-verified with the todo id, the kind of evidence that backs it '
+                    . '(test-passed | operation-ok | artifact-created) and the reference to re-check',
+            ];
         }
 
         $id = \is_string($input['id'] ?? null) ? trim($input['id']) : '';
@@ -268,5 +324,229 @@ final readonly class SessionBookkeeping implements ContractProducer
         $this->sessions->setTodo($this->sessionId, $nuevo);
 
         return ['ok' => true, 'todo' => $nuevo->toArray()];
+    }
+
+    /**
+     * SUMMARY: Judge a claim of finished work against the session's RECORDED facts, and complete
+     * the todo only when a covering fact exists (greenhouse decisions/0183).
+     *
+     * Deterministic by construction: nothing re-runs, nothing touches the filesystem — the judge
+     * reads only what the stream already holds, through milpa/agent's own projections
+     * ({@see SessionFacts}). No covering fact refuses and the todo does not move; a recorded RED
+     * verdict for the reference refuses naming the red; a covering green fact goes through
+     * {@see SessionStore::completeTodo()} — the store's only door to `done` — and the answer says
+     * WHAT evidence closed it.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function claimVerified(array $input): array
+    {
+        $sesion = $this->sessions->load($this->sessionId);
+        if ($sesion === null) {
+            return ['ok' => false, 'error' => 'esta sesión ya no existe'];
+        }
+
+        $todoId = \is_string($input['todo'] ?? null) ? trim($input['todo']) : '';
+        $kindRaw = \is_string($input['kind'] ?? null) ? trim($input['kind']) : '';
+        $reference = \is_string($input['reference'] ?? null) ? trim($input['reference']) : '';
+        $kind = match ($kindRaw) {
+            'test-passed' => EvidenceKind::TestPassed,
+            'operation-ok' => EvidenceKind::OperationOk,
+            'artifact-created' => EvidenceKind::ArtifactCreated,
+            default => null,
+        };
+
+        if ($todoId === '' || $kind === null || $reference === '') {
+            return [
+                'ok' => false,
+                'error' => '`todo`, `kind` and `reference` are all required: the todo id, the kind '
+                    . 'of evidence (test-passed | operation-ok | artifact-created) and the reference '
+                    . 'that backs the claim',
+            ];
+        }
+
+        $tarjeta = null;
+        foreach ($sesion->todos as $t) {
+            if ($t->id === $todoId) {
+                $tarjeta = $t;
+
+                break;
+            }
+        }
+        if ($tarjeta === null) {
+            return ['ok' => false, 'error' => "there is no todo «{$todoId}» in this session to claim"];
+        }
+        if ($tarjeta->status === TodoStatus::Done) {
+            return ['ok' => false, 'error' => "«{$todoId}» is already done: there is nothing left to claim"];
+        }
+
+        if ($this->events === null) {
+            return [
+                'ok' => false,
+                'error' => 'this claim cannot be judged: no session stream is reachable from here, '
+                    . 'and a claim nobody can check is refused rather than believed (greenhouse '
+                    . 'decisions/0183)',
+            ];
+        }
+
+        $facts = SessionFacts::of($this->events, $this->sessionId);
+
+        // A recorded RED verdict for the reference refuses the claim outright, whatever the kind:
+        // claiming done over a red is exactly the assertion this door exists to stop.
+        $verdict = $facts->lastVerificationOf($reference);
+        if (($verdict['ok'] ?? false) === true && ($verdict['verification']['verified'] ?? true) === false) {
+            return [
+                'ok' => false,
+                'error' => sprintf(
+                    'the claim is refused: the last recorded verification verdict for «%s» is RED '
+                    . '(operation %s, seq %d). Fix it and re-verify before claiming',
+                    $reference,
+                    \is_string($verdict['verification']['operation'] ?? null) ? $verdict['verification']['operation'] : '?',
+                    \is_int($verdict['verification']['seq'] ?? null) ? $verdict['verification']['seq'] : 0,
+                ),
+            ];
+        }
+
+        $covering = $this->coveringFact($facts, $kind, $reference, $verdict);
+        if ($covering === null) {
+            return [
+                'ok' => false,
+                'error' => sprintf(
+                    'no recorded fact covers the claim: looked for %s and found none. Run the work '
+                    . 'through the governed tools first — the stream is what gets judged, not the word',
+                    $this->lookedFor($kind, $reference),
+                ),
+            ];
+        }
+
+        $this->sessions->completeTodo(
+            $this->sessionId,
+            $todoId,
+            new Evidence('e' . (\count($sesion->evidence) + 1), $kind, $reference),
+        );
+
+        $despues = $this->sessions->load($this->sessionId);
+        $cerrado = null;
+        foreach ($despues->todos ?? [] as $t) {
+            if ($t->id === $todoId) {
+                $cerrado = $t;
+
+                break;
+            }
+        }
+
+        return [
+            'ok' => true,
+            'session' => $this->sessionId,
+            'todo' => $cerrado?->toArray(),
+            'evidence' => [
+                'kind' => $kindRaw,
+                'reference' => $reference,
+                // WHAT closed it, so the answer teaches instead of merely confirming.
+                'coveredBy' => $covering,
+            ],
+        ];
+    }
+
+    /**
+     * SUMMARY: The recorded fact that covers a claim of `$kind` for `$reference`, or `null` when
+     * nothing in the stream does — the fail-closed half of the judge.
+     *
+     * @param array<string, mixed> $verdict the already-fetched {@see SessionFacts::lastVerificationOf()} answer
+     *
+     * @return array<string, mixed>|null
+     */
+    private function coveringFact(SessionFacts $facts, EvidenceKind $kind, string $reference, array $verdict): ?array
+    {
+        if ($kind === EvidenceKind::TestPassed) {
+            // A producer-declared verification verdict is the strongest fact the stream holds.
+            if (($verdict['ok'] ?? false) === true && ($verdict['verification']['verified'] ?? false) === true) {
+                return [
+                    'fact' => 'verification',
+                    'operation' => $verdict['verification']['operation'] ?? '?',
+                    'seq' => $verdict['verification']['seq'] ?? 0,
+                ];
+            }
+
+            // Or the last recorded `test` call, when it succeeded AND names the reference.
+            $test = $facts->operationResult('test');
+            $call = \is_array($test['call'] ?? null) ? $test['call'] : [];
+            if (($test['ok'] ?? false) === true
+                && ($call['succeeded'] ?? false) === true
+                && $this->callNamesReference($call, $reference)
+            ) {
+                return ['fact' => 'call', 'operation' => 'test', 'seq' => $call['seq'] ?? 0];
+            }
+
+            return null;
+        }
+
+        if ($kind === EvidenceKind::OperationOk) {
+            $answer = $facts->operationResult($reference);
+            $call = \is_array($answer['call'] ?? null) ? $answer['call'] : [];
+            if (($answer['ok'] ?? false) === true && ($call['succeeded'] ?? false) === true) {
+                return ['fact' => 'call', 'operation' => $reference, 'seq' => $call['seq'] ?? 0];
+            }
+
+            // A governed execution receipt proves an operation ran even when no tool call names it.
+            $operational = $facts->operationalFacts(\PHP_INT_MAX);
+            foreach (\is_array($operational['executions'] ?? null) ? $operational['executions'] : [] as $execution) {
+                if (($execution['operation'] ?? null) === $reference) {
+                    return ['fact' => 'execution', 'operation' => $reference, 'seq' => $execution['seq'] ?? 0];
+                }
+            }
+
+            return null;
+        }
+
+        // artifact-created: the derived work state must have reached materialisation — a mutating
+        // call's own ok:true naming the artifact. `attempted` is precisely what does NOT count.
+        $state = $facts->workStateFor($reference);
+        $reached = \is_string($state['workState']['state'] ?? null) ? $state['workState']['state'] : '';
+        if (($state['ok'] ?? false) === true && \in_array($reached, ['materialized', 'superseded', 'verified'], true)) {
+            return ['fact' => 'work-state', 'state' => $reached, 'artifact' => $reference];
+        }
+
+        return null;
+    }
+
+    /**
+     * SUMMARY: Whether a projected call names `$reference` in its target arguments or its result —
+     * the identity check for facts (like `test` runs) that carry no artifact identities.
+     *
+     * @param array<string, mixed> $call
+     */
+    private function callNamesReference(array $call, string $reference): bool
+    {
+        foreach (\is_array($call['target'] ?? null) ? $call['target'] : [] as $value) {
+            if (\is_string($value) && $value === $reference) {
+                return true;
+            }
+        }
+
+        $result = $call['result'] ?? '';
+
+        return \is_string($result) && $result !== '' && str_contains($result, $reference);
+    }
+
+    /** SUMMARY: Name exactly what the judge looked for, so a refusal corrects instead of stonewalling. */
+    private function lookedFor(EvidenceKind $kind, string $reference): string
+    {
+        return match ($kind) {
+            EvidenceKind::TestPassed => sprintf(
+                'a recorded verification verdict, or a `test` call with ok:true, naming «%s»',
+                $reference,
+            ),
+            EvidenceKind::OperationOk => sprintf(
+                'a recorded call or execution receipt with ok:true for operation «%s»',
+                $reference,
+            ),
+            EvidenceKind::ArtifactCreated => sprintf(
+                'a recorded artifact-producing result (make/implement) materialising «%s»',
+                $reference,
+            ),
+        };
     }
 }

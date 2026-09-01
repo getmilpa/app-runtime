@@ -76,29 +76,30 @@ final class SessionBookkeepingTest extends TestCase
     /**
      * Mover uno que existe CONSERVA su texto si no se manda otro.
      *
-     * Un `todo` que sólo venía a marcar `done` no puede borrar la descripción de lo que se hizo: eso
-     * es justo lo que después aparece en el resumen al compactar, y perderlo dejaría un «ya hecho:»
-     * sin qué.
+     * Un `todo` que sólo venía a mover la tarjeta no puede borrar la descripción de lo que se hace:
+     * eso es justo lo que después aparece en el resumen al compactar, y perderlo dejaría el resumen
+     * sin qué. (El movimiento a `done` ya no vive aquí — greenhouse decisions/0183: se reclama por
+     * `work:claim-verified`, y eso lo prueba {@see WorkClaimVerifiedTest}.)
      */
     public function testMovingATodoKeepsItsTextWhenNoneIsGiven(): void
     {
         $this->llamar('todo', ['text' => 'escribir la entidad']);
 
-        $r = $this->llamar('todo', ['id' => 't1', 'status' => 'done']);
+        $r = $this->llamar('todo', ['id' => 't1', 'status' => 'in_progress']);
 
         self::assertTrue($r['ok']);
         self::assertSame('escribir la entidad', $r['todo']['text']);
-        self::assertSame('done', $r['todo']['status']);
+        self::assertSame('in_progress', $r['todo']['status']);
 
         $sesion = $this->almacen->load('s1');
         self::assertCount(1, $sesion?->todos ?? [], 'moverlo no crea otro');
-        self::assertSame(TodoStatus::Done, $sesion?->todos[0]->status);
+        self::assertSame(TodoStatus::InProgress, $sesion?->todos[0]->status);
     }
 
     /** Mover uno que no existe se dice, en vez de crear uno con ese id a escondidas. */
     public function testMovingATodoThatDoesNotExistIsRefused(): void
     {
-        $r = $this->llamar('todo', ['id' => 't9', 'status' => 'done']);
+        $r = $this->llamar('todo', ['id' => 't9', 'status' => 'in_progress']);
 
         self::assertFalse($r['ok']);
         self::assertStringContainsString('t9', (string) $r['error']);
@@ -148,6 +149,10 @@ final class SessionBookkeepingTest extends TestCase
         // La sesión está en `ask`: `make` sí se detiene, y la contabilidad no.
         self::assertNull($compuerta->refuse('plan', ['plan' => 'x']), 'el plan pasa por su contrato de bitácora propia');
         self::assertNull($compuerta->refuse('todo', ['text' => 'x']), 'y el pendiente igual');
+        self::assertNull(
+            $compuerta->refuse('work_claim-verified', ['todo' => 't1', 'kind' => 'test-passed', 'reference' => 'x']),
+            'y el reclamo del 0183 también: mismo contrato de bitácora propia, mismo trato',
+        );
         self::assertNotNull($compuerta->refuse('make', []), 'lo que toca archivos sigue gateado');
     }
 
@@ -172,8 +177,8 @@ final class SessionBookkeepingTest extends TestCase
         self::assertStringContainsString('make', $turnos[0]['content']);
     }
 
-    /** Las dos son de MCP y de nada más: escriben en la sesión que está corriendo. */
-    public function testBothAreAgentSurfaceOnly(): void
+    /** Todas son de MCP y de nada más: escriben en la sesión que está corriendo. */
+    public function testAllAreAgentSurfaceOnly(): void
     {
         foreach ((new SessionBookkeeping($this->almacen, 's1'))->operations() as $operacion) {
             self::assertSame(['mcp'], $operacion->surfaces, "«{$operacion->name}» no es de otra superficie");
