@@ -67,6 +67,7 @@ use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\StderrLogger;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Consent\OperationId;
+use Milpa\Command\DeclaredCondition;
 use Milpa\Command\Consent\ConsentGrant;
 use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\EffectProfile;
@@ -214,6 +215,53 @@ class AgentOperations implements CommandProvider
                     subject: Subject::None,
                     rollbackContract: 'reads only: there is nothing to roll back',
                 ),
+            ),
+            new Operation(
+                name: 'operation:contract',
+                description: 'One operation\'s declared contract, uniform: inputs, effects, preconditions, postconditions, artifacts and what proves a run — read from the declaration, never invented',
+                handler: fn (array $input): array => $this->contractFor($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'name' => [
+                            'type' => 'string',
+                            'description' => 'The operation, in any surface spelling — config:set, config_set and config.set name the same act and resolve to it',
+                        ],
+                    ],
+                    'required' => ['name'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean'],
+                        'name' => ['type' => 'string', 'description' => 'The operation\'s declared spelling, not necessarily the one asked with'],
+                        'description' => ['type' => 'string'],
+                        'inputs' => ['type' => ['object', 'null'], 'description' => 'The declared inputSchema; null when the operation declares no typed inputs'],
+                        'effects' => ['type' => 'object', 'description' => 'The effect ceiling as declared — unclassified is every axis at its maximum, and fully_classified inside says which of the two it is'],
+                        'authority' => ['type' => 'string', 'description' => 'The authority axis of that same ceiling, alone, because gates ask for it by name'],
+                        'mutating' => ['type' => 'boolean'],
+                        'requiresConfirmation' => ['type' => 'boolean'],
+                        'namedTarget' => ['type' => ['string', 'null']],
+                        'surfaces' => ['type' => ['array', 'null'], 'items' => ['type' => 'string']],
+                        'preconditions' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'Each {name, description}, enforced by the handler — empty when the operation declares none'],
+                        'postconditions' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'Each {name, description}, proven by the producing package\'s verifier'],
+                        'artifacts' => ['type' => 'array', 'items' => ['type' => 'string']],
+                        'observableEvidence' => ['type' => ['string', 'null']],
+                        'error' => ['type' => 'string'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // Reads one declaration out of the assembled catalogue: it changes nothing, reaches
+                // nobody, and spends no authority.
+                effects: new EffectProfile(
+                    mutation: Mutation::None,
+                    externality: Externality::None,
+                    reversibility: Reversibility::Guaranteed,
+                    authority: Authority::Read,
+                    subject: Subject::None,
+                    rollbackContract: 'nothing-to-roll-back',
+                ),
+                surfaces: ['cli', 'tui', 'mcp'],
             ),
             new Operation(
                 name: 'session:owner',
@@ -561,6 +609,78 @@ class AgentOperations implements CommandProvider
             'total' => \count($tools),
             'tools' => $tools,
             ...$masConSesion,
+        ];
+    }
+
+    /**
+     * One operation's declared contract, in the uniform shape — EVERY key always present.
+     *
+     * «What should happen?» before executing and «did it?» after are questions this house answers
+     * from DECLARATIONS: the effect ceiling, the conditions the handlers enforce, the artifacts a
+     * run leaves behind, the evidence that proves it ran. This reads them off the operation and
+     * never derives, summarises or invents — an operation that declares nothing gets empty lists
+     * and nulls, which is itself the honest answer.
+     *
+     * The operation is resolved by IDENTITY, never spelling ({@see OperationId}): `config:set`,
+     * `config_set` and `config.set` are one act however a surface writes it. And it resolves across
+     * the app's FULL declared catalogue — {@see Operations::all()} — so a capability-loaded
+     * operation (devtools' `make`, once the capability is enabled) answers exactly like a native
+     * one. An unknown name is a VERDICT, not an exception: `ok:false`, naming what was asked —
+     * fail closed, in words (H-GATE-1).
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    public function contractFor(array $input): array
+    {
+        $name = \is_string($input['name'] ?? null) ? trim($input['name']) : '';
+        if ($name === '') {
+            return ['ok' => false, 'error' => 'missing `name`: which operation'];
+        }
+
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return [
+                'ok' => false,
+                'name' => $name,
+                'error' => 'this app has no kernel, so nobody has assembled a catalogue to read a contract from yet',
+            ];
+        }
+
+        $wanted = new OperationId($name);
+        foreach (Operations::all($kernel, $kernel->root()) as $operation) {
+            if (!$wanted->is($operation->name)) {
+                continue;
+            }
+
+            // The ceiling, never null: an operation that declared nothing answers with every axis
+            // at its maximum and `fully_classified: false` saying so (GOV-05) — strict from
+            // ignorance is an answer; a permissive default would be an invention.
+            $effects = $operation->effectCeiling();
+
+            return [
+                'ok' => true,
+                'name' => $operation->name,
+                'description' => $operation->description,
+                'inputs' => $operation->inputSchema,
+                'effects' => $effects->toArray(),
+                'authority' => $effects->authority->value,
+                'mutating' => $operation->mutating,
+                'requiresConfirmation' => $operation->requiresConfirmation,
+                'namedTarget' => $operation->namedTarget,
+                'surfaces' => $operation->surfaces,
+                'preconditions' => array_map(static fn (DeclaredCondition $c): array => $c->toArray(), $operation->preconditions),
+                'postconditions' => array_map(static fn (DeclaredCondition $c): array => $c->toArray(), $operation->postconditions),
+                'artifacts' => $operation->artifacts,
+                'observableEvidence' => $operation->observableEvidence,
+            ];
+        }
+
+        return [
+            'ok' => false,
+            'name' => $name,
+            'error' => "unknown operation «{$name}» — no operation in this app's catalogue has that identity",
         ];
     }
 
