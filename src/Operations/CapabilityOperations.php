@@ -18,6 +18,7 @@ use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\CapabilityIndex;
 use Milpa\DevTools\Doctor\Repair;
 use Milpa\Command\CommandProvider;
+use Milpa\Command\DeclaredCondition;
 use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Externality;
@@ -263,6 +264,31 @@ final readonly class CapabilityOperations implements CommandProvider
                 // unitaria de `repair` seguía en verde mientras esto pasaba.
                 namedTarget: 'capability',
                 surfaces: ['cli', 'tui', 'mcp'],
+
+                // THE DECLARED CONTRACT (greenhouse decisions/0183): each condition below is one the
+                // handler already enforces — declared here, enforced in Capabilities::install(),
+                // tied by the contract test that violates each and asserts the refusal.
+                preconditions: [
+                    new DeclaredCondition(
+                        'capability-named',
+                        'a non-empty `capability` names what to install — an empty one is refused asking which',
+                    ),
+                    new DeclaredCondition(
+                        'capability-known',
+                        'the requested capability is one `capabilities` lists, installed or available — an unknown name is refused carrying the valid answers',
+                    ),
+                ],
+                postconditions: [
+                    new DeclaredCondition(
+                        'capability-declared-after-install',
+                        'after composer exits 0 the package really declares the capability in this vendor tree — a zero exit without the declaration landing is reported as failure, never as success',
+                    ),
+                ],
+                artifacts: [
+                    'the installed composer package under vendor/',
+                    'the capability operation providers registered in config/operations.php',
+                ],
+                observableEvidence: 'the result: what the install unlocked (re-read from disk after landing), the providers it registered, and any promise mismatch against the dated index',
             ),
             // B3 (evidence/0091): `repair` is DECLARED here — a hard dependency of every newborn —
             // and IMPLEMENTED in `milpa/devtools`, which is opt-in. `doctor` and `make` do not
