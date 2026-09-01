@@ -344,4 +344,49 @@ final class WorkClaimVerifiedTest extends TestCase
         self::assertStringContainsString('stream', (string) $sinStream['error']);
         self::assertSame(TodoStatus::Pending, $this->almacen->load('s1')?->todos[0]->status);
     }
+    /** The result route is dead: a reference that only appears in the OUTPUT text covers nothing. */
+    public function testAReferenceHidingInResultProseDoesNotCoverTheClaim(): void
+    {
+        $this->llamar('todo', ['text' => 'make it green']);
+        $this->almacen->recordToolCall(
+            's1',
+            'test',
+            ['filter' => 'SomethingElseTest'],
+            (string) json_encode(['ok' => true, 'tests' => 12, 'output' => 'all green for VerdeArtifact']),
+            true,
+            true,
+        );
+
+        $r = $this->llamar('work:claim-verified', [
+            'todo' => 't1',
+            'kind' => 'test-passed',
+            'reference' => 'VerdeArtifact',
+        ]);
+
+        self::assertFalse((bool) $r['ok'], 'prose is not a declaration: the claim must be refused');
+        self::assertStringContainsString('no recorded fact covers', (string) $r['error']);
+    }
+
+    /** The declared route stays alive: a reference named as the test FILTER covers the claim. */
+    public function testAReferenceDeclaredAsTheTestFilterCoversTheClaim(): void
+    {
+        $this->llamar('todo', ['text' => 'prove VerdeArtifact']);
+        $this->almacen->recordToolCall(
+            's1',
+            'test',
+            ['filter' => 'VerdeArtifact'],
+            (string) json_encode(['ok' => true, 'tests' => 3]),
+            true,
+            true,
+        );
+
+        $r = $this->llamar('work:claim-verified', [
+            'todo' => 't1',
+            'kind' => 'test-passed',
+            'reference' => 'VerdeArtifact',
+        ]);
+
+        self::assertTrue((bool) $r['ok'], (string) ($r['error'] ?? ''));
+        self::assertSame('call', $r['evidence']['coveredBy']['fact']);
+    }
 }

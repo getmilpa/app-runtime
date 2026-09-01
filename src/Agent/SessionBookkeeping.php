@@ -470,14 +470,10 @@ final readonly class SessionBookkeeping implements ContractProducer
                 ];
             }
 
-            // Or the last recorded `test` call, when it succeeded AND names the reference.
-            $test = $facts->operationResult('test');
-            $call = \is_array($test['call'] ?? null) ? $test['call'] : [];
-            if (($test['ok'] ?? false) === true
-                && ($call['succeeded'] ?? false) === true
-                && $this->callNamesReference($call, $reference)
-            ) {
-                return ['fact' => 'call', 'operation' => 'test', 'seq' => $call['seq'] ?? 0];
+            // Or the last recorded green `test` call DECLARING the reference as its filter or path.
+            $declared = $this->lastGreenTestDeclaring($reference);
+            if ($declared !== null) {
+                return $declared;
             }
 
             return null;
@@ -513,22 +509,50 @@ final readonly class SessionBookkeeping implements ContractProducer
     }
 
     /**
-     * SUMMARY: Whether a projected call names `$reference` in its target arguments or its result —
-     * the identity check for facts (like `test` runs) that carry no artifact identities.
+     * SUMMARY: The last recorded green `test` call that DECLARES `$reference` as its filter or path
+     * — exact equality on the recorded arguments, never free text.
      *
-     * @param array<string, mixed> $call
+     * The first cut matched a substring of the call RESULT, and the adversarial verify measured what
+     * that buys: the reference «green» completed against any green suite output. A result is prose a
+     * reference can hide in; a recorded argument is what the caller DECLARED — and the narrow
+     * projection does not carry `filter` at all, so this reads the session's own stream (the same
+     * replay every projection derives from) and accepts only an exact match.
+     *
+     * @return array<string, mixed>|null
      */
-    private function callNamesReference(array $call, string $reference): bool
+    private function lastGreenTestDeclaring(string $reference): ?array
     {
-        foreach (\is_array($call['target'] ?? null) ? $call['target'] : [] as $value) {
-            if (\is_string($value) && $value === $reference) {
-                return true;
+        if ($this->events === null) {
+            return null;
+        }
+
+        $covering = null;
+        foreach ($this->events->replay(SessionStore::PREFIX . $this->sessionId) as $event) {
+            // The stream fact's own spelling — the same string the recorder writes.
+            if ($event->type !== 'session.tool_called') {
+                continue;
+            }
+            $payload = $event->payload;
+            if (($payload['tool'] ?? null) !== 'test' || ($payload['ok'] ?? null) !== true) {
+                continue;
+            }
+            $arguments = \is_array($payload['arguments'] ?? null) ? $payload['arguments'] : [];
+            // Any DECLARED argument names identity when it matches exactly — filter and path are the
+            // natural spellings for a test run, the rest are the same family the projections document.
+            $declared = false;
+            foreach (['filter', 'path', 'name', 'class', 'artifact', 'target', 'file'] as $key) {
+                if (($arguments[$key] ?? null) === $reference) {
+                    $declared = true;
+
+                    break;
+                }
+            }
+            if ($declared) {
+                $covering = ['fact' => 'call', 'operation' => 'test', 'seq' => $event->seq];
             }
         }
 
-        $result = $call['result'] ?? '';
-
-        return \is_string($result) && $result !== '' && str_contains($result, $reference);
+        return $covering;
     }
 
     /** SUMMARY: Name exactly what the judge looked for, so a refusal corrects instead of stonewalling. */
@@ -536,7 +560,7 @@ final readonly class SessionBookkeeping implements ContractProducer
     {
         return match ($kind) {
             EvidenceKind::TestPassed => sprintf(
-                'a recorded verification verdict, or a `test` call with ok:true, naming «%s»',
+                'a recorded verification verdict for «%s», or a `test` call with ok:true DECLARING it in its target arguments (filter/path)',
                 $reference,
             ),
             EvidenceKind::OperationOk => sprintf(
