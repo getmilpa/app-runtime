@@ -42,6 +42,7 @@ use Milpa\AppRuntime\Agent\EffectClasses;
 use Milpa\AppRuntime\Agent\ExecutionRecorder;
 use Milpa\AppRuntime\Agent\ObservedExecutor;
 use Milpa\AppRuntime\Agent\IntakeObserver;
+use Milpa\AppRuntime\Agent\IntentAdmissibility;
 use Milpa\AiGateway\McpClientService;
 use Milpa\AiGateway\OptionTable;
 use Milpa\AiGateway\SecondOpinionGate;
@@ -1232,6 +1233,15 @@ class AgentOperations implements CommandProvider
             // Lo que ESTA sesión ya consintió, puesto donde `ask()` lo lee sin cambiar su firma:
             // `ask()` es protected y el esqueleto lo sobrescribe, así que crecerle parámetros lo rompe.
             $this->decisionesDeLaSesion = $decisionesDeSesion;
+            // THE CATALOGUE THE INTENT CLAIMS ARE JUDGED BY (greenhouse decisions/0184): a confirmed
+            // intent derives a grant only under its operation's DECLARED effect ceiling, and the
+            // ceiling is a declaration of the catalogue. Captured here with the decisions, for the
+            // same reason they are: `ask()` is protected and overridden, so nothing new may travel
+            // in its signature. Empty when there is no kernel — and with no catalogue there is no
+            // ceiling, so no intent claim mints anything: fail closed.
+            $this->catalogueForIntentClaims = $kernel instanceof Kernel
+                ? Operations::all($kernel, $kernel->root())
+                : [];
             $this->sesionDeLosPermisos = $sessionId !== '' ? $sessionId : null;
             $this->intakeSession = $sessionId !== '' ? $sessionId : null;
             $this->declaredWindow = $declaredWindow;
@@ -1395,7 +1405,8 @@ class AgentOperations implements CommandProvider
         $grants = [];
 
         foreach ($this->decisionesDeLaSesion as $decision) {
-            if (($decision['reason'] ?? null) !== 'permission') {
+            $reason = $decision['reason'] ?? null;
+            if ($reason !== 'permission' && $reason !== 'target_not_named') {
                 continue;
             }
             if (! AffirmativeAnswer::is((string) ($decision['answer'] ?? ''))) {
@@ -1403,6 +1414,19 @@ class AgentOperations implements CommandProvider
             }
             $hecho = json_decode(\is_string($decision['why'] ?? null) ? $decision['why'] : '', true);
             if (! \is_array($hecho) || ! \is_string($hecho['operation'] ?? null)) {
+                continue;
+            }
+
+            // A CONFIRMED INTENT IS A CLAIM, NOT A PERMISSION (greenhouse decisions/0184). It never
+            // minted an event, so it is DERIVED per run like everything else here — but only for the
+            // tiers the policy rules admissible, judged from the operation's declared ceiling. The
+            // PolicyGate layer then honours the same semantics with its exact `covers()`.
+            if ($reason === 'target_not_named') {
+                $grant = $this->grantFromIntentClaim($decision, $hecho, $ahora);
+                if ($grant !== null) {
+                    $grants[] = $grant;
+                }
+
                 continue;
             }
 
@@ -1440,8 +1464,74 @@ class AgentOperations implements CommandProvider
         return $grants;
     }
 
+    /**
+     * The ConsentGrant a confirmed intent claim derives, or `null` when the claim buys none.
+     *
+     * «La intención describe qué quiere el humano. La policy decide qué autoridad compra haberlo
+     * dicho.» (Rod, greenhouse decisions/0184). The tier is judged at judgment time from the
+     * operation's DECLARED ceiling — an operation the captured catalogue does not declare, or one
+     * that never declared its effects, fails closed. A claim that names no arguments also derives
+     * nothing: an argument-less ConsentGrant covers every call of its operation, and a claim may
+     * never buy a blanket.
+     *
+     * @param array<string, mixed> $decision
+     * @param array<string, mixed> $hecho
+     */
+    private function grantFromIntentClaim(array $decision, array $hecho, \DateTimeImmutable $ahora): ?ConsentGrant
+    {
+        $argumentos = \is_array($hecho['arguments'] ?? null) ? $hecho['arguments'] : null;
+        if ($argumentos === null || $argumentos === []) {
+            return null;
+        }
+
+        $operation = (string) $hecho['operation'];
+        if (IntentAdmissibility::tier($this->declaredCeilingOf($operation)) === IntentAdmissibility::NEVER) {
+            return null;
+        }
+
+        // WHO CONFIRMED IT, read from the record — never from the environment (evidence/0209).
+        $concedio = ($decision['by'] ?? null) instanceof Principal ? $decision['by'] : null;
+
+        return new ConsentGrant(
+            operation: new OperationId($operation),
+            principal: $concedio?->id,
+            session: $this->sesionDeLosPermisos,
+            grantedAt: $ahora,
+            provenance: 'intent-confirmed',
+            arguments: $argumentos,
+        );
+    }
+
+    /**
+     * The declared EffectProfile of an operation in the captured catalogue — identity, not spelling.
+     *
+     * `null` both when the catalogue does not declare the operation and when the operation declared
+     * no profile: the two are the same answer to the caller, «no ceiling to judge by», and the
+     * admissibility table treats that as NEVER.
+     */
+    private function declaredCeilingOf(string $operation): ?EffectProfile
+    {
+        $id = new OperationId($operation);
+        foreach ($this->catalogueForIntentClaims as $operacion) {
+            if ($id->is($operacion->name)) {
+                return $operacion->effects;
+            }
+        }
+
+        return null;
+    }
+
     /** @var list<array<string, mixed>> lo que ESTA sesión ya decidió, con su hecho adentro */
     private array $decisionesDeLaSesion = [];
+
+    /**
+     * The app's declared catalogue, captured with the decisions so an intent claim can be judged by
+     * its operation's declared ceiling (greenhouse decisions/0184). Empty means «no ceiling», which
+     * derives nothing.
+     *
+     * @var list<Operation>
+     */
+    private array $catalogueForIntentClaims = [];
 
     private ?string $sesionDeLosPermisos = null;
 

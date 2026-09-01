@@ -28,6 +28,7 @@ use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\AxisReduction;
 use Milpa\Command\Effect\CallSubject;
 use Milpa\Command\Effect\ContextFacts;
+use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Externality;
 use Milpa\Command\Effect\Mutation;
 use Milpa\Command\Effect\ProfileComposition;
@@ -264,23 +265,9 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             // que después quiera saber QUÉ autorizó el humano tendría que sacar la operación del
             // TEXTO de la pregunta. Un consentimiento que sólo se puede reconstruir leyendo prosa no
             // es un hecho: es una redacción (greenhouse decisions/0031).
-            PolicyDecision::AskPermission => $this->pause(
-                $this->conElHechoAdentro(
-                    $this->policy->permissionQuestion($operacion->name, $arguments, $this->vence()),
-                    $operacion->name,
-                    $arguments,
-                    // THE DECLARED CEILING AND WHAT THIS CALL COMPOSED TO, as facts the system writes
-                    // at the pause (decisions/0067): `base` is what a structural counter is meet-ed
-                    // against — never taken from the human's payload — and `composed` is what the
-                    // human tightens from, shown rather than remembered.
-                    $operacion->effectCeiling()->toArray(),
-                    $composicion?->effective->toArray(),
-                    // WHAT WOULD ENTER, shown at the pause. Only a promotion carries it: the human
-                    // authorises a trial's consequences seeing the diff, not a workspace id
-                    // (greenhouse decisions/0069, 0068). Any other pause gets null and is unchanged.
-                    $this->cambiosDeUnaPromocion($operacion->name, $arguments),
-                ),
-            ),
+            // AND SINCE decisions/0184 THE ARM ASKS ONLY IF NO CONFIRMED INTENT CLAIM ALREADY
+            // ANSWERS IT — the admissibility ruling lives in {@see self::askUnlessAConfirmedIntentAdmits()}.
+            PolicyDecision::AskPermission => $this->askUnlessAConfirmedIntentAdmits($operacion, $arguments, $composicion),
             PolicyDecision::RequireSignature => $this->pause(
                 $this->policy->signatureQuestion($operacion->name, $arguments),
             ),
@@ -392,6 +379,97 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         return $this->permissionWindow === null
             ? null
             : (new \DateTimeImmutable())->add($this->permissionWindow);
+    }
+
+    /**
+     * The perm: pause of the AskPermission arm — unless a confirmed intent claim already answers it.
+     *
+     * «La intención describe qué quiere el humano. La policy decide qué autoridad compra haberlo
+     * dicho.» — the policy decides what authority saying it buys (Rod, greenhouse decisions/0184).
+     * Measured at evidence/0444: the operator answered the INTENT question and the consent gate
+     * still refused the very same call — two human ceremonies buying the same right. The confirmed
+     * intent is a CLAIM, already structured in the session's decisions, and {@see IntentAdmissibility}
+     * is the policy's ruling on whether that claim is admissible EVIDENCE for the consent this arm
+     * was about to ask for — judged against the COMPOSED profile of this call when there is one, the
+     * declared ceiling otherwise: the same profile the policy just judged, so the evidence is
+     * weighed against the question that was actually asked.
+     *
+     * NOT A SECOND JUDGE: this runs only after {@see SessionPolicy::decide()} routed the call to
+     * AskPermission. It can only ever answer that question with the human's own recorded yes — it
+     * never widens, never decides Allow for anything the policy did not route here, and the
+     * RequireSignature arm never consults it. The claim appends nothing to the session: no
+     * PermissionGranted is minted; admissibility is re-judged where consent is judged, at judgment
+     * time, from recorded facts — exactly like the grants the authority layer re-derives.
+     *
+     * AUDIT RESIDUE, NAMED: an admitted skip leaves no mark of its own — the gate's allow path is
+     * silent by design, and marking it would take a new event type this ruling does not license.
+     * Making the skip legible in the stream is a seam left for the DebtSignal arc.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function askUnlessAConfirmedIntentAdmits(
+        Operation $operacion,
+        array $arguments,
+        ?ProfileComposition $composicion,
+    ): ?string {
+        $techo = $composicion !== null ? $composicion->effective : $operacion->effectCeiling();
+        if ($this->aConfirmedIntentAdmits($operacion, $arguments, $techo)) {
+            return null;
+        }
+
+        return $this->pause(
+            $this->conElHechoAdentro(
+                $this->policy->permissionQuestion($operacion->name, $arguments, $this->vence()),
+                $operacion->name,
+                $arguments,
+                // THE DECLARED CEILING AND WHAT THIS CALL COMPOSED TO, as facts the system writes
+                // at the pause (decisions/0067): `base` is what a structural counter is meet-ed
+                // against — never taken from the human's payload — and `composed` is what the
+                // human tightens from, shown rather than remembered.
+                $operacion->effectCeiling()->toArray(),
+                $composicion?->effective->toArray(),
+                // WHAT WOULD ENTER, shown at the pause. Only a promotion carries it: the human
+                // authorises a trial's consequences seeing the diff, not a workspace id
+                // (greenhouse decisions/0069, 0068). Any other pause gets null and is unchanged.
+                $this->cambiosDeUnaPromocion($operacion->name, $arguments),
+            ),
+        );
+    }
+
+    /**
+     * Whether this session carries a confirmed intent claim admissible for THIS exact call.
+     *
+     * The same fact-read the intent-contract cycle performs in {@see self::intentUnderdetermined()}:
+     * the decision inherits `reason` and `why` from the question, so the claim is compared as code
+     * and JSON — never the question's prose. A claim answered «no» never admits; a claim for another
+     * operation never admits; a claim from another session cannot even appear, because these
+     * decisions are THIS session's stream. Whether an exact claim is ENOUGH for this profile is
+     * {@see IntentAdmissibility}'s table — and its unjudgeable answer is «ask».
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function aConfirmedIntentAdmits(Operation $operacion, array $arguments, EffectProfile $techo): bool
+    {
+        foreach (ContratoInstalado::arreglo($this->session, 'decisions') as $decision) {
+            if (($decision['reason'] ?? null) !== 'target_not_named') {
+                continue;
+            }
+            if (! AffirmativeAnswer::is((string) ($decision['answer'] ?? ''))) {
+                continue;
+            }
+            $why = json_decode(\is_string($decision['why'] ?? null) ? $decision['why'] : '', true);
+            if (!\is_array($why) || ($why['operation'] ?? null) !== $operacion->name) {
+                continue;
+            }
+            if (!\is_array($why['arguments'] ?? null)) {
+                continue;
+            }
+            if (IntentAdmissibility::admits($why['arguments'], $arguments, $techo)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
