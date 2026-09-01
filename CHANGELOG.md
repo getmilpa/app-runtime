@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.95.0](https://github.com/getmilpa/app-runtime/compare/v0.94.1...v0.95.0) (2026-09-01)
+
+
+### Features
+
+* declare agent.contextTokens and hand the Compactor a whole-window budget ([#230](https://github.com/getmilpa/app-runtime/issues/230)) ([3c36db6](https://github.com/getmilpa/app-runtime/commit/3c36db6f00c3822d1585fde426b3301f0ff33993))
+
 ## [0.94.1](https://github.com/getmilpa/app-runtime/compare/v0.94.0...v0.94.1) (2026-09-01)
 
 
