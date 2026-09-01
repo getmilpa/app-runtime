@@ -1,6 +1,17 @@
 # Changelog
 
 
+## [0.98.0](https://github.com/getmilpa/app-runtime/compare/v0.97.0...v0.98.0) (2026-09-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* work:claim-verified — the house judges the claim, todo:done ceases to exist ([#236](https://github.com/getmilpa/app-runtime/issues/236))
+
+### Features
+
+* work:claim-verified — the house judges the claim, todo:done ceases to exist ([#236](https://github.com/getmilpa/app-runtime/issues/236)) ([5860ae3](https://github.com/getmilpa/app-runtime/commit/5860ae38d9759e82157ba4c980153a69ea567d8d))
+
 ## [0.97.0](https://github.com/getmilpa/app-runtime/compare/v0.96.0...v0.97.0) (2026-09-01)
 
 
