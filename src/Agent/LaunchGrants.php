@@ -21,6 +21,8 @@ use Milpa\Agent\SessionStore;
 use Milpa\AppRuntime\Support\ContratoInstalado;
 use Milpa\Command\Consent\OperationId;
 use Milpa\Command\Effect\Authority;
+use Milpa\Command\Effect\Externality;
+use Milpa\Command\Effect\Subject;
 use Milpa\Command\Operation;
 
 /**
@@ -247,13 +249,21 @@ final class LaunchGrants
      * Whether this operation's policy demands a signature naming the call — the class a grant can
      * never cover.
      *
-     * Read from the declared contract: {@see Authority::Privileged} is the institutional act —
-     * `identity:*` decides whom the house believes, `capabilities:enable` what it can do — whose
-     * consent is a signature, per greenhouse decisions/0177. A name list here would be the
-     * directory this family keeps refusing to build; the axis is the rule.
+     * Read from the declared contract, on TWO axes — authority alone proved too wide: the first
+     * headless run with launch grants refused `plugins.register` (Privileged, but Externality::None
+     * and Subject::Executable — a LOCAL wiring act inside the app), while the product itself had
+     * already accepted a mid-session yes for that very operation. A launch grant records the same
+     * yes, so what a session yes can consent, a launch grant can too. What remains signature-only
+     * is the institutional act that decides whom the house believes ({@see Subject::Configuration}
+     * — `identity:*`) or that reaches beyond the house ({@see Externality} above None —
+     * `capabilities:enable` goes to the registry), per greenhouse decisions/0177. A name list here
+     * would be the directory this family keeps refusing to build; the axes are the rule.
      */
     private function demandsSignature(Operation $operation): bool
     {
-        return $operation->effectCeiling()->authority === Authority::Privileged;
+        $ceiling = $operation->effectCeiling();
+
+        return $ceiling->authority === Authority::Privileged
+            && ($ceiling->subject === Subject::Configuration || $ceiling->externality !== Externality::None);
     }
 }
