@@ -26,6 +26,7 @@ use Milpa\AppRuntime\Support\ContratoInstalado;
 use Milpa\AppRuntime\Agent\ArchitectureSummaryProjector;
 use Milpa\AppRuntime\Agent\ClosureVerdict;
 use Milpa\AppRuntime\Agent\ConsentBridge;
+use Milpa\AppRuntime\Agent\DebtSignal;
 use Milpa\AppRuntime\Agent\LaunchGrants;
 use Milpa\AppRuntime\Agent\SessionIdentity;
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
@@ -1681,6 +1682,13 @@ class AgentOperations implements CommandProvider
                 Principal::fromTerminal(getenv('USER') ?: null, gethostname() ?: null),
                 ObservedExecutor::TERMINAL,
             ),
+            // THE SAME SEAM THE GATE CARRIES (greenhouse decisions/0183): the bridge observes the
+            // consent frontier, so its signals land in the session whose grants it holds. Without
+            // a session there is no stream to observe into, and the seam stays silent by
+            // construction — never by accident.
+            debtSignals: $this->sesionDeLosPermisos === null
+                ? null
+                : new DebtSignal($this->sessionEvents, $this->sesionDeLosPermisos),
         );
     }
 
@@ -1913,6 +1921,11 @@ class AgentOperations implements CommandProvider
             // contracts instead of allowing them by name (greenhouse decisions/0078). Built from THIS
             // session's id, so a child spawned through this same builder governs its own internal tools.
             contractProducers: $this->contractProducers($store, $session->id),
+            // THE DEBT-SIGNAL SEAM (greenhouse decisions/0183 primitive #5): the observation
+            // channel writes through the SAME captured event store the closure verdict uses, so a
+            // signal lands in the very stream it observes. With no reachable store the seam
+            // degrades to silence — an observation must never break the observed run.
+            debtSignals: new DebtSignal($this->sessionEvents, $session->id),
         );
     }
 

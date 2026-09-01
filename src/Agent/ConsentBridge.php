@@ -20,6 +20,7 @@ use Milpa\Command\Consent\OperationId;
 use Milpa\AiGateway\OptionTable;
 use Milpa\AiGateway\ToolCallGate;
 use Milpa\AiGateway\ToolCallRecorder;
+use Milpa\AiGateway\ToolCallRefusedException;
 use Milpa\Console\McpProjector;
 use Milpa\ToolRuntime\Contracts\ToolContext;
 use Milpa\ToolRuntime\ToolRegistry;
@@ -73,6 +74,8 @@ final class ConsentBridge extends McpClientService implements GovernedExecutor
 
     private ObservedExecutor $executor;
 
+    private ?DebtSignal $debtSignals;
+
     /**
      * @param list<ConsentGrant> $grants every yes this session has already collected — not the last
      *                                   one. Passing them one at a time overwrote the context and
@@ -88,6 +91,10 @@ final class ConsentBridge extends McpClientService implements GovernedExecutor
         string $channel = 'cli',
         ?ExecutionRecorder $executions = null,
         ?ObservedExecutor $executor = null,
+        // THE DEBT-SIGNAL SEAM (greenhouse decisions/0183 primitive #5), or `null` to observe
+        // nothing. An OBSERVATION channel only: it carries no authority and reshapes nothing this
+        // bridge carries — with the seam absent every path behaves byte-identically.
+        ?DebtSignal $debtSignals = null,
     ) {
         parent::__construct($registry, $gate, $recorder, $table);
         $this->grants = $grants;
@@ -99,6 +106,7 @@ final class ConsentBridge extends McpClientService implements GovernedExecutor
         // Reading it here would move the observation closer to the write and further from the act,
         // and the whole point is that a durable fact does not change author according to who reads it.
         $this->executor = $executor ?? ObservedExecutor::unknown();
+        $this->debtSignals = $debtSignals;
     }
 
     /**
@@ -159,7 +167,18 @@ final class ConsentBridge extends McpClientService implements GovernedExecutor
             ],
         ));
 
-        $result = parent::callTool($name, $args);
+        try {
+            $result = parent::callTool($name, $args);
+        } catch (\Throwable $rechazo) {
+            // THE DENIAL TRAVELS UNTOUCHED — a bridge that reshapes what it carries is not a
+            // bridge, and an observation carries no authority to soften one. Before it goes, the
+            // one fragility this frame can PROVE is written down: refused for consent while a
+            // grant for the SAME operation sits in this session, its argument constraints just not
+            // covering this call (the measured TareasPlugin case, greenhouse evidence/0444).
+            $this->signalIfConsentScopeWasFragile($rechazo, $name, $args);
+
+            throw $rechazo;
+        }
 
         // Only a pending confirmation is this class's business. Everything else — a plain result, a
         // refusal, a failure — travels untouched, because a bridge that reshapes what it carries is
@@ -306,6 +325,48 @@ final class ConsentBridge extends McpClientService implements GovernedExecutor
     public function consentChain(): array
     {
         return $this->chain;
+    }
+
+    /**
+     * Emits `scope_fragility` when a consent denial lands beside a same-operation grant whose
+     * argument constraints do not cover this call — greenhouse evidence/0444: a material naming
+     * decision silently changed the authority scope; the grant was textual, the intent was not.
+     *
+     * THE DENIAL IS RECOGNISED BY ITS REASON, because the reason is all that reaches this frame:
+     * `PolicyGate` returns a typed {@see \Milpa\ToolRuntime\Policy\AuthorizationResult}, but the
+     * registry folds it into a failed `ToolResult` and the client re-throws only its message — the
+     * same released `?string` channel the gate's UNJUDGEABLE marker rides. «needs explicit
+     * consent» is the stable core of that denial's reason. A session-gate refusal
+     * ({@see ToolCallRefusedException}) is a different frontier and never this observation.
+     *
+     * One occurrence, one signal — the first stale grant names the observation, and digests travel
+     * instead of raw values on both sides. With no seam, silence: an observation channel must
+     * never break (or even touch) the observed run.
+     *
+     * @param array<string, mixed> $args
+     */
+    private function signalIfConsentScopeWasFragile(\Throwable $rechazo, string $tool, array $args): void
+    {
+        if ($this->debtSignals === null || $rechazo instanceof ToolCallRefusedException) {
+            return;
+        }
+        if (! str_contains($rechazo->getMessage(), 'needs explicit consent')) {
+            return;
+        }
+
+        foreach ($this->grants as $grant) {
+            if (! $grant->operation->is($tool) || $grant->covers($tool, $args)) {
+                continue;
+            }
+
+            $this->debtSignals->emit(DebtSignal::SCOPE_FRAGILITY, [
+                'operation' => $grant->operation->canonical,
+                'grantedArgumentsDigest' => self::digest($grant->arguments),
+                'requestedArgumentsDigest' => self::digest($args),
+            ]);
+
+            return;
+        }
     }
 
     /** @param array<string, mixed> $args */

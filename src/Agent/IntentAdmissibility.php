@@ -129,10 +129,23 @@ final class IntentAdmissibility
      */
     public static function admits(array $confirmed, array $call, ?EffectProfile $ceiling): bool
     {
-        if (self::tier($ceiling) === self::NEVER) {
-            return false;
-        }
+        return self::tier($ceiling) !== self::NEVER && self::exact($confirmed, $call);
+    }
 
+    /**
+     * The strict start alone, with no tier ruling: are these the SAME act's arguments?
+     *
+     * Same keys, same values, key-order-insensitive — the exactness both admissible tiers demand.
+     * Public because the DebtSignal arc must recognise an EXACT confirmed claim on a tier where it
+     * never admits (`high_tier_double_ceremony`, greenhouse decisions/0183): the OBSERVATION needs
+     * the comparison without the judgment, and a second comparator elsewhere would be the drift
+     * this class exists to prevent.
+     *
+     * @param array<string, mixed> $confirmed the arguments the human was shown and said yes to
+     * @param array<string, mixed> $call      the arguments of the call being judged now
+     */
+    public static function exact(array $confirmed, array $call): bool
+    {
         return self::canonical($confirmed) === self::canonical($call);
     }
 
