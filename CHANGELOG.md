@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.96.0](https://github.com/getmilpa/app-runtime/compare/v0.95.0...v0.96.0) (2026-09-01)
+
+
+### Features
+
+* a confirmed intent claim is admissible evidence for consent, by effect tier ([#232](https://github.com/getmilpa/app-runtime/issues/232)) ([5f95f5c](https://github.com/getmilpa/app-runtime/commit/5f95f5c9bdc3223cc7b1f1bea7899a1d72382d7e))
+
 ## [0.95.0](https://github.com/getmilpa/app-runtime/compare/v0.94.1...v0.95.0) (2026-09-01)
 
 
