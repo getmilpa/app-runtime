@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.94.1](https://github.com/getmilpa/app-runtime/compare/v0.94.0...v0.94.1) (2026-09-01)
+
+
+### Bug Fixes
+
+* the signature class reads two axes, not authority alone ([#228](https://github.com/getmilpa/app-runtime/issues/228)) ([2ab48b5](https://github.com/getmilpa/app-runtime/commit/2ab48b5b5f6d56584acd345d312938dff3fc2870))
+
 ## [0.94.0](https://github.com/getmilpa/app-runtime/compare/v0.93.0...v0.94.0) (2026-09-01)
 
 
