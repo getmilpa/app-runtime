@@ -103,6 +103,12 @@ final class AgentKeys
                 'type' => DeclaredType::text(),
                 'does' => 'Where that model lives, when it is not the default endpoint',
             ],
+            'agent.contextTokens' => [
+                'type' => DeclaredType::integer(),
+                'does' => 'The model\'s declared context window in tokens; hands the Compactor a '
+                    . 'whole-window budget so composition never outgrows what the model can read '
+                    . '(MILPA_AGENT_CONTEXT_TOKENS is the environment fallback)',
+            ],
             'agent.permissionWindow' => [
                 'type' => DeclaredType::text('ISO-8601 duration, e.g. PT1H'),
                 'does' => 'How long a paused question waits for its answer before it dies',

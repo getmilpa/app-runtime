@@ -1651,7 +1651,20 @@ class AgentOperations implements CommandProvider
             $maxTokens = \is_int($ajustes['maxTokens'] ?? null) ? $ajustes['maxTokens'] : $maxTokens;
         }
 
-        return new Compactor(maxTurns: $maximo, keepRecent: $recientes, maxTokens: $maxTokens);
+        // The WHOLE-WINDOW budget: the model's declared context, resolved with the same precedence
+        // as the endpoint itself — config first, environment fallback — by the one resolver that
+        // owns that precedence ({@see AgentEndpoint::contextTokens()}). Absent everywhere it is
+        // `null`, and `null` is yesterday's construction byte-for-byte. Measured need: greenhouse
+        // evidence/0443 — a 32,768-token model re-entered at 35.6k because only the turn tail had
+        // a budget and nothing bounded the summary's system side.
+        $contexto = AgentEndpoint::contextTokens($config instanceof Config ? $config : null);
+
+        return new Compactor(
+            maxTurns: $maximo,
+            keepRecent: $recientes,
+            maxTokens: $maxTokens,
+            windowBudget: $contexto,
+        );
     }
 
     /**

@@ -23,7 +23,13 @@ final class AgentEndpointTest extends TestCase
 
     protected function setUp(): void
     {
-        foreach (['MILPA_AGENT_BASE_URL', 'MILPA_AGENT_MODEL', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'] as $v) {
+        foreach ([
+            'MILPA_AGENT_BASE_URL',
+            'MILPA_AGENT_MODEL',
+            'MILPA_AGENT_CONTEXT_TOKENS',
+            'ANTHROPIC_API_KEY',
+            'OPENAI_API_KEY',
+        ] as $v) {
             $this->antes[$v] = getenv($v);
             putenv($v);
         }
@@ -89,5 +95,42 @@ final class AgentEndpointTest extends TestCase
     public function testWithNothingAtAllItSaysSo(): void
     {
         self::assertStringContainsString('sin credencial', AgentEndpoint::describe(null));
+    }
+
+    /** 6 · the declared context wins over the environment, by the same precedence as the endpoint. */
+    public function testTheDeclaredContextWinsOverTheEnvironment(): void
+    {
+        putenv('MILPA_AGENT_CONTEXT_TOKENS=8000');
+        $config = new Config(['agent' => ['contextTokens' => 32768]]);
+
+        self::assertSame(32768, AgentEndpoint::contextTokens($config));
+    }
+
+    /** 7 · THE CONTROL: with nothing declared, the environment still declares the context. */
+    public function testWithNothingDeclaredTheEnvironmentDeclaresTheContext(): void
+    {
+        putenv('MILPA_AGENT_CONTEXT_TOKENS=24000');
+
+        self::assertSame(24000, AgentEndpoint::contextTokens(null));
+    }
+
+    /** 8 · absent everywhere is `null` — no number is invented for a model nobody measured. */
+    public function testAnUndeclaredContextResolvesAsNull(): void
+    {
+        self::assertNull(AgentEndpoint::contextTokens(null));
+        self::assertNull(AgentEndpoint::contextTokens(new Config([])));
+    }
+
+    /** 9 · a value that could not bound a window resolves as undeclared, not as a poison share. */
+    public function testAValueThatCannotBudgetResolvesAsUndeclared(): void
+    {
+        putenv('MILPA_AGENT_CONTEXT_TOKENS=not-a-number');
+        self::assertNull(AgentEndpoint::contextTokens(null));
+
+        putenv('MILPA_AGENT_CONTEXT_TOKENS=0');
+        self::assertNull(AgentEndpoint::contextTokens(null));
+
+        self::assertNull(AgentEndpoint::contextTokens(new Config(['agent' => ['contextTokens' => -5]])));
+        self::assertSame(16000, AgentEndpoint::contextTokens(new Config(['agent' => ['contextTokens' => '16000']])));
     }
 }
