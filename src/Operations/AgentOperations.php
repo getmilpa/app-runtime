@@ -24,7 +24,9 @@ use Milpa\Agent\Principal;
 use Milpa\AppRuntime\Agent\AffirmativeAnswer;
 use Milpa\AppRuntime\Support\ContratoInstalado;
 use Milpa\AppRuntime\Agent\ArchitectureSummaryProjector;
+use Milpa\AppRuntime\Agent\ClosureVerdict;
 use Milpa\AppRuntime\Agent\ConsentBridge;
+use Milpa\AppRuntime\Agent\LaunchGrants;
 use Milpa\AppRuntime\Agent\SessionIdentity;
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
 use Milpa\AppRuntime\Identity\IdentityConfig;
@@ -116,6 +118,14 @@ class AgentOperations implements CommandProvider
 {
     /** El techo de pasos cuando nadie lo dice. Vivía como un `12` suelto en dos lugares. */
     private const PASOS_POR_DEFECTO = 12;
+
+    /**
+     * The event store THIS invocation's session store was composed over, or `null` when the store
+     * arrived already built and its log is not reachable ({@see self::sessions()} names the one
+     * branch). It exists so the closure verdict can append its own event to the SAME stream the
+     * session writes — a second store would be a second truth about what happened.
+     */
+    private ?EventStoreInterface $sessionEvents = null;
 
     public function __construct(private readonly DIContainerInterface $container)
     {
@@ -414,6 +424,11 @@ class AgentOperations implements CommandProvider
                             // cuatro vivían escritas aquí Y en el `match` que resuelve, y dos copias
                             // discrepan el día que alguien cambia una (greenhouse evidence/0141).
                             'denyEffects' => ['type' => 'string', 'description' => EffectClasses::describe()],
+                            // THE DENY'S MIRROR (greenhouse evidence/0442): what the operator
+                            // withdraws travels as `deny`; what the operator CONSENTS TO at launch
+                            // travels here, seeded into the session as the same fact a mid-session
+                            // yes produces. Signature-class operations are refused at seeding.
+                            'grant' => ['type' => 'string', 'description' => 'Comma-separated launch grants, each `op` or `op:key=value[;key2=value2]` — seeded into the session as operator consent. Requires --session; a signature-class operation is refused'],
                         ] : []),
                         'first' => ['type' => 'string', 'description' => 'Comma-separated tools that must run before anything else proceeds — an ordering obligation, executed rather than asked'],
                     ],
@@ -656,7 +671,7 @@ class AgentOperations implements CommandProvider
      *
      * @param array<string, mixed> $input
      *
-     * @return array{ok: bool, answer?: string, steps?: int, tools?: int, error?: string, hint?: string, paused?: bool, exhausted?: bool, interrupted?: bool}
+     * @return array{ok: bool, answer?: string, steps?: int, tools?: int, error?: string, hint?: string, paused?: bool, exhausted?: bool, interrupted?: bool, closure?: array{verified: bool, reasons: list<string>}}
      */
     private function run(array $input): array
     {
@@ -685,6 +700,20 @@ class AgentOperations implements CommandProvider
         [$proveedor, $llave, $modelo] = $credencial;
 
         $pasos = \is_int($input['steps'] ?? null) && $input['steps'] > 0 ? $input['steps'] : self::PASOS_POR_DEFECTO;
+
+        // ── LAUNCH GRANTS (greenhouse evidence/0442) ────────────────────────────────────────────
+        //
+        // Parsed BEFORE anything mutates, and refused whole on the first malformed entry: accepting
+        // the good half in silence would leave whoever typed it believing the whole brief landed —
+        // the same doctrine `denyEffects` already enforces on an invented class.
+        $grantsAsked = LaunchGrants::parse($input['grant'] ?? null);
+        if (\is_string($grantsAsked)) {
+            return [
+                'ok' => false,
+                'error' => $grantsAsked,
+                'hint' => 'write grant entries as `op` or `op:key=value[;key2=value2]`, comma-separated',
+            ];
+        }
 
         // LA SESIÓN (P16.1). Sin `session`, esto sigue siendo lo que era: una pregunta con una
         // respuesta. Con ella, la conversación sobrevive al proceso — que es la diferencia entre un
@@ -770,10 +799,46 @@ class AgentOperations implements CommandProvider
                 $declaredWindow = $sesion?->classifiedWindow();
             }
 
+            // ── SEED THE LAUNCH GRANTS, before the gate reads the session ───────────────────
+            //
+            // It must land HERE: the decisions snapshot and the gate below fold the session as it
+            // stands, so consent seeded after them would exist in the stream and govern nothing
+            // until the next turn. Judged against the live catalogue and refused whole when an
+            // entry cannot be judged or demands a signature — never narrowed in silence.
+            if ($grantsAsked !== []) {
+                $kernelDeGrants = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+                if (!$kernelDeGrants instanceof Kernel) {
+                    return ['ok' => false, 'error' => 'a grant needs the app catalogue to be judged against, and this app exposes none'];
+                }
+                $sembrado = (new LaunchGrants())->seed(
+                    $store,
+                    $sessionId,
+                    $grantsAsked,
+                    Operations::all($kernelDeGrants, $kernelDeGrants->root()),
+                    // WHO CONFERS IT: the operator at the terminal, observed now and written once —
+                    // the same reading `governedExecutor()` makes for who materialises effects.
+                    Principal::fromTerminal(getenv('USER') ?: null, gethostname() ?: null),
+                );
+                if (isset($sembrado['error'])) {
+                    return ['ok' => false, 'error' => (string) $sembrado['error']];
+                }
+            }
+
             // Both representations come from the same immutable Session. Capture them before the
             // current prompt becomes a turn: the gateway adds that prompt separately, so claiming it
             // as part of this declaration would say Session::window() composed something it did not.
             $store->recordTurn($sessionId, 'user', $prompt);
+        }
+
+        // A GRANT WITH NO SESSION WOULD BE A MASTER KEY. The consent lives in the session — it is
+        // what scopes it — so without one there is nowhere to record it and nothing to bind it to.
+        // Same refusal shape as `deny`: silently ignoring it would be worse than lacking it.
+        if ($grantsAsked !== [] && ($sessionId === '' || $store === null)) {
+            return [
+                'ok' => false,
+                'error' => 'a grant cannot be seeded without a session: the consent lives in the session',
+                'hint' => 'add --session=<id> and run it again',
+            ];
         }
 
         // LA COMPUERTA (P16.4/P16.5) y LAS HERRAMIENTAS DE LA SESIÓN (P16.3). Las dos sólo con sesión:
@@ -1252,6 +1317,23 @@ class AgentOperations implements CommandProvider
             $resultado['hint'] = 'pídele que siga, o dale más pasos con `--steps`';
         }
 
+        // ── THE CLOSURE VERDICT (greenhouse evidence/0442) ──────────────────────────────────────
+        //
+        // Only the NATURAL end carries it: paused, interrupted and exhausted returns already say
+        // what they are. Derived from RECORDED facts alone — no re-scan, no re-run, no model call —
+        // and appended to the session's own stream exactly once per final answer, so a surface can
+        // project it. It blocks the assertion, never the write: the answer still returns, but the
+        // envelope cannot claim a completion the ledger does not back.
+        // `$pausada` is only ever loaded with a session and its store in hand, so its presence is
+        // the whole guard: re-checking the store here would be a condition that can never fire.
+        if ($pausada !== null && !isset($resultado['paused']) && !isset($resultado['exhausted'])) {
+            $closure = ClosureVerdict::derive($pausada, $store->facts($sessionId));
+            $resultado['closure'] = $closure;
+            if ($this->sessionEvents !== null) {
+                ClosureVerdict::record($this->sessionEvents, $sessionId, $closure);
+            }
+        }
+
         // Que se haya compactado se DICE. Es lo único de esta operación que cambia en silencio lo que
         // el modelo ve, y una sesión que empieza a contestar distinto sin que nadie sepa por qué es
         // la clase de cosa que se depura durante una hora.
@@ -1345,8 +1427,12 @@ class AgentOperations implements CommandProvider
                 principal: $concedio?->id,
                 session: $this->sesionDeLosPermisos,
                 grantedAt: $ahora,
-                // Cómo se ganó, para que ningún consumidor tenga que volver a ganarlo.
-                provenance: 'session.question_answered',
+                // Cómo se ganó, para que ningún consumidor tenga que volver a ganarlo. Un sí
+                // sembrado al lanzar conserva su procedencia: el auditor distingue el grant de
+                // arranque del sí contestado a media sesión sin releer el stream.
+                provenance: ($decision['executor'] ?? null) === LaunchGrants::EXECUTOR
+                    ? LaunchGrants::EXECUTOR
+                    : 'session.question_answered',
                 arguments: \is_array($hecho['arguments'] ?? null) ? $hecho['arguments'] : [],
             );
         }
@@ -2266,16 +2352,33 @@ class AgentOperations implements CommandProvider
         // quedaría quieto sin que nada fallara. Lo encontró la prueba de cableado, no el diseño.
         $superficie = $this->broadcaster();
 
+        // EL ALMACÉN DE EVENTOS SE CAPTURA AL COMPONER, y en cada rama. Es lo que permite que el
+        // veredicto de cierre apende su hecho al MISMO stream que la sesión escribe. La única rama
+        // que no puede capturarlo es la del `SessionStore` ya construido sin `EventStoreInterface`
+        // registrado: ahí el log no es alcanzable y el veredicto viaja sólo en el sobre — dicho
+        // aquí, no descubierto depurando.
+        $this->sessionEvents = null;
+
         if ($superficie !== null && $this->container->has(EventStoreInterface::class)) {
             $eventos = $this->container->get(EventStoreInterface::class);
             if ($eventos instanceof EventStoreInterface) {
-                return new SessionStore(new BroadcastingEventStore($eventos, $superficie));
+                $puenteado = new BroadcastingEventStore($eventos, $superficie);
+                $this->sessionEvents = $puenteado;
+
+                return new SessionStore($puenteado);
             }
         }
 
         if ($this->container->has(SessionStore::class)) {
             $declarado = $this->container->get(SessionStore::class);
             if ($declarado instanceof SessionStore) {
+                if ($this->container->has(EventStoreInterface::class)) {
+                    $eventos = $this->container->get(EventStoreInterface::class);
+                    if ($eventos instanceof EventStoreInterface) {
+                        $this->sessionEvents = $eventos;
+                    }
+                }
+
                 return $declarado;
             }
         }
@@ -2283,6 +2386,8 @@ class AgentOperations implements CommandProvider
         if ($this->container->has(EventStoreInterface::class)) {
             $eventos = $this->container->get(EventStoreInterface::class);
             if ($eventos instanceof EventStoreInterface) {
+                $this->sessionEvents = $eventos;
+
                 return new SessionStore($eventos);
             }
         }
@@ -2297,7 +2402,10 @@ class AgentOperations implements CommandProvider
             return null;
         }
 
-        return new SessionStore($this->conPuente(new FileEventStore($directorio . '/agent-sessions.jsonl')));
+        $archivo = $this->conPuente(new FileEventStore($directorio . '/agent-sessions.jsonl'));
+        $this->sessionEvents = $archivo;
+
+        return new SessionStore($archivo);
     }
 
     /**
