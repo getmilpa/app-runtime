@@ -208,24 +208,27 @@ final class SessionToolGateTest extends TestCase
     }
 
     /**
-     * LA FIRMA SE DETIENE INCLUSO EN `auto`, y la pregunta no ofrece un «sí».
+     * LA CONFIRMACIÓN SE DETIENE INCLUSO EN `auto`, y pide el sí de sesión (decisions/0177, elección B).
      *
      * Es la línea entre autonomía y cheque en blanco, medida donde se aplica y no sólo donde se
-     * decide: la política ya lo dice, y esta prueba verifica que la compuerta la honra.
+     * decide. Esta prueba codificaba la forma vieja (`RequireSignature`, id `sign:` y un motivo con
+     * `--sign`); la 0177-B la volvió una CONFIRMACIÓN de sesión — sigue deteniéndose en cualquier
+     * modo (eso es lo invariante), pero la pregunta ahora sí ofrece un «sí» que la otorga para el
+     * resto de la sesión. La firma criptográfica queda para las ops firmables por CLI.
      */
-    public function testASignatureStopsEvenInAutoAndOffersNoWayToApproveFromHere(): void
+    public function testAConfirmationStopsEvenInAutoAndAsksForTheSessionYes(): void
     {
         $almacen = new SessionStore(new InMemoryEventStore());
         $compuerta = $this->compuerta($almacen, 's1', AutonomyMode::Auto);
 
         $motivo = $compuerta->refuse('plugins_remove', ['name' => 'X']);
 
-        self::assertNotNull($motivo);
-        self::assertStringContainsString('--sign', $motivo);
-        self::assertStringNotContainsString('agent:answer', $motivo, 'no hay respuesta que autorice esto');
+        self::assertNotNull($motivo, 'auto no la salta: la confirmación es independiente del modo');
+        self::assertStringContainsString('autorizas', $motivo);
+        self::assertStringNotContainsString('--sign', $motivo, 'la 0177-B retiró la firma de esta clase');
 
         $sesion = $almacen->load('s1');
-        self::assertSame('sign:plugins_remove', $sesion?->question?->id);
+        self::assertSame('perm:plugins_remove', $sesion?->question?->id);
     }
 
     /**
