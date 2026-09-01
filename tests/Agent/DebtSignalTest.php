@@ -124,13 +124,41 @@ final class DebtSignalTest extends TestCase
         $señales->emit(DebtSignal::ADMITTED_INTENT_SKIP, ['operation' => 'notes.archive', 'tier' => 'exact_scope', 'argumentsDigest' => 'sha256:a']);
         $señales->emit(DebtSignal::HIGH_TIER_DOUBLE_CEREMONY, ['operation' => 'plugins.register', 'tier' => 'never']);
         $señales->emit(DebtSignal::SCOPE_FRAGILITY, ['operation' => 'config.set', 'grantedArgumentsDigest' => 'sha256:b', 'requestedArgumentsDigest' => 'sha256:c']);
+        $señales->emit(DebtSignal::FRAMEWORK_GAP, ['summary' => 'the judge cannot verify a target that boots the judge']);
 
         // Unknown-type tolerance, pinned: the session keeps folding untouched — the same tolerance
         // ClosureVerdict already rides (an old reader skips what it does not know).
         $sesion = $store->load('s');
         self::assertNotNull($sesion);
         self::assertSame('build the Tareas plugin', $sesion->goal);
-        self::assertSame([], $sesion->pendingTodos(), 'the fold read past three unknown-type events');
+        self::assertSame([], $sesion->pendingTodos(), 'the fold read past four unknown-type events');
         self::assertIsArray($store->facts('s')->workState(), 'the facts projection folds past them too');
+    }
+
+    /**
+     * FRAMEWORK_GAP is an admitted kind of the same channel (greenhouse decisions/0185): a model
+     * that declared `HOUSE_DEBT:` under the forced choice leaves a signal shaped exactly like its
+     * three siblings — a digest, never the prose.
+     */
+    public function testFrameworkGapIsAnAdmittedKindWithTheDocumentedShape(): void
+    {
+        $eventos = new InMemoryEventStore();
+        $store = new SessionStore($eventos);
+        $store->start('s', 'close the deadlock', AutonomyMode::Auto);
+
+        (new DebtSignal($eventos, 's'))->emit(DebtSignal::FRAMEWORK_GAP, [
+            'summary' => 'the judge cannot verify a target that boots the judge',
+        ]);
+
+        $señales = array_values(array_filter(
+            $eventos->replay(SessionStore::PREFIX . 's'),
+            static fn (object $evento): bool => $evento->type === DebtSignal::EVENT,
+        ));
+        self::assertCount(1, $señales);
+        self::assertSame('framework_gap', $señales[0]->payload['signal']);
+        self::assertSame(
+            ['summary' => 'the judge cannot verify a target that boots the judge'],
+            $señales[0]->payload['context'],
+        );
     }
 }

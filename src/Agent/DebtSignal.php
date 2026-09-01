@@ -73,6 +73,14 @@ final class DebtSignal
      */
     public const SCOPE_FRAGILITY = 'scope_fragility';
 
+    /**
+     * The model, facing the forced choice of a stalled leg, declared the blocker FRAMEWORK-OWNED
+     * (`HOUSE_DEBT:` under greenhouse decisions/0185): the run could not progress because plumbing
+     * the house owns stood in the way. The context carries a digest/summary, never the raw prose —
+     * the full declaration is the session's own final answer, already in the stream as the turn.
+     */
+    public const FRAMEWORK_GAP = 'framework_gap';
+
     /** Every context field is bounded: a signal names a fact, it never dumps one. */
     private const MAX_FIELD_CHARS = 256;
 

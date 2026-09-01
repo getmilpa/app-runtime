@@ -17,8 +17,10 @@ namespace Milpa\AppRuntime\Operations;
 use Milpa\AppRuntime\Agent\TrialRunner;
 use Milpa\AppRuntime\Agent\TrialRouter;
 use Milpa\AppRuntime\Agent\TrialAwareRegistry;
+use Milpa\Agent\ProgressReceipt;
 use Milpa\AiGateway\AgentOrchestrator;
 use Milpa\AiGateway\PlanBoard;
+use Milpa\AiGateway\ProgressProbe;
 use Milpa\AiGateway\RunInterrupted;
 use Milpa\Agent\Principal;
 use Milpa\AppRuntime\Agent\AffirmativeAnswer;
@@ -53,6 +55,7 @@ use Milpa\AiGateway\SecondOpinionGate;
 use Milpa\AppRuntime\Agent\RecordOnlyOptionTable;
 use Milpa\AppRuntime\Agent\SessionOptionTable;
 use Milpa\AppRuntime\Agent\SessionPlanBoard;
+use Milpa\AppRuntime\Agent\SessionProgressProbe;
 use Milpa\AppRuntime\Agent\StepWatcher;
 use Milpa\AppRuntime\Agent\SterileLoopGuard;
 use Milpa\AppRuntime\Agent\SubAgentSpawner;
@@ -976,7 +979,7 @@ class AgentOperations implements CommandProvider
      *
      * @param array<string, mixed> $input
      *
-     * @return array{ok: bool, answer?: string, steps?: int, tools?: int, error?: string, hint?: string, paused?: bool, exhausted?: bool, interrupted?: bool, closure?: array{verified: bool, reasons: list<string>}}
+     * @return array{ok: bool, answer?: string, steps?: int, tools?: int, error?: string, hint?: string, paused?: bool, exhausted?: bool, stalled?: bool, receipt?: array<string, mixed>, houseDebt?: bool, interrupted?: bool, closure?: array{verified: bool, reasons: list<string>}}
      */
     private function run(array $input): array
     {
@@ -1631,6 +1634,43 @@ class AgentOperations implements CommandProvider
             $resultado['hint'] = 'pídele que siga, o dale más pasos con `--steps`';
         }
 
+        // A STALLED LEG IS AN HONEST END, NOT AN ERROR (greenhouse decisions/0185). Named exactly
+        // like `exhausted` above and for the same reason: a surface must recognize the state, never
+        // infer it from a string. The receipt the probe derived rides the sentinel's second line;
+        // it is decoded here once so the surface reads numbers instead of parsing an answer.
+        // Guarded by `defined()` because this file coexists with whatever ai-gateway its owner has
+        // installed (the planBoard trap): against an older one the constant simply does not exist
+        // and no answer can carry it.
+        if (\defined(AgentOrchestrator::class . '::PROGRESS_STALLED')
+            && str_starts_with($respuesta, AgentOrchestrator::PROGRESS_STALLED)
+        ) {
+            $resultado['stalled'] = true;
+            $decoded = json_decode(trim(substr($respuesta, \strlen(AgentOrchestrator::PROGRESS_STALLED))), true);
+            if (\is_array($decoded) && \is_array($decoded['receipt'] ?? null)) {
+                $resultado['receipt'] = $decoded['receipt'];
+            }
+            $resultado['answer'] = 'The leg ended without semantic progress: the house put the '
+                . 'forced choice in front of the model and it took none of the options.';
+            $resultado['hint'] = 'read the receipt, then re-run with a narrower brief — or take the blocked decision yourself';
+        }
+
+        // A DECLARED FRAMEWORK GAP BECOMES A DEBT SIGNAL (greenhouse decisions/0185): the model
+        // faced the forced choice and named the blocker as the house's own plumbing. The signal
+        // carries a DIGEST — the first line, bounded by the emitter — never the raw prose: the
+        // full declaration is already in the stream as the assistant turn recorded above. The
+        // answer still surfaces verbatim; recording an observation must not rewrite what was said.
+        if ($sessionId !== ''
+            && \defined(AgentOrchestrator::class . '::HOUSE_DEBT_MARKER')
+            && str_starts_with(trim($respuesta), AgentOrchestrator::HOUSE_DEBT_MARKER)
+        ) {
+            $declaration = trim(substr(trim($respuesta), \strlen(AgentOrchestrator::HOUSE_DEBT_MARKER)));
+            $firstLine = trim(strtok($declaration, "\n") ?: '');
+            (new DebtSignal($this->sessionEvents, $sessionId))->emit(DebtSignal::FRAMEWORK_GAP, [
+                'summary' => $firstLine,
+            ]);
+            $resultado['houseDebt'] = true;
+        }
+
         // ── THE CLOSURE VERDICT (greenhouse evidence/0442) ──────────────────────────────────────
         //
         // Only the NATURAL end carries it: paused, interrupted and exhausted returns already say
@@ -1640,7 +1680,7 @@ class AgentOperations implements CommandProvider
         // envelope cannot claim a completion the ledger does not back.
         // `$pausada` is only ever loaded with a session and its store in hand, so its presence is
         // the whole guard: re-checking the store here would be a condition that can never fire.
-        if ($pausada !== null && !isset($resultado['paused']) && !isset($resultado['exhausted'])) {
+        if ($pausada !== null && !isset($resultado['paused']) && !isset($resultado['exhausted']) && !isset($resultado['stalled'])) {
             $closure = ClosureVerdict::derive($pausada, $store->facts($sessionId));
             $resultado['closure'] = $closure;
             if ($this->sessionEvents !== null) {
@@ -1929,10 +1969,20 @@ class AgentOperations implements CommandProvider
         $configTB = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
         $lazyTools = ($configTB instanceof Config ? $configTB->get('agent.lazyTools') : null) === true;
 
+        // THE PROGRESS PROBE (greenhouse decisions/0185), built from the SAME captured state the
+        // grants and the intent catalogue already ride — `ask()` is protected and overridden, so
+        // nothing new may travel in its signature. Non-null ONLY when the installed ai-gateway
+        // declares the seam, so the branch below can pass the extra constructor argument safely.
+        $sonda = $this->progressProbe();
+
         // Three shapes, not one array: the named `lazyTools` argument only appears when the toolbox is
         // on, because passing an argument an OLDER ai-gateway does not declare throws «Unknown named
         // parameter» on every turn (the planBoard trap). When it is off, the old positional shape rides.
-        if ($lazyTools) {
+        // A fourth shape carries the probe: its non-null already proves the installed ai-gateway is
+        // >=0.16, so every earlier parameter is declared too and the full positional list is safe.
+        if ($sonda !== null) {
+            $orquestador = new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger(), null, $tablero, $lazyTools, $sonda);
+        } elseif ($lazyTools) {
             $orquestador = new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger(), null, $tablero, true);
         } elseif ($tablero !== null) {
             $orquestador = new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger(), null, $tablero);
@@ -1951,6 +2001,24 @@ class AgentOperations implements CommandProvider
             $history,
             $onStep,
         );
+    }
+
+    /**
+     * The semantic-progress probe over THIS session's live stream, or `null` when it cannot exist:
+     * no session (nothing to measure), no captured event store (nowhere to read or record), or an
+     * installed ai-gateway/agent pair too old to declare the seam. Every guard fails toward the
+     * byte-identical default path — a run without the probe is exactly the run 0.100.0 shipped.
+     */
+    private function progressProbe(): ?SessionProgressProbe
+    {
+        if ($this->sesionDeLosPermisos === null || $this->sessionEvents === null) {
+            return null;
+        }
+        if (!interface_exists(ProgressProbe::class) || !class_exists(ProgressReceipt::class)) {
+            return null;
+        }
+
+        return new SessionProgressProbe($this->sessionEvents, $this->sesionDeLosPermisos);
     }
 
     /**
