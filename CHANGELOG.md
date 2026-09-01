@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.94.0](https://github.com/getmilpa/app-runtime/compare/v0.93.0...v0.94.0) (2026-09-01)
+
+
+### Features
+
+* scoped launch grants and the closure verdict on the final answer ([#226](https://github.com/getmilpa/app-runtime/issues/226)) ([4df575b](https://github.com/getmilpa/app-runtime/commit/4df575b480b041bf60dcbb8202ae756ad8b0af06))
+
 ## [0.93.0](https://github.com/getmilpa/app-runtime/compare/v0.92.0...v0.93.0) (2026-08-30)
 
 
