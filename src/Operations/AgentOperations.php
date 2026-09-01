@@ -647,7 +647,7 @@ class AgentOperations implements CommandProvider
         // sea. Lo que no se hace nunca es meterlas al catálogo como si la app las ofreciera sin una.
         $id = $sessionId !== '' ? $sessionId : '·enumerando·';
 
-        $ops = (new SessionBookkeeping($store, $id))->operations();
+        $ops = (new SessionBookkeeping($store, $id, $this->sessionEvents))->operations();
 
         if (!class_exists(SubAgentSpawner::class)) {
             return $ops;
@@ -890,7 +890,7 @@ class AgentOperations implements CommandProvider
                 // ATADAS a esta sesión: el id se captura, no se le pide al modelo. Uno que el modelo
                 // pudiera nombrar es uno que puede errar, y escribirle el plan a otra sesión no es una
                 // equivocación recuperable — quien la lea mañana verá un plan que su agente no escribió.
-                $contabilidad = (new SessionBookkeeping($store, $sessionId))->operations();
+                $contabilidad = (new SessionBookkeeping($store, $sessionId, $this->sessionEvents))->operations();
 
                 // LA DELEGACIÓN (Q-P19-P). El hijo es una sesión con `parentId` corriendo por los
                 // MISMOS rieles: mismo orquestador, misma compuerta —que ya pide el techo del linaje
@@ -939,7 +939,7 @@ class AgentOperations implements CommandProvider
 
                         $registroHijo = $this->toolsOfThisApp(
                             [
-                                ...(new SessionBookkeeping($store, $hijoId))->operations(),
+                                ...(new SessionBookkeeping($store, $hijoId, $this->sessionEvents))->operations(),
                                 $canalDelHijo->messageOperation(),
                             ],
                             registroPropio: true,
@@ -1943,7 +1943,7 @@ class AgentOperations implements CommandProvider
      */
     private function contractProducers(SessionStore $store, string $sessionId): array
     {
-        $productores = [new SessionBookkeeping($store, $sessionId)];
+        $productores = [new SessionBookkeeping($store, $sessionId, $this->sessionEvents)];
 
         if (class_exists(SubAgentSpawner::class)) {
             $productores[] = new SubAgentSpawner(
