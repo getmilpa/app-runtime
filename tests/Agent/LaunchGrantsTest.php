@@ -350,4 +350,11 @@ final class LaunchGrantsTest extends TestCase
 
         return new ConsentBridge($registro, $this->grantsRebuiltFromASeededSession());
     }
+    public function testATruncatedEntryWithADanglingColonIsRefusedNotWidened(): void
+    {
+        $refusal = LaunchGrants::parse('plugins_register:');
+
+        self::assertIsString($refusal, 'a truncated entry must refuse, never seed the argument-less form');
+        self::assertStringContainsString('ends in «:»', $refusal);
+    }
 }

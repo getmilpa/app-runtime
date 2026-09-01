@@ -93,6 +93,12 @@ final class LaunchGrants
 
             $firstEquals = strpos($raw, '=');
             if ($firstEquals === false) {
+                // A trailing colon is a truncated entry, not a bare operation: silently reading
+                // «plugins_register:» as the argument-less form would WIDEN a scoped grant by typo —
+                // exactly the accident an authority surface must refuse, not absorb.
+                if (str_ends_with($raw, ':')) {
+                    return "a grant entry ends in «:» with nothing after it — write the constraints or drop the colon: «{$raw}»";
+                }
                 $entries[] = ['operation' => $raw, 'arguments' => []];
 
                 continue;
