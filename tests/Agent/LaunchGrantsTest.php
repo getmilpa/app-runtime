@@ -62,6 +62,8 @@ final class LaunchGrantsTest extends TestCase
         string $name,
         Authority $authority = Authority::WriteAsUser,
         bool $requiresConfirmation = true,
+        Externality $externality = Externality::None,
+        Subject $subject = Subject::Data,
     ): Operation {
         return new Operation(
             name: $name,
@@ -72,10 +74,10 @@ final class LaunchGrantsTest extends TestCase
             requiresConfirmation: $requiresConfirmation,
             effects: new EffectProfile(
                 Mutation::Persistent,
-                Externality::None,
+                $externality,
                 Reversibility::Compensatable,
                 $authority,
-                subject: Subject::Data,
+                subject: $subject,
             ),
         );
     }
@@ -205,7 +207,9 @@ final class LaunchGrantsTest extends TestCase
             $entries,
             [
                 $this->operacion('plan', Authority::WriteAsUser, false),
-                $this->operacion('capabilities:enable', Authority::Privileged, false),
+                // Its REAL axes: the enable goes to the registry (ThirdParty) — that egress is
+                // what makes it signature-class under the two-axis rule.
+                $this->operacion('capabilities:enable', Authority::Privileged, false, Externality::ThirdParty, Subject::Executable),
             ],
             new Principal('cli:rod@lab'),
         );
@@ -356,5 +360,38 @@ final class LaunchGrantsTest extends TestCase
 
         self::assertIsString($refusal, 'a truncated entry must refuse, never seed the argument-less form');
         self::assertStringContainsString('ends in «:»', $refusal);
+    }
+    public function testAPrivilegedIdentityShapedOperationStillRefusesSeeding(): void
+    {
+        $store = $this->almacen();
+        $store->start('s1', 'goal', AutonomyMode::Ask);
+
+        $out = (new LaunchGrants())->seed(
+            $store,
+            's1',
+            [['operation' => 'identity:rotate', 'arguments' => []]],
+            [$this->operacion('identity:rotate', Authority::Privileged, true, Externality::None, Subject::Configuration)],
+            new Principal('cli:rod@lab'),
+        );
+
+        self::assertArrayHasKey('error', $out);
+        self::assertStringContainsString('a grant cannot replace it', (string) $out['error']);
+    }
+
+    public function testAPrivilegedLocalWiringOperationIsSeedableTheMeasuredRegisterCase(): void
+    {
+        $store = $this->almacen();
+        $store->start('s1', 'goal', AutonomyMode::Ask);
+
+        $out = (new LaunchGrants())->seed(
+            $store,
+            's1',
+            [['operation' => 'plugins_register', 'arguments' => ['plugin' => 'Tareas']]],
+            [$this->operacion('plugins:register', Authority::Privileged, true, Externality::None, Subject::Executable)],
+            new Principal('cli:rod@lab'),
+        );
+
+        self::assertArrayNotHasKey('error', $out, 'a local executable-wiring act is consentable: the product already accepted a mid-session yes for it');
+        self::assertTrue($store->load('s1')?->allows('plugins:register') ?? false);
     }
 }
