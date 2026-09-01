@@ -23,6 +23,9 @@ use Milpa\AiGateway\RunInterrupted;
 use Milpa\Agent\Principal;
 use Milpa\AppRuntime\Agent\AffirmativeAnswer;
 use Milpa\AppRuntime\Support\ContratoInstalado;
+use Milpa\AppRuntime\Support\Foundation;
+use Milpa\Http\Routing\Route;
+use Milpa\Http\Routing\Router;
 use Milpa\AppRuntime\Agent\ArchitectureSummaryProjector;
 use Milpa\AppRuntime\Agent\ClosureVerdict;
 use Milpa\AppRuntime\Agent\ConsentBridge;
@@ -262,6 +265,49 @@ class AgentOperations implements CommandProvider
                     rollbackContract: 'nothing-to-roll-back',
                 ),
                 surfaces: ['cli', 'tui', 'mcp'],
+            ),
+            new Operation(
+                name: 'house:context',
+                description: 'The house explained structurally in one call: app identity, plugins as booted, storage, routes, capabilities, operations, session tools and the layout conventions — each section read from its one authority',
+                handler: fn (array $input): array => $this->houseContext(),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [],
+                    // An empty `required` is information, its absence is not (evidence/0094): this
+                    // aggregate demands nothing to be asked.
+                    'required' => [],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean'],
+                        'app' => ['type' => 'object', 'description' => 'name (config `app.name`), root (the kernel\'s), and foundation — Foundation\'s own answer'],
+                        'plugins' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'Each {class, name, provides?} in the exact order the kernel holds them'],
+                        'storage' => ['type' => 'object', 'description' => 'The storage block\'s shape: driver and where — never credentials'],
+                        'routes' => ['type' => 'object', 'description' => 'count and paths of the route table the kernel\'s router holds'],
+                        'capabilities' => ['type' => 'object', 'description' => 'The capability registry\'s own answer: installed, available, ports'],
+                        'operations' => ['type' => 'object', 'description' => 'count and names of the assembled catalogue — Operations::all'],
+                        'sessionTools' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'The session notebook\'s names; empty when this app stores no sessions'],
+                        'conventions' => ['type' => 'object', 'description' => 'The layout the generators write to: plugins, entities, controllers, config'],
+                        'error' => ['type' => 'string'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // Reads the kernel, the config bag and the registries this app already assembled:
+                // it changes nothing, reaches nobody, and spends no authority.
+                effects: new EffectProfile(
+                    mutation: Mutation::None,
+                    externality: Externality::None,
+                    reversibility: Reversibility::Guaranteed,
+                    authority: Authority::Read,
+                    subject: Subject::None,
+                    rollbackContract: 'nothing-to-roll-back',
+                ),
+                surfaces: ['cli', 'tui', 'mcp'],
+                // THE DECLARED CONTRACT (greenhouse decisions/0183): no preconditions — an aggregate
+                // that demanded something to be asked would be re-creating the orientation cost it
+                // exists to pay off.
+                observableEvidence: 'the answer itself: every key present, each section equal to its one authority — plugins to what the kernel booted, operations to the assembled catalogue, capabilities to the capability registry',
             ),
             new Operation(
                 name: 'session:owner',
@@ -681,6 +727,143 @@ class AgentOperations implements CommandProvider
             'ok' => false,
             'name' => $name,
             'error' => "unknown operation «{$name}» — no operation in this app's catalogue has that identity",
+        ];
+    }
+
+    /**
+     * The house explained structurally, in ONE call — every key always present.
+     *
+     * Live sessions were measured spending their first five to eight model calls ORIENTING:
+     * `source_read` on plugin files, `contract_search` probes, reading an example plugin —
+     * re-deriving every run what the house already knows about itself (greenhouse decisions/0183,
+     * primitive #1). This is that aggregate, answered once.
+     *
+     * Each section is read from its ONE authoritative source, never a second index and never a
+     * filesystem guess:
+     *
+     * - `app` — the config bag's `app.name`, the kernel's root, and {@see Foundation::answer()}
+     *   verbatim, because FoundationOperations already owns that question;
+     * - `plugins` — {@see Kernel::plugins()} as the kernel holds them, each named by its own
+     *   `#[PluginMetadata]` (the same reading {@see self::pluginMetadata()} makes);
+     * - `storage` — the `storage` block of the config bag, the block
+     *   {@see \Milpa\Data\RepositoryFactory} reads: the driver and where it points, NEVER
+     *   `storage.user` / `storage.password`, and a DSN stripped of any credential pair;
+     * - `routes` — the table {@see Kernel::router()} actually holds. The router publishes no
+     *   enumeration, so the table is read reflectively off the router itself rather than
+     *   re-asking the plugins: a second derivation could drift from what the kernel serves;
+     * - `capabilities` — {@see Capabilities::answer()}, the exact answer the `capabilities`
+     *   operation gives (CapabilityOperations' authority);
+     * - `operations` — the names in {@see Operations::all()}, the catalogue's own registry;
+     * - `sessionTools` — the session notebook's declared names ({@see SessionBookkeeping}),
+     *   empty when this app stores no sessions, because offering them then would be the lie
+     *   `herramientasDeLaSesion()` documents;
+     * - `conventions` — the layout the devtools generators REALLY write to, cited from their
+     *   code, not invented: `PluginGenerator` writes `{appDir}/Plugins/<Name>/<Name>.php`,
+     *   `EntityGenerator` `{appDir}/Plugins/<Name>/Entities/`, `ControllerGenerator`
+     *   `{appDir}/Plugins/<Name>/Controllers/` (appDir is `src` under the runtime flavor), and
+     *   the config seam is `config/`.
+     *
+     * No kernel is a fail-closed verdict in words, `operation:contract`'s own idiom (H-GATE-1).
+     *
+     * @return array<string, mixed>
+     */
+    public function houseContext(): array
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return [
+                'ok' => false,
+                'error' => 'this app has no kernel, so there is no booted house to explain yet',
+            ];
+        }
+
+        $root = $kernel->root();
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $config = $config instanceof Config ? $config : null;
+
+        $plugins = [];
+        $booted = $kernel->bootedPluginNames();
+        foreach ($kernel->plugins() as $plugin) {
+            $attributes = (new \ReflectionClass($plugin))->getAttributes(PluginMetadata::class);
+            $meta = $attributes === [] ? null : $attributes[0]->newInstance();
+
+            // AS THE KERNEL BOOTS THEM: `plugins()` also carries the vetoed ones, and a plugin
+            // whose `boot()` never ran contributes no tools, no routes and no commands — a row
+            // for it would describe a house that does not exist ({@see self::pluginMetadata()}
+            // reads the same distinction for the architecture summary). A configured plugin
+            // without metadata cannot have booted at all: the kernel refuses it before boot.
+            if ($meta === null || !\in_array($meta->name, $booted, true)) {
+                continue;
+            }
+
+            $row = [
+                'class' => $plugin::class,
+                'name' => $meta->name,
+            ];
+            $provides = [];
+            foreach ($meta->provides as $entry) {
+                $id = \is_string($entry) ? $entry : ($entry['id'] ?? null);
+                if (\is_string($id) && $id !== '') {
+                    $provides[] = $id;
+                }
+            }
+            if ($provides !== []) {
+                $row['provides'] = $provides;
+            }
+            $plugins[] = $row;
+        }
+
+        $declaredStorage = $config?->get('storage');
+        $declaredStorage = \is_array($declaredStorage) ? $declaredStorage : [];
+        $driver = \is_string($declaredStorage['driver'] ?? null) ? $declaredStorage['driver'] : null;
+        $where = \is_string($declaredStorage['path'] ?? null) ? $declaredStorage['path'] : null;
+        if ($where === null && \is_string($declaredStorage['dsn'] ?? null)) {
+            // The DSN is where a mysql backend points — minus anything that could be a credential.
+            $where = preg_replace('/(user|password)=[^;]*/i', '$1=…', $declaredStorage['dsn']);
+        }
+
+        $table = (new \ReflectionProperty(Router::class, 'routes'))->getValue($kernel->router());
+        $paths = [];
+        foreach (\is_array($table) ? $table : [] as $route) {
+            if ($route instanceof Route) {
+                $paths[] = $route->path;
+            }
+        }
+
+        $names = array_map(
+            static fn (Operation $operation): string => $operation->name,
+            Operations::all($kernel, $root),
+        );
+
+        // A synthetic id is enough to ENUMERATE, `herramientasDeLaSesion()`'s own reasoning:
+        // the notebook's names do not depend on which session it is.
+        $store = $this->sessions();
+        $sessionTools = $store === null ? [] : array_map(
+            static fn (Operation $operation): string => $operation->name,
+            (new SessionBookkeeping($store, '·enumerando·', $this->sessionEvents))->operations(),
+        );
+
+        $appName = $config?->get('app.name');
+
+        return [
+            'ok' => true,
+            'app' => [
+                'name' => \is_string($appName) && $appName !== '' ? $appName : basename($root),
+                'root' => $root,
+                'foundation' => Foundation::answer($root),
+            ],
+            'plugins' => $plugins,
+            'storage' => ['driver' => $driver, 'where' => $where],
+            'routes' => ['count' => \count($paths), 'paths' => $paths],
+            'capabilities' => Capabilities::answer(),
+            'operations' => ['count' => \count($names), 'names' => $names],
+            'sessionTools' => $sessionTools,
+            'conventions' => [
+                'plugins' => 'src/Plugins/<Name>/<Name>.php',
+                'entities' => 'src/Plugins/<Name>/Entities',
+                'controllers' => 'src/Plugins/<Name>/Controllers',
+                'config' => 'config/',
+            ],
         ];
     }
 
