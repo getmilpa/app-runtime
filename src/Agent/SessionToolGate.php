@@ -122,6 +122,11 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // gate resolves only app Operations, exactly as before — and a tool neither an Operation nor a
         // producer claims is the one genuinely unjudgeable thing, which fails closed.
         private readonly array $contractProducers = [],
+        // THE DEBT-SIGNAL SEAM (greenhouse decisions/0183 primitive #5), or `null` to observe
+        // nothing. An OBSERVATION channel only: it carries no authority, changes no decision this
+        // gate makes, and with no seam every path behaves byte-identically — which is the A/B
+        // falsifier its own suite pins.
+        private readonly ?DebtSignal $debtSignals = null,
     ) {
     }
 
@@ -401,9 +406,11 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      * PermissionGranted is minted; admissibility is re-judged where consent is judged, at judgment
      * time, from recorded facts — exactly like the grants the authority layer re-derives.
      *
-     * AUDIT RESIDUE, NAMED: an admitted skip leaves no mark of its own — the gate's allow path is
-     * silent by design, and marking it would take a new event type this ruling does not license.
-     * Making the skip legible in the stream is a seam left for the DebtSignal arc.
+     * AUDIT RESIDUE, PAID (the DebtSignal arc, greenhouse decisions/0183): an admitted skip now
+     * leaves its mark as a `session.debt_signaled` OBSERVATION — zero authority, zero behavior —
+     * never as the permission event this ruling does not license. And the deliberate double
+     * ceremony of a NEVER-tier exact claim is counted the same way, right beside the perm:
+     * question it doubles (the plugins.register case of evidence/0444).
      *
      * @param array<string, mixed> $arguments
      */
@@ -414,10 +421,20 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
     ): ?string {
         $techo = $composicion !== null ? $composicion->effective : $operacion->effectCeiling();
         if ($this->aConfirmedIntentAdmits($operacion, $arguments, $techo)) {
+            // THE NAMED RESIDUE OF evidence/0445, PAID: the zero-authority skip becomes visible
+            // as a SIGNAL, not as authority — the ConsentBridge digest travels, never the raw
+            // arguments. Emitted right here, at the site that holds the proof: this frame just
+            // resolved the admitting claim.
+            $this->debtSignals?->emit(DebtSignal::ADMITTED_INTENT_SKIP, [
+                'operation' => $operacion->name,
+                'tier' => IntentAdmissibility::tier($techo),
+                'argumentsDigest' => ConsentBridge::digest($arguments),
+            ]);
+
             return null;
         }
 
-        return $this->pause(
+        $pausa = $this->pause(
             $this->conElHechoAdentro(
                 $this->policy->permissionQuestion($operacion->name, $arguments, $this->vence()),
                 $operacion->name,
@@ -434,6 +451,22 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
                 $this->cambiosDeUnaPromocion($operacion->name, $arguments),
             ),
         );
+
+        // THE DOUBLE CEREMONY, COUNTED WHERE IT HAPPENS (the plugins.register case of
+        // evidence/0444): the human confirmed EXACTLY this call and the tier still rules NEVER, so
+        // the perm: question above is deliberate policy — and deliberate policy is still friction
+        // the Measuring Stick deserves to see. Observed AFTER the ask so the signal sits adjacent
+        // to the question it counts; it prevents nothing and answers nothing.
+        if (IntentAdmissibility::tier($techo) === IntentAdmissibility::NEVER
+            && $this->anExactConfirmedClaimNames($operacion, $arguments)
+        ) {
+            $this->debtSignals?->emit(DebtSignal::HIGH_TIER_DOUBLE_CEREMONY, [
+                'operation' => $operacion->name,
+                'tier' => IntentAdmissibility::NEVER,
+            ]);
+        }
+
+        return $pausa;
     }
 
     /**
@@ -450,6 +483,48 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      */
     private function aConfirmedIntentAdmits(Operation $operacion, array $arguments, EffectProfile $techo): bool
     {
+        foreach ($this->confirmedClaimArguments($operacion) as $confirmados) {
+            if (IntentAdmissibility::admits($confirmados, $arguments, $techo)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether the human confirmed EXACTLY this call — the strict start alone, no tier ruling.
+     *
+     * What the `high_tier_double_ceremony` signal observes (greenhouse decisions/0183): the
+     * exactness is {@see IntentAdmissibility::exact()} itself, so the observation can never
+     * disagree with the judgment about what «exact» means.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function anExactConfirmedClaimNames(Operation $operacion, array $arguments): bool
+    {
+        foreach ($this->confirmedClaimArguments($operacion) as $confirmados) {
+            if (IntentAdmissibility::exact($confirmados, $arguments)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Every argument set this session holds a confirmed intent claim for, on THIS operation.
+     *
+     * The ONE fact-read behind both consumers above: the decision inherits `reason` and `why` from
+     * the question, so the claim is read as code and JSON — never the question's prose. A claim
+     * answered «no» never appears; a claim for another operation never appears; a claim from
+     * another session cannot even appear, because these decisions are THIS session's stream.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function confirmedClaimArguments(Operation $operacion): array
+    {
+        $claims = [];
         foreach (ContratoInstalado::arreglo($this->session, 'decisions') as $decision) {
             if (($decision['reason'] ?? null) !== 'target_not_named') {
                 continue;
@@ -464,12 +539,10 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             if (!\is_array($why['arguments'] ?? null)) {
                 continue;
             }
-            if (IntentAdmissibility::admits($why['arguments'], $arguments, $techo)) {
-                return true;
-            }
+            $claims[] = $why['arguments'];
         }
 
-        return false;
+        return $claims;
     }
 
     /**
