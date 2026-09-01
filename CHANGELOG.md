@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.97.0](https://github.com/getmilpa/app-runtime/compare/v0.96.0...v0.97.0) (2026-09-01)
+
+
+### Features
+
+* the house's tools emit structured debt observations (DebtSignal, slice 1) ([#234](https://github.com/getmilpa/app-runtime/issues/234)) ([702c27a](https://github.com/getmilpa/app-runtime/commit/702c27a443bcba3597fdd22eea912dc0cd21fa07))
+
 ## [0.96.0](https://github.com/getmilpa/app-runtime/compare/v0.95.0...v0.96.0) (2026-09-01)
 
 
