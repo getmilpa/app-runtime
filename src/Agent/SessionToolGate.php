@@ -335,6 +335,31 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             return null;
         }
 
+        // D-05 (greenhouse decisions/0187): the intent contract asks about the TARGET unless BOTH
+        // (a) the call is non-grave AND (b) the operation CREATES its named target.
+        //
+        // Two questions were being conflated, and only one is a human's: «you did not name this» vs.
+        // «you did not authorise the necessary component». WHICH class realises the plan —
+        // `implement TareaService` materialising the component the objective implies — is the MODEL's
+        // interpretive domain (product→human, interpretation→model, mechanics→house), so a
+        // materialising op opts out. But WHICH existing plugin to disable, or note to delete, is
+        // target SELECTION, not interpretation — Q-P19-K, the measured defect that CREATED this
+        // contract («apaga el plugin viejo» → runs disabled different plugins) — so a SELECTING op
+        // still names its target even when reversible. The `createsNamedTarget` flag draws that line;
+        // it fails closed (default false → keep asking), so only an op that declares it materialises
+        // is relaxed.
+        //
+        // Gravity gates it too: the admissibility table (decisions/0184) marks privileged authority,
+        // egress and destructive/unknown reversibility NEVER, and those keep asking regardless of the
+        // flag. Judged by the DECLARED ceiling — a descent only lowers, so this never asks LESS for a
+        // grave op.
+        if (
+            IntentAdmissibility::tier($operacion->effectCeiling()) !== IntentAdmissibility::NEVER
+            && $this->createsItsNamedTarget($operacion)
+        ) {
+            return null;
+        }
+
         // A RESUME IS NOT A NEW PETITION (greenhouse decisions/0009). The prompt of a resumed
         // run is literally «sigue», which names nothing by construction — and the series' three
         // non-converters all died on «the petition does not name X» while the human's standing
@@ -433,6 +458,18 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
     private function contratoDeclaradoPor(object $operacion): ?string
     {
         return ContratoInstalado::cadena($operacion, 'namedTarget');
+    }
+
+    /**
+     * Whether the operation declares it CREATES its named target (greenhouse decisions/0187, D-05).
+     *
+     * Read defensively for the same reason {@see contratoDeclaradoPor()} is: this `src/` travels with
+     * `composer create-project` and can run against a `milpa/command` vendor that predates the flag.
+     * Absent property → `false`, which is the fail-closed answer this gate wants anyway: keep asking.
+     */
+    private function createsItsNamedTarget(object $operacion): bool
+    {
+        return property_exists($operacion, 'createsNamedTarget') && $operacion->createsNamedTarget === true;
     }
 
     /** Cuándo vence la pregunta que se está por hacer, o `null` si el host no puso plazo. */
