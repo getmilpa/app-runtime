@@ -70,6 +70,7 @@ use Milpa\Agent\Todo;
 use Milpa\Agent\TodoStatus;
 use Milpa\Agent\SessionStore;
 use Milpa\Agent\WorkSnapshot;
+use Milpa\AppRuntime\Entity\EntityContract;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\StderrLogger;
 use Milpa\Command\CommandProvider;
@@ -356,6 +357,46 @@ class AgentOperations implements CommandProvider
                 ),
                 surfaces: ['cli', 'tui', 'mcp'],
                 observableEvidence: 'the answer itself: every field derived from the session stream — materialized and verified from the work-state fold, blocked from the pending question, house debt from the signalled facts',
+            ),
+            new Operation(
+                name: 'entity:contract',
+                description: 'The semantics of a generated entity, PROVEN by execution: mutability (immutable/mutable), update semantics (replace_entity/mutate_in_place) and the identity it persists by — so an implementation is judged against what the house actually created, not against what the model assumed (greenhouse decisions/0187, D-04)',
+                handler: fn (array $input): array => $this->entityContract($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'class' => [
+                            'type' => 'string',
+                            'description' => 'The fully-qualified entity class to read the contract of',
+                        ],
+                    ],
+                    'required' => ['class'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean'],
+                        'class' => ['type' => 'string'],
+                        'mutability' => ['type' => 'string', 'description' => 'immutable or mutable — proven by mutating a throwaway instance, not read off the readonly keyword'],
+                        'updateSemantics' => ['type' => 'string', 'description' => 'replace_entity for an immutable entity, mutate_in_place for a mutable one'],
+                        'persistenceIdentity' => ['type' => ['string', 'null'], 'description' => 'The field the entity persists by, `id` when it declares one'],
+                        'probed' => ['type' => 'boolean'],
+                        'error' => ['type' => 'string'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // Reflects the class and mutates a DISCARDED instance to decide mutability: it reads
+                // the class, changes nothing the app can see, spends no authority.
+                effects: new EffectProfile(
+                    mutation: Mutation::None,
+                    externality: Externality::None,
+                    reversibility: Reversibility::Guaranteed,
+                    authority: Authority::Read,
+                    subject: Subject::None,
+                    rollbackContract: 'nothing-to-roll-back',
+                ),
+                surfaces: ['cli', 'tui', 'mcp'],
+                observableEvidence: 'the answer itself: mutability is whatever PHP did to a throwaway instance — a readonly entity reports immutable because its second write threw the same Error the agent hit; a plain one reports mutable because the write landed',
             ),
             new Operation(
                 name: 'session:owner',
@@ -2271,6 +2312,31 @@ class AgentOperations implements CommandProvider
         }
 
         return WorkSnapshot::fromEvents($session, $store->stream($session))->toArray();
+    }
+
+    /**
+     * D-04 (greenhouse decisions/0187): the semantics of a generated entity, proven by execution.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function entityContract(array $input): array
+    {
+        $class = \is_string($input['class'] ?? null) ? trim($input['class']) : '';
+        if ($class === '') {
+            return ['ok' => false, 'error' => 'which class? `class` is required — the fully-qualified entity class'];
+        }
+
+        $contract = EntityContract::of($class);
+        if ($contract === null) {
+            return [
+                'ok' => false,
+                'error' => 'cannot vouch for «' . $class . '»: it is not loadable here, or has no instance property to probe — the house does not guess a semantics it did not prove',
+            ];
+        }
+
+        return $contract->toArray();
     }
 
     /**
