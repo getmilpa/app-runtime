@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.111.0](https://github.com/getmilpa/app-runtime/compare/v0.110.0...v0.111.0) (2026-09-02)
+
+
+### Features
+
+* a passkey enrollment page — the last mile for a real device ([#264](https://github.com/getmilpa/app-runtime/issues/264)) ([15c3263](https://github.com/getmilpa/app-runtime/commit/15c3263c9e19b961c5c7345263732f5285271209))
+
 ## [0.110.0](https://github.com/getmilpa/app-runtime/compare/v0.109.0...v0.110.0) (2026-09-02)
 
 
