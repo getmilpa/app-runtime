@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.102.0](https://github.com/getmilpa/app-runtime/compare/v0.101.0...v0.102.0) (2026-09-02)
+
+
+### Features
+
+* the declared context reaches the orchestrator — intra-leg budget wired ([#244](https://github.com/getmilpa/app-runtime/issues/244)) ([738f00c](https://github.com/getmilpa/app-runtime/commit/738f00c1f3ccdb239f155b1f0f08d346ca2454ca))
+
 ## [0.101.0](https://github.com/getmilpa/app-runtime/compare/v0.100.0...v0.101.0) (2026-09-02)
 
 
