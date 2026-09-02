@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.106.0](https://github.com/getmilpa/app-runtime/compare/v0.105.0...v0.106.0) (2026-09-02)
+
+
+### Features
+
+* entity:contract — a generated entity's semantics, proven by execution ([#254](https://github.com/getmilpa/app-runtime/issues/254)) ([c202bd0](https://github.com/getmilpa/app-runtime/commit/c202bd07812ee508d8dc5f211d8ed2640b9961dd))
+
 ## [0.105.0](https://github.com/getmilpa/app-runtime/compare/v0.104.0...v0.105.0) (2026-09-02)
 
 
