@@ -69,6 +69,7 @@ use Milpa\Agent\Session;
 use Milpa\Agent\Todo;
 use Milpa\Agent\TodoStatus;
 use Milpa\Agent\SessionStore;
+use Milpa\Agent\WorkSnapshot;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\StderrLogger;
 use Milpa\Command\CommandProvider;
@@ -311,6 +312,50 @@ class AgentOperations implements CommandProvider
                 // that demanded something to be asked would be re-creating the orientation cost it
                 // exists to pay off.
                 observableEvidence: 'the answer itself: every key present, each section equal to its one authority — plugins to what the kernel booted, operations to the assembled catalogue, capabilities to the capability registry',
+            ),
+            new Operation(
+                name: 'work:snapshot',
+                description: 'Where the WORK stands in one call, derived from the session\'s own stream: objective, materialized, verified, blocked, unclosable, next executable actions and the house debt — so nothing is re-derived by re-reading files (greenhouse decisions/0187, D-06)',
+                handler: fn (array $input): array => $this->workSnapshot($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'session' => [
+                            'type' => 'string',
+                            'description' => 'The session whose work state should be derived',
+                            'x-milpa-source' => ['tool' => 'agent:sessions', 'path' => 'sessions', 'key' => 'session'],
+                        ],
+                    ],
+                    'required' => ['session'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean'],
+                        'session' => ['type' => 'string'],
+                        'objective' => ['type' => 'string', 'description' => 'The plan of record — the criterion the rest is judged by'],
+                        'materialized' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Artifacts a mutating call\'s own ok:true proved into being'],
+                        'verified' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Artifacts whose latest producer-declared verdict is still positive'],
+                        'blocked' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'What a human must decide: the pending question and any blocked todo'],
+                        'unclosable' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'Todos whose weakest named artifact is not verified — the completion gate would reject the claim'],
+                        'nextExecutableActions' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'What recovery may act on: artifacts still needing work and open todos'],
+                        'houseDebt' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'Framework gaps the house itself signalled this session'],
+                        'error' => ['type' => 'string'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // Reads the session's own stream and derives: it changes nothing, reaches nobody,
+                // spends no authority — the same contract as house:context, over work instead of structure.
+                effects: new EffectProfile(
+                    mutation: Mutation::None,
+                    externality: Externality::None,
+                    reversibility: Reversibility::Guaranteed,
+                    authority: Authority::Read,
+                    subject: Subject::None,
+                    rollbackContract: 'nothing-to-roll-back',
+                ),
+                surfaces: ['cli', 'tui', 'mcp'],
+                observableEvidence: 'the answer itself: every field derived from the session stream — materialized and verified from the work-state fold, blocked from the pending question, house debt from the signalled facts',
             ),
             new Operation(
                 name: 'session:owner',
@@ -2206,6 +2251,28 @@ class AgentOperations implements CommandProvider
      * coincidir, y el día que lo hicieran `agent:answer` contestaría en una sesión que `agent` no
      * está leyendo.
      */
+    /**
+     * D-06 (greenhouse decisions/0187): the session's work state, derived once from its own stream.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function workSnapshot(array $input): array
+    {
+        $session = \is_string($input['session'] ?? null) ? trim($input['session']) : '';
+        if ($session === '') {
+            return ['ok' => false, 'error' => 'which session? `session` is required — agent:sessions lists them'];
+        }
+
+        $store = $this->sessionStore();
+        if ($store === null || $store->load($session) === null) {
+            return ['ok' => false, 'error' => 'the session «' . $session . '» does not exist here'];
+        }
+
+        return WorkSnapshot::fromEvents($session, $store->stream($session))->toArray();
+    }
+
     /**
      * Who the house recognizes as this session's verified owner, re-verified live at the moment asked.
      *
