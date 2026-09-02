@@ -9,21 +9,16 @@ use Milpa\Command\Operation;
 use PHPUnit\Framework\TestCase;
 
 /**
- * `capabilities:enable` declares no descent while nothing can hold one up.
+ * `capabilities:enable` keeps the install ceiling as its declaration and declares no descent.
  *
- * greenhouse decisions/0049. Its certificate covers `mutation` and explicitly does NOT cover
- * `externality`, which is what the descent promised — and evidence/0242 measured why: the network is
- * observed by difference, and difference cannot tell «does not reach out» from «reaches out and
- * swallows the error». Not partial coverage: not knowing.
- *
- * This test exists so the descent cannot come back in silence. It comes back by being CERTIFIED,
- * which is how decisions/0045 said a descent is earned.
+ * The dry-run ceiling is resolved only for that invocation by {@see \Milpa\AppRuntime\Operations\DryRunOperation};
+ * it must not weaken the operation's declared profile or revive an uncertified descent.
  *
  * @internal
  */
 final class DescentIsSwitchedOffTest extends TestCase
 {
-    public function testCapabilitiesEnableDeclaresNoDescentWhileNoneCanBeCertified(): void
+    public function testDryRunLeavesTheDeclaredDescentsUntouched(): void
     {
         $enable = null;
         foreach ((new CapabilityOperations())->operations() as $op) {

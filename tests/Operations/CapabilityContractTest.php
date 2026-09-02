@@ -17,7 +17,9 @@ namespace Milpa\AppRuntime\Tests\Operations;
 use Milpa\AppRuntime\Operations\CapabilityOperations;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\Command\DeclaredCondition;
+use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Operation;
+use Milpa\Console\Consent;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -141,6 +143,22 @@ final class CapabilityContractTest extends TestCase
         $preview = Capabilities::install('milpa/agent', $this->vendor, dryRun: true);
         self::assertTrue($preview['ok']);
         self::assertSame('composer require milpa/agent', $preview['command'], 'the line shown IS the line that would run');
+    }
+
+    /** A dry run lowers only this call to read-only; the real install keeps its declared ceiling. */
+    public function testDryRunDoesNotDemandConsentButTheRealInstallStillDoes(): void
+    {
+        $enable = $this->enable();
+        $declared = $enable->effectCeiling();
+        $dryRun = ['capability' => 'milpa/agent', 'dry_run' => true];
+
+        self::assertSame(EffectProfile::readOnly()->toArray(), $enable->ceilingForCall($dryRun)->toArray());
+        self::assertFalse(Consent::demanded($enable, $dryRun));
+        self::assertSame($declared, $enable->effectCeiling(), 'the operation declaration does not change per call');
+
+        $install = ['capability' => 'milpa/agent'];
+        self::assertSame($declared->toArray(), $enable->ceilingForCall($install)->toArray());
+        self::assertTrue(Consent::demanded($enable, $install));
     }
 
     private function enable(): Operation

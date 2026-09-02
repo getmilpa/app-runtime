@@ -178,7 +178,7 @@ final readonly class CapabilityOperations implements CommandProvider
                 // write disk is a surface nobody asked for. The terminal, the TUI and the agent can.
                 surfaces: ['cli', 'tui', 'mcp'],
             ),
-            new Operation(
+            new DryRunOperation(
                 name: 'capabilities:enable',
                 effects: new EffectProfile(
                     Mutation::Persistent,
@@ -193,27 +193,6 @@ final readonly class CapabilityOperations implements CommandProvider
                     Authority::Privileged,
                     subject: Subject::Executable,
                     escalatesOn: ['capability'],
-                    // EL DESCENSO ESTÁ APAGADO (greenhouse decisions/0049), y su razón se conserva.
-                    //
-                    // `decisions/0029` permitió que un argumento baje el techo, y este `--dry-run` fue
-                    // el caso que lo forzó: sin él, S2 le pedía consentimiento a alguien para NO hacer
-                    // nada. La declaración que estaba aquí era la mejor que esta casa ha visto — citaba
-                    // dos mediciones, `evidence/0146` para el disco y `0149` para una corrida en un
-                    // espacio de nombres sin red con la caché fría.
-                    //
-                    // Y no alcanza, por una distinción que sólo se vio al construir el instrumento:
-                    // esas dos miden que el ensayo NO NECESITA la red, no que NO LA TOQUE. El
-                    // observador diferencial (`evidence/0242`) tiene el mismo techo — no distingue «no
-                    // sale» de «sale y se traga el error»— así que el certificado de `evidence/0245`
-                    // cubre `mutation` y declara que NO cubre `externality`, que es justo lo que este
-                    // descenso prometía.
-                    //
-                    // Lo que falta no es honestidad de quien lo declaró: es un instrumento. Vuelve
-                    // encendido cuando exista observador de red con un control que sepa matar, y
-                    // vuelve CERTIFICÁNDOSE, que es como `decisions/0045` dijo que un descenso se gana.
-                    //
-                    // Mientras tanto `--dry-run` carga el techo entero y pide firma. Preferimos una
-                    // molestia visible a un privilegio invisible.
                 ),
                 description: 'Install an opt-in capability by name — one step instead of three',
                 handler: fn (array $input): array => $this->enable($input),
