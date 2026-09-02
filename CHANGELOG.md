@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.105.0](https://github.com/getmilpa/app-runtime/compare/v0.104.0...v0.105.0) (2026-09-02)
+
+
+### Features
+
+* work:snapshot operation — the session's work state in one call ([#252](https://github.com/getmilpa/app-runtime/issues/252)) ([d650704](https://github.com/getmilpa/app-runtime/commit/d650704c4a10ab1d120e8f67facf7df56220799f))
+
 ## [0.104.0](https://github.com/getmilpa/app-runtime/compare/v0.103.0...v0.104.0) (2026-09-02)
 
 
