@@ -44,18 +44,24 @@ final class PasskeyPluginTest extends TestCase
         self::assertSame([], $plugin->routes(), 'nowhere to mint a session, no routes');
     }
 
-    public function testItMountsTwoRoutesAndTheControllerWhenConfigured(): void
+    public function testItMountsTheLoginAndIntentRoutesAndControllersWhenConfigured(): void
     {
         $container = $this->container(rpId: 'milpa.local', withSessions: true);
         $plugin = new PasskeyPlugin($container);
         $plugin->boot();
 
         $routes = $plugin->routes();
-        self::assertCount(4, $routes);
+        self::assertCount(7, $routes);
         $paths = array_map(static fn (Route $r): string => $r->path, $routes);
+        // Login ceremony.
         self::assertContains('/webauthn/authenticate/options', $paths);
         self::assertContains('/webauthn/authenticate', $paths);
-        self::assertTrue($container->has(PasskeyController::class), 'the controller is registered for the router to resolve');
+        // Intent ceremony (greenhouse decisions/0187, D-01): challenge bound to a call, admit, page.
+        self::assertContains('/webauthn/intent/options', $paths);
+        self::assertContains('/webauthn/intent/admit', $paths);
+        self::assertContains('/webauthn/intent', $paths);
+        self::assertTrue($container->has(PasskeyController::class), 'the login controller is registered');
+        self::assertTrue($container->has(\Milpa\AppRuntime\Web\Controllers\PasskeyIntentController::class), 'the intent controller is registered');
     }
 
     private function container(?string $rpId, bool $withSessions): DIContainer

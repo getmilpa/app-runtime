@@ -14,8 +14,10 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Web;
 
+use Milpa\AppRuntime\Agent\PasskeyIntentAdmission;
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
 use Milpa\AppRuntime\Web\Controllers\PasskeyController;
+use Milpa\AppRuntime\Web\Controllers\PasskeyIntentController;
 use Milpa\Auth\Contracts\SessionStore;
 use Milpa\Auth\WebAuthn\FileChallengeStore;
 use Milpa\Auth\WebAuthn\FilePasskeyCredentialStore;
@@ -106,6 +108,15 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
             PasskeyController::class,
             new PasskeyController($authenticator, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $rpId, $cookie),
         );
+
+        // THE INTENT CEREMONY (greenhouse decisions/0187, D-01): the same authenticator, turned toward
+        // authorising a concrete operation instead of minting a session. Its challenge→call binding is
+        // persistent because the ceremony spans two requests (issue at the pause, admit at the touch).
+        $intentChallenges = new FileIntentChallengeStore($root . '/var/passkey/intent-challenges.json');
+        $this->container->registerService(
+            PasskeyIntentController::class,
+            new PasskeyIntentController(new PasskeyIntentAdmission($authenticator, $intentChallenges), $rpId),
+        );
     }
 
     /** The two authentication routes, once booted — otherwise none. */
@@ -120,6 +131,9 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
             new Route(path: '/webauthn/authenticate', methods: HttpMethod::POST, name: 'passkey.authenticate', handler: new HandlerReference(PasskeyController::class, 'authenticate')),
             new Route(path: '/webauthn/register/options', methods: HttpMethod::POST, name: 'passkey.register.options', handler: new HandlerReference(PasskeyController::class, 'registerOptions')),
             new Route(path: '/webauthn/register', methods: HttpMethod::POST, name: 'passkey.register', handler: new HandlerReference(PasskeyController::class, 'register')),
+            new Route(path: '/webauthn/intent/options', methods: HttpMethod::POST, name: 'passkey.intent.options', handler: new HandlerReference(PasskeyIntentController::class, 'intentOptions')),
+            new Route(path: '/webauthn/intent/admit', methods: HttpMethod::POST, name: 'passkey.intent.admit', handler: new HandlerReference(PasskeyIntentController::class, 'intentAdmit')),
+            new Route(path: '/webauthn/intent', methods: HttpMethod::GET, name: 'passkey.intent.page', handler: new HandlerReference(PasskeyIntentController::class, 'page')),
         ];
     }
 
