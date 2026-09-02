@@ -411,8 +411,13 @@ final readonly class SessionBookkeeping implements ContractProducer
             ];
         }
 
-        $covering = $this->coveringFact($facts, $kind, $reference, $verdict);
+        $staleRefusal = null;
+        $covering = $this->coveringFact($facts, $kind, $reference, $verdict, $staleRefusal);
         if ($covering === null) {
+            if ($staleRefusal !== null) {
+                return ['ok' => false, 'error' => $staleRefusal];
+            }
+
             return [
                 'ok' => false,
                 'error' => sprintf(
@@ -456,11 +461,16 @@ final readonly class SessionBookkeeping implements ContractProducer
      * SUMMARY: The recorded fact that covers a claim of `$kind` for `$reference`, or `null` when
      * nothing in the stream does — the fail-closed half of the judge.
      *
+     * When a covering fact EXISTS but is refused for a reason more specific than «nothing covers it»
+     * — a served receipt that went stale — the reason is written to `$refusal`, so the caller can
+     * teach with it instead of the generic not-found message.
+     *
      * @param array<string, mixed> $verdict the already-fetched {@see SessionFacts::lastVerificationOf()} answer
+     * @param string|null          $refusal out: a specific refusal reason when one applies
      *
      * @return array<string, mixed>|null
      */
-    private function coveringFact(SessionFacts $facts, EvidenceKind $kind, string $reference, array $verdict): ?array
+    private function coveringFact(SessionFacts $facts, EvidenceKind $kind, string $reference, array $verdict, ?string &$refusal = null): ?array
     {
         if ($kind === EvidenceKind::TestPassed) {
             // A producer-declared verification verdict is the strongest fact the stream holds.
@@ -509,12 +519,30 @@ final readonly class SessionBookkeeping implements ContractProducer
             // same way — no branch here names an operation.
             $served = $facts->evidenceByPredicate('served', $reference);
             if (($served['ok'] ?? false) === true) {
+                // FRESHNESS: a receipt covers only while it is still valid (greenhouse decisions/0187).
+                // A screen served then FORGOTTEN — or a served screen whose later re-declare failed —
+                // is no longer served, yet its old served receipt would still close a claim. The judge
+                // covers ONLY a FRESH receipt; a stale one is refused and NAMES what went stale, so the
+                // model can re-establish it. The verdict is read from the stream, never a receipt field.
+                if (($served['evidence']['fresh'] ?? false) !== true) {
+                    $refusal = sprintf(
+                        'the claim is refused: the served evidence for «%s» went stale — a later fact '
+                        . 'at seq %d (%s) invalidated it. Re-establish the screen and claim again',
+                        $reference,
+                        \is_int($served['evidence']['invalidatedAtSeq'] ?? null) ? $served['evidence']['invalidatedAtSeq'] : 0,
+                        \is_string($served['evidence']['invalidatedBy'] ?? null) ? $served['evidence']['invalidatedBy'] : '?',
+                    );
+
+                    return null;
+                }
+
                 return [
                     'fact' => 'served',
                     'predicate' => 'served',
                     'subject' => $reference,
                     'operation' => $served['evidence']['operation'] ?? '?',
                     'seq' => $served['evidence']['seq'] ?? 0,
+                    'fresh' => true,
                 ];
             }
 

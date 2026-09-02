@@ -515,6 +515,134 @@ final class WorkClaimVerifiedTest extends TestCase
     }
 
     /**
+     * FRESHNESS — FRESH COVERS (greenhouse decisions/0187, the EvidenceReceipt continuation of D-02):
+     * a served receipt with nothing later that invalidated it closes the claim, and the result names
+     * the fresh served receipt that covered it. The D-02 case preserved, now with the freshness read.
+     */
+    public function testAFreshServedScreenClosesTheClaim(): void
+    {
+        $this->llamar('todo', ['text' => 'preview the tareas screen']);
+        $this->almacen->recordToolCall(
+            's1',
+            'screen:declare',
+            ['name' => 'tareas-preview'],
+            (string) json_encode([
+                'ok' => true,
+                'screen' => 'tareas-preview',
+                'servedAt' => '/live/page?component=tareas-preview',
+                'evidence' => ['predicate' => 'served', 'subject' => 'tareas-preview', 'servedAt' => '/live/page?component=tareas-preview'],
+            ]),
+            true,
+            true,
+        );
+
+        $r = $this->llamar('work:claim-verified', [
+            'todo' => 't1',
+            'kind' => 'screen-served',
+            'reference' => 'tareas-preview',
+        ]);
+
+        self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
+        self::assertSame('done', $r['todo']['status']);
+        self::assertSame('served', $r['evidence']['coveredBy']['fact']);
+        self::assertTrue($r['evidence']['coveredBy']['fresh'] ?? null, 'the covering receipt is reported fresh');
+    }
+
+    /**
+     * FRESHNESS — STALE REFUSED (THE LEVER, greenhouse decisions/0187): a screen served, THEN
+     * forgotten, is no longer served — yet its old served receipt used to close a claim. The judge
+     * now covers only a FRESH receipt: the claim is REFUSED, the todo stays open, and the refusal
+     * names that the evidence went stale and at which seq. Against D-02 code (no freshness) this
+     * WRONGLY closed — this is the red-first proof.
+     */
+    public function testAForgottenServedScreenNoLongerCoversTheClaim(): void
+    {
+        $this->llamar('todo', ['text' => 'preview the tareas screen']);
+        $this->almacen->recordToolCall(
+            's1',
+            'screen:declare',
+            ['name' => 'tareas-preview'],
+            (string) json_encode([
+                'ok' => true,
+                'screen' => 'tareas-preview',
+                'servedAt' => '/live/page?component=tareas-preview',
+                'evidence' => ['predicate' => 'served', 'subject' => 'tareas-preview', 'servedAt' => '/live/page?component=tareas-preview'],
+            ]),
+            true,
+            true,
+        );
+        // Later the screen is FORGOTTEN — a call declaring an invalidation of the served receipt.
+        $this->almacen->recordToolCall(
+            's1',
+            'screen:forget',
+            ['name' => 'tareas-preview'],
+            (string) json_encode([
+                'ok' => true,
+                'forgotten' => 'tareas-preview',
+                'evidence' => ['predicate' => 'served', 'subject' => 'tareas-preview', 'invalidates' => true],
+            ]),
+            true,
+            true,
+        );
+
+        $r = $this->llamar('work:claim-verified', [
+            'todo' => 't1',
+            'kind' => 'screen-served',
+            'reference' => 'tareas-preview',
+        ]);
+
+        self::assertFalse($r['ok'], 'a forgotten screen is not served: refuse');
+        self::assertStringContainsString('stale', (string) $r['error']);
+        self::assertStringContainsString('tareas-preview', (string) $r['error']);
+        self::assertMatchesRegularExpression('/seq \d+/', (string) $r['error'], 'the refusal names the invalidating seq');
+        self::assertSame(TodoStatus::Pending, $this->almacen->load('s1')?->todos[0]->status, 'fail closed: still open');
+    }
+
+    /**
+     * FRESHNESS — a served screen whose later re-declare FAILED is also stale: the model tried to
+     * re-establish it and the attempt did not hold, so the fail-closed judge refuses the claim.
+     */
+    public function testAServedScreenWithAFailedReDeclareIsRefused(): void
+    {
+        $this->llamar('todo', ['text' => 'preview the tareas screen']);
+        $this->almacen->recordToolCall(
+            's1',
+            'screen:declare',
+            ['name' => 'tareas-preview'],
+            (string) json_encode([
+                'ok' => true,
+                'screen' => 'tareas-preview',
+                'servedAt' => '/live/page?component=tareas-preview',
+                'evidence' => ['predicate' => 'served', 'subject' => 'tareas-preview', 'servedAt' => '/live/page?component=tareas-preview'],
+            ]),
+            true,
+            true,
+        );
+        $this->almacen->recordToolCall(
+            's1',
+            'screen:declare',
+            ['name' => 'tareas-preview'],
+            (string) json_encode([
+                'ok' => false,
+                'error' => 'unknown component type',
+                'evidence' => ['predicate' => 'served', 'subject' => 'tareas-preview'],
+            ]),
+            false,
+            true,
+        );
+
+        $r = $this->llamar('work:claim-verified', [
+            'todo' => 't1',
+            'kind' => 'screen-served',
+            'reference' => 'tareas-preview',
+        ]);
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('stale', (string) $r['error']);
+        self::assertSame(TodoStatus::Pending, $this->almacen->load('s1')?->todos[0]->status);
+    }
+
+    /**
      * THE JUDGE NEVER NAMES THE PRODUCER: the coverage code contains no literal «screen:declare»,
      * so it keys on the predicate, not the tool. If a mutation made it key on the name, this reddens.
      */
@@ -526,6 +654,9 @@ final class WorkClaimVerifiedTest extends TestCase
         // whole file never keys on the screen:declare tool name for its coverage.
         self::assertStringNotContainsString("'screen:declare'", $source, 'the judge must match the predicate, never the producer name');
         self::assertStringNotContainsString('"screen:declare"', $source);
+        // Nor the invalidating producer: freshness is derived from the receipt shape, never the tool.
+        self::assertStringNotContainsString("'screen:forget'", $source, 'the judge must not key on the invalidating producer either');
+        self::assertStringNotContainsString('"screen:forget"', $source);
     }
 
     /** The declared route stays alive: a reference named as the test FILTER covers the claim. */
