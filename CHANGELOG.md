@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.109.0](https://github.com/getmilpa/app-runtime/compare/v0.108.0...v0.109.0) (2026-09-02)
+
+
+### Features
+
+* PasskeyIntentAdmission — the recording channel's verified YES, a real proof ([#260](https://github.com/getmilpa/app-runtime/issues/260)) ([2da5d76](https://github.com/getmilpa/app-runtime/commit/2da5d76975ce325e1c1cb513bd55be97c41c6b4e))
+
 ## [0.108.0](https://github.com/getmilpa/app-runtime/compare/v0.107.0...v0.108.0) (2026-09-02)
 
 
