@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.110.0](https://github.com/getmilpa/app-runtime/compare/v0.109.0...v0.110.0) (2026-09-02)
+
+
+### Features
+
+* the browser ceremony for a proof-backed intent (passkey over HTTP) ([#262](https://github.com/getmilpa/app-runtime/issues/262)) ([e9a96a5](https://github.com/getmilpa/app-runtime/commit/e9a96a5bc6a83d3ff09785d7150f36b870024205))
+
 ## [0.109.0](https://github.com/getmilpa/app-runtime/compare/v0.108.0...v0.109.0) (2026-09-02)
 
 
