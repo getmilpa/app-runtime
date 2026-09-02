@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.101.0](https://github.com/getmilpa/app-runtime/compare/v0.100.0...v0.101.0) (2026-09-02)
+
+
+### Features
+
+* the progress probe over the live stream, wired to the forced choice (greenhouse decisions/0185) ([#242](https://github.com/getmilpa/app-runtime/issues/242)) ([dfef42c](https://github.com/getmilpa/app-runtime/commit/dfef42c55a5a0cd8eea31323efe33886d5a81139))
+
 ## [0.100.0](https://github.com/getmilpa/app-runtime/compare/v0.99.0...v0.100.0) (2026-09-01)
 
 
