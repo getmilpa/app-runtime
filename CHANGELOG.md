@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.102.1](https://github.com/getmilpa/app-runtime/compare/v0.102.0...v0.102.1) (2026-09-02)
+
+
+### Bug Fixes
+
+* keep dry-run calls read-only ([#246](https://github.com/getmilpa/app-runtime/issues/246)) ([9d25ab6](https://github.com/getmilpa/app-runtime/commit/9d25ab6ec776d160302c4b36ffff3759f0a76334))
+
 ## [0.102.0](https://github.com/getmilpa/app-runtime/compare/v0.101.0...v0.102.0) (2026-09-02)
 
 
