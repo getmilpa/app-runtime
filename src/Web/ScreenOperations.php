@@ -95,7 +95,7 @@ final class ScreenOperations implements CommandProvider
             new Operation(
                 name: 'screen:forget',
                 description: 'Forget a runtime-declared screen by name — the rollback of screen:declare. It stops being served at /live/page?component=<name>.',
-                handler: fn (array $input): array => $this->store->forget((string) ($input['name'] ?? '')),
+                handler: fn (array $input): array => $this->forget($input),
                 inputSchema: [
                     'type' => 'object',
                     'required' => ['name'],
@@ -204,6 +204,33 @@ final class ScreenOperations implements CommandProvider
                 'predicate' => 'served',
                 'subject' => $result['screen'],
                 'servedAt' => $result['servedAt'],
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Forget a declared screen, and — the symmetric half of {@see declare()} — carry an INVALIDATION
+     * receipt when it succeeds (greenhouse decisions/0187). Where declare declares the served
+     * predicate for its subject, forget declares that same predicate no longer holds: the anti-receipt
+     * that a later reader derives freshness from. It rides the `session.tool_called` fact this call
+     * already leaves, so the standing served receipt of the screen goes stale with no field the
+     * producer sets to say so. A failed forget revoked nothing and so declares nothing.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function forget(array $input): array
+    {
+        $result = $this->store->forget((string) ($input['name'] ?? ''));
+
+        if (($result['ok'] ?? false) === true && \is_string($result['forgotten'] ?? null)) {
+            $result['evidence'] = [
+                'predicate' => 'served',
+                'subject' => $result['forgotten'],
+                'invalidates' => true,
             ];
         }
 

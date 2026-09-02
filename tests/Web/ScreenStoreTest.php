@@ -215,4 +215,40 @@ final class ScreenStoreTest extends TestCase
         self::assertFalse($result['ok']);
         self::assertArrayNotHasKey('evidence', $result);
     }
+
+    /**
+     * THE INVALIDATOR DECLARES THE ANTI-RECEIPT (greenhouse decisions/0187): a successful
+     * screen:forget carries an invalidation receipt — the served predicate for the forgotten screen,
+     * marked `invalidates` — so freshness can be derived from the stream, deriving it in the agent
+     * from a later fact rather than from any field a producer could set.
+     */
+    public function testASuccessfulForgetCarriesAnInvalidationReceipt(): void
+    {
+        $store = new ScreenStore($this->path);
+        $ops = [];
+        foreach ((new ScreenOperations($store))->operations() as $o) {
+            $ops[$o->name] = $o;
+        }
+        ($ops['screen:declare']->handler)(['name' => 'tareas-preview', 'columns' => [], 'rows' => []]);
+        $result = ($ops['screen:forget']->handler)(['name' => 'tareas-preview']);
+
+        self::assertTrue($result['ok']);
+        self::assertSame('served', $result['evidence']['predicate']);
+        self::assertSame('tareas-preview', $result['evidence']['subject']);
+        self::assertTrue($result['evidence']['invalidates']);
+    }
+
+    /** A FAILED forget carries no invalidation receipt: nothing was revoked, so nothing is declared. */
+    public function testAFailedForgetCarriesNoInvalidationReceipt(): void
+    {
+        $store = new ScreenStore($this->path);
+        $ops = [];
+        foreach ((new ScreenOperations($store))->operations() as $o) {
+            $ops[$o->name] = $o;
+        }
+        $result = ($ops['screen:forget']->handler)(['name' => 'never-declared']);
+
+        self::assertFalse($result['ok']);
+        self::assertArrayNotHasKey('evidence', $result);
+    }
 }
