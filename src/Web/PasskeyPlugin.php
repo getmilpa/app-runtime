@@ -131,6 +131,7 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
             new Route(path: '/webauthn/authenticate', methods: HttpMethod::POST, name: 'passkey.authenticate', handler: new HandlerReference(PasskeyController::class, 'authenticate')),
             new Route(path: '/webauthn/register/options', methods: HttpMethod::POST, name: 'passkey.register.options', handler: new HandlerReference(PasskeyController::class, 'registerOptions')),
             new Route(path: '/webauthn/register', methods: HttpMethod::POST, name: 'passkey.register', handler: new HandlerReference(PasskeyController::class, 'register')),
+            new Route(path: '/webauthn/enroll', methods: HttpMethod::GET, name: 'passkey.enroll.page', handler: new HandlerReference(PasskeyController::class, 'enrollPage')),
             new Route(path: '/webauthn/intent/options', methods: HttpMethod::POST, name: 'passkey.intent.options', handler: new HandlerReference(PasskeyIntentController::class, 'intentOptions')),
             new Route(path: '/webauthn/intent/admit', methods: HttpMethod::POST, name: 'passkey.intent.admit', handler: new HandlerReference(PasskeyIntentController::class, 'intentAdmit')),
             new Route(path: '/webauthn/intent', methods: HttpMethod::GET, name: 'passkey.intent.page', handler: new HandlerReference(PasskeyIntentController::class, 'page')),

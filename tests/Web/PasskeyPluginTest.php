@@ -51,11 +51,12 @@ final class PasskeyPluginTest extends TestCase
         $plugin->boot();
 
         $routes = $plugin->routes();
-        self::assertCount(7, $routes);
+        self::assertCount(8, $routes);
         $paths = array_map(static fn (Route $r): string => $r->path, $routes);
-        // Login ceremony.
+        // Login + enrollment ceremony.
         self::assertContains('/webauthn/authenticate/options', $paths);
         self::assertContains('/webauthn/authenticate', $paths);
+        self::assertContains('/webauthn/enroll', $paths);
         // Intent ceremony (greenhouse decisions/0187, D-01): challenge bound to a call, admit, page.
         self::assertContains('/webauthn/intent/options', $paths);
         self::assertContains('/webauthn/intent/admit', $paths);

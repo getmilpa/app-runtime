@@ -133,6 +133,16 @@ final class PasskeyController
             ->withHeader('Set-Cookie', $this->cookieName . '=' . $session->id . '; HttpOnly; SameSite=Strict; Path=/');
     }
 
+    /** The self-contained enrollment page: registers a passkey with `navigator.credentials.create`. */
+    public function enrollPage(ServerRequestInterface $request): ResponseInterface
+    {
+        return new Response(
+            200,
+            ['Content-Type' => 'text/html; charset=utf-8', 'Cache-Control' => 'no-store'],
+            $this->enrollHtml(),
+        );
+    }
+
     /**
      * @param array<string, mixed> $body
      */
@@ -158,5 +168,66 @@ final class PasskeyController
         $decoded = base64_decode(strtr($value, '-_', '+/'), true);
 
         return $decoded === false ? null : $decoded;
+    }
+
+    private function enrollHtml(): string
+    {
+        // A self-contained enrollment page: it asks the server for a registration challenge, runs
+        // navigator.credentials.create against the real authenticator (the human's device), and posts
+        // the attestation back to /webauthn/register. The base64url helpers are the standard WebAuthn
+        // marshalling; the server verifies and stores the credential (registered, then enrolled).
+        return <<<'HTML'
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Register a passkey</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 4rem auto; padding: 0 1rem; color: #1a1a1a; }
+  button { font: inherit; padding: .7rem 1.2rem; border: 0; border-radius: 8px; background: #111; color: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .r { margin-top: 1rem; padding: .8rem 1rem; border-radius: 8px; word-break: break-all; }
+  .ok { background: #dcfce7; } .no { background: #fee2e2; }
+</style>
+<h1>Register a passkey</h1>
+<p>Enroll this device's authenticator so it can approve operations. You will be asked to touch it.</p>
+<p><button id="go">Register with passkey</button></p>
+<div id="out"></div>
+<script>
+const b64uToBuf = s => Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0));
+const bufToB64u = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+
+async function register() {
+  const btn = document.getElementById('go'); const out = document.getElementById('out');
+  btn.disabled = true; out.textContent = '';
+  try {
+    const opt = await (await fetch('/webauthn/register/options', { method: 'POST' })).json();
+
+    const userId = crypto.getRandomValues(new Uint8Array(16));
+    const cred = await navigator.credentials.create({ publicKey: {
+      rp: { id: opt.rpId, name: 'Milpa' },
+      user: { id: userId, name: 'operator', displayName: 'Operator' },
+      challenge: b64uToBuf(opt.challenge),
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+      authenticatorSelection: { userVerification: 'preferred' },
+      timeout: 60000,
+    }});
+
+    const res = await (await fetch('/webauthn/register', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        clientDataJSON: bufToB64u(cred.response.clientDataJSON),
+        attestationObject: bufToB64u(cred.response.attestationObject),
+      })
+    })).json();
+
+    out.className = 'r ' + (res.ok ? 'ok' : 'no');
+    out.textContent = res.ok ? ('Registered credential: ' + res.credentialId) : ('Refused: ' + (res.error || 'unknown'));
+  } catch (e) {
+    out.className = 'r no'; out.textContent = 'Registration failed: ' + e.message;
+  } finally { btn.disabled = false; }
+}
+document.getElementById('go').addEventListener('click', register);
+</script>
+HTML;
     }
 }

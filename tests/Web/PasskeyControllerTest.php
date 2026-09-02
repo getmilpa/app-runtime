@@ -47,6 +47,18 @@ final class PasskeyControllerTest extends TestCase
         }
     }
 
+    public function testTheEnrollmentPageIsServed(): void
+    {
+        [$controller] = $this->controller(recognized: true);
+
+        $res = $controller->enrollPage(new ServerRequest('GET', '/webauthn/enroll'));
+
+        self::assertSame(200, $res->getStatusCode());
+        self::assertStringContainsString('text/html', $res->getHeaderLine('Content-Type'));
+        self::assertStringContainsString('navigator.credentials.create', (string) $res->getBody());
+        self::assertStringContainsString('/webauthn/register', (string) $res->getBody());
+    }
+
     public function testOptionsIssuesAChallenge(): void
     {
         [$controller] = $this->controller(recognized: true);
