@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.104.0](https://github.com/getmilpa/app-runtime/compare/v0.103.0...v0.104.0) (2026-09-02)
+
+
+### Features
+
+* the judge closes a served screen only while it is still served ([#250](https://github.com/getmilpa/app-runtime/issues/250)) ([6a41b53](https://github.com/getmilpa/app-runtime/commit/6a41b5393a95f267c909119598def6195bd51a34))
+
 ## [0.103.0](https://github.com/getmilpa/app-runtime/compare/v0.102.1...v0.103.0) (2026-09-02)
 
 
