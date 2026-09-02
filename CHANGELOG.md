@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.107.0](https://github.com/getmilpa/app-runtime/compare/v0.106.0...v0.107.0) (2026-09-02)
+
+
+### Features
+
+* progress recovery prescribes — the gate refuses exploration after a stall ([#256](https://github.com/getmilpa/app-runtime/issues/256)) ([5749dc4](https://github.com/getmilpa/app-runtime/commit/5749dc42c84ed9cd596dc614bd1a3a9689513894))
+
 ## [0.106.0](https://github.com/getmilpa/app-runtime/compare/v0.105.0...v0.106.0) (2026-09-02)
 
 
