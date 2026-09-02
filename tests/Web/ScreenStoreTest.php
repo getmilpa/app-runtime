@@ -181,4 +181,38 @@ final class ScreenStoreTest extends TestCase
         self::assertSame('not-a-real-component', $result['type']);
         self::assertFileDoesNotExist($this->path);   // nothing was written
     }
+
+    /**
+     * THE PRODUCER DECLARES WHAT IT DEMONSTRATED (greenhouse decisions/0187): a successful
+     * screen:declare carries a served-evidence receipt — predicate «served» and the screen as its
+     * subject — so a work claim can be judged by what the evidence DEMONSTRATES, not who produced it.
+     */
+    public function testASuccessfulDeclareCarriesAServedEvidenceReceipt(): void
+    {
+        $store = new ScreenStore($this->path);
+        $ops = [];
+        foreach ((new ScreenOperations($store))->operations() as $o) {
+            $ops[$o->name] = $o;
+        }
+        $result = ($ops['screen:declare']->handler)(['name' => 'tareas-preview', 'columns' => [], 'rows' => []]);
+
+        self::assertTrue($result['ok']);
+        self::assertSame('served', $result['evidence']['predicate']);
+        self::assertSame('tareas-preview', $result['evidence']['subject']);
+        self::assertSame('/live/page?component=tareas-preview', $result['evidence']['servedAt']);
+    }
+
+    /** A FAILED declare carries no receipt: a receipt is only as true as the call that returned it. */
+    public function testAFailedDeclareCarriesNoServedReceipt(): void
+    {
+        $store = new ScreenStore($this->path);
+        $ops = [];
+        foreach ((new ScreenOperations($store))->operations() as $o) {
+            $ops[$o->name] = $o;
+        }
+        $result = ($ops['screen:declare']->handler)(['name' => 'Mal Nombre', 'columns' => [], 'rows' => []]);
+
+        self::assertFalse($result['ok']);
+        self::assertArrayNotHasKey('evidence', $result);
+    }
 }

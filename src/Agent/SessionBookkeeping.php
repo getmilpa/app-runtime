@@ -197,7 +197,7 @@ final readonly class SessionBookkeeping implements ContractProducer
             ),
             new Operation(
                 name: 'work:claim-verified',
-                description: 'Claim a todo as verified done: name the todo, the kind of evidence (test-passed, operation-ok, artifact-created) and the reference that backs it. The session judges the claim against its RECORDED facts — a claim nothing covers is refused and the todo stays open',
+                description: 'Claim a todo as verified done: name the todo, the kind of evidence (test-passed, operation-ok, artifact-created, screen-served) and the reference that backs it. The session judges the claim against its RECORDED facts — a claim nothing covers is refused and the todo stays open',
                 handler: fn (array $input): array => $this->claimVerified($input),
                 inputSchema: [
                     'type' => 'object',
@@ -205,7 +205,7 @@ final readonly class SessionBookkeeping implements ContractProducer
                         'todo' => ['type' => 'string', 'description' => 'The id of the todo this claim closes'],
                         'kind' => [
                             'type' => 'string',
-                            'enum' => ['test-passed', 'operation-ok', 'artifact-created'],
+                            'enum' => ['test-passed', 'operation-ok', 'artifact-created', 'screen-served'],
                             'description' => 'What kind of recorded evidence backs the claim',
                         ],
                         'reference' => ['type' => 'string', 'description' => 'What backs it: the artifact, operation or test a reader can re-check'],
@@ -267,7 +267,8 @@ final readonly class SessionBookkeeping implements ContractProducer
                 'ok' => false,
                 'error' => '`done` is not this tool\'s to write (greenhouse decisions/0183): claim it '
                     . 'via work:claim-verified with the todo id, the kind of evidence that backs it '
-                    . '(test-passed | operation-ok | artifact-created) and the reference to re-check',
+                    . '(test-passed | operation-ok | artifact-created | screen-served) and the '
+                    . 'reference to re-check',
             ];
         }
 
@@ -355,6 +356,7 @@ final readonly class SessionBookkeeping implements ContractProducer
             'test-passed' => EvidenceKind::TestPassed,
             'operation-ok' => EvidenceKind::OperationOk,
             'artifact-created' => EvidenceKind::ArtifactCreated,
+            'screen-served' => EvidenceKind::ScreenServed,
             default => null,
         };
 
@@ -362,8 +364,8 @@ final readonly class SessionBookkeeping implements ContractProducer
             return [
                 'ok' => false,
                 'error' => '`todo`, `kind` and `reference` are all required: the todo id, the kind '
-                    . 'of evidence (test-passed | operation-ok | artifact-created) and the reference '
-                    . 'that backs the claim',
+                    . 'of evidence (test-passed | operation-ok | artifact-created | screen-served) '
+                    . 'and the reference that backs the claim',
             ];
         }
 
@@ -497,6 +499,28 @@ final readonly class SessionBookkeeping implements ContractProducer
             return null;
         }
 
+        if ($kind === EvidenceKind::ScreenServed) {
+            // THE JUDGE READS THE PREDICATE, NOT THE PRODUCER (greenhouse decisions/0187). A served
+            // screen is real, verifiable evidence — a reader opens it at its address — but it is none
+            // of the three producer-shaped facts above. The judge asks the stream what some call
+            // DEMONSTRATED: a receipt declaring the predicate «served» for this subject. It matches on
+            // predicate and subject and NEVER on the tool that emitted them, so screen:declare and any
+            // future operation that serves a screen and declares the same predicate cover a claim the
+            // same way — no branch here names an operation.
+            $served = $facts->evidenceByPredicate('served', $reference);
+            if (($served['ok'] ?? false) === true) {
+                return [
+                    'fact' => 'served',
+                    'predicate' => 'served',
+                    'subject' => $reference,
+                    'operation' => $served['evidence']['operation'] ?? '?',
+                    'seq' => $served['evidence']['seq'] ?? 0,
+                ];
+            }
+
+            return null;
+        }
+
         // artifact-created: the derived work state must have reached materialisation — a mutating
         // call's own ok:true naming the artifact. `attempted` is precisely what does NOT count.
         $state = $facts->workStateFor($reference);
@@ -569,6 +593,10 @@ final readonly class SessionBookkeeping implements ContractProducer
             ),
             EvidenceKind::ArtifactCreated => sprintf(
                 'a recorded artifact-producing result (make/implement) materialising «%s»',
+                $reference,
+            ),
+            EvidenceKind::ScreenServed => sprintf(
+                'a recorded call whose result declares the served predicate for «%s» (a served screen)',
                 $reference,
             ),
         };

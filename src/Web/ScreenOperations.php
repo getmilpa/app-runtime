@@ -188,6 +188,25 @@ final class ScreenOperations implements CommandProvider
             return ['ok' => false, 'error' => 'unknown component type', 'type' => $type, 'known' => $this->types];
         }
 
-        return $this->store->declare($input);
+        $result = $this->store->declare($input);
+
+        // THE OPERATION DECLARES WHAT IT DEMONSTRATED (greenhouse decisions/0187). A served screen is
+        // real, verifiable evidence — a reader opens it at `servedAt` — but it is none of the three
+        // producer-shaped facts a work claim used to recognise. So the successful result carries a
+        // served-evidence receipt: a predicate («served») and its subject (the screen), the shape the
+        // judge reads by what it DEMONSTRATES rather than by who produced it. It rides the
+        // `session.tool_called` fact this call already leaves; nothing here indexes it a second time.
+        if (($result['ok'] ?? false) === true
+            && \is_string($result['screen'] ?? null)
+            && \is_string($result['servedAt'] ?? null)
+        ) {
+            $result['evidence'] = [
+                'predicate' => 'served',
+                'subject' => $result['screen'],
+                'servedAt' => $result['servedAt'],
+            ];
+        }
+
+        return $result;
     }
 }

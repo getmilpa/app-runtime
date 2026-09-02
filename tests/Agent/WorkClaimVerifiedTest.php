@@ -367,6 +367,167 @@ final class WorkClaimVerifiedTest extends TestCase
         self::assertStringContainsString('no recorded fact covers', (string) $r['error']);
     }
 
+    /**
+     * THE RUN-8 DEFECT CLOSES (greenhouse decisions/0187): screen:declare served «tareas-preview»
+     * (ok, a served address), and a `screen-served` claim now closes the preview todo — the fourth
+     * authority, EVIDENCE read by predicate, covers work the three producer-shaped kinds could not.
+     */
+    public function testAServedScreenCoversAScreenServedClaim(): void
+    {
+        $this->llamar('todo', ['text' => 'preview the tareas screen']);
+        $this->almacen->recordToolCall(
+            's1',
+            'screen:declare',
+            ['name' => 'tareas-preview'],
+            (string) json_encode([
+                'ok' => true,
+                'screen' => 'tareas-preview',
+                'servedAt' => '/live/page?component=tareas-preview',
+                'evidence' => ['predicate' => 'served', 'subject' => 'tareas-preview', 'servedAt' => '/live/page?component=tareas-preview'],
+            ]),
+            true,
+            true,
+        );
+
+        $r = $this->llamar('work:claim-verified', [
+            'todo' => 't1',
+            'kind' => 'screen-served',
+            'reference' => 'tareas-preview',
+        ]);
+
+        self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
+        self::assertSame('done', $r['todo']['status']);
+        self::assertSame('screen-served', $r['evidence']['kind']);
+        self::assertSame('served', $r['evidence']['coveredBy']['fact'], 'the result names the served receipt');
+        self::assertTrue($this->almacen->load('s1')?->isDoneVerified('t1'));
+    }
+
+    /**
+     * PRODUCER-AGNOSTIC: the coverage matches on predicate + subject, never the tool name. A served
+     * receipt recorded under a DIFFERENT producer label still covers a `screen-served` claim.
+     */
+    public function testAServedReceiptUnderAnyProducerCoversTheClaim(): void
+    {
+        $this->llamar('todo', ['text' => 'preview the tareas screen']);
+        $this->almacen->recordToolCall(
+            's1',
+            'some-future-screen-op',
+            ['name' => 'tareas-preview'],
+            (string) json_encode([
+                'ok' => true,
+                'evidence' => ['predicate' => 'served', 'subject' => 'tareas-preview'],
+            ]),
+            true,
+            true,
+        );
+
+        $r = $this->llamar('work:claim-verified', [
+            'todo' => 't1',
+            'kind' => 'screen-served',
+            'reference' => 'tareas-preview',
+        ]);
+
+        self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
+        self::assertSame('served', $r['evidence']['coveredBy']['fact']);
+        self::assertSame('some-future-screen-op', $r['evidence']['coveredBy']['operation'], 'the producer is reported, not matched on');
+    }
+
+    /**
+     * UNSERVED / WRONG SUBJECT / FAILED DECLARE: a `screen-served` claim for a screen never served,
+     * or naming a subject other than the served one, is refused fail-closed and the todo stays open.
+     */
+    public function testAScreenNeverServedOrTheWrongSubjectIsRefused(): void
+    {
+        $this->llamar('todo', ['text' => 'preview the tareas screen']);
+        // A declare that FAILED — it carries no served receipt even though it names the subject.
+        $this->almacen->recordToolCall(
+            's1',
+            'screen:declare',
+            ['name' => 'tareas-preview'],
+            (string) json_encode(['ok' => false, 'error' => 'a screen name is a-z, 0-9, dash']),
+            false,
+            true,
+        );
+        // And a served screen with a DIFFERENT subject than the claim will name.
+        $this->almacen->recordToolCall(
+            's1',
+            'screen:declare',
+            ['name' => 'otra-pantalla'],
+            (string) json_encode([
+                'ok' => true,
+                'screen' => 'otra-pantalla',
+                'servedAt' => '/live/page?component=otra-pantalla',
+                'evidence' => ['predicate' => 'served', 'subject' => 'otra-pantalla'],
+            ]),
+            true,
+            true,
+        );
+
+        $r = $this->llamar('work:claim-verified', [
+            'todo' => 't1',
+            'kind' => 'screen-served',
+            'reference' => 'tareas-preview',
+        ]);
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('no recorded fact covers', (string) $r['error']);
+        self::assertStringContainsString('tareas-preview', (string) $r['error'], 'it names what was looked for');
+        self::assertSame(TodoStatus::Pending, $this->almacen->load('s1')?->todos[0]->status, 'fail closed: still open');
+    }
+
+    /** A RED verdict recorded for the served screen refuses the claim first, before any coverage. */
+    public function testARedVerdictRefusesAScreenServedClaimFirst(): void
+    {
+        $this->llamar('todo', ['text' => 'preview the tareas screen']);
+        // A served receipt exists…
+        $this->almacen->recordToolCall(
+            's1',
+            'screen:declare',
+            ['name' => 'tareas-preview'],
+            (string) json_encode([
+                'ok' => true,
+                'screen' => 'tareas-preview',
+                'servedAt' => '/live/page?component=tareas-preview',
+                'evidence' => ['predicate' => 'served', 'subject' => 'tareas-preview'],
+            ]),
+            true,
+            true,
+        );
+        // …but a later RED verification verdict names the same reference.
+        $this->almacen->recordToolCall(
+            's1',
+            'validate',
+            ['target' => 'tareas-preview'],
+            (string) json_encode(['ok' => false, 'checks' => [['name' => 'schema', 'ok' => false]]]),
+            false,
+            false,
+        );
+
+        $r = $this->llamar('work:claim-verified', [
+            'todo' => 't1',
+            'kind' => 'screen-served',
+            'reference' => 'tareas-preview',
+        ]);
+
+        self::assertFalse($r['ok'], 'a red refuses first, whatever the kind');
+        self::assertStringContainsString('RED', (string) $r['error']);
+        self::assertSame(TodoStatus::Pending, $this->almacen->load('s1')?->todos[0]->status);
+    }
+
+    /**
+     * THE JUDGE NEVER NAMES THE PRODUCER: the coverage code contains no literal «screen:declare»,
+     * so it keys on the predicate, not the tool. If a mutation made it key on the name, this reddens.
+     */
+    public function testTheJudgeDoesNotHardcodeTheScreenDeclareProducer(): void
+    {
+        $source = file_get_contents(\dirname(__DIR__, 2) . '/src/Agent/SessionBookkeeping.php');
+        self::assertIsString($source);
+        // The covering half of the judge lives between coveringFact() and lookedFor(): assert the
+        // whole file never keys on the screen:declare tool name for its coverage.
+        self::assertStringNotContainsString("'screen:declare'", $source, 'the judge must match the predicate, never the producer name');
+        self::assertStringNotContainsString('"screen:declare"', $source);
+    }
+
     /** The declared route stays alive: a reference named as the test FILTER covers the claim. */
     public function testAReferenceDeclaredAsTheTestFilterCoversTheClaim(): void
     {
