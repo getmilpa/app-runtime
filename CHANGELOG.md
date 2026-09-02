@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.103.0](https://github.com/getmilpa/app-runtime/compare/v0.102.1...v0.103.0) (2026-09-02)
+
+
+### Features
+
+* the judge closes a served screen by predicate, not producer ([#248](https://github.com/getmilpa/app-runtime/issues/248)) ([d26d6e5](https://github.com/getmilpa/app-runtime/commit/d26d6e54033f40822b9bf4dde46a5ce8f80b42db))
+
 ## [0.102.1](https://github.com/getmilpa/app-runtime/compare/v0.102.0...v0.102.1) (2026-09-02)
 
 
