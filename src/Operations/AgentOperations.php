@@ -1975,20 +1975,7 @@ class AgentOperations implements CommandProvider
         // declares the seam, so the branch below can pass the extra constructor argument safely.
         $sonda = $this->progressProbe();
 
-        // Three shapes, not one array: the named `lazyTools` argument only appears when the toolbox is
-        // on, because passing an argument an OLDER ai-gateway does not declare throws «Unknown named
-        // parameter» on every turn (the planBoard trap). When it is off, the old positional shape rides.
-        // A fourth shape carries the probe: its non-null already proves the installed ai-gateway is
-        // >=0.16, so every earlier parameter is declared too and the full positional list is safe.
-        if ($sonda !== null) {
-            $orquestador = new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger(), null, $tablero, $lazyTools, $sonda);
-        } elseif ($lazyTools) {
-            $orquestador = new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger(), null, $tablero, true);
-        } elseif ($tablero !== null) {
-            $orquestador = new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger(), null, $tablero);
-        } else {
-            $orquestador = new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger());
-        }
+        $orquestador = $this->orchestrator($modeloRemoto, $cliente, $pasos, $tablero, $lazyTools, $sonda);
 
         return $orquestador->run(
             $prompt,
@@ -2001,6 +1988,81 @@ class AgentOperations implements CommandProvider
             $history,
             $onStep,
         );
+    }
+
+    /**
+     * The one construction of the leg's orchestrator — the shape ladder, named.
+     *
+     * Five shapes, not one array: a named or positional argument an OLDER installed ai-gateway
+     * does not declare throws «Unknown named parameter» / a broken construction on every turn
+     * (the planBoard trap), and this file rides `composer create-project` — it lives with
+     * whatever vendor its owner has, not with what its manifest asks for. So each newer
+     * parameter only rides when its presence is proven:
+     *
+     *  - the FIFTH shape carries the app's declared context window into the orchestrator, so the
+     *    gateway can bound each outgoing projection WITHIN a leg (greenhouse fixture series,
+     *    run 8: the prompt climbed 21,917 → 31,536 of 32,768 in one leg, ~3k per step, because
+     *    the WindowBudget governs BETWEEN legs and nothing governed the sum inside one). Taken
+     *    only when a context is declared AND the installed orchestrator declares the parameter
+     *    ({@see orchestratorAdmitsContextTokens()});
+     *  - the fourth carries the probe — its non-null already proves ai-gateway >=0.16;
+     *  - the remaining three are the historical ladder, byte-identical.
+     *
+     * No declared context resolves to 0 — unbounded, exactly the run before the parameter
+     * existed. The value comes from the SAME resolver that hands the `Compactor` its
+     * whole-window budget ({@see AgentEndpoint::contextTokens()}): one precedence, one owner.
+     *
+     * `protected` so a test can build it with fakes and verify what the wiring passed — the
+     * {@see compactor()} precedent.
+     */
+    protected function orchestrator(
+        LlmService $modeloRemoto,
+        McpClientService $cliente,
+        int $pasos,
+        ?PlanBoard $tablero,
+        bool $lazyTools,
+        ?SessionProgressProbe $sonda,
+    ): AgentOrchestrator {
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $contexto = AgentEndpoint::contextTokens($config instanceof Config ? $config : null) ?? 0;
+
+        if ($contexto > 0 && $this->orchestratorAdmitsContextTokens()) {
+            return new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger(), null, $tablero, $lazyTools, $sonda, $contexto);
+        }
+        if ($sonda !== null) {
+            return new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger(), null, $tablero, $lazyTools, $sonda);
+        }
+        if ($lazyTools) {
+            return new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger(), null, $tablero, true);
+        }
+        if ($tablero !== null) {
+            return new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger(), null, $tablero);
+        }
+
+        return new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger());
+    }
+
+    /**
+     * Whether the installed ai-gateway's orchestrator declares the `contextTokens` parameter
+     * (>=0.17) — asked of the constructor itself, the {@see llmServiceAdmiteStreaming()} idiom,
+     * because a version number answers what the manifest wanted and only the constructor answers
+     * what the vendor has. `protected` so a test can force the old-gateway path without
+     * installing an old vendor.
+     */
+    protected function orchestratorAdmitsContextTokens(): bool
+    {
+        $constructor = (new \ReflectionClass(AgentOrchestrator::class))->getConstructor();
+        if ($constructor === null) {
+            return false;
+        }
+
+        foreach ($constructor->getParameters() as $parametro) {
+            if ($parametro->getName() === 'contextTokens') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
