@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.108.0](https://github.com/getmilpa/app-runtime/compare/v0.107.0...v0.108.0) (2026-09-02)
+
+
+### Features
+
+* the intent gate does not adjudicate the model's interpretation ([#258](https://github.com/getmilpa/app-runtime/issues/258)) ([42722bb](https://github.com/getmilpa/app-runtime/commit/42722bbd2cbd94a987e61fec762c1a641ad8dc6c))
+
 ## [0.107.0](https://github.com/getmilpa/app-runtime/compare/v0.106.0...v0.107.0) (2026-09-02)
 
 
