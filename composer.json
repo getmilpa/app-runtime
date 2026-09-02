@@ -29,7 +29,7 @@
         "milpa/event-store": "<0.3"
     },
     "require-dev": {
-        "milpa/agent": ">=0.37 <1.0",
+        "milpa/agent": ">=0.38 <1.0",
         "friendsofphp/php-cs-fixer": "^3.75",
         "milpa/ai-gateway": ">=0.17 <1.0",
         "milpa/auth": ">=0.7 <1.0",
