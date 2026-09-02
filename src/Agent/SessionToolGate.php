@@ -246,6 +246,28 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // mutate: there is nothing to compose and nothing a read needs admitting under.
         $composicion = $this->componer($operacion, $arguments);
 
+        // PROGRESS RECOVERY PRESCRIBES, IT DOES NOT ONLY DIAGNOSE (greenhouse decisions/0187, D-03).
+        //
+        // The ProgressReceipt (0452) detected a stall and worded the forced choice, but the
+        // orchestrator's enforcement let ANY tool call through as «acting» — including one more read.
+        // A stall is exactly «I have read enough and produced nothing»; more exploration is the one
+        // move that cannot help. So while a stall stands unanswered by an action, this refuses a
+        // NON-mutating call — the read/inspect/speculate family — and names the moves that remain:
+        // materialize, verify, close, ask a human, or declare house debt. It is a non-pausing
+        // refusal (the teaching, like the arrow and the obligation above), never a question: nothing
+        // here is a human's to decide. A mutating call is the recovery itself and passes untouched;
+        // making one clears the stall for the next read. Bookkeeping (the plan, the todos) already
+        // passed as self-log above, so narrowing the plan under recovery is never blocked.
+        if (
+            ($composicion === null || $composicion->effective->mutation === Mutation::None)
+            && $this->enRecuperacion()
+        ) {
+            return 'Progress recovery: the last window produced no evidence, no artifact and closed no '
+                . 'todo, so more reading is not on the table. Do one of these now: materialize an '
+                . 'artifact, run a verification, close a todo with its evidence, ask the human a '
+                . 'decision, or declare framework debt. A mutating action clears this.';
+        }
+
         $decision = $this->policy->decide(
             $this->session,
             $operacion->name,
@@ -373,6 +395,41 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      * su vista— que la comprobación sobra. En runtime no sobra: este `src/` viaja con
      * `composer create-project` y convive con el vendor que su dueño tenga.
      */
+    /**
+     * Whether a detected stall stands unanswered by an action (greenhouse decisions/0187, D-03).
+     *
+     * Recovery opens when {@see SessionProgressProbe} appends a `progress_stalled` fact and closes
+     * the moment a real mutating call lands after it — acting IS the way out. A call that merely
+     * asked for confirmation (`awaitingConfirmation`) did not act and does not clear it. Read from
+     * the session's own stream by the fact's literal type (the DebtSignal doctrine: the reader reads
+     * the fact, never the emitter's class), and silent on a store that cannot answer — a recovery it
+     * cannot prove is one it does not impose.
+     */
+    private function enRecuperacion(): bool
+    {
+        try {
+            $stream = $this->sessions->stream($this->session->id);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        $stalled = 0;
+        $acted = 0;
+        foreach ($stream as $event) {
+            if ($event->type === SessionProgressProbe::EVENT) {
+                $stalled = max($stalled, $event->seq);
+            } elseif (
+                $event->type === 'session.tool_called'
+                && ($event->payload['mutating'] ?? false) === true
+                && ($event->payload['awaitingConfirmation'] ?? null) !== true
+            ) {
+                $acted = max($acted, $event->seq);
+            }
+        }
+
+        return $stalled > 0 && $acted < $stalled;
+    }
+
     private function contratoDeclaradoPor(object $operacion): ?string
     {
         return ContratoInstalado::cadena($operacion, 'namedTarget');
