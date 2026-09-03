@@ -208,7 +208,12 @@ async function register() {
       user: { id: userId, name: 'operator', displayName: 'Operator' },
       challenge: b64uToBuf(opt.challenge),
       pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
-      authenticatorSelection: { userVerification: 'preferred' },
+      // Prefer a roaming security key (a YubiKey): cross-platform excludes the built-in platform
+      // authenticator, and required user verification means the human's touch/PIN, not mere presence.
+      // residentKey is discouraged so a hardware key with scarce slots enrolls as a non-discoverable
+      // credential (the server holds the credential id for the approve ceremony). ES256 (alg -7) above
+      // is what a FIDO2 key produces, so this stays within the one algorithm milpa/auth verifies.
+      authenticatorSelection: { authenticatorAttachment: 'cross-platform', userVerification: 'required', residentKey: 'discouraged' },
       timeout: 60000,
     }});
 
