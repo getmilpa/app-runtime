@@ -18,6 +18,7 @@ use Milpa\AppRuntime\Agent\PasskeyIntentAdmission;
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
 use Milpa\AppRuntime\Web\Controllers\PasskeyController;
 use Milpa\AppRuntime\Web\Controllers\PasskeyIntentController;
+use Milpa\Attributes\PluginMetadata;
 use Milpa\Auth\Contracts\SessionStore;
 use Milpa\Auth\WebAuthn\FileChallengeStore;
 use Milpa\Auth\WebAuthn\FilePasskeyCredentialStore;
@@ -55,6 +56,13 @@ use Milpa\Runtime\Http\RouteProviderInterface;
  *         'cookie' => 'milpa_session',     // optional — the session cookie name (StartSession reads it)
  *     ],
  */
+#[PluginMetadata(
+    version: '1.0.0',
+    author: 'Rodrigo Vicente - TeamX Agency',
+    site: 'https://teamx.agency',
+    name: 'Passkey',
+    type: 'Web',
+)]
 final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
 {
     public const DEFAULT_COOKIE = 'milpa_session';
