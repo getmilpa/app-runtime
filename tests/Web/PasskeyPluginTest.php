@@ -65,6 +65,17 @@ final class PasskeyPluginTest extends TestCase
         self::assertTrue($container->has(\Milpa\AppRuntime\Web\Controllers\PasskeyIntentController::class), 'the intent controller is registered');
     }
 
+    public function testItDeclaresPluginMetadataSoItCanBeListedInConfigPlugins(): void
+    {
+        // Kernel::boot() requires #[PluginMetadata] on every declared plugin; without it a config/plugins.php
+        // that lists PasskeyPlugin throws AttributeNotFoundException at boot (greenhouse evidence/0489). The
+        // other tests instantiate the plugin directly and so never exercised the real boot path that reads it.
+        $attributes = (new \ReflectionClass(PasskeyPlugin::class))->getAttributes(\Milpa\Attributes\PluginMetadata::class);
+
+        self::assertCount(1, $attributes, 'PasskeyPlugin must carry #[PluginMetadata] to be declarable in config/plugins.php');
+        self::assertInstanceOf(\Milpa\Attributes\PluginMetadata::class, $attributes[0]->newInstance());
+    }
+
     private function container(?string $rpId, bool $withSessions): DIContainer
     {
         $c = new DIContainer();
