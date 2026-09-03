@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.112.1](https://github.com/getmilpa/app-runtime/compare/v0.112.0...v0.112.1) (2026-09-03)
+
+
+### Bug Fixes
+
+* **passkey:** declare PluginMetadata so PasskeyPlugin can be listed in config/plugins.php ([#268](https://github.com/getmilpa/app-runtime/issues/268)) ([4c694e6](https://github.com/getmilpa/app-runtime/commit/4c694e6d3f74c890575fc879a46d0831ad9c5642))
+
 ## [0.112.0](https://github.com/getmilpa/app-runtime/compare/v0.111.0...v0.112.0) (2026-09-03)
 
 
