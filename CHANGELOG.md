@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.112.0](https://github.com/getmilpa/app-runtime/compare/v0.111.0...v0.112.0) (2026-09-03)
+
+
+### Features
+
+* **passkey:** enroll prefers a cross-platform key with user verification required ([#266](https://github.com/getmilpa/app-runtime/issues/266)) ([2572bd5](https://github.com/getmilpa/app-runtime/commit/2572bd565ce74b03529b061f59d60c02895b5a41))
+
 ## [0.111.0](https://github.com/getmilpa/app-runtime/compare/v0.110.0...v0.111.0) (2026-09-02)
 
 
