@@ -53,10 +53,15 @@ final class PasskeyControllerTest extends TestCase
 
         $res = $controller->enrollPage(new ServerRequest('GET', '/webauthn/enroll'));
 
+        $body = (string) $res->getBody();
         self::assertSame(200, $res->getStatusCode());
         self::assertStringContainsString('text/html', $res->getHeaderLine('Content-Type'));
-        self::assertStringContainsString('navigator.credentials.create', (string) $res->getBody());
-        self::assertStringContainsString('/webauthn/register', (string) $res->getBody());
+        self::assertStringContainsString('navigator.credentials.create', $body);
+        self::assertStringContainsString('/webauthn/register', $body);
+        // The ceremony prefers a roaming security key (a YubiKey) with a real user-verification gesture
+        // (greenhouse evidence/0486): cross-platform attachment, user verification required.
+        self::assertStringContainsString("authenticatorAttachment: 'cross-platform'", $body);
+        self::assertStringContainsString("userVerification: 'required'", $body);
     }
 
     public function testOptionsIssuesAChallenge(): void
