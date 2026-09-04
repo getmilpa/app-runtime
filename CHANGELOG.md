@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.116.0](https://github.com/getmilpa/app-runtime/compare/v0.115.0...v0.116.0) (2026-09-04)
+
+
+### Features
+
+* agent:goal — the standing intent can change mid-session; agent:mode over http; skill:invoke is the human's door ([#277](https://github.com/getmilpa/app-runtime/issues/277)) ([e0fc52d](https://github.com/getmilpa/app-runtime/commit/e0fc52d2f73be386ec534e624b17e4a5194037a0))
+
 ## [0.115.0](https://github.com/getmilpa/app-runtime/compare/v0.114.0...v0.115.0) (2026-09-04)
 
 
