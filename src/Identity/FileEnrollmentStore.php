@@ -19,8 +19,10 @@ namespace Milpa\AppRuntime\Identity;
  *
  * The shape mirrors {@see \Milpa\Console\FileConfirmTokenStore}: every write takes an exclusive lock,
  * reads the current map, mutates, and writes it back, so two operations enrolling at once cannot lose
- * each other. Fingerprints are normalized (uppercased, spaces stripped) so a key pasted either way
- * reads back the same recognition.
+ * each other. A gpg FINGERPRINT is normalized (uppercased, spaces stripped) so a key pasted either way
+ * reads back the same recognition; any other id — a passkey's base64url credential id, since the
+ * convergence of decisions/0125 — is kept VERBATIM, because base64url is case-sensitive and two distinct
+ * credentials used to collapse onto one entry (greenhouse decisions/0206).
  */
 final class FileEnrollmentStore implements EnrollmentStore
 {
@@ -94,9 +96,17 @@ final class FileEnrollmentStore implements EnrollmentStore
         return $scopes;
     }
 
+    /**
+     * The ledger key for an id: a hex fingerprint (40+ hex digits, spaces allowed) is uppercased and
+     * space-stripped, as it always was; anything else is the id exactly as given.
+     */
     private static function normalize(string $fingerprint): string
     {
-        return strtoupper(str_replace(' ', '', $fingerprint));
+        if (preg_match('/^[0-9a-fA-F ]{40,}$/', $fingerprint) === 1) {
+            return strtoupper(str_replace(' ', '', $fingerprint));
+        }
+
+        return $fingerprint;
     }
 
     /** @return array<string, mixed> */

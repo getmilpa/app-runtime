@@ -114,6 +114,54 @@ final class IdentityEnrollmentWiringTest extends TestCase
         self::assertNull($this->store()->scopesFor('0000000000000000000000000000000000000000'), 'a key never enrolled resolves to nothing');
     }
 
+    public function testAStoredUppercaseHexKeyStillResolvesHoweverTheFingerprintIsPasted(): void
+    {
+        // A ledger written before decisions/0206 holds uppercase, space-stripped hex keys. They keep
+        // working: a hex fingerprint is still normalized on the way in.
+        file_put_contents(
+            $this->dir . '/storage/identity/enrollments.json',
+            (string) json_encode([self::FP => ['scopes' => ['agent:read'], 'authorized_by' => 'key:' . self::FP]]),
+        );
+
+        self::assertSame(['agent:read'], $this->store()->scopesFor(self::FP));
+        self::assertSame(['agent:read'], $this->store()->scopesFor(strtolower(self::FP)));
+        self::assertSame(['agent:read'], $this->store()->scopesFor('abcd 1234 abcd 1234 abcd 1234 abcd 1234 abcd 1234'));
+        self::assertTrue($this->store()->revoke('abcd1234abcd1234abcd1234abcd1234abcd1234', 'key:REVOKER'), 'revocation finds the same key');
+    }
+
+    public function testABase64urlCredentialIdIsKeptVerbatimAndTwoCasingsDoNotCollide(): void
+    {
+        // A passkey's credential id is base64url (the convergence of decisions/0125): case-sensitive,
+        // and shorter than 40 chars or carrying non-hex characters. Uppercasing it made two distinct
+        // credentials share one entry (greenhouse decisions/0206) — it is stored and read as given.
+        $upper = 'AbC-x_1Q';
+        $lower = 'abc-x_1q';
+        $this->store()->record(new IdentityEnrolled($upper, ['milpa.admin'], 'key:' . self::FP));
+
+        self::assertSame(['milpa.admin'], $this->store()->scopesFor($upper));
+        self::assertNull($this->store()->scopesFor($lower), 'a different casing is a different credential');
+
+        $raw = json_decode((string) file_get_contents($this->dir . '/storage/identity/enrollments.json'), true);
+        self::assertArrayHasKey($upper, $raw, 'stored under the id exactly as given');
+        self::assertArrayNotHasKey('ABC-X_1Q', $raw);
+
+        // Enrolling the other casing is a second, independent recognition.
+        $this->store()->record(new IdentityEnrolled($lower, ['agent:read'], 'key:' . self::FP));
+        self::assertSame(['milpa.admin'], $this->store()->scopesFor($upper));
+        self::assertSame(['agent:read'], $this->store()->scopesFor($lower));
+    }
+
+    public function testALongBase64urlIdWithNonHexCharactersIsNotMistakenForAFingerprint(): void
+    {
+        // 43 chars (a 32-byte id) with base64url characters outside the hex alphabet: verbatim.
+        $id = 'Zm9v' . str_repeat('aB', 19) . '-';
+        self::assertSame(43, \strlen($id));
+        $this->store()->record(new IdentityEnrolled($id, ['milpa.admin'], 'key:' . self::FP));
+
+        self::assertSame(['milpa.admin'], $this->store()->scopesFor($id));
+        self::assertNull($this->store()->scopesFor(strtoupper($id)));
+    }
+
     public function testConfigLoadsTheRootFromEitherShapeAndIsEmptyWhenAbsent(): void
     {
         self::assertFalse(IdentityConfig::load($this->dir)->admits(self::FP), 'no config/identity.php means an empty root');
