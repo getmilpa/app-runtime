@@ -624,9 +624,15 @@ class AgentOperations implements CommandProvider
                 // exige, y esa es la compuerta que nombra la llamada concreta. Una firma aquí
                 // consentiría «lo que el agente decida», que es justo lo que no se puede consentir.
                 mutating: true,
-                // Fuera de la terminal: un agente que corre por HTTP con las credenciales del
-                // servidor es otra decisión, y esta plantilla no la toma por nadie.
-                surfaces: ['cli'],
+                // Fuera de la terminal: correr el agente por HTTP con las credenciales del servidor
+                // era «otra decisión» sólo porque no había superficie HTTP por donde pasara un GRANT
+                // — y sin grant, un turno por HTTP no podía consentir una operación que lo exige. Esa
+                // superficie ya existe: la ceremonia passkey del mismo origen (PasskeyIntentAdmission
+                // + /webauthn/intent) lleva el consentimiento del humano al turno. Con eso, el turno
+                // por HTTP no salta ninguna firma — cada herramienta que la exige sigue estacionando
+                // su compuerta, y el humano la contesta con su llave, en este origen. La decisión se
+                // toma aquí, en el abierto (greenhouse decisions/0190).
+                surfaces: ['cli', 'http'],
             ),
         ];
     }
