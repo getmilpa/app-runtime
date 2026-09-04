@@ -3165,8 +3165,49 @@ class AgentOperations implements CommandProvider
         }
 
         $ultimo = 0.0;
+        $buffer = '';
+        $ultimoFlush = 0.0;
 
-        return static function (string $pieza) use ($superficie, &$ultimo): void {
+        // EL PENSAMIENTO, ARMÁNDOSE EN VIVO (greenhouse decisions/0190). El callback ahora late con dos
+        // clases de trozo: `reasoning` (el modelo pensando) y `content` (la respuesta). Los trozos de
+        // reasoning se transmiten al stream de ESTA sesión —`milpa/sessions/<id>`, el topic que la
+        // superficie ya escucha— para que el humano vea las palabras aparecer; se acumulan y se sueltan
+        // por lotes (~40 chars o ~50ms) para no volver un token en una petición al hub. Un `content`
+        // suelta primero la cola de reasoning pendiente (para no perder el final del bloque) y luego
+        // mantiene el pulso `thinking` de antes. Sin sesión —un `coa agent` de script— no se transmite.
+        return function (string $pieza, string $kind = 'content') use ($superficie, &$ultimo, &$buffer, &$ultimoFlush): void {
+            $sesion = $this->intakeSession;
+
+            if ($kind === 'reasoning') {
+                if ($sesion === null) {
+                    return;
+                }
+                $buffer .= $pieza;
+                $ahora = microtime(true);
+                if ($ahora - $ultimoFlush < 0.05 && mb_strlen($buffer) < 40) {
+                    return;
+                }
+                $ultimoFlush = $ahora;
+                $superficie->broadcast('milpa/sessions/' . $sesion, [
+                    'session' => $sesion,
+                    'kind' => 'reasoning',
+                    'reasoning' => ['delta' => $buffer],
+                ]);
+                $buffer = '';
+
+                return;
+            }
+
+            // content: flush any pending reasoning tail first, so the thinking block keeps its ending.
+            if ($buffer !== '' && $sesion !== null) {
+                $superficie->broadcast('milpa/sessions/' . $sesion, [
+                    'session' => $sesion,
+                    'kind' => 'reasoning',
+                    'reasoning' => ['delta' => $buffer],
+                ]);
+                $buffer = '';
+            }
+
             $ahora = microtime(true);
             if ($ahora - $ultimo < 0.08) {
                 return;
