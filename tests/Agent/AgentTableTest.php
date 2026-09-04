@@ -75,7 +75,9 @@ final class AgentTableTest extends TestCase
      */
     public function testTheOnesThatAdjudicateAreNotOnItEitherHoweverTheyDeclareThemselves(): void
     {
-        foreach (['agent:answer', 'agent:mode', 'agent:discard'] as $nombre) {
+        // `agent:goal` sits with them (greenhouse decisions/0202): the goal is the standing ask the
+        // gate compares targets against, and a session must not widen its own.
+        foreach (['agent:answer', 'agent:mode', 'agent:goal', 'agent:discard'] as $nombre) {
             self::assertFalse(
                 AgentTable::offers($this->operation($nombre, ['cli', 'tui', 'mcp'])),
                 "{$nombre} adjudica y no es herramienta de la sesión que espera",
