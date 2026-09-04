@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.115.0](https://github.com/getmilpa/app-runtime/compare/v0.114.0...v0.115.0) (2026-09-04)
+
+
+### Features
+
+* capabilities:enable gains the http surface — the grant travels there now ([#275](https://github.com/getmilpa/app-runtime/issues/275)) ([b97d609](https://github.com/getmilpa/app-runtime/commit/b97d609a94303bbc2fc2165452ba150a0186f7cc))
+
 ## [0.114.0](https://github.com/getmilpa/app-runtime/compare/v0.113.0...v0.114.0) (2026-09-04)
 
 
