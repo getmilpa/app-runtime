@@ -482,6 +482,8 @@ final class SessionOperationsTest extends TestCase
         self::assertTrue($goal->mutating);
         self::assertSame($mode->scopes, $goal->scopes);
         self::assertEquals($mode->effects, $goal->effects, 'the goal spends the same authority the mode spends');
+        self::assertSame(Subject::Data, $goal->effects?->subject, 'a session-ledger fact, not configuration');
+        self::assertSame(Subject::Data, $mode->effects?->subject);
         self::assertSame(['session'], $goal->inputSchema['required'] ?? null, 'only the session is required: the three arms are chosen by what travels');
         self::assertSame('string', $goal->inputSchema['properties']['goal']['type'] ?? null);
         self::assertSame('boolean', $goal->inputSchema['properties']['clear']['type'] ?? null);

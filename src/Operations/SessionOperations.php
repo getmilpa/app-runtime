@@ -188,7 +188,8 @@ final class SessionOperations implements CommandProvider
                     // It raises how far the agent may act WITHOUT ASKING — it spends the human's
                     // authority over decisions that have not happened yet.
                     Authority::WriteAsUser,
-                    subject: Subject::Configuration,
+                    // `Data`, not `Configuration`: the mode is a fact on the session's ledger, not a setting of the app.
+                    subject: Subject::Data,
                 ),
                 description: 'Change how far a session may go without asking',
                 handler: fn (array $input): array => $this->cambiarModo($input),
@@ -207,7 +208,7 @@ final class SessionOperations implements CommandProvider
                         'mode' => [
                             'type' => 'string',
                             'enum' => ['ask', 'acknowledge', 'auto'],
-                            'description' => 'ask pregunta antes de mutar · acknowledge avisa y sigue · auto sigue sola',
+                            'description' => 'ask asks before mutating · acknowledge says so and goes on · auto goes on alone',
                         ],
                     ],
                     'required' => ['session', 'mode'],
@@ -233,10 +234,11 @@ final class SessionOperations implements CommandProvider
                     Externality::None,
                     Reversibility::Irreversible,
                     Authority::WriteAsUser,
-                    subject: Subject::Configuration,
+                    // `Data`, not `Configuration`: the goal is a fact on the session's ledger, not a setting of the app.
+                    subject: Subject::Data,
                 ),
-                description: 'The human\'s standing intent for a session — set it, clear it, or read it; the gate reads it as the standing ask, and in auto mode it bounds what runs without asking',
-                handler: fn (array $input): array => $this->cambiarObjetivo($input),
+                description: 'The human\'s standing intent for a session — set it, clear it, or read it. The gate judges targets against it; in auto mode it bounds what runs without asking. It never pre-consents a signature or a third-party egress.',
+                handler: fn (array $input): array => $this->changeGoal($input),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
@@ -1403,14 +1405,14 @@ final class SessionOperations implements CommandProvider
         if ($modo === null) {
             return [
                 'ok' => false,
-                'error' => 'modo desconocido — válidos: '
+                'error' => 'unknown mode — valid: '
                     . implode(', ', array_map(static fn (AutonomyMode $m): string => $m->value, AutonomyMode::cases())),
             ];
         }
 
         $session = $almacen->load($id);
         if ($session === null) {
-            return ['ok' => false, 'error' => "no existe la sesión «{$id}»"];
+            return ['ok' => false, 'error' => "unknown session '{$id}'"];
         }
 
         $antes = $session->mode;
@@ -1442,7 +1444,7 @@ final class SessionOperations implements CommandProvider
      *
      * @return array{ok: bool, session?: string, goal?: string, changed?: bool, error?: string}
      */
-    private function cambiarObjetivo(array $input): array
+    private function changeGoal(array $input): array
     {
         [$almacen, $id, $error] = $this->target($input);
         if ($error !== null || $almacen === null) {
@@ -1460,7 +1462,7 @@ final class SessionOperations implements CommandProvider
 
         $session = $almacen->load($id);
         if ($session === null) {
-            return ['ok' => false, 'error' => "no existe la sesión «{$id}»"];
+            return ['ok' => false, 'error' => "unknown session '{$id}'"];
         }
 
         $next = $clear ? '' : $goal;

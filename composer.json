@@ -24,12 +24,12 @@
         "nyholm/psr7": "^1.8"
     },
     "conflict": {
-        "milpa/agent": "<0.23",
+        "milpa/agent": "<0.41",
         "milpa/command": "<0.19",
         "milpa/event-store": "<0.3"
     },
     "require-dev": {
-        "milpa/agent": ">=0.40 <1.0",
+        "milpa/agent": ">=0.41 <1.0",
         "friendsofphp/php-cs-fixer": "^3.75",
         "milpa/ai-gateway": ">=0.17 <1.0",
         "milpa/auth": ">=0.9 <1.0",
