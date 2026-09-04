@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.113.0](https://github.com/getmilpa/app-runtime/compare/v0.112.1...v0.113.0) (2026-09-04)
+
+
+### Features
+
+* stream the model's reasoning to the session's live topic ([#272](https://github.com/getmilpa/app-runtime/issues/272)) ([4878be8](https://github.com/getmilpa/app-runtime/commit/4878be8a3a8eb7139eb14a53d06bf93bbe0b86dd))
+* the agent operation runs over the HTTP surface ([#270](https://github.com/getmilpa/app-runtime/issues/270)) ([e1510fa](https://github.com/getmilpa/app-runtime/commit/e1510fa93b38adb122843022b211dc0c116154f3))
+
 ## [0.112.1](https://github.com/getmilpa/app-runtime/compare/v0.112.0...v0.112.1) (2026-09-03)
 
 
