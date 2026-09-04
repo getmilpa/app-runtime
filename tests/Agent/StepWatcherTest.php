@@ -199,4 +199,24 @@ final class StepWatcherTest extends TestCase
 
         self::assertSame('', $vigia->tecleadoMientrasTanto(), 'ni siquiera leyó');
     }
+
+    /**
+     * FUERA DE LA TERMINAL NO HAY TECLADO — y no hay interrupción.
+     *
+     * En el SAPI web `STDIN` ni siquiera está definido, así que un vigía allí sostiene un stream nulo:
+     * no debe tocarlo ni interrumpir jamás (greenhouse decisions/0190). Bajo el SAPI de pruebas la
+     * constante SÍ existe, así que el estado nulo —el único que se da fuera de la terminal— se fuerza
+     * aquí para probar que un turno por HTTP corre sus pasos sin que un `\STDIN` inexistente lo tumbe.
+     */
+    public function testWithNoKeyboardItNeverInterrupts(): void
+    {
+        $vigia = new StepWatcher();
+        $entrada = new \ReflectionProperty(StepWatcher::class, 'entrada');
+        $entrada->setValue($vigia, null);
+
+        $vigia->paso(1);
+        $vigia->paso(2);
+
+        self::assertSame('', $vigia->tecleadoMientrasTanto());
+    }
 }

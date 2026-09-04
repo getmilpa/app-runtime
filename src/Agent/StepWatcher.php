@@ -47,7 +47,7 @@ use Milpa\AiGateway\RunInterrupted;
  */
 final class StepWatcher
 {
-    /** @var resource */
+    /** @var resource|null The keyboard to watch; null off the terminal (web/queue), where it never interrupts. */
     private $entrada;
 
     private string $tecleado = '';
@@ -57,7 +57,10 @@ final class StepWatcher
     /** @param resource|null $entrada */
     public function __construct($entrada = null)
     {
-        $this->entrada = \is_resource($entrada) ? $entrada : \STDIN;
+        // Off the terminal there is no STDIN — and in the web SAPI the constant is not even defined, so
+        // referencing it fatals. A watcher with no keyboard simply never sees an ESC: it never interrupts,
+        // which is the honest behaviour for a turn run over HTTP or from a queue (greenhouse decisions/0190).
+        $this->entrada = \is_resource($entrada) ? $entrada : (\defined('STDIN') ? \STDIN : null);
     }
 
     /**
@@ -100,6 +103,11 @@ final class StepWatcher
      */
     private function hayEsc(): bool
     {
+        // No keyboard to watch (web/queue) → nothing to interrupt. Never touch a null stream.
+        if ($this->entrada === null) {
+            return false;
+        }
+
         $encontro = false;
 
         while (true) {
