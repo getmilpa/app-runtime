@@ -68,6 +68,7 @@ use Milpa\Agent\Compactor;
 use Milpa\Agent\Session;
 use Milpa\Agent\Todo;
 use Milpa\Agent\TodoStatus;
+use Milpa\Agent\SessionEvent;
 use Milpa\Agent\SessionStore;
 use Milpa\Agent\WorkSnapshot;
 use Milpa\AppRuntime\Entity\EntityContract;
@@ -1698,6 +1699,37 @@ class AgentOperations implements CommandProvider
             'steps' => $vistos,
             'tools' => \count($registry->getToolDefinitions()),
         ];
+
+        // THE REAL TOKEN COST, from the provider's own numbers — never an estimate (greenhouse
+        // decisions/0192). Each `session.model_returned` fact carries the usage the provider spoke
+        // ({@see SessionEvent::ModelReturned}); the total is their sum, the context in play is the last
+        // call's prompt tokens. A surface that shows a token bar can now show a counted figure, not a guess.
+        // Read from THIS session's recorded facts (like the closure verdict below), not re-measured.
+        if ($sessionId !== '' && $this->sessionEvents !== null) {
+            $tokensTotales = 0;
+            $tokensDeContexto = 0;
+            $huboCosto = false;
+            foreach ($this->sessionEvents->replay(SessionStore::PREFIX . $sessionId) as $ev) {
+                if ($ev->type !== SessionEvent::ModelReturned->value) {
+                    continue;
+                }
+                $usage = \is_array($ev->payload['usage'] ?? null) ? $ev->payload['usage'] : [];
+                if ($usage === []) {
+                    // The provider spoke no usage on this turn — it says nothing about cost, so it adds
+                    // nothing. Only a turn that carried usage lets us report a figure at all (below).
+                    continue;
+                }
+                $tokensTotales += (int) ($usage['total_tokens'] ?? 0);
+                $tokensDeContexto = (int) ($usage['prompt_tokens'] ?? $tokensDeContexto);
+                $huboCosto = true;
+            }
+            // Absent, not zero: a provider that never reported usage leaves the figure UNsaid, and a surface
+            // must be able to tell «no lo dijo» from «costó cero» (the same distinction ModelReturned keeps).
+            if ($huboCosto) {
+                $resultado['tokens'] = $tokensTotales;
+                $resultado['contextTokens'] = $tokensDeContexto;
+            }
+        }
 
         if ($sessionId !== '') {
             $resultado['session'] = $sessionId;
