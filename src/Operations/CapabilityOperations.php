@@ -53,12 +53,21 @@ use Milpa\Command\Operation;
  * the agent proposes, a human consents. And `dry_run` prints the exact command without running it, so
  * consent is given to something legible rather than to a name.
  *
- * ── AND WHY NOT OVER HTTP ───────────────────────────────────────────────────────────────────────
+ * ── AND NOW, OVER HTTP TOO — BECAUSE THE GRANT TRAVELS THERE (greenhouse decisions/0193) ─────────
  *
- * Installing a package runs code from the network on the host. That is a different risk class from
- * reading a session, and a scope does not hold it: an HTTP surface reachable from anywhere turns one
- * leaked token into arbitrary code on the box. It stays where whoever invokes it is already on the
- * machine.
+ * This once refused the HTTP surface. The reasoning was: installing a package runs code from the
+ * network on the host, a scope does not hold that, so an HTTP surface would turn one leaked token
+ * into arbitrary code on the box. The PREMISE was that HTTP could not carry the grant — only a token.
+ *
+ * That premise is now false. Every surface runs through the same {@see \Milpa\Console\OperationRunner}
+ * and the same verdict: a `Privileged` operation that `escalatesOn` its target still demands its
+ * authorization no matter which surface invoked it — the grant is enforced by the runner, not by the
+ * surface. And the HTTP surface carries that grant now: the two-step confirm gate, and the same-origin
+ * passkey intent ceremony the Desktop opened (greenhouse decisions/0187, 0190). So a leaked token
+ * alone still installs nothing — it needs the grant too, exactly as on the terminal. It stays where
+ * whoever invokes it can present the grant; that is no longer only the local shell but the surface
+ * where a human meets the agent. It keeps `mutating` + `Privileged` + `escalatesOn`; it simply is now
+ * reachable from that surface.
  */
 final readonly class CapabilityOperations implements CommandProvider
 {
@@ -242,7 +251,10 @@ final readonly class CapabilityOperations implements CommandProvider
                 // sugerencia con mejor prensa. Lo encontró correr el sistema, no leerlo: la prueba
                 // unitaria de `repair` seguía en verde mientras esto pasaba.
                 namedTarget: 'capability',
-                surfaces: ['cli', 'tui', 'mcp'],
+                // HTTP joins the surfaces now that it carries the grant (greenhouse decisions/0193): the
+                // runner enforces the same verdict on every surface, and the confirm gate + same-origin
+                // passkey intent ceremony present the consent over HTTP — see the class docblock.
+                surfaces: ['cli', 'tui', 'mcp', 'http'],
 
                 // THE DECLARED CONTRACT (greenhouse decisions/0183): each condition below is one the
                 // handler already enforces — declared here, enforced in Capabilities::install(),
