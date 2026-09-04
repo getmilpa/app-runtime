@@ -188,7 +188,8 @@ final class SessionOperations implements CommandProvider
                     // It raises how far the agent may act WITHOUT ASKING — it spends the human's
                     // authority over decisions that have not happened yet.
                     Authority::WriteAsUser,
-                    subject: Subject::Configuration,
+                    // `Data`, not `Configuration`: the mode is a fact on the session's ledger, not a setting of the app.
+                    subject: Subject::Data,
                 ),
                 description: 'Change how far a session may go without asking',
                 handler: fn (array $input): array => $this->cambiarModo($input),
@@ -207,7 +208,7 @@ final class SessionOperations implements CommandProvider
                         'mode' => [
                             'type' => 'string',
                             'enum' => ['ask', 'acknowledge', 'auto'],
-                            'description' => 'ask pregunta antes de mutar · acknowledge avisa y sigue · auto sigue sola',
+                            'description' => 'ask asks before mutating · acknowledge says so and goes on · auto goes on alone',
                         ],
                     ],
                     'required' => ['session', 'mode'],
@@ -217,7 +218,62 @@ final class SessionOperations implements CommandProvider
                 // pre-aprueba nada que exija firma, así que esto no puede usarse para rodear esa
                 // compuerta — sólo para dejar de preguntar por lo reversible.
                 mutating: true,
-                surfaces: ['cli', 'tui', 'mcp'],
+                // HTTP joins the surfaces (greenhouse decisions/0202): the Desktop's mode chip now
+                // reaches the session it names, instead of relabelling a chip while the run stays `ask`.
+                surfaces: ['cli', 'tui', 'mcp', 'http'],
+            ),
+            new Operation(
+                name: 'agent:goal',
+                // THE SAME PROFILE AS `agent:mode`, for the same reason. The goal is session state on
+                // an append-only stream — setting it again supersedes it, but the fact that it was
+                // declared is not withdrawn — and it spends the human's authority over decisions that
+                // have not happened yet: the gate reads it as the STANDING ASK (decisions/0009), and in
+                // the automatic mode it bounds what may run without a question (decisions/0202).
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    Reversibility::Irreversible,
+                    Authority::WriteAsUser,
+                    // `Data`, not `Configuration`: the goal is a fact on the session's ledger, not a setting of the app.
+                    subject: Subject::Data,
+                ),
+                description: 'The human\'s standing intent for a session — set it, clear it, or read it. The gate judges targets against it; in auto mode it bounds what runs without asking. It never pre-consents a signature or a third-party egress.',
+                handler: fn (array $input): array => $this->changeGoal($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'session' => [
+                            'type' => 'string',
+                            'description' => 'The session identifier',
+                            'x-milpa-source' => ['tool' => 'agent:sessions', 'path' => 'sessions', 'key' => 'session'],
+                        ],
+                        'goal' => [
+                            'type' => 'string',
+                            'description' => 'The new standing goal; omit it (and `clear`) to read the current one',
+                        ],
+                        'clear' => [
+                            'type' => 'boolean',
+                            'description' => 'true clears the goal: the session keeps no standing ask beyond each turn\'s prompt',
+                        ],
+                    ],
+                    'required' => ['session'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean'],
+                        'session' => ['type' => 'string'],
+                        'goal' => ['type' => 'string', 'description' => 'The standing goal after this call; empty when there is none'],
+                        'changed' => ['type' => 'boolean', 'description' => 'Whether this call wrote a new goal to the session'],
+                        'error' => ['type' => 'string', 'description' => 'Why nothing was written; absent when ok'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // Mutates the session — and what it widens is the standing ask, not the gate: a call
+                // that requires a signature, or reaches a third party, stops in every mode whatever
+                // the goal names. Nothing pre-consents those (decisions/0202).
+                mutating: true,
+                surfaces: ['cli', 'tui', 'mcp', 'http'],
             ),
             new Operation(
                 name: 'agent:timeline',
@@ -254,8 +310,8 @@ final class SessionOperations implements CommandProvider
                 ],
                 mutating: false,
                 // POR HTTP TAMBIÉN, a diferencia de las otras. Leer lo que ya pasó no autoriza nada y
-                // es justo lo que un navegador necesita para pintar el trabajo en vivo. Las que sí
-                // deciden —contestar, cambiar el modo— siguen fuera de la web.
+                // es justo lo que un navegador necesita para pintar el trabajo en vivo. Answering stays
+                // off the web; the mode and the goal reach it since decisions/0202.
                 surfaces: ['cli', 'tui', 'mcp', 'http'],
             ),
             // ── LA SUPERFICIE DEL PUESTO DE DESARROLLADOR ───────────────────────────────────────
@@ -1349,14 +1405,14 @@ final class SessionOperations implements CommandProvider
         if ($modo === null) {
             return [
                 'ok' => false,
-                'error' => 'modo desconocido — válidos: '
+                'error' => 'unknown mode — valid: '
                     . implode(', ', array_map(static fn (AutonomyMode $m): string => $m->value, AutonomyMode::cases())),
             ];
         }
 
         $session = $almacen->load($id);
         if ($session === null) {
-            return ['ok' => false, 'error' => "no existe la sesión «{$id}»"];
+            return ['ok' => false, 'error' => "unknown session '{$id}'"];
         }
 
         $antes = $session->mode;
@@ -1371,6 +1427,52 @@ final class SessionOperations implements CommandProvider
             // lo contrario. Subir a `auto` es dejar de preguntar por lo reversible, no firmar en blanco.
             'note' => 'lo que exige firma se sigue deteniendo en cualquier modo',
         ];
+    }
+
+    /**
+     * Set, clear or read the standing goal of a session (greenhouse decisions/0202).
+     *
+     * Three arms, said rather than guessed: `goal` writes a new one, `clear: true` writes an empty
+     * one, and neither reads what stands. A blank `goal` is refused instead of clearing in silence —
+     * clearing is a decision, and it has its own word. Writing the goal that already stands appends
+     * nothing: `changed` is false and the ledger keeps one fact per change, not one per click.
+     *
+     * The goal is what the gate reads as the standing ask, folded from the stream; the gate itself
+     * does not change here.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array{ok: bool, session?: string, goal?: string, changed?: bool, error?: string}
+     */
+    private function changeGoal(array $input): array
+    {
+        [$almacen, $id, $error] = $this->target($input);
+        if ($error !== null || $almacen === null) {
+            return $error ?? ['ok' => false, 'error' => 'this app has nowhere to store sessions'];
+        }
+
+        $clear = ($input['clear'] ?? false) === true;
+        $goal = \is_string($input['goal'] ?? null) ? trim($input['goal']) : null;
+        if ($clear && $goal !== null) {
+            return ['ok' => false, 'error' => 'pass `goal` or `clear`, not both'];
+        }
+        if ($goal === '') {
+            return ['ok' => false, 'error' => 'an empty `goal` clears nothing: pass `clear: true` to clear it'];
+        }
+
+        $session = $almacen->load($id);
+        if ($session === null) {
+            return ['ok' => false, 'error' => "unknown session '{$id}'"];
+        }
+
+        $next = $clear ? '' : $goal;
+        if ($next === null || $next === $session->goal) {
+            return ['ok' => true, 'session' => $id, 'goal' => $session->goal, 'changed' => false];
+        }
+
+        $almacen->setGoal($id, $next);
+
+        return ['ok' => true, 'session' => $id, 'goal' => $next, 'changed' => true];
     }
 
     /**

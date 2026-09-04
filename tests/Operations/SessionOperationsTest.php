@@ -370,6 +370,143 @@ final class SessionOperationsTest extends TestCase
         self::assertStringContainsString('auto', (string) $r['error']);
     }
 
+    // ── `agent:goal` — the standing intent can change mid-session (greenhouse decisions/0202) ──
+
+    /**
+     * Setting the goal appends `session.goal_changed`, and the folded session carries the new one.
+     *
+     * The gate reads `Session::$goal` as the standing ask (decisions/0009); so what this proves is
+     * that a goal declared through the operation is the goal the gate will compare targets against.
+     */
+    public function testTheGoalCanBeSetMidSessionAndTheStreamSaysSo(): void
+    {
+        $almacen = $this->almacen();
+        $almacen->start('s1', 'build a todo plugin');
+
+        $r = $this->llamar('agent:goal', ['session' => 's1', 'goal' => '  write the todo-app plugin  ']);
+
+        self::assertTrue($r['ok']);
+        self::assertSame('s1', $r['session']);
+        self::assertSame('write the todo-app plugin', $r['goal'], 'trimmed, as the store trims it');
+        self::assertTrue($r['changed']);
+        self::assertSame('write the todo-app plugin', $almacen->load('s1')?->goal, 'the fold carries the new goal');
+        self::assertSame(['write the todo-app plugin'], $this->goalsWritten('s1'));
+    }
+
+    /** Clearing writes an empty goal: the session keeps no standing ask beyond each turn's prompt. */
+    public function testClearingTheGoalWritesAnEmptyOne(): void
+    {
+        $almacen = $this->almacen();
+        $almacen->start('s1', 'build a todo plugin');
+        $this->llamar('agent:goal', ['session' => 's1', 'goal' => 'write the todo-app plugin']);
+
+        $r = $this->llamar('agent:goal', ['session' => 's1', 'clear' => true]);
+
+        self::assertTrue($r['ok']);
+        self::assertSame('', $r['goal']);
+        self::assertTrue($r['changed']);
+        self::assertSame('', $almacen->load('s1')?->goal);
+        self::assertSame(['write the todo-app plugin', ''], $this->goalsWritten('s1'), 'both facts stay in the ledger');
+    }
+
+    /** Without `goal` or `clear` it reads what stands, and writes nothing. */
+    public function testWithoutAnArgumentTheGoalIsShownAndNothingIsWritten(): void
+    {
+        $almacen = $this->almacen();
+        $almacen->start('s1', 'build a todo plugin');
+
+        $r = $this->llamar('agent:goal', ['session' => 's1']);
+
+        self::assertTrue($r['ok']);
+        self::assertSame('build a todo plugin', $r['goal'], 'the goal a session is opened with is its first prompt');
+        self::assertFalse($r['changed']);
+        self::assertSame([], $this->goalsWritten('s1'));
+    }
+
+    /** Writing the goal that already stands appends nothing: one fact per change, not one per click. */
+    public function testSettingTheSameGoalAgainWritesNothing(): void
+    {
+        $almacen = $this->almacen();
+        $almacen->start('s1', 'build a todo plugin');
+
+        $r = $this->llamar('agent:goal', ['session' => 's1', 'goal' => 'build a todo plugin']);
+
+        self::assertTrue($r['ok']);
+        self::assertFalse($r['changed']);
+        self::assertSame([], $this->goalsWritten('s1'));
+    }
+
+    /** An unknown session is refused before anything is written, by name. */
+    public function testTheGoalOfAnUnknownSessionIsRefusedBeforeWriting(): void
+    {
+        $r = $this->llamar('agent:goal', ['session' => 'nadie', 'goal' => 'anything']);
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('nadie', (string) $r['error']);
+        self::assertSame([], $this->eventos->streams(), 'nothing was written anywhere');
+    }
+
+    /**
+     * The two shapes that would clear in silence are refused: a blank `goal` (clearing has its own
+     * word) and `goal` together with `clear` (two orders, one call).
+     */
+    public function testAmbiguousGoalCallsAreRefusedInsteadOfClearingInSilence(): void
+    {
+        $almacen = $this->almacen();
+        $almacen->start('s1', 'build a todo plugin');
+
+        $blank = $this->llamar('agent:goal', ['session' => 's1', 'goal' => '   ']);
+        self::assertFalse($blank['ok']);
+        self::assertStringContainsString('clear', (string) $blank['error']);
+
+        $both = $this->llamar('agent:goal', ['session' => 's1', 'goal' => 'x', 'clear' => true]);
+        self::assertFalse($both['ok']);
+        self::assertStringContainsString('not both', (string) $both['error']);
+
+        self::assertSame([], $this->goalsWritten('s1'));
+        self::assertSame('build a todo plugin', $almacen->load('s1')?->goal);
+    }
+
+    /**
+     * The goal declares the profile the mode declares, and both reach the web (decisions/0202): the
+     * Desktop's `/goal` and `/mode` change the REAL session, not a chip. What neither buys — a
+     * signature, an egress — is the gate's to refuse, not a surface's.
+     */
+    public function testTheGoalDeclaresTheModesProfileAndBothReachTheWeb(): void
+    {
+        $goal = $this->operacion('agent:goal');
+        $mode = $this->operacion('agent:mode');
+
+        self::assertSame(['cli', 'tui', 'mcp', 'http'], $goal->surfaces);
+        self::assertSame(['cli', 'tui', 'mcp', 'http'], $mode->surfaces);
+        self::assertTrue($goal->mutating);
+        self::assertSame($mode->scopes, $goal->scopes);
+        self::assertEquals($mode->effects, $goal->effects, 'the goal spends the same authority the mode spends');
+        self::assertSame(Subject::Data, $goal->effects?->subject, 'a session-ledger fact, not configuration');
+        self::assertSame(Subject::Data, $mode->effects?->subject);
+        self::assertSame(['session'], $goal->inputSchema['required'] ?? null, 'only the session is required: the three arms are chosen by what travels');
+        self::assertSame('string', $goal->inputSchema['properties']['goal']['type'] ?? null);
+        self::assertSame('boolean', $goal->inputSchema['properties']['clear']['type'] ?? null);
+    }
+
+    /**
+     * The `session.goal_changed` payloads written to one session, in order — read from the stream,
+     * never from the fold, so a fold that lied would be caught here.
+     *
+     * @return list<string>
+     */
+    private function goalsWritten(string $id): array
+    {
+        $goals = [];
+        foreach ($this->almacen()->stream($id) as $event) {
+            if ($event->type === 'session.goal_changed') {
+                $goals[] = (string) ($event->payload['goal'] ?? '');
+            }
+        }
+
+        return $goals;
+    }
+
     /**
      * Los tres rechazos de `agent:answer`, que son los que evitan escribir en el lugar equivocado.
      *

@@ -100,6 +100,20 @@ held by an open question sits in `blocked` saying why. Serve `agent:board` and `
 HTTP (`config/http.php`), point the page at your Mercure hub, and with no hub it says so instead
 of pretending to be live.
 
+**Steering a session from any of them — `agent:goal`, `agent:mode`, `skill:invoke`**
+
+A session carries a **standing goal** — the human's intent, seeded from the first prompt and
+changeable mid-session: `agent:goal` sets it, clears it, or reads it, over `cli`, `tui`, `mcp` and
+`http`. The gate judges targets against it, and in `auto` mode it bounds what runs without asking;
+the system prompt of every run speaks for the goal and the mode as they stand when that run starts.
+`agent:mode` reaches the session over `http` too, so a Desktop's mode chip changes the real session,
+not a label. A human runs a **user-invocable** skill with `skill:invoke`, which returns the skill's
+body to put in front of the agent — including a skill marked `disable-model-invocation`, which the
+model's own door, `skill:load`, refuses. All three are deliberately **off the model's tool table**
+(`AgentTable`): a session must not widen its own standing ask, raise its own autonomy, or hand itself
+a skill the human kept. And none of them pre-consents anything: a call that requires a signature, or
+reaches a third party, still stops in every mode, whatever the goal names.
+
 **Growing the app — `capabilities`, `capabilities:refresh`, `capabilities:enable`**
 
 The capability→package index is **derived from what the registry publishes**, never written by

@@ -46,8 +46,18 @@ final class AgentTable
      *
      * NO ES UNA REGLA DE SUPERFICIE. Un cliente MCP con un humano detrás contesta legítimamente por
      * ahí; lo que no puede es que la sesión que espera se conteste sola.
+     *
+     * `agent:goal` joins them the day it is born (greenhouse decisions/0202): the goal is the
+     * standing ask the gate compares targets against, and in the automatic mode it bounds what
+     * runs without a question. A session that could widen its own standing ask would be naming its
+     * own targets — consent narrated by the party it governs.
+     *
+     * `skill:invoke` too, for the same reason on the other flag: it is the HUMAN's door to a
+     * user-invocable skill, including one marked `disable-model-invocation`. On the model's table it
+     * would be the bar `skill:load` honours, handed back as a tool — the invoker comes from the
+     * surface, never from an argument the model fills.
      */
-    private const ADJUDICAN = ['agent:answer', 'agent:mode', 'agent:discard'];
+    private const ADJUDICAN = ['agent:answer', 'agent:mode', 'agent:goal', 'agent:discard', 'skill:invoke'];
 
     /**
      * ¿Esta operación llega a la mesa del agente?

@@ -471,6 +471,45 @@ class AgentOperations implements CommandProvider
                 ),
             ),
             new Operation(
+                name: 'skill:invoke',
+                description: 'A human runs a user-invocable skill: returns its body to put in front of the agent. Never offered to the model — the model\'s own bar is skill:load.',
+                handler: fn (array $input): array => $this->invokeSkill((string) ($input['name'] ?? '')),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'name' => ['type' => 'string', 'description' => 'the skill name, e.g. deploy'],
+                    ],
+                    'required' => ['name'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean'],
+                        'name' => ['type' => 'string'],
+                        'body' => ['type' => 'string', 'description' => 'the full skill instructions, wrapped exactly as skill:load wraps them'],
+                        'error' => ['type' => 'string'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // Reads a local skill file: changes nothing, reaches nobody.
+                effects: new EffectProfile(
+                    mutation: Mutation::None,
+                    externality: Externality::None,
+                    reversibility: Reversibility::Guaranteed,
+                    authority: Authority::Read,
+                    subject: Subject::None,
+                    rollbackContract: 'reads only: there is nothing to roll back',
+                ),
+                mutating: false,
+                // THE INVOKER COMES FROM THE SURFACE, never from an argument (greenhouse
+                // decisions/0202, review). The first cut let `skill:load` take `by: human` — and the
+                // model fills the arguments of every tool on its table, so the human's door was a word
+                // the model could say. So the human's door is its own operation on the human's
+                // surfaces, and `AgentTable::ADJUDICAN` keeps it off the model's table: `skill:load`
+                // stays the model's bar, with the same contract it had before.
+                surfaces: ['cli', 'tui', 'mcp', 'http'],
+            ),
+            new Operation(
                 name: 'skill:list',
                 description: 'The skills this app carries — each one\'s name, description, and who may invoke it (the agent, the human, or both). A skill guides judgment; it is not a tool that runs.',
                 handler: fn (array $input): array => $this->listSkills(),
@@ -1361,8 +1400,12 @@ class AgentOperations implements CommandProvider
                         // would classify a different window from the one the spawner supplied.
                         $parentIntakeSession = $this->intakeSession;
                         $parentDeclaredWindow = $this->declaredWindow;
+                        $parentPromptSession = $this->promptSession;
                         $this->intakeSession = $hijoId;
                         $this->declaredWindow = $declaredWindowHijo;
+                        // The child's prompt speaks for the CHILD's session: its brief is its goal,
+                        // and its mode is its own (decisions/0202) — never the parent's.
+                        $this->promptSession = $store->load($hijoId);
 
                         try {
                             $respuestaHijo = $this->ask(
@@ -1388,6 +1431,7 @@ class AgentOperations implements CommandProvider
                         } finally {
                             $this->intakeSession = $parentIntakeSession;
                             $this->declaredWindow = $parentDeclaredWindow;
+                            $this->promptSession = $parentPromptSession;
                         }
 
                         return ['answer' => $respuestaHijo, 'steps' => $vistosHijo];
@@ -1645,6 +1689,9 @@ class AgentOperations implements CommandProvider
             $this->sesionDeLosPermisos = $sessionId !== '' ? $sessionId : null;
             $this->intakeSession = $sessionId !== '' ? $sessionId : null;
             $this->declaredWindow = $declaredWindow;
+            // Re-folded here, not reused from above: a `--mode` on this run appended after the first
+            // load, and the prompt must speak for the mode the gate judges by (decisions/0202).
+            $this->promptSession = $sessionId !== '' && $store !== null ? $store->load($sessionId) : null;
 
             $respuesta = $this->ask(
                 $prompt,
@@ -2005,6 +2052,18 @@ class AgentOperations implements CommandProvider
 
     private ?string $intakeSession = null;
 
+    /**
+     * The session whose goal and mode the system prompt speaks for (greenhouse decisions/0202).
+     *
+     * Captured PER RUN, not per leg: `run()` folds it once, after a `--mode` on that run has landed —
+     * so the prompt describes the mode the gate will judge by, not the one the session woke up with —
+     * and every leg of that run reads the same capture. The one swap is the sub-agent branch, which
+     * points it at the child's session for the child's legs and restores the parent's after. Null
+     * without a session. Held here rather than in `ask()`'s signature because `ask()` is protected
+     * and overridden, so nothing new may travel there.
+     */
+    private ?Session $promptSession = null;
+
     /** @var list<array{role: string, content: string, class: string}>|null */
     private ?array $declaredWindow = null;
 
@@ -2105,10 +2164,16 @@ class AgentOperations implements CommandProvider
             $prompt,
             // LO QUE VIAJA DE VERDAD, no lo que el catálogo cree: el prompt se arma con los nombres
             // que este registro va a mandar, para que no ordene lo que no dio.
-            $this->systemPrompt(array_map(
-                static fn (\Milpa\ToolRuntime\ToolDefinition $d): string => $d->name,
-                $registry->getToolDefinitions(),
-            )),
+            $this->systemPrompt(
+                array_map(
+                    static fn (\Milpa\ToolRuntime\ToolDefinition $d): string => $d->name,
+                    $registry->getToolDefinitions(),
+                ),
+                // The session as `run()` captured it for this run — held on the instance for the same
+                // reason the decisions are: `ask()` is protected and overridden, so nothing new may
+                // travel in its signature (greenhouse decisions/0202).
+                $this->promptSession,
+            ),
             $history,
             $onStep,
         );
@@ -3436,8 +3501,56 @@ class AgentOperations implements CommandProvider
         return ['ok' => true, 'skills' => $skills];
     }
 
-    /** @return array{ok: bool, name?: string, body?: string, error?: string} */
+    /**
+     * Load one skill's body for the MODEL — the door on its table, and the bar it honours is
+     * `disable-model-invocation`: a skill barred from the model is refused, or the bar is decorative.
+     *
+     * @return array{ok: bool, name?: string, body?: string, error?: string}
+     */
     private function loadSkill(string $name): array
+    {
+        $skill = $this->skillNamed($name);
+        if (!$skill instanceof Skill) {
+            return $skill;
+        }
+        if (!$skill->modelInvocable) {
+            return ['ok' => false, 'error' => "skill '{$name}' is user-invocable only; ask the human to run it"];
+        }
+
+        return $this->wrappedSkill($skill);
+    }
+
+    /**
+     * Hand a HUMAN the body of a user-invocable skill (greenhouse decisions/0202, review).
+     *
+     * The bar it honours is the other flag, `user-invocable`: a human may run any skill the author
+     * left open to them — including one marked `disable-model-invocation`, which {@see loadSkill()}
+     * refuses — and is refused the background knowledge marked `user-invocable: false`. Who is
+     * knocking is not an argument: this operation rides the human's surfaces and never the model's
+     * table ({@see AgentTable}), so the invoker is the surface itself.
+     *
+     * @return array{ok: bool, name?: string, body?: string, error?: string}
+     */
+    private function invokeSkill(string $name): array
+    {
+        $skill = $this->skillNamed($name);
+        if (!$skill instanceof Skill) {
+            return $skill;
+        }
+        if (!$skill->userInvocable) {
+            return ['ok' => false, 'error' => "skill '{$name}' is not user-invocable"];
+        }
+
+        return $this->wrappedSkill($skill);
+    }
+
+    /**
+     * The skill of that name, or the refusal to hand back — shared by both doors so «unknown» reads
+     * the same whoever knocks.
+     *
+     * @return Skill|array{ok: false, error: string}
+     */
+    private function skillNamed(string $name): Skill|array
     {
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
         if (!$kernel instanceof Kernel) {
@@ -3448,12 +3561,18 @@ class AgentOperations implements CommandProvider
         if ($skill === null) {
             return ['ok' => false, 'error' => "unknown skill: {$name}"];
         }
-        if (!$skill->modelInvocable) {
-            return ['ok' => false, 'error' => "skill '{$name}' is user-invocable only; ask the human to run it"];
-        }
 
-        // Wrap the body the way the reference harnesses do: name it, and hand the agent the skill's
-        // base directory so it can reach any bundled scripts/ or references/ this skill ships.
+        return $skill;
+    }
+
+    /**
+     * The body wrapped the way the reference harnesses do: named, and carrying the skill's base
+     * directory so the agent can reach any bundled scripts/ or references/ the skill ships.
+     *
+     * @return array{ok: true, name: string, body: string}
+     */
+    private function wrappedSkill(Skill $skill): array
+    {
         $resources = $skill->directory !== ''
             ? "<skill_resources>Base directory for this skill: {$skill->directory}</skill_resources>\n"
             : '';
@@ -3462,14 +3581,44 @@ class AgentOperations implements CommandProvider
         return ['ok' => true, 'name' => $skill->name, 'body' => $wrapped];
     }
 
-    /** @param list<string> $herramientas */
-    protected function systemPrompt(array $herramientas = []): string
+    /**
+     * The system prompt of one leg, assembled from what this app is and what this session stands on.
+     *
+     * @param list<string> $herramientas the tool names that really travel in this run
+     * @param Session|null $session      the session as captured for this run — its goal and mode
+     *                                   shape the prompt (greenhouse decisions/0202); null without one
+     */
+    protected function systemPrompt(array $herramientas = [], ?Session $session = null): string
     {
         $partes = [
             'You are the agent of this Milpa app. Use the tools to answer; do not invent results. If '
             . 'a tool answers with `guidance`, that guidance is the real next step: repeat it instead of '
             . 'improvising one.',
+        ];
 
+        // THE STANDING GOAL, and what it buys in the automatic mode (greenhouse decisions/0202).
+        //
+        // The goal is the human's standing intent — mutable mid-session through `agent:goal` — and
+        // the gate already reads it as the standing ask (decisions/0009). Said here so the model
+        // reads every turn against it. In `auto` it also bounds the questions the MODEL itself would
+        // ask: nothing that reaching the goal necessarily entails gets asked. What it does NOT buy is
+        // said in the same breath, because this is where a model could believe otherwise: a
+        // signature and a third-party egress stop in every mode, and neither the goal nor the mode
+        // pre-consents them — the gate asks for those on its own.
+        if ($session !== null && $session->goal !== '') {
+            $objetivo = "The standing goal of this session, declared by the human: {$session->goal}\n"
+                . 'Read every turn against it: what the human asks now and this goal, together, are the standing ask.';
+            if ($session->mode === AutonomyMode::Auto) {
+                $objetivo .= "\n\nThe human declared that goal and chose the automatic mode. Do not ask about anything "
+                    . 'that reaching the goal necessarily entails — act. Ask only about what lies outside the goal. '
+                    . 'What still stops in every mode: a call that requires a signature, and anything that reaches a '
+                    . "third party — the house's gate asks for those on its own, and nothing pre-consents them, "
+                    . 'not this goal and not the mode.';
+            }
+            $partes[] = $objetivo;
+        }
+
+        $partes[] =
             // Lo que un agente necesita para no inventar un plugin donde había una línea de config.
             "How this app is built:\n"
             . "- Everything it can do is a declared operation; the tools you see ARE those operations.\n"
@@ -3479,9 +3628,7 @@ class AgentOperations implements CommandProvider
             . "  `Milpa\\Data\\RepositoryFactory`, so switching backend is that one line and nothing more. You do NOT need a\n"
             . "  persistence plugin, and none exists.\n"
             . "- Doctrine belongs to the legacy convention, not this one. The entities `make` writes implement\n"
-            . '  `Milpa\\Data\\EntityInterface`: no ORM attributes, no mapping.',
-
-        ];
+            . '  `Milpa\\Data\\EntityInterface`: no ORM attributes, no mapping.';
 
         // LA INSTRUCCIÓN DEL PLAN, QUE AHORA SE PUEDE APAGAR.
         //
