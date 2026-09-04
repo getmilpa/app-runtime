@@ -393,11 +393,11 @@ final class CapabilitiesTest extends TestCase
             self::assertContains($superficie, $porNombre['capabilities']->surfaces ?? []);
         }
 
-        // Y la que INSTALA muta, y no se ofrece por HTTP: instalar un paquete corre codigo de la red
-        // sobre la maquina, y un scope no sostiene eso — una superficie alcanzable desde cualquier
-        // lado convierte un token filtrado en codigo arbitrario en el host.
+        // Y la que INSTALA muta, y ahora tambien se ofrece por HTTP (greenhouse decisions/0193): el
+        // runner aplica el mismo veredicto en toda superficie y HTTP ya carga el grant (compuerta de
+        // confirmacion + ceremonia passkey same-origin). Sigue mutating + Privileged.
         self::assertTrue($porNombre['capabilities:enable']->mutating);
-        self::assertNotContains('http', $porNombre['capabilities:enable']->surfaces ?? []);
+        self::assertContains('http', $porNombre['capabilities:enable']->surfaces ?? []);
         self::assertContains('cli', $porNombre['capabilities:enable']->surfaces ?? []);
     }
 
