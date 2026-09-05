@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.119.0](https://github.com/getmilpa/app-runtime/compare/v0.118.0...v0.119.0) (2026-09-05)
+
+
+### Features
+
+* **identity:** the ledger keeps history on re-recognition and refuses a write it cannot make ([#283](https://github.com/getmilpa/app-runtime/issues/283)) ([7cb646a](https://github.com/getmilpa/app-runtime/commit/7cb646af4f9633629c2a7efd9f2aab345314126d))
+
 ## [0.118.0](https://github.com/getmilpa/app-runtime/compare/v0.117.0...v0.118.0) (2026-09-05)
 
 
