@@ -164,8 +164,18 @@ cookie value is never trusted on its own. Then:
 `next` is validated server side as a **local absolute path**: `//evil`, `https://x` and `\x` all fall
 back to `/`. The sign-in page never redirects to a URL somebody else chose.
 
-**The operator sequence** — from a fresh app to a panel that opens only for your key:
+**The operator sequence** — from a fresh app to a panel that opens only for your key (run once with a
+physical YubiKey, greenhouse evidence/0519):
 
+0. **Install what the door is made of.** A fresh `composer create-project milpa/framework` app does
+   **not** ship `milpa/auth` — the ceremony, the session store and the gate middleware live there:
+   ```bash
+   composer require milpa/auth
+   ```
+   Since 0.118 a `PasskeyPlugin` declared without it refuses to boot and names this command; before, it
+   mounted nothing and a panel naming the gate answered a mute `500`. The `identity:*` operations you
+   need below are offered by the runtime on their own; `milpa/agent` + `milpa/ai-gateway` are only for
+   the agent operations.
 1. **Declare the plugin and the relying party.** In `config/plugins.php` list
    `Milpa\AppRuntime\Web\PasskeyPlugin::class`; in `config/app.php` declare
    `'passkey' => ['rpId' => 'localhost']`. The `rpId` must be the host the browser is on, and WebAuthn
@@ -192,6 +202,17 @@ back to `/`. The sign-in page never redirects to a URL somebody else chose.
    to `storage/identity/enrollments.json` with `authorized_by: key:<your fingerprint>`. `--scopes` is an
    array argument — repeat the flag for more than one (`--scopes=milpa.admin --scopes=agent:read`).
    Over `http`/`mcp` the operation additionally requires a caller holding the `identity:enroll` scope.
+   On the CLI the signature alone is the authority. To make your gpg key the house's *recognized* root
+   as well — so the ledger names it (`authorized_by: bootstrap`) and the same enrolment can run over
+   `http`/`mcp` — bootstrap once, on an empty house, before rooting the credential:
+   ```php
+   <?php return ['bootstrap' => true, 'rooted' => []];   // config/identity.php, first run only
+   ```
+   ```bash
+   php coa identity:bootstrap --scopes=identity:enroll --sign   # one touch: your key becomes the root
+   ```
+   `identity:bootstrap` refuses once `rooted` is non-empty or anything was ever recognized — it is a
+   one-time act. Then write the credential id into `rooted` and enroll as above.
 5. **Name the gate.** Where the panel's middleware is declared (`admin.middleware` for `milpa/admin`,
    the `middleware` of any `Route` of yours):
    ```php
@@ -199,6 +220,11 @@ back to `/`. The sign-in page never redirects to a URL somebody else chose.
    ```
 6. **Sign in.** `GET /milpa/admin` → `302` to `/webauthn/signin?next=/milpa/admin` → *Continue with a
    passkey* → touch → the cookie is set and the browser returns to the panel, `200`.
+
+If *Continue with a passkey* does nothing — no dialog, no error, the button stays disabled — a browser
+extension has most likely replaced `navigator.credentials.get` (password managers that offer their own
+passkeys do; the console shows the extension's content script). The pages now say so before waiting on
+the call; retry in a browser profile without that extension (greenhouse evidence/0519).
 
 Why the sign-in page works with a hardware key: enrollment registers a **non-discoverable** credential
 (`residentKey: discouraged`, so a key with scarce slots is not consumed), and a browser only finds one of
@@ -224,6 +250,19 @@ stays open: registering grants nothing, enrolling is the act, and the root gate 
 write.
 
 ## Upgrading
+
+### 0.118.0 — `PasskeyPlugin` refuses to boot without `milpa/auth`
+
+A `PasskeyPlugin` listed in `config/plugins.php` while `milpa/auth` is not installed used to boot
+quietly and mount nothing; a panel naming `PasskeyGateMiddleware` then answered a `500` that blamed
+nothing (greenhouse evidence/0519). Now `boot()` throws a `RuntimeException` that names the fix:
+
+```bash
+composer require milpa/auth      # or remove the plugin from config/plugins.php
+```
+
+No behaviour changes for a house that has the package. The sign-in, enrollment and intent pages also
+say when a browser extension replaced the WebAuthn API on the page, before waiting on it.
 
 ### 0.45.0 — `capabilities:enable --dry-run` requires a signature
 

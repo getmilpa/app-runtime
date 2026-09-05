@@ -106,6 +106,8 @@ final class PasskeyIntentControllerTest extends TestCase
         // A non-discoverable key answers only a request that names it (greenhouse decisions/0206).
         self::assertStringContainsString('allowCredentials: allow', (string) $res->getBody());
         self::assertStringContainsString("userVerification: 'required'", (string) $res->getBody());
+        // An extension that replaced the WebAuthn API is named before the ceremony waits on it (greenhouse evidence/0519).
+        self::assertStringContainsString('has replaced navigator.credentials.get', (string) $res->getBody());
     }
 
     public function testOptionsNameEveryRegisteredCredential(): void

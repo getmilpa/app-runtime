@@ -250,6 +250,12 @@ async function register() {
   const btn = document.getElementById('go'); const out = document.getElementById('out');
   btn.disabled = true; out.textContent = '';
   try {
+    // Same lesson as the sign-in page (greenhouse evidence/0519): an extension that replaced
+    // navigator.credentials.create can swallow the ceremony without a dialog or an error.
+    if (!/\[native code\]/.test(String(navigator.credentials.create))) {
+      out.className = 'r no';
+      out.textContent = 'A browser extension has replaced navigator.credentials.create on this page. If no passkey dialog opens, retry in a browser profile without that extension.';
+    }
     const opt = await (await fetch('/webauthn/register/options', { method: 'POST' })).json();
 
     const userId = crypto.getRandomValues(new Uint8Array(16));
@@ -325,6 +331,13 @@ async function signin() {
   const btn = document.getElementById('go'); const out = document.getElementById('out');
   btn.disabled = true; out.className = ''; out.textContent = '';
   try {
+    // A browser extension (a password manager offering its own passkeys, usually) may have replaced
+    // navigator.credentials.get; when it swallows the call, no dialog opens and no error ever comes
+    // back (greenhouse evidence/0519). Say so before waiting on it.
+    if (!/\[native code\]/.test(String(navigator.credentials.get))) {
+      out.className = 'r no';
+      out.textContent = 'A browser extension has replaced navigator.credentials.get on this page. If no passkey dialog opens, retry in a browser profile without that extension.';
+    }
     const opt = await (await fetch('/webauthn/authenticate/options', { method: 'POST' })).json();
     const allow = (opt.allowCredentials || []).map(c => ({ type: c.type, id: b64uToBuf(c.id) }));
     if (allow.length === 0) {
