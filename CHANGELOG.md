@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.120.0](https://github.com/getmilpa/app-runtime/compare/v0.119.0...v0.120.0) (2026-09-05)
+
+
+### Features
+
+* **identity:** the passkey session is a principal of the operations surface; driving the agent requires agent:run ([#285](https://github.com/getmilpa/app-runtime/issues/285)) ([b29d71a](https://github.com/getmilpa/app-runtime/commit/b29d71a13990bdfdad33d67b426844d17b7d4822))
+
 ## [0.119.0](https://github.com/getmilpa/app-runtime/compare/v0.118.0...v0.119.0) (2026-09-05)
 
 
