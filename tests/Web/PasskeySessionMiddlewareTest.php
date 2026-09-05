@@ -113,6 +113,30 @@ final class PasskeySessionMiddlewareTest extends TestCase
         self::assertSame(AuthState::Invalid, $seen->state);
     }
 
+    /**
+     * A house WITHOUT a token verifier judges no Bearer, so a bad one never becomes «invalid» — it is
+     * simply unjudged (greenhouse evidence/0521, F2: Bearer garbage + a valid cookie answered 403, the
+     * cookie had spoken). Presenting `Authorization` chooses the Bearer channel: the cookie stays
+     * silent, the store is not even read, and the policy answers the Bearer caller (401).
+     */
+    public function testAnAuthorizationHeaderNobodyJudgedStillSilencesTheCookie(): void
+    {
+        $id = $this->session(['agent:run']);
+        $this->enrollments->revoke('cred-1', 'key:TEST');
+        $req = $this->get()->withCookieParams([self::COOKIE => $id])
+            ->withHeader('Authorization', 'Bearer not-a-token');   // no AuthenticateMiddleware ran: no attribute at all
+
+        $res = $this->middleware()->process($req, $this->handler($seen));
+
+        self::assertNull($seen, 'nothing attached: the Bearer channel owns the request, and nobody judged it here');
+        self::assertNotNull($this->sessions->read($id), 'the cookie was not even read');
+        self::assertSame('', $res->getHeaderLine('Set-Cookie'));
+        // The factory says the same: anonymous, never the cookie's actor.
+        $context = $this->middleware()->fromRequest($req);
+        self::assertSame(AuthState::Anonymous, $context->state);
+        self::assertNotNull($this->sessions->read($id));
+    }
+
     public function testAnAnonymousStandingContextLetsTheCookieSpeak(): void
     {
         // AuthenticateMiddleware attaches anonymous when there is no Bearer at all: that is not a verdict.
