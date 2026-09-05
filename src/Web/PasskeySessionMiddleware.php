@@ -114,9 +114,11 @@ final class PasskeySessionMiddleware implements MiddlewareInterface, AuthContext
      */
     public function fromRequest(ServerRequestInterface $request): AuthContext
     {
-        $standing = $request->getAttribute(AuthenticateMiddleware::ATTRIBUTE);
-        if ($standing instanceof AuthContext && $standing->state !== AuthState::Anonymous) {
-            return $standing;
+        if (self::bearerDecided($request)) {
+            $standing = $request->getAttribute(AuthenticateMiddleware::ATTRIBUTE);
+
+            // A Bearer header nobody judged is not a session either: anonymous, never the cookie.
+            return $standing instanceof AuthContext ? $standing : AuthContext::anonymous();
         }
 
         return $this->resolveCookie($request)->context;
@@ -128,9 +130,19 @@ final class PasskeySessionMiddleware implements MiddlewareInterface, AuthContext
         return $this->resolver->cookieName();
     }
 
-    /** Whether the attribute already carries a verdict — authenticated or invalid — that this middleware must not touch. */
+    /**
+     * Whether the Bearer channel owns this request, so the cookie must not speak: the attribute already
+     * carries a verdict (authenticated or invalid), OR the request presented an `Authorization` header
+     * at all. The second clause is what a house WITHOUT a token verifier needs (greenhouse
+     * evidence/0521, F2): there nobody judges the header, so it never becomes «invalid» — and a caller
+     * who chose the Bearer channel with a credential nobody can verify must be answered as a Bearer
+     * caller (401 by the policy), not quietly admitted on a cookie it also happened to carry.
+     */
     private static function bearerDecided(ServerRequestInterface $request): bool
     {
+        if ($request->hasHeader('Authorization')) {
+            return true;
+        }
         $standing = $request->getAttribute(AuthenticateMiddleware::ATTRIBUTE);
 
         return $standing instanceof AuthContext && $standing->state !== AuthState::Anonymous;
