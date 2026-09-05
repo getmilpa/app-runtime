@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.120.1](https://github.com/getmilpa/app-runtime/compare/v0.120.0...v0.120.1) (2026-09-05)
+
+
+### Bug Fixes
+
+* **identity:** an Authorization header silences the cookie even where nobody judges the Bearer ([#287](https://github.com/getmilpa/app-runtime/issues/287)) ([64e608f](https://github.com/getmilpa/app-runtime/commit/64e608fbf0a69b648ed244c0c95acccf16abc5e7))
+
 ## [0.120.0](https://github.com/getmilpa/app-runtime/compare/v0.119.0...v0.120.0) (2026-09-05)
 
 
