@@ -54,7 +54,14 @@ final class SyntheticPasskey
             'origin' => 'https://' . $rpId,
         ]);
         $d = openssl_pkey_get_details($key);
-        $cose = self::cborCoseMap([1 => 2, 3 => -7, -1 => 1, -2 => $d['ec']['x'], -3 => $d['ec']['y']]);
+        // COSE EC2 coordinates are FIXED-WIDTH (RFC 8152: 32 bytes for P-256) and CoseKey refuses any
+        // other length. OpenSSL hands the big-endian integer back WITHOUT leading zero bytes — 31 bytes
+        // for 0.87% of keys (measured: 26 of 3000) — which made this helper's attestation fail
+        // `passkey_rejected` in about one run in a hundred (greenhouse evidence/0521: the intermittent
+        // PasskeyGateLoopTest failure was the instrument, not the door). A real authenticator pads.
+        $x = str_pad($d['ec']['x'], 32, "\0", \STR_PAD_LEFT);
+        $y = str_pad($d['ec']['y'], 32, "\0", \STR_PAD_LEFT);
+        $cose = self::cborCoseMap([1 => 2, 3 => -7, -1 => 1, -2 => $x, -3 => $y]);
         $authData = hash('sha256', $rpId, true) . "\x41" . pack('N', 0)
             . str_repeat("\x00", 16) . pack('n', \strlen($rawCredentialId)) . $rawCredentialId . $cose;
         $att = self::cborHead(5, 3)
