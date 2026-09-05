@@ -541,7 +541,8 @@ final class SessionOperations implements CommandProvider
                     Mutation::Persistent,
                     Externality::None,
                     // A recognition is a fact once made; withdrawing it is revocation, its own
-                    // governed act, undecided on purpose (greenhouse decisions/0117).
+                    // governed act (identity:revoke, greenhouse decisions/0117) — and a later
+                    // re-recognition keeps the revocation as history (decisions/0207).
                     Reversibility::Irreversible,
                     // Enrolling an identity decides who the house will believe as a principal — an
                     // institutional act, above acting AS a user.
@@ -572,6 +573,8 @@ final class SessionOperations implements CommandProvider
                         'fingerprint' => ['type' => 'string', 'description' => 'The key now recognized'],
                         'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'What it may do'],
                         'authorized_by' => ['type' => 'string', 'description' => 'The verified principal that authorized the recognition, as key:<fingerprint>'],
+                        'history_entries' => ['type' => 'integer', 'description' => 'How many prior states the ledger keeps for this key after this recognition — 0 on a first enrollment; a re-recognition pushes the state it replaces onto the entry\'s history and erases nothing (greenhouse decisions/0207)'],
+                        'previously_revoked_by' => ['type' => 'string', 'description' => 'Present only when this recognition re-recognizes a key whose standing entry was revoked: the principal that revoked it, as key:<fingerprint>'],
                         'error' => ['type' => 'string', 'description' => 'Why enrollment did not happen; absent when ok'],
                     ],
                     'required' => ['ok'],
@@ -1625,9 +1628,14 @@ final class SessionOperations implements CommandProvider
      * fingerprint the operator never declared is refused, because enrollment consumes a root of
      * trust and cannot mint the one that would authorize it.
      *
+     * A key the house already has an entry for — live or revoked — may be recognized again under the
+     * same signed, rooted authority; the ledger keeps the state it replaces (greenhouse decisions/0207),
+     * and the act says so: `history_entries` counts the prior states kept, and `previously_revoked_by`
+     * names the revoker when the standing entry was a revocation.
+     *
      * @param array<string, mixed> $input
      *
-     * @return array{ok: bool, fingerprint?: string, scopes?: list<string>, authorized_by?: string, error?: string}
+     * @return array{ok: bool, fingerprint?: string, scopes?: list<string>, authorized_by?: string, history_entries?: int, previously_revoked_by?: string, error?: string}
      */
     private function enrolar(array $input): array
     {
@@ -1680,14 +1688,25 @@ final class SessionOperations implements CommandProvider
             return ['ok' => false, 'error' => $e->getMessage()];
         }
 
-        (new FileEnrollmentStore($root . '/storage/identity/enrollments.json'))->record($enrolled);
+        try {
+            $report = (new FileEnrollmentStore($root . '/storage/identity/enrollments.json'))->recordAndReport($enrolled);
+        } catch (\RuntimeException $e) {
+            // The act says what it did — and a write that did not happen is not something it did.
+            return ['ok' => false, 'error' => 'nothing was recognized: ' . $e->getMessage()];
+        }
 
-        return [
+        $out = [
             'ok' => true,
             'fingerprint' => $enrolled->fingerprint,
             'scopes' => $enrolled->scopes,
             'authorized_by' => $enrolled->authorizedBy,
+            'history_entries' => $report['history_entries'],
         ];
+        if ($report['previously_revoked_by'] !== null) {
+            $out['previously_revoked_by'] = $report['previously_revoked_by'];
+        }
+
+        return $out;
     }
 
     /**
@@ -1729,8 +1748,12 @@ final class SessionOperations implements CommandProvider
         }
 
         $revokedBy = 'key:' . $granted->signer->fingerprint;
-        $revoked = (new FileEnrollmentStore($kernel->root() . '/storage/identity/enrollments.json'))
-            ->revoke($fingerprint, $revokedBy);
+        try {
+            $revoked = (new FileEnrollmentStore($kernel->root() . '/storage/identity/enrollments.json'))
+                ->revoke($fingerprint, $revokedBy);
+        } catch (\RuntimeException $e) {
+            return ['ok' => false, 'error' => 'nothing was revoked: ' . $e->getMessage()];
+        }
         if (!$revoked) {
             return ['ok' => false, 'error' => 'the house did not recognize ' . $fingerprint . ' (never enrolled, or already revoked) — nothing changed'];
         }
@@ -1789,11 +1812,15 @@ final class SessionOperations implements CommandProvider
         }
         $store = new FileEnrollmentStore($root . '/storage/identity/enrollments.json');
         if (!$store->isEmpty()) {
-            return ['ok' => false, 'error' => 'this house is no longer a greenfield — a first recognition already stands, and bootstrap is a one-time act'];
+            return ['ok' => false, 'error' => 'this house is no longer a greenfield — its identity ledger is not empty (a recognition stands, or content the store cannot read), and bootstrap is a one-time act'];
         }
 
         $fingerprint = $granted->signer->fingerprint;
-        $store->record(new IdentityEnrolled($fingerprint, $scopes, 'bootstrap'));
+        try {
+            $store->record(new IdentityEnrolled($fingerprint, $scopes, 'bootstrap'));
+        } catch (\RuntimeException $e) {
+            return ['ok' => false, 'error' => 'nothing was minted: ' . $e->getMessage()];
+        }
 
         return ['ok' => true, 'fingerprint' => $fingerprint, 'scopes' => $scopes];
     }

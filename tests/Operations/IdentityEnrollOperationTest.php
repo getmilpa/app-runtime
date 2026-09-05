@@ -100,10 +100,66 @@ final class IdentityEnrollOperationTest extends TestCase
         self::assertSame(self::ROOTED, $r['fingerprint']);
         self::assertSame(['agent:read', 'agent:answer'], $r['scopes']);
         self::assertSame('key:' . self::ROOTED, $r['authorized_by']);
+        // A first enrollment replaced nothing (greenhouse decisions/0207).
+        self::assertSame(0, $r['history_entries']);
+        self::assertArrayNotHasKey('previously_revoked_by', $r);
 
         // The recognition is on disk, readable by admission.
         $store = new FileEnrollmentStore($root . '/storage/identity/enrollments.json');
         self::assertSame(['agent:read', 'agent:answer'], $store->scopesFor(self::ROOTED));
+    }
+
+    /** F3: the real handler over a revoked id says who revoked it and how many states the ledger keeps. */
+    public function testReEnrollingARevokedKeySaysWhoRevokedItAndKeepsTheHistory(): void
+    {
+        [$c, $root] = $this->containerWithRoot(self::ROOTED);
+        $store = new FileEnrollmentStore($root . '/storage/identity/enrollments.json');
+        $store->record(new IdentityEnrolled(self::ROOTED, ['agent:read'], 'key:' . self::ROOTED));
+        self::assertTrue($store->revoke(self::ROOTED, 'key:' . self::UNROOTED));
+        self::assertNull($store->scopesFor(self::ROOTED));
+
+        $this->grant($c, self::ROOTED);
+        $r = $this->call($c, ['fingerprint' => self::ROOTED, 'scopes' => ['milpa.admin']]);
+
+        self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
+        self::assertSame('key:' . self::UNROOTED, $r['previously_revoked_by'], 'the act names the revoker it re-recognizes over');
+        self::assertSame(1, $r['history_entries']);
+        self::assertSame(['milpa.admin'], $store->scopesFor(self::ROOTED), 'admitted again, with the new scopes');
+
+        // The revocation is a fact the ledger keeps, not state the re-recognition erased.
+        $raw = json_decode((string) file_get_contents($root . '/storage/identity/enrollments.json'), true);
+        self::assertSame('key:' . self::UNROOTED, $raw[self::ROOTED]['history'][0]['revoked_by']);
+        self::assertSame(['agent:read'], $raw[self::ROOTED]['history'][0]['scopes']);
+        self::assertArrayNotHasKey('revoked_by', $raw[self::ROOTED]);
+    }
+
+    /** The act reports only on a write that happened: a ledger it cannot write is refused as ok:false, not narrated. */
+    public function testAnEnrollmentTheLedgerCannotWriteIsRefusedNotReported(): void
+    {
+        [$c, $root] = $this->containerWithRoot(self::ROOTED);
+        $ledger = $root . '/storage/identity/enrollments.json';
+        mkdir($ledger); // a directory where the file should be: it cannot be opened for writing
+        $this->grant($c, self::ROOTED);
+
+        try {
+            $r = $this->call($c, ['fingerprint' => self::ROOTED, 'scopes' => ['milpa.admin']]);
+        } finally {
+            rmdir($ledger);
+        }
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('nothing was recognized', (string) $r['error']);
+        self::assertStringContainsString('could not be opened', (string) $r['error']);
+        self::assertArrayNotHasKey('history_entries', $r, 'no report stands for a write that did not happen');
+    }
+
+    public function testTheEnrollCatalogueDeclaresWhatTheActSays(): void
+    {
+        $schema = $this->operation(new DIContainer())->outputSchema;
+
+        self::assertIsArray($schema);
+        self::assertSame('integer', $schema['properties']['history_entries']['type']);
+        self::assertSame('string', $schema['properties']['previously_revoked_by']['type']);
     }
 
     public function testEmptyFingerprintOrScopesEnrollNothing(): void
@@ -191,6 +247,22 @@ final class IdentityEnrollOperationTest extends TestCase
 
         self::assertFalse($r['ok']);
         self::assertStringContainsString('no longer a greenfield', (string) $r['error']);
+    }
+
+    /** A ledger the store cannot read is not a greenfield: bootstrap refuses rather than minting a root over it. */
+    public function testBootstrapRefusesOverALedgerItCannotRead(): void
+    {
+        [$c, $root] = $this->containerGreenfield();
+        $ledger = $root . '/storage/identity/enrollments.json';
+        $garbage = '{"SOMEONE": {"scopes": ["*"]}} trailing garbage';
+        file_put_contents($ledger, $garbage);
+        $this->grant($c, self::ROOTED, 'identity:bootstrap');
+
+        $r = $this->call($c, ['scopes' => ['*']], 'identity:bootstrap');
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('no longer a greenfield', (string) $r['error']);
+        self::assertSame($garbage, (string) file_get_contents($ledger), 'nothing was written over it');
     }
 
     public function testBootstrapRefusesWhenTheAppDidNotOptIn(): void
