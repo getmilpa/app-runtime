@@ -221,6 +221,10 @@ final class SessionOperations implements CommandProvider
                 // HTTP joins the surfaces (greenhouse decisions/0202): the Desktop's mode chip now
                 // reaches the session it names, instead of relabelling a chip while the run stays `ask`.
                 surfaces: ['cli', 'tui', 'mcp', 'http'],
+                // AND SAYS WHO MAY (greenhouse decisions/0208): raising a session's autonomy drives the
+                // agent, so it takes the same `agent:run` that `agent` takes — a token minted with it,
+                // or the passkey session on the request. Anonymous over HTTP is 401, not a mode change.
+                scopes: ['agent:run'],
             ),
             new Operation(
                 name: 'agent:goal',
@@ -274,6 +278,9 @@ final class SessionOperations implements CommandProvider
                 // the goal names. Nothing pre-consents those (decisions/0202).
                 mutating: true,
                 surfaces: ['cli', 'tui', 'mcp', 'http'],
+                // The same scope as `agent:mode`, for the same reason (greenhouse decisions/0208): the
+                // standing goal steers what runs, so setting it is driving the agent.
+                scopes: ['agent:run'],
             ),
             new Operation(
                 name: 'agent:timeline',

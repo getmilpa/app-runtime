@@ -508,6 +508,10 @@ class AgentOperations implements CommandProvider
                 // surfaces, and `AgentTable::ADJUDICAN` keeps it off the model's table: `skill:load`
                 // stays the model's bar, with the same contract it had before.
                 surfaces: ['cli', 'tui', 'mcp', 'http'],
+                // DRIVING THE AGENT IS A SCOPED ACT (greenhouse decisions/0208): putting a skill in
+                // front of the agent steers the run, so over a surface with a policy it takes the
+                // same `agent:run` that `agent` itself takes. The `*` wildcard keeps admitting.
+                scopes: ['agent:run'],
             ),
             new Operation(
                 name: 'skill:list',
@@ -673,6 +677,13 @@ class AgentOperations implements CommandProvider
                 // su compuerta, y el humano la contesta con su llave, en este origen. La decisión se
                 // toma aquí, en el abierto (greenhouse decisions/0190).
                 surfaces: ['cli', 'http'],
+                // WHO MAY DRIVE IT, declared (greenhouse decisions/0208). Without a scope the HTTP
+                // policy was never consulted and `POST /agent` ran for anyone who reached the server
+                // — with the server's own credentials. Now it takes an actor holding `agent:run`: a
+                // token minted with it, or the passkey session `PasskeySessionMiddleware` puts on the
+                // request. An anonymous call answers 401, a signed-in one without the scope 403. The
+                // CLI, where the caller IS the operator, enforces no scopes and is unchanged.
+                scopes: ['agent:run'],
             ),
         ];
     }
