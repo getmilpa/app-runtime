@@ -74,6 +74,7 @@ final readonly class ResolvedPasskeySession
         return $this->context->isAuthenticated();
     }
 
+    /** A passkey the ledger no longer recognizes: its session was destroyed and the cookie must expire. */
     public function isRevoked(): bool
     {
         return $this->revokedPrincipal !== null;
