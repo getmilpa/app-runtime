@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.117.0](https://github.com/getmilpa/app-runtime/compare/v0.116.0...v0.117.0) (2026-09-05)
+
+
+### Features
+
+* the passkey gate — a declared middleware, a sign-in page, allowCredentials for non-discoverable keys ([#279](https://github.com/getmilpa/app-runtime/issues/279)) ([7ccc40b](https://github.com/getmilpa/app-runtime/commit/7ccc40b292286bc29ec8f2a93ccb4a7e4be8ab95))
+
 ## [0.116.0](https://github.com/getmilpa/app-runtime/compare/v0.115.0...v0.116.0) (2026-09-04)
 
 
