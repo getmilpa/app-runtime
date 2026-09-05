@@ -181,6 +181,12 @@ async function approve() {
   const btn = document.getElementById('go'); const out = document.getElementById('out');
   btn.disabled = true; out.textContent = '';
   try {
+    // Same lesson as the sign-in page (greenhouse evidence/0519): an extension that replaced
+    // navigator.credentials.get can swallow the ceremony without a dialog or an error.
+    if (!/\[native code\]/.test(String(navigator.credentials.get))) {
+      out.className = 'r no';
+      out.textContent = 'A browser extension has replaced navigator.credentials.get on this page. If no passkey dialog opens, retry in a browser profile without that extension.';
+    }
     const opt = await (await fetch('/webauthn/intent/options', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ operation, arguments: args, session })

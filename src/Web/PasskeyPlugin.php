@@ -83,7 +83,12 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
 
     private ?string $rpId = null;
 
-    public function __construct(private readonly DIContainerInterface $container)
+    /**
+     * @param bool|null $authInstalled whether `milpa/auth` is present — `null` asks the autoloader; a test
+     *                                 passes `false` to watch the plugin refuse a house that declared it
+     *                                 without the package it is made of
+     */
+    public function __construct(private readonly DIContainerInterface $container, private readonly ?bool $authInstalled = null)
     {
     }
 
@@ -92,11 +97,22 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
         return $this->container;
     }
 
-    /** Wire the passkey door from config, or leave it shut when no relying party was declared. */
+    /**
+     * Wire the passkey door from config, or leave it shut when no relying party was declared.
+     *
+     * DECLARED WITHOUT `milpa/auth` IS A MISTAKE, SAID AT BOOT (greenhouse evidence/0519). The ceremony,
+     * the session store and the gate middleware all live in that package; a fresh app does not install
+     * it. This plugin used to return quietly without it — and a panel naming `PasskeyGateMiddleware`
+     * then failed closed with a 500 that blamed nothing. Closed was right; mute was not.
+     */
     public function boot(): void
     {
-        if (!class_exists(PasskeyLogin::class)) {
-            return;
+        if (!($this->authInstalled ?? class_exists(PasskeyLogin::class))) {
+            throw new \RuntimeException(
+                'PasskeyPlugin is declared but milpa/auth is not installed: the passkey ceremony, the session store '
+                . 'and PasskeyGateMiddleware live there, so nothing this plugin promises can be mounted. '
+                . 'Run `composer require milpa/auth`, or remove the plugin from config/plugins.php.',
+            );
         }
         $config = $this->config();
         $rpId = $config['rpId'] ?? null;

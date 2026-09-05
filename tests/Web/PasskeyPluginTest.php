@@ -50,6 +50,17 @@ final class PasskeyPluginTest extends TestCase
         }
     }
 
+    /** A house that declares the plugin without the package it is made of hears it at boot, not as a mute 500 (greenhouse evidence/0519). */
+    public function testItRefusesToBootWithoutMilpaAuthAndNamesTheFix(): void
+    {
+        [$container] = $this->container(rpId: 'milpa.local', withSessions: true);
+        $plugin = new PasskeyPlugin($container, authInstalled: false);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('composer require milpa/auth');
+        $plugin->boot();
+    }
+
     public function testItFailsClosedWithoutARelyingParty(): void
     {
         // A container with a session store but no passkey.rpId in config.

@@ -65,6 +65,8 @@ final class PasskeyControllerTest extends TestCase
         // (greenhouse evidence/0486): cross-platform attachment, user verification required.
         self::assertStringContainsString("authenticatorAttachment: 'cross-platform'", $body);
         self::assertStringContainsString("userVerification: 'required'", $body);
+        // An extension that replaced the WebAuthn API is named before the ceremony waits on it (greenhouse evidence/0519).
+        self::assertStringContainsString('has replaced navigator.credentials.create', $body);
     }
 
     public function testOptionsIssuesAChallengeAndNamesEveryRegisteredCredential(): void
@@ -124,6 +126,9 @@ final class PasskeyControllerTest extends TestCase
         self::assertStringContainsString('location.replace(NEXT)', $body);
         self::assertStringContainsString('Not enrolled', $body, 'an empty allowCredentials is said, not swallowed');
         self::assertStringContainsString('Passkey rejected', $body);
+        // A password-manager extension that replaced navigator.credentials.get swallowed a real ceremony
+        // (greenhouse evidence/0519): the page says so before it waits on the call.
+        self::assertStringContainsString('has replaced navigator.credentials.get', $body);
     }
 
     public function testTheSignInPageShowsTheScopeItWasConfiguredWith(): void
