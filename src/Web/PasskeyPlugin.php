@@ -141,14 +141,15 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
         $this->rpId = $rpId;
         $this->container->registerService(
             PasskeyController::class,
-            new PasskeyController($authenticator, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $registered, $rpId, $cookie, $scope),
+            new PasskeyController($authenticator, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $registered, $enrollments, $rpId, $cookie, $scope),
         );
 
         // THE GATE (decisions/0206): registered under its own class name so a panel can NAME it in
         // `admin.middleware` and the runtime's container resolver produces it — one session, one scope.
+        // It reads the same enrollment ledger the login does, on every request: a revocation lands at once.
         $this->container->registerService(
             PasskeyGateMiddleware::class,
-            new PasskeyGateMiddleware($sessions, $cookie, $scope),
+            new PasskeyGateMiddleware($sessions, $enrollments, $cookie, $scope),
         );
 
         // THE INTENT CEREMONY (greenhouse decisions/0187, D-01): the same authenticator, turned toward

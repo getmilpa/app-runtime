@@ -97,7 +97,8 @@ final class PasskeyGateLoopTest extends TestCase
 
         // Registered is not recognized: signing in now is refused.
         $opt = $this->json($http->handle(new ServerRequest('POST', '/webauthn/authenticate/options')));
-        self::assertSame([['type' => 'public-key', 'id' => $credentialId]], $opt['allowCredentials'], 'the options name the registered key');
+        // Registered ∩ enrolled is empty: the sign-in list never names a key nobody enrolled (decisions/0206).
+        self::assertSame([], $opt['allowCredentials'], 'registered but not enrolled: not offered');
         $refused = $http->handle($this->assertion($key, $opt['challenge'], $credentialId));
         self::assertSame(401, $refused->getStatusCode(), 'registered but not enrolled: no session');
 

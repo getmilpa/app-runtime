@@ -22,6 +22,8 @@ use Milpa\Auth\InMemorySessionStore;
 use Milpa\Auth\SessionRecord;
 use Nyholm\Psr7\Response;
 use Nyholm\Psr7\ServerRequest;
+use Milpa\AppRuntime\Identity\FileEnrollmentStore;
+use Milpa\AppRuntime\Identity\IdentityEnrolled;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -40,9 +42,30 @@ final class PasskeyGateMiddlewareTest extends TestCase
 
     private InMemorySessionStore $sessions;
 
+    private FileEnrollmentStore $enrollments;
+
     protected function setUp(): void
     {
         $this->sessions = new InMemorySessionStore(static fn (): \DateTimeImmutable => new \DateTimeImmutable(self::NOW));
+        // The gate re-reads the recognition ledger on every request (greenhouse decisions/0206): the
+        // session's passkey `cred-1` is enrolled here, and a test revokes it to watch the door close.
+        $this->enrollments = new FileEnrollmentStore(sys_get_temp_dir() . '/milpa-gate-' . bin2hex(random_bytes(6)) . '.json');
+        $this->enrollments->record(new IdentityEnrolled('cred-1', ['milpa.admin'], 'key:TEST'));
+    }
+
+    /** `identity:revoke` closes a live panel on its next click — a TTL is not a revocation. */
+    public function testARevokedPasskeyIsRefusedOnTheNextRequestAndItsSessionDies(): void
+    {
+        $id = $this->session([self::SCOPE]);
+        $signedIn = $this->browserGet('/milpa/admin')->withCookieParams([self::COOKIE => $id]);
+        self::assertSame(200, $this->gate()->process($signedIn, $this->handler())->getStatusCode(), 'enrolled: through');
+
+        self::assertTrue($this->enrollments->revoke('cred-1', 'key:TEST'));
+        $res = $this->gate()->process($signedIn, $this->handler());
+
+        self::assertSame(403, $res->getStatusCode());
+        self::assertNull($this->sessions->read($id), 'the session is destroyed with the recognition');
+        self::assertStringContainsString('Max-Age=0', $res->getHeaderLine('Set-Cookie'), 'and the cookie is told to expire');
     }
 
     public function testABrowserWithoutASessionIsSentToSignInWithNext(): void
@@ -155,7 +178,7 @@ final class PasskeyGateMiddlewareTest extends TestCase
 
     public function testTheSignInPathAndTheScopeAreTheGatesOwn(): void
     {
-        $gate = new PasskeyGateMiddleware($this->sessions, 'other_cookie', 'ops.panel', '/auth/signin');
+        $gate = new PasskeyGateMiddleware($this->sessions, $this->enrollments, 'other_cookie', 'ops.panel', '/auth/signin');
 
         self::assertSame('other_cookie', $gate->cookieName());
         self::assertSame('ops.panel', $gate->scope());
@@ -180,7 +203,7 @@ final class PasskeyGateMiddlewareTest extends TestCase
 
     private function gate(): PasskeyGateMiddleware
     {
-        return new PasskeyGateMiddleware($this->sessions, self::COOKIE, self::SCOPE);
+        return new PasskeyGateMiddleware($this->sessions, $this->enrollments, self::COOKIE, self::SCOPE);
     }
 
     private function browserGet(string $target): ServerRequest

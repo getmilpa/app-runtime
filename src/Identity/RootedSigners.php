@@ -24,17 +24,22 @@ namespace Milpa\AppRuntime\Identity;
  * runtime: a root a running session could extend would let a signer vouch for itself, and then the
  * root would authenticate the very enrollment that was supposed to consume it — a circular bootstrap.
  * The only way in is out of band (decisions/0117, H-ENROLL-1).
+ *
+ * Keys are compared through {@see IdentityKey::normalize()}, the SAME rule the enrollment ledger uses:
+ * a hex fingerprint matches regardless of case and spaces; a passkey's base64url credential id matches
+ * only with its exact casing — the root used to uppercase those too, admitting an id under a form the
+ * ledger would never store (greenhouse decisions/0206, review).
  */
 final readonly class RootedSigners
 {
-    /** @var list<string> the fingerprints the operator declared, uppercased and space-stripped */
+    /** @var list<string> the keys the operator declared, in their comparable form */
     private array $fingerprints;
 
-    /** @param list<string> $fingerprints as declared out of band; comparison ignores case and spaces */
+    /** @param list<string> $fingerprints as declared out of band; hex fingerprints compare ignoring case and spaces */
     public function __construct(array $fingerprints)
     {
         $this->fingerprints = array_map(
-            static fn (string $fp): string => strtoupper(str_replace(' ', '', $fp)),
+            static fn (string $fp): string => IdentityKey::normalize($fp),
             $fingerprints,
         );
     }
@@ -45,9 +50,9 @@ final readonly class RootedSigners
         return $this->fingerprints === [];
     }
 
-    /** True only when the operator declared this fingerprint before boot. Silence is «not rooted». */
+    /** True only when the operator declared this key before boot. Silence is «not rooted». */
     public function admits(string $fingerprint): bool
     {
-        return \in_array(strtoupper(str_replace(' ', '', $fingerprint)), $this->fingerprints, true);
+        return \in_array(IdentityKey::normalize($fingerprint), $this->fingerprints, true);
     }
 }

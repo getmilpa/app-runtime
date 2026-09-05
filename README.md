@@ -203,8 +203,10 @@ back to `/`. The sign-in page never redirects to a URL somebody else chose.
 Why the sign-in page works with a hardware key: enrollment registers a **non-discoverable** credential
 (`residentKey: discouraged`, so a key with scarce slots is not consumed), and a browser only finds one of
 those when the request names it. The authentication and intent options therefore return
-`allowCredentials` with **every registered credential id** — this is a single-operator panel; an id is
-not a secret, the private key is.
+`allowCredentials` with **every credential id that is registered AND enrolled** — `POST /webauthn/register`
+stays open and registering grants nothing, so a key nobody enrolled is never offered; an id is not a
+secret, the private key is. The intent page (the D-01 approve ceremony) now requests
+`userVerification: 'required'`, the same bar the enrollment ceremony sets (greenhouse evidence/0486).
 
 **Config keys** (`config/app.php`, under `passkey`):
 

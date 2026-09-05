@@ -14,6 +14,8 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tests\Web;
 
+use Milpa\AppRuntime\Identity\FileEnrollmentStore;
+use Milpa\AppRuntime\Identity\IdentityEnrolled;
 use Milpa\AppRuntime\Web\Controllers\PasskeyController;
 use Milpa\AppRuntime\Web\RegisteredCredentialIds;
 use Milpa\Auth\InMemorySessionStore;
@@ -87,6 +89,16 @@ final class PasskeyControllerTest extends TestCase
         $body = json_decode((string) $controller->options(new ServerRequest('POST', '/webauthn/authenticate/options'))->getBody(), true);
 
         self::assertSame([], $body['allowCredentials']);
+    }
+
+    /** `POST /webauthn/register` is open: a registered key nobody enrolled must not bloat the sign-in list. */
+    public function testOptionsListNothingForARegisteredButUnenrolledCredential(): void
+    {
+        [$controller] = $this->controller(recognized: false);
+
+        $body = json_decode((string) $controller->options(new ServerRequest('POST', '/webauthn/authenticate/options'))->getBody(), true);
+
+        self::assertSame([], $body['allowCredentials'], 'registered ∩ enrolled is empty');
     }
 
     public function testTheSignInPageRendersTheScopeAndRunsTheCeremonyTowardsNext(): void
@@ -247,7 +259,9 @@ final class PasskeyControllerTest extends TestCase
         $auth = new PasskeyAuthenticator($challenges, $credentials);
         $login = new PasskeyLogin($auth, new InMemorySessionStore(), static fn (string $c): array => ['agent:read']);
         $registered = new RegisteredCredentialIds($this->files[array_key_last($this->files)]); // the credentials ledger
-        $loginController = new PasskeyController($auth, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $registered, self::RP_ID, self::COOKIE);
+        $enrollments = new FileEnrollmentStore(sys_get_temp_dir() . '/milpa-passkey-en-' . bin2hex(random_bytes(6)) . '.json');
+        $enrollments->record(new IdentityEnrolled($storedId, ['agent:read'], 'key:TEST')); // recognized = enrolled
+        $loginController = new PasskeyController($auth, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $registered, $enrollments, self::RP_ID, self::COOKIE);
         // The freshly registered id is what the options now offer to the browser.
         $opt = json_decode((string) $loginController->options(new ServerRequest('POST', '/webauthn/authenticate/options'))->getBody(), true);
         self::assertSame([['type' => 'public-key', 'id' => $storedId]], $opt['allowCredentials']);
@@ -299,7 +313,13 @@ final class PasskeyControllerTest extends TestCase
             : static fn (string $c): ?array => null;
         $login = new PasskeyLogin($auth, $sessions, $scopesFor);
         $registered = new RegisteredCredentialIds($dir . '-cr.json');
-        $controller = new PasskeyController($auth, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $registered, self::RP_ID, self::COOKIE, $gateScope);
+        // The sign-in offers registered AND enrolled ids only (greenhouse decisions/0206): a recognized
+        // credential is one the ledger enrolled — the same fact `$scopesFor` stands for above.
+        $enrollments = new FileEnrollmentStore($dir . '-en.json');
+        if ($recognized && $registerCred) {
+            $enrollments->record(new IdentityEnrolled(self::CRED, ['agent:read'], 'key:TEST'));
+        }
+        $controller = new PasskeyController($auth, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $registered, $enrollments, self::RP_ID, self::COOKIE, $gateScope);
 
         return [$controller, $auth, $key, $sessions, $challenges, $credentials];
     }
