@@ -481,6 +481,9 @@ final class SessionOperationsTest extends TestCase
         self::assertSame(['cli', 'tui', 'mcp', 'http'], $mode->surfaces);
         self::assertTrue($goal->mutating);
         self::assertSame($mode->scopes, $goal->scopes);
+        // And both say WHO may (greenhouse decisions/0208): steering a session is driving the agent.
+        self::assertSame(['agent:run'], $goal->scopes, 'anonymous over HTTP is 401, not a goal change');
+        self::assertSame(['agent:run'], $mode->scopes);
         self::assertEquals($mode->effects, $goal->effects, 'the goal spends the same authority the mode spends');
         self::assertSame(Subject::Data, $goal->effects?->subject, 'a session-ledger fact, not configuration');
         self::assertSame(Subject::Data, $mode->effects?->subject);

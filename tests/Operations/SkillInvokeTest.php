@@ -118,13 +118,14 @@ final class SkillInvokeTest extends TestCase
         self::assertStringContainsString('no kernel', (string) $r['error']);
     }
 
-    /** 7 · the declaration: the human's surfaces, the web included; reads only; `name` is all it takes. */
+    /** 7 · the declaration: the human's surfaces, the web included; reads only; `name` is all it takes; `agent:run` to drive. */
     public function testTheDeclarationRidesTheHumansSurfacesAndReadsOnly(): void
     {
         $op = $this->operation($this->booted(), 'skill:invoke');
 
         self::assertSame(['cli', 'tui', 'mcp', 'http'], $op->surfaces);
         self::assertFalse($op->mutating);
+        self::assertSame(['agent:run'], $op->scopes, 'putting a skill in front of the agent drives it (greenhouse decisions/0208)');
         self::assertSame(['name'], $op->inputSchema['required'] ?? null);
         self::assertSame(['name'], array_keys($op->inputSchema['properties'] ?? []), 'who invokes it is not an argument');
     }

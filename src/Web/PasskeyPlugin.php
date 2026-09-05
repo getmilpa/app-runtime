@@ -19,6 +19,7 @@ use Milpa\AppRuntime\Identity\FileEnrollmentStore;
 use Milpa\AppRuntime\Web\Controllers\PasskeyController;
 use Milpa\AppRuntime\Web\Controllers\PasskeyIntentController;
 use Milpa\Attributes\PluginMetadata;
+use Milpa\Auth\Contracts\AuthContextFactory;
 use Milpa\Auth\Contracts\SessionStore;
 use Milpa\Auth\FileSessionStore;
 use Milpa\Auth\WebAuthn\FileChallengeStore;
@@ -50,6 +51,14 @@ use Milpa\Runtime\Http\RouteProviderInterface;
  * store first keeps it. The same plugin registers {@see PasskeyGateMiddleware} under its class name, so
  * `admin.middleware => [PasskeyGateMiddleware::class]` is all a panel needs to name — identity lives
  * where the ceremony lives, and `milpa/admin` learns nothing about `milpa/auth`.
+ *
+ * THE SESSION IS A PRINCIPAL OF THE OPERATIONS SURFACE (greenhouse decisions/0208). The same plugin
+ * registers {@see PasskeySessionMiddleware} under its class name — for `public/index.php` to compose
+ * after `AuthenticateMiddleware` — and, unless the host registered one, as the container's
+ * {@see AuthContextFactory}: the same instance, which is what tells `AuthOperationHttpPolicy` an auth
+ * chain is installed when no token verifier is. The Bearer decides first; the cookie speaks only when
+ * the Bearer said nothing, is re-checked against the ledger on every request, and never authenticates a
+ * mutating request that is not same-origin JSON.
  *
  * THE CONVERGENCE (decisions/0125): the scopes a passkey is granted come from the SAME enrollment the
  * gpg-key path reads — `scopesFor` here IS {@see FileEnrollmentStore::scopesFor()}. A credential id
@@ -167,6 +176,18 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
             PasskeyGateMiddleware::class,
             new PasskeyGateMiddleware($sessions, $enrollments, $cookie, $scope),
         );
+
+        // THE SESSION AS A PRINCIPAL (decisions/0208): the same cookie, the same store, the same ledger,
+        // put on the request where every operation's policy reads identity. Registered under its class
+        // name so `public/index.php` can compose it after `AuthenticateMiddleware`, and as the
+        // container's AuthContextFactory — one instance, two names — so a house with a passkey and no
+        // token verifier still has an auth chain in the policy's eyes. A host that registered its own
+        // factory first keeps it, as it keeps its own session store.
+        $session = new PasskeySessionMiddleware($sessions, $enrollments, $cookie);
+        $this->container->registerService(PasskeySessionMiddleware::class, $session);
+        if (!$this->container->has(AuthContextFactory::class)) {
+            $this->container->registerService(AuthContextFactory::class, $session);
+        }
 
         // THE INTENT CEREMONY (greenhouse decisions/0187, D-01): the same authenticator, turned toward
         // authorising a concrete operation instead of minting a session. Its challenge→call binding is

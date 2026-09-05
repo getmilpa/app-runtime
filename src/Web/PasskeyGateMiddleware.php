@@ -15,7 +15,6 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Web;
 
 use Milpa\AppRuntime\Identity\EnrollmentStore;
-use Milpa\Auth\AuthContext;
 use Milpa\Auth\Contracts\SessionStore;
 use Milpa\Auth\Http\AuthenticateMiddleware;
 use Milpa\Auth\Http\StartSession;
@@ -38,7 +37,10 @@ use Psr\Http\Server\RequestHandlerInterface;
  *
  * The cookie is resolved by milpa/auth's own {@see StartSession} — composed, not copied — so there is
  * ONE authority for «cookie → AuthContext»: the store's fail-closed `read()` (an expired or revoked
- * session reads as absent) is the single «no session» signal. Then the door judges:
+ * session reads as absent) is the single «no session» signal. Since greenhouse decisions/0208 that
+ * resolution, together with the revocation check, lives in {@see PasskeySessionResolver} and is shared
+ * with {@see PasskeySessionMiddleware} — the operations surface and this door cannot disagree on what
+ * a cookie is worth. Then the door judges:
  *
  *   - no live session → a browser (a GET or HEAD that accepts `text/html`) is sent to the sign-in page
  *     with `next` set to where it was going; anything else gets `401 {ok:false, error:'unauthenticated'}`;
@@ -54,7 +56,8 @@ use Psr\Http\Server\RequestHandlerInterface;
  *
  * The credential the ledger is asked about is derived from the principal the ceremony minted
  * (`passkey:<credential id>`); a session under this cookie whose principal is not a passkey's is not
- * this door's session and is refused — and closed — the same way. The scope check honors the `*`
+ * this door's session — the resolver reports it FOREIGN and touches nothing, and this door refuses it
+ * and closes it the same way it does a revoked one. The scope check honors the `*`
  * wildcard the way milpa/auth's guards do (`Actor::hasScope`): a root enrolled by `identity:bootstrap`
  * with `['*']` opens the panel. The session id is never rendered, logged or echoed — only the
  * principal appears on the refusal pages.
@@ -64,9 +67,9 @@ final class PasskeyGateMiddleware implements MiddlewareInterface
     public const DEFAULT_SIGNIN_PATH = '/webauthn/signin';
 
     /** The prefix {@see \Milpa\Auth\WebAuthn\VerifiedPasskey::principal()} puts before the credential id. */
-    public const PRINCIPAL_PREFIX = 'passkey:';
+    public const PRINCIPAL_PREFIX = PasskeySessionResolver::PRINCIPAL_PREFIX;
 
-    private readonly StartSession $session;
+    private readonly PasskeySessionResolver $resolver;
 
     /**
      * @param SessionStore    $sessions    where the ceremony wrote the session — the same store {@see PasskeyPlugin} hands `PasskeyLogin`
@@ -76,33 +79,41 @@ final class PasskeyGateMiddleware implements MiddlewareInterface
      * @param string          $signinPath  where a browser without a session is sent
      */
     public function __construct(
-        private readonly SessionStore $sessions,
-        private readonly EnrollmentStore $enrollments,
+        SessionStore $sessions,
+        EnrollmentStore $enrollments,
         private readonly string $cookieName,
         private readonly string $scope,
         private readonly string $signinPath = self::DEFAULT_SIGNIN_PATH,
     ) {
-        $this->session = new StartSession($sessions, $cookieName);
+        $this->resolver = new PasskeySessionResolver($sessions, $enrollments, $cookieName);
     }
 
-    /** Resolve the session cookie through StartSession, then admit, redirect or refuse. */
+    /** Resolve the session cookie (StartSession + the ledger), then admit, redirect or refuse. */
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
-        // The judgment is a closure over this instance, so it stays private: the inner handler is
-        // only the shape StartSession needs to hand the resolved request back, not a second door.
-        $judge = fn (ServerRequestInterface $resolved): ResponseInterface => $this->judge($resolved, $handler);
+        $resolved = $this->resolver->resolve($request);
+        if ($resolved->isRevoked()) {
+            return $this->revoked($request, (string) $resolved->revokedPrincipal);
+        }
 
-        return $this->session->process($request, new class ($judge) implements RequestHandlerInterface {
-            /** @param \Closure(ServerRequestInterface): ResponseInterface $judge */
-            public function __construct(private readonly \Closure $judge)
-            {
-            }
+        $actor = $resolved->context->actor;
+        if (!$resolved->isLive() || $actor === null) {
+            return $this->unauthenticated($request);
+        }
 
-            public function handle(ServerRequestInterface $request): ResponseInterface
-            {
-                return ($this->judge)($request);
-            }
-        });
+        // NOT THIS DOOR'S SESSION: a principal the ledger never enrolled cannot open the panel, whatever
+        // scopes it carries. The resolver left it alone (the ledger has no say over it); this door
+        // closes it, as it always did, and refuses like it does a passkey that is no longer recognised.
+        if ($resolved->isForeign()) {
+            $this->resolver->close($request);
+
+            return $this->revoked($request, $actor->id);
+        }
+        if (!$actor->hasScope($this->scope)) {
+            return $this->denied($request, $actor->id);
+        }
+
+        return $handler->handle($request->withAttribute(AuthenticateMiddleware::ATTRIBUTE, $resolved->context));
     }
 
     /** The name of the cookie this gate reads — for a host that wants to declare the same one elsewhere. */
@@ -115,27 +126,6 @@ final class PasskeyGateMiddleware implements MiddlewareInterface
     public function scope(): string
     {
         return $this->scope;
-    }
-
-    /** The decision, once StartSession attached the context: continue, send to sign-in, or refuse. */
-    private function judge(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
-    {
-        $context = $request->getAttribute(AuthenticateMiddleware::ATTRIBUTE);
-        if (!$context instanceof AuthContext || !$context->isAuthenticated() || $context->actor === null) {
-            return $this->unauthenticated($request);
-        }
-        $actor = $context->actor;
-
-        // REVOCATION IS IMMEDIATE. The session froze the scopes at sign-in; the ledger is the living
-        // authority on whether that passkey is still recognized at all. Asked on every request.
-        if ($this->enrollments->scopesFor(self::credentialIdOf($actor->id)) === null) {
-            return $this->revoked($request, $actor->id);
-        }
-        if (!$actor->hasScope($this->scope)) {
-            return $this->denied($request, $actor->id);
-        }
-
-        return $handler->handle($request);
     }
 
     private function unauthenticated(ServerRequestInterface $request): ResponseInterface
@@ -163,14 +153,10 @@ final class PasskeyGateMiddleware implements MiddlewareInterface
         return self::json(403, ['ok' => false, 'error' => 'scope_denied', 'scope' => $this->scope]);
     }
 
-    /** The passkey is no longer recognized: close the session server side, clear the cookie, refuse. */
+    /** The passkey is no longer recognized: the resolver already closed the session; clear the cookie, refuse. */
     private function revoked(ServerRequestInterface $request, string $principal): ResponseInterface
     {
-        $id = $request->getCookieParams()[$this->cookieName] ?? null;
-        if (\is_string($id) && $id !== '') {
-            $this->sessions->destroy($id);
-        }
-        $expire = SessionCookie::expire($this->cookieName, $request);
+        $expire = $this->resolver->expiringCookie($request);
 
         if (self::wantsHtml($request)) {
             return new Response(
@@ -191,14 +177,6 @@ final class PasskeyGateMiddleware implements MiddlewareInterface
         $next = LocalPath::orRoot($path . ($uri->getQuery() === '' ? '' : '?' . $uri->getQuery()));
 
         return $this->signinPath . '?next=' . rawurlencode($next);
-    }
-
-    /** The credential id behind a principal: `passkey:<id>` → `<id>`; anything else is asked about as is. */
-    private static function credentialIdOf(string $principal): string
-    {
-        return str_starts_with($principal, self::PRINCIPAL_PREFIX)
-            ? substr($principal, \strlen(self::PRINCIPAL_PREFIX))
-            : $principal;
     }
 
     /** A browser navigating: GET or HEAD with an Accept that names text/html. A fetch() for JSON is not one. */

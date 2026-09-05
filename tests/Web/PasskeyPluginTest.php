@@ -19,7 +19,10 @@ use Milpa\AppRuntime\Identity\IdentityEnrolled;
 use Milpa\AppRuntime\Web\Controllers\PasskeyController;
 use Milpa\AppRuntime\Web\PasskeyGateMiddleware;
 use Milpa\AppRuntime\Web\PasskeyPlugin;
+use Milpa\AppRuntime\Web\PasskeySessionMiddleware;
 use Milpa\Auth\ActorType;
+use Milpa\Auth\AuthContext;
+use Milpa\Auth\Contracts\AuthContextFactory;
 use Milpa\Auth\Contracts\SessionStore;
 use Milpa\Auth\FileSessionStore;
 use Milpa\Auth\InMemorySessionStore;
@@ -70,6 +73,43 @@ final class PasskeyPluginTest extends TestCase
 
         self::assertSame([], $plugin->routes(), 'no relying party, no routes');
         self::assertFalse($container->has(PasskeyGateMiddleware::class), 'a shut door registers no gate');
+        self::assertFalse($container->has(PasskeySessionMiddleware::class), 'nor a session principal');
+        self::assertFalse($container->has(AuthContextFactory::class), 'nor an auth chain the policy would believe in');
+    }
+
+    /**
+     * The session as a principal of the operations surface (greenhouse decisions/0208): once the door is
+     * wired, the plugin registers `PasskeySessionMiddleware` under its class name AND as the container's
+     * `AuthContextFactory` — the same instance, reading the configured cookie.
+     */
+    public function testItRegistersTheSessionMiddlewareAsTheAuthContextFactoryToo(): void
+    {
+        [$container] = $this->container(rpId: 'milpa.local', withSessions: false);
+        $container->replaceService(Config::class, new Config(['passkey' => ['rpId' => 'milpa.local', 'cookie' => 'panel_session']]));
+        (new PasskeyPlugin($container))->boot();
+
+        self::assertTrue($container->has(PasskeySessionMiddleware::class));
+        self::assertTrue($container->has(AuthContextFactory::class), 'the policy sees an auth chain');
+        $session = $container->get(PasskeySessionMiddleware::class);
+        self::assertInstanceOf(PasskeySessionMiddleware::class, $session);
+        self::assertSame($session, $container->get(AuthContextFactory::class), 'one instance, two names');
+        self::assertSame('panel_session', $session->cookieName(), 'passkey.cookie reaches it');
+    }
+
+    public function testAHostRegisteredAuthContextFactoryIsKept(): void
+    {
+        [$container] = $this->container(rpId: 'milpa.local', withSessions: true);
+        $own = new class () implements AuthContextFactory {
+            public function fromRequest(\Psr\Http\Message\ServerRequestInterface $request): AuthContext
+            {
+                return AuthContext::anonymous();
+            }
+        };
+        $container->registerService(AuthContextFactory::class, $own);
+        (new PasskeyPlugin($container))->boot();
+
+        self::assertSame($own, $container->get(AuthContextFactory::class), 'the host\'s factory is not replaced');
+        self::assertInstanceOf(PasskeySessionMiddleware::class, $container->get(PasskeySessionMiddleware::class), 'the middleware is still offered under its own name');
     }
 
     public function testItProvidesAFileSessionStoreWhenTheHostRegisteredNone(): void

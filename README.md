@@ -248,12 +248,87 @@ secret, the private key is. The intent page (the D-01 approve ceremony) now requ
 | `passkey.sessions` | `<root>/var/passkey/sessions.json` | where the provided `FileSessionStore` writes — ignored when the host registered its own `SessionStore` |
 | `passkey.gate.scope` | `milpa.admin` | the **one** scope `PasskeyGateMiddleware` requires (the `*` wildcard an `identity:bootstrap` root holds also opens it) |
 
-Not covered by this gate, said plainly: operations over HTTP (`POST /agent`, `agent:goal`, …) are still
-governed by the Bearer policy — the passkey cookie does not reach them yet. `POST /webauthn/register`
-stays open: registering grants nothing, enrolling is the act, and the root gate is the file only you
-write.
+`POST /webauthn/register` stays open: registering grants nothing, enrolling is the act, and the root gate
+is the file only you write.
+
+### The session on the operations surface
+
+The same session is a **principal of the operations surface** (greenhouse decisions/0208). Once the door
+is wired, `PasskeyPlugin` also registers `Milpa\AppRuntime\Web\PasskeySessionMiddleware` — under its own
+class name, and as the container's `Milpa\Auth\Contracts\AuthContextFactory` (the same instance; a host
+that registered its own factory keeps it). It reads the cookie and puts the resulting `AuthContext` under
+`milpa.auth`, exactly where `AuthOperationHttpPolicy` judges every operation that declares `scopes` — so
+a browser signed in with a key holding `agent:run` can `POST /agent`, and one without it gets `403`.
+
+- **Precedence — the Bearer decides.** If `AuthenticateMiddleware` already left a context that is
+  *authenticated* or *invalid*, the request passes through untouched: a rejected Bearer is never
+  laundered by a cookie. Only an absent or anonymous context lets the cookie speak.
+- **Revocation parity.** The cookie is worth what it is worth at the panel's door: resolved through
+  `milpa/auth`'s `StartSession` and re-checked against the enrollment ledger on **every** request. A
+  revoked passkey's session is destroyed, the response carries an expiring `Set-Cookie`, and the request
+  goes on **anonymous** — no error from the middleware; the operation's policy answers `401` if it needed
+  an actor. The ledger judges only `passkey:*` principals: a session the host minted itself through
+  `milpa/auth` under the same cookie (`token:…`, `user:…`) is attached as it is and never destroyed here.
+- **CSRF posture.** A mutating request (`POST`, `PUT`, `PATCH`, `DELETE`) authenticates from the cookie
+  **only** when its `Content-Type` is `application/json` (parameters allowed) **and**, if `Sec-Fetch-Site`
+  is present, it says `same-origin` or `none`. Otherwise the cookie is ignored — not even read — and the
+  request continues anonymous. `GET`/`HEAD`/`OPTIONS` authenticate from the cookie unconditionally.
+
+Compose it in `public/index.php` after the Bearer middleware and before the handler (`milpa/framework`
+ships this composition as `App\Http\IdentityChain`, executed by its own test):
+
+```php
+use Milpa\AppRuntime\Web\PasskeySessionMiddleware;
+use Milpa\Auth\Contracts\CredentialVerifier;
+use Milpa\Auth\Http\AuthenticateMiddleware;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Server\MiddlewareInterface;
+use Psr\Http\Server\RequestHandlerInterface;
+
+$container = $kernel->container();
+$chain = [];
+if ($container->has(CredentialVerifier::class)) {
+    $chain[] = new AuthenticateMiddleware($container->get(CredentialVerifier::class));   // the Bearer decides first
+}
+if ($container->has(PasskeySessionMiddleware::class)) {
+    $chain[] = $container->get(PasskeySessionMiddleware::class);                       // the cookie speaks when it said nothing
+}
+foreach (array_reverse($chain) as $middleware) {                                       // nest: first declared runs first
+    $handler = new class ($middleware, $handler) implements RequestHandlerInterface {
+        public function __construct(private readonly MiddlewareInterface $m, private readonly RequestHandlerInterface $next) {}
+        public function handle(ServerRequestInterface $r): ResponseInterface { return $this->m->process($r, $this->next); }
+    };
+}
+$response = $handler->handle($request);
+```
 
 ## Upgrading
+
+### 0.120.0 — driving the agent requires `agent:run`; the passkey session is a principal
+
+The four operations that drive the agent — `agent`, `skill:invoke`, `agent:goal`, `agent:mode` — now declare
+`scopes: ['agent:run']` (greenhouse decisions/0208). Over HTTP the policy is consulted where before it was
+not: an **anonymous `POST /agent` now answers `401`**, and an authenticated actor without the scope `403`.
+The CLI, where the caller is the operator, enforces no scopes and is unchanged, and so is MCP over stdio
+(its caller holds `*`); an MCP client that authenticates as a principal of its own now needs `agent:run`
+for `skill:invoke`, `agent:goal` and `agent:mode`, as it already did for `agent:sessions` and `agent:show`.
+The `*` wildcard an `identity:bootstrap` root holds keeps admitting. An app that exposes any of the four
+in `config/http.php` — by name, or through `expose: ['*']`, which includes them — without an
+`OperationHttpPolicy` now refuses to boot, as it does for every scoped operation.
+
+- Tokens: mint them with the scope — `php coa token:new desktop --scopes=agent:run` (add `agent:read`
+  / `agent:answer` for the session reads and the gate answers, as before).
+- Passkeys: enroll them with it — `php coa identity:enroll --fingerprint=<credential id> --scopes=agent:run --sign`
+  (repeat `--scopes` for `milpa.admin` if the same key opens the panel).
+- The session itself: `PasskeyPlugin` now registers `PasskeySessionMiddleware` (also as the container's
+  `AuthContextFactory`), and it only counts once `public/index.php` composes it after `AuthenticateMiddleware`
+  — existing apps copy the new composition from `milpa/framework`'s `public/index.php` (see *The session
+  on the operations surface* above). Without that line the passkey cookie keeps opening the panel only.
+  A house without `milpa/data` also needs its `OperationHttpPolicy` registered with `milpa/auth` alone
+  (the skeleton's `config/boot.php` now does, through `App\Http\IdentityWiring`): a policy gated on the
+  token store leaves the cookie-only house with no policy to consult, and a scoped operation exposed
+  in `config/http.php` refuses to boot.
 
 ### 0.119.0 — the identity ledger keeps history
 

@@ -68,6 +68,25 @@ final class PasskeyGateMiddlewareTest extends TestCase
         self::assertStringContainsString('Max-Age=0', $res->getHeaderLine('Set-Cookie'), 'and the cookie is told to expire');
     }
 
+    /**
+     * A session under this cookie whose principal is not a passkey's — one the host minted through
+     * milpa/auth — is not this door's session: refused and closed, whatever scopes it carries. The
+     * resolver reports it foreign and touches nothing; the closing is this door's own act.
+     */
+    public function testASessionOfAPrincipalThatIsNotAPasskeysIsRefusedAndClosed(): void
+    {
+        $id = $this->session([self::SCOPE], actorId: 'token:svc', actorType: ActorType::Service);
+        $req = (new ServerRequest('GET', '/milpa/admin'))->withHeader('Accept', 'application/json')->withCookieParams([self::COOKIE => $id]);
+
+        $res = $this->gate()->process($req, $this->handler());
+        $body = json_decode((string) $res->getBody(), true);
+
+        self::assertSame(403, $res->getStatusCode());
+        self::assertSame(['ok' => false, 'error' => 'not_enrolled'], $body, 'even with the scope: the ledger never enrolled it');
+        self::assertNull($this->sessions->read($id), 'the door closes what is not its session');
+        self::assertStringContainsString('Max-Age=0', $res->getHeaderLine('Set-Cookie'));
+    }
+
     public function testABrowserWithoutASessionIsSentToSignInWithNext(): void
     {
         $res = $this->gate()->process($this->browserGet('/milpa/admin?tab=routes'), $this->handler());
@@ -212,14 +231,14 @@ final class PasskeyGateMiddlewareTest extends TestCase
     }
 
     /** @param list<string> $scopes */
-    private function session(array $scopes, bool $expired = false): string
+    private function session(array $scopes, bool $expired = false, string $actorId = 'passkey:cred-1', ActorType $actorType = ActorType::User): string
     {
         $now = new \DateTimeImmutable(self::NOW);
         $id = bin2hex(random_bytes(32));
         $this->sessions->write(new SessionRecord(
             id: $id,
-            actorId: 'passkey:cred-1',
-            actorType: ActorType::User,
+            actorId: $actorId,
+            actorType: $actorType,
             createdAt: $now->sub(new \DateInterval('PT2H')),
             expiresAt: $expired ? $now->sub(new \DateInterval('PT1H')) : $now->add(new \DateInterval('PT1H')),
             scopes: $scopes,
