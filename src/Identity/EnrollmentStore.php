@@ -17,14 +17,19 @@ namespace Milpa\AppRuntime\Identity;
 /**
  * Where the recognitions {@see IdentityEnrollment} produces are kept, and read back at admission.
  *
- * Enrollment is append-only in spirit — a recognition is a fact, and facts are not withdrawn;
- * revocation is its own governed act, undecided on purpose (decisions/0117). An implementation stores
- * what it is handed, keyed by fingerprint, and answers the one question admission asks: «what scopes,
- * if any, has the house recognized for this key?»
+ * It is a ledger of FACTS, not of state — a recognition is a fact, and facts are not withdrawn:
+ * revocation is its own governed act laid over the recognition (decisions/0117), and a recognition
+ * written over an entry that exists keeps the state it replaces (greenhouse decisions/0207). An
+ * implementation stores what it is handed, keyed by fingerprint, and answers the one question
+ * admission asks: «what scopes, if any, has the house recognized for this key?»
  */
 interface EnrollmentStore
 {
-    /** Persist a recognition. The store keeps what it is handed and invents nothing. */
+    /**
+     * Persist a recognition. The store keeps what it is handed and invents nothing: over an entry that
+     * already exists — live or revoked — the replaced state is kept, never erased (greenhouse
+     * decisions/0207). A store that could not persist says so (it throws) rather than returning quietly.
+     */
     public function record(IdentityEnrolled $enrolled): void;
 
     /**

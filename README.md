@@ -203,7 +203,7 @@ physical YubiKey, greenhouse evidence/0519):
    array argument — repeat the flag for more than one (`--scopes=milpa.admin --scopes=agent:read`).
    Over `http`/`mcp` the operation additionally requires a caller holding the `identity:enroll` scope.
    On the CLI the signature alone is the authority. To make your gpg key the house's *recognized* root
-   as well — so the ledger names it (`authorized_by: bootstrap`) and the same enrolment can run over
+   as well — so the ledger names it (`authorized_by: bootstrap`) and the same enrollment can run over
    `http`/`mcp` — bootstrap once, on an empty house, before rooting the credential:
    ```php
    <?php return ['bootstrap' => true, 'rooted' => []];   // config/identity.php, first run only
@@ -212,7 +212,11 @@ physical YubiKey, greenhouse evidence/0519):
    php coa identity:bootstrap --scopes=identity:enroll --sign   # one touch: your key becomes the root
    ```
    `identity:bootstrap` refuses once `rooted` is non-empty or anything was ever recognized — it is a
-   one-time act. Then write the credential id into `rooted` and enroll as above.
+   one-time act. Then write the credential id into `rooted` and enroll as above. Revoking
+   (`php coa identity:revoke --fingerprint=<credential id> --sign`) lays `revoked_by` over the entry
+   and the sign-in list stops offering the key; enrolling the same id again re-admits it and keeps the
+   revocation in the entry's `history` — the ledger records facts, it erases none (greenhouse
+   decisions/0207).
 5. **Name the gate.** Where the panel's middleware is declared (`admin.middleware` for `milpa/admin`,
    the `middleware` of any `Route` of yours):
    ```php
@@ -250,6 +254,22 @@ stays open: registering grants nothing, enrolling is the act, and the root gate 
 write.
 
 ## Upgrading
+
+### 0.119.0 — the identity ledger keeps history
+
+`storage/identity/enrollments.json` is a ledger of **facts**, not of state (greenhouse decisions/0207).
+Enrolling a key that already has an entry — revoked or live — no longer overwrites it: the state it
+replaces is pushed onto the entry's `history` list (most recent last) and the new `{scopes, authorized_by}`
+becomes the live state, so a revocation is never erased by the recognition that follows it. Re-enrolling a
+revoked key is allowed, under the same signed, rooted authority as enrolling. `identity:enroll` now says
+what it did: `history_entries` (prior states kept for the key; `0` on a first enrollment) and, when the
+standing entry was revoked, `previously_revoked_by`. Reads are tolerant: a ledger written before reads
+identically, `scopesFor` (live state; revoked → `null`) and `isEmpty` (sealed by any entry) keep their
+contracts, and `history` appears the first time a key is re-written. No migration. And a write the store
+cannot make — the file cannot be opened, the disk refused the bytes, or the ledger holds content the store
+cannot read — is refused rather than reported on: `identity:enroll`, `identity:revoke` and
+`identity:bootstrap` answer `ok: false` naming the cause, nothing is written over unreadable content, and
+such content is not a greenfield for `identity:bootstrap`.
 
 ### 0.118.0 — `PasskeyPlugin` refuses to boot without `milpa/auth`
 

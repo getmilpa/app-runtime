@@ -342,7 +342,9 @@ async function signin() {
     const allow = (opt.allowCredentials || []).map(c => ({ type: c.type, id: b64uToBuf(c.id) }));
     if (allow.length === 0) {
       out.className = 'r no';
-      out.textContent = 'Not enrolled: this house has no registered passkey yet. Register one at /webauthn/enroll, then enroll its credential id.';
+      // Registered ∩ enrolled is empty. Registered is not enrolled, and revoked is not enrolled either
+      // (greenhouse evidence/0519): say which act is missing, not "no passkey".
+      out.textContent = 'Not enrolled: no passkey is recognised by this house. A registered key nobody enrolled, or one that was revoked, is not offered. Register one at /webauthn/enroll if you have none, then enroll its credential id with identity:enroll.';
       return;
     }
 
