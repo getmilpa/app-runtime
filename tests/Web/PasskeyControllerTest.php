@@ -14,7 +14,10 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tests\Web;
 
+use Milpa\AppRuntime\Identity\FileEnrollmentStore;
+use Milpa\AppRuntime\Identity\IdentityEnrolled;
 use Milpa\AppRuntime\Web\Controllers\PasskeyController;
+use Milpa\AppRuntime\Web\RegisteredCredentialIds;
 use Milpa\Auth\InMemorySessionStore;
 use Milpa\Auth\WebAuthn\FilePasskeyCredentialStore;
 use Milpa\Auth\WebAuthn\PasskeyAuthenticator;
@@ -64,7 +67,7 @@ final class PasskeyControllerTest extends TestCase
         self::assertStringContainsString("userVerification: 'required'", $body);
     }
 
-    public function testOptionsIssuesAChallenge(): void
+    public function testOptionsIssuesAChallengeAndNamesEveryRegisteredCredential(): void
     {
         [$controller] = $this->controller(recognized: true);
 
@@ -74,6 +77,107 @@ final class PasskeyControllerTest extends TestCase
         self::assertSame(200, $res->getStatusCode());
         self::assertSame(self::RP_ID, $body['rpId']);
         self::assertNotEmpty($body['challenge']);
+        // A non-discoverable key (residentKey: discouraged at enrollment) only answers a request that
+        // names it (greenhouse decisions/0206): the options list what the house registered.
+        self::assertSame([['type' => 'public-key', 'id' => self::CRED]], $body['allowCredentials']);
+    }
+
+    public function testOptionsListNothingWhenNothingIsRegistered(): void
+    {
+        [$controller] = $this->controller(recognized: true, registerCred: false);
+
+        $body = json_decode((string) $controller->options(new ServerRequest('POST', '/webauthn/authenticate/options'))->getBody(), true);
+
+        self::assertSame([], $body['allowCredentials']);
+    }
+
+    /** `POST /webauthn/register` is open: a registered key nobody enrolled must not bloat the sign-in list. */
+    public function testOptionsListNothingForARegisteredButUnenrolledCredential(): void
+    {
+        [$controller] = $this->controller(recognized: false);
+
+        $body = json_decode((string) $controller->options(new ServerRequest('POST', '/webauthn/authenticate/options'))->getBody(), true);
+
+        self::assertSame([], $body['allowCredentials'], 'registered ∩ enrolled is empty');
+    }
+
+    public function testTheSignInPageRendersTheScopeAndRunsTheCeremonyTowardsNext(): void
+    {
+        [$controller] = $this->controller(recognized: true);
+        $req = (new ServerRequest('GET', '/webauthn/signin'))->withQueryParams(['next' => '/milpa/admin?tab=routes']);
+
+        $res = $controller->signinPage($req);
+        $body = (string) $res->getBody();
+
+        self::assertSame(200, $res->getStatusCode());
+        self::assertStringContainsString('text/html', $res->getHeaderLine('Content-Type'));
+        self::assertSame('no-store', $res->getHeaderLine('Cache-Control'));
+        self::assertStringContainsString('Sign in to open the panel', $body);
+        self::assertStringContainsString('Continue with a passkey', $body);
+        self::assertStringContainsString('Scope requested: <code>milpa.admin</code>', $body);
+        self::assertStringContainsString('const NEXT = "/milpa/admin?tab=routes";', $body);
+        self::assertStringContainsString('/webauthn/authenticate/options', $body);
+        self::assertStringContainsString('allowCredentials: allow', $body);
+        self::assertStringContainsString("userVerification: 'required'", $body);
+        self::assertStringContainsString('navigator.credentials.get', $body);
+        self::assertStringContainsString("fetch('/webauthn/authenticate'", $body);
+        self::assertStringContainsString('location.replace(NEXT)', $body);
+        self::assertStringContainsString('Not enrolled', $body, 'an empty allowCredentials is said, not swallowed');
+        self::assertStringContainsString('Passkey rejected', $body);
+    }
+
+    public function testTheSignInPageShowsTheScopeItWasConfiguredWith(): void
+    {
+        [$controller] = $this->controller(recognized: true, gateScope: 'ops.panel');
+
+        self::assertStringContainsString('Scope requested: <code>ops.panel</code>', (string) $controller->signinPage(new ServerRequest('GET', '/webauthn/signin'))->getBody());
+    }
+
+    /** @return iterable<string, array{0: string}> */
+    public static function foreignNexts(): iterable
+    {
+        yield 'protocol-relative' => ['//evil.example'];
+        yield 'an absolute URL' => ['https://x'];
+        yield 'a backslash' => ['\\x'];
+        yield 'a backslash after the slash' => ['/\\x'];
+        yield 'relative' => ['milpa/admin'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('foreignNexts')]
+    public function testTheSignInPageNeverEmbedsANextThatIsNotALocalPath(string $next): void
+    {
+        [$controller] = $this->controller(recognized: true);
+
+        $body = (string) $controller->signinPage((new ServerRequest('GET', '/webauthn/signin'))->withQueryParams(['next' => $next]))->getBody();
+
+        self::assertStringContainsString('const NEXT = "/";', $body, 'the foreign target fell back to the root');
+        self::assertStringNotContainsString($next, $body);
+    }
+
+    public function testTheSignInPageReadsNextFromTheUriWhenTheServerParsedNoQuery(): void
+    {
+        [$controller] = $this->controller(recognized: true);
+
+        // A bare PSR-7 request carries the query only in its URI.
+        $body = (string) $controller->signinPage(new ServerRequest('GET', '/webauthn/signin?next=%2Fmilpa%2Fadmin'))->getBody();
+        self::assertStringContainsString('const NEXT = "/milpa/admin";', $body);
+
+        // No next at all: the root.
+        $body = (string) $controller->signinPage(new ServerRequest('GET', '/webauthn/signin'))->getBody();
+        self::assertStringContainsString('const NEXT = "/";', $body);
+    }
+
+    public function testTheSignInPageEscapesNextAgainstScriptBreakout(): void
+    {
+        [$controller] = $this->controller(recognized: true);
+        $next = '/x</script><script>alert(1)</script>';
+
+        $body = (string) $controller->signinPage((new ServerRequest('GET', '/webauthn/signin'))->withQueryParams(['next' => $next]))->getBody();
+
+        // The value survives (it IS a local path) but every angle bracket is a JSON escape, so the
+        // literal can never close the script element it lives in.
+        self::assertStringNotContainsString('</script><script>alert', $body);
+        self::assertStringContainsString('const NEXT = "/x\\u003C/script\\u003E\\u003Cscript\\u003Ealert(1)\\u003C/script\\u003E";', $body);
     }
 
     public function testARecognizedAssertionMintsASessionCookie(): void
@@ -154,7 +258,13 @@ final class PasskeyControllerTest extends TestCase
         // The registered credential is RECOGNIZED here (scopesFor returns scopes), so it can now log in.
         $auth = new PasskeyAuthenticator($challenges, $credentials);
         $login = new PasskeyLogin($auth, new InMemorySessionStore(), static fn (string $c): array => ['agent:read']);
-        $loginController = new PasskeyController($auth, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, self::RP_ID, self::COOKIE);
+        $registered = new RegisteredCredentialIds($this->files[array_key_last($this->files)]); // the credentials ledger
+        $enrollments = new FileEnrollmentStore(sys_get_temp_dir() . '/milpa-passkey-en-' . bin2hex(random_bytes(6)) . '.json');
+        $enrollments->record(new IdentityEnrolled($storedId, ['agent:read'], 'key:TEST')); // recognized = enrolled
+        $loginController = new PasskeyController($auth, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $registered, $enrollments, self::RP_ID, self::COOKIE);
+        // The freshly registered id is what the options now offer to the browser.
+        $opt = json_decode((string) $loginController->options(new ServerRequest('POST', '/webauthn/authenticate/options'))->getBody(), true);
+        self::assertSame([['type' => 'public-key', 'id' => $storedId]], $opt['allowCredentials']);
         $authChallenge = $auth->challenge();
         $res = $loginController->authenticate($this->assertionRequestFor($key, $authChallenge, $storedId));
 
@@ -182,7 +292,7 @@ final class PasskeyControllerTest extends TestCase
     // --- helpers ---
 
     /** @return array{0: PasskeyController, 1: PasskeyAuthenticator, 2: \OpenSSLAsymmetricKey, 3: InMemorySessionStore, 4: ChallengeStore, 5: FilePasskeyCredentialStore} */
-    private function controller(bool $recognized, bool $registerCred = true): array
+    private function controller(bool $recognized, bool $registerCred = true, string $gateScope = 'milpa.admin'): array
     {
         $dir = sys_get_temp_dir() . '/milpa-pkc-' . bin2hex(random_bytes(4));
         $this->files[] = $dir . '-ch.json';
@@ -202,7 +312,14 @@ final class PasskeyControllerTest extends TestCase
             ? static fn (string $c): array => ['agent:read']
             : static fn (string $c): ?array => null;
         $login = new PasskeyLogin($auth, $sessions, $scopesFor);
-        $controller = new PasskeyController($auth, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, self::RP_ID, self::COOKIE);
+        $registered = new RegisteredCredentialIds($dir . '-cr.json');
+        // The sign-in offers registered AND enrolled ids only (greenhouse decisions/0206): a recognized
+        // credential is one the ledger enrolled — the same fact `$scopesFor` stands for above.
+        $enrollments = new FileEnrollmentStore($dir . '-en.json');
+        if ($recognized && $registerCred) {
+            $enrollments->record(new IdentityEnrolled(self::CRED, ['agent:read'], 'key:TEST'));
+        }
+        $controller = new PasskeyController($auth, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $registered, $enrollments, self::RP_ID, self::COOKIE, $gateScope);
 
         return [$controller, $auth, $key, $sessions, $challenges, $credentials];
     }

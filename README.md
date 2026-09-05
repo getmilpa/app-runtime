@@ -144,6 +144,85 @@ Optional packages widen what it offers, and their absence is handled rather than
 doctor`, `coa repair` and `coa update`. Without them those surfaces are simply not offered — the app
 never promises what it cannot do.
 
+## Passkey gate
+
+**One session, one scope, one middleware the panel names.** `PasskeyPlugin` owns the whole passkey
+ceremony — registration, sign-in, the session it mints — and registers `PasskeyGateMiddleware` in the
+container under its own class name. A panel (`milpa/admin`, or any route of yours) puts identity in
+front of itself by *naming* that class in its middleware list; it learns nothing about `milpa/auth`.
+Identity lives where the ceremony lives (greenhouse decisions/0206).
+
+The gate reads the session cookie the sign-in ceremony set and looks it up in the session store — the
+cookie value is never trusted on its own. Then:
+
+| the request carries | a browser (`GET` accepting `text/html`) gets | anything else gets |
+|---|---|---|
+| no live session (no cookie, unknown, expired, revoked) | `302` to `/webauthn/signin?next=<where it was going>` | `401 {ok:false, error:"unauthenticated", signin:"/webauthn/signin"}` |
+| a session **without** the scope | `403`, a page: *Authenticated, but the scope `milpa.admin` is not granted*, naming the principal, with a *Use another passkey* link | `403 {ok:false, error:"scope_denied", scope}` |
+| a session **with** the scope | the route, with the `AuthContext` attached under `milpa.auth` (`AuthenticateMiddleware::ATTRIBUTE`) — `signed in as passkey:<credential id>` | the same |
+
+`next` is validated server side as a **local absolute path**: `//evil`, `https://x` and `\x` all fall
+back to `/`. The sign-in page never redirects to a URL somebody else chose.
+
+**The operator sequence** — from a fresh app to a panel that opens only for your key:
+
+1. **Declare the plugin and the relying party.** In `config/plugins.php` list
+   `Milpa\AppRuntime\Web\PasskeyPlugin::class`; in `config/app.php` declare
+   `'passkey' => ['rpId' => 'localhost']`. The `rpId` must be the host the browser is on, and WebAuthn
+   needs a secure context (`https://`, or `localhost`). Without `rpId` the plugin mounts nothing — a
+   relying party nobody chose is one nobody can trust. With it, and no session store registered by the
+   host, the plugin provides one (`var/passkey/sessions.json`).
+2. **Register the key.** Open `GET /webauthn/enroll`, press *Register with passkey*, touch the key. The
+   page prints the **credential id** (base64url). The credential is now *registered* — the house holds
+   its public key — but *recognized* by nobody: registering grants nothing.
+3. **Root the credential id out of band.** `config/identity.php`:
+   ```php
+   <?php return ['rooted' => ['<credential id>']];
+   ```
+   The root is read, never written, by the running app: the only way in is this file.
+4. **Enroll it with the panel's scope** — a governed, signed operation:
+   ```bash
+   php coa identity:enroll --fingerprint=<credential id> --scopes=milpa.admin --sign
+   ```
+   How this is authorised today: `identity:enroll` is declared `requiresConfirmation: true`, so the CLI
+   refuses it without `--sign`. `--sign` signs *this exact call* — operation, arguments, host — with your
+   gpg key (the YubiKey through gpg-agent); the runner verifies the signature and hands the handler a
+   `GrantedAuthorization`. The handler then checks that the grant covers `identity:enroll` for **this**
+   fingerprint, that the id is in `config/identity.php`'s `rooted`, and only then writes the recognition
+   to `storage/identity/enrollments.json` with `authorized_by: key:<your fingerprint>`. `--scopes` is an
+   array argument — repeat the flag for more than one (`--scopes=milpa.admin --scopes=agent:read`).
+   Over `http`/`mcp` the operation additionally requires a caller holding the `identity:enroll` scope.
+5. **Name the gate.** Where the panel's middleware is declared (`admin.middleware` for `milpa/admin`,
+   the `middleware` of any `Route` of yours):
+   ```php
+   'admin' => ['middleware' => [Milpa\AppRuntime\Web\PasskeyGateMiddleware::class]],
+   ```
+6. **Sign in.** `GET /milpa/admin` → `302` to `/webauthn/signin?next=/milpa/admin` → *Continue with a
+   passkey* → touch → the cookie is set and the browser returns to the panel, `200`.
+
+Why the sign-in page works with a hardware key: enrollment registers a **non-discoverable** credential
+(`residentKey: discouraged`, so a key with scarce slots is not consumed), and a browser only finds one of
+those when the request names it. The authentication and intent options therefore return
+`allowCredentials` with **every credential id that is registered AND enrolled** — `POST /webauthn/register`
+stays open and registering grants nothing, so a key nobody enrolled is never offered; an id is not a
+secret, the private key is. The intent page (the D-01 approve ceremony) now requests
+`userVerification: 'required'`, the same bar the enrollment ceremony sets (greenhouse evidence/0486).
+
+**Config keys** (`config/app.php`, under `passkey`):
+
+| key | default | what it decides |
+|---|---|---|
+| `passkey.rpId` | *none — required* | the relying-party id every assertion binds to; without it, no routes |
+| `passkey.cookie` | `milpa_session` | the cookie the session id travels in (HttpOnly, SameSite=Strict) |
+| `passkey.ttl` | `3600` | session lifetime in seconds, from the moment the ceremony mints it |
+| `passkey.sessions` | `<root>/var/passkey/sessions.json` | where the provided `FileSessionStore` writes — ignored when the host registered its own `SessionStore` |
+| `passkey.gate.scope` | `milpa.admin` | the **one** scope `PasskeyGateMiddleware` requires (the `*` wildcard an `identity:bootstrap` root holds also opens it) |
+
+Not covered by this gate, said plainly: operations over HTTP (`POST /agent`, `agent:goal`, …) are still
+governed by the Bearer policy — the passkey cookie does not reach them yet. `POST /webauthn/register`
+stays open: registering grants nothing, enrolling is the act, and the root gate is the file only you
+write.
+
 ## Upgrading
 
 ### 0.45.0 — `capabilities:enable --dry-run` requires a signature

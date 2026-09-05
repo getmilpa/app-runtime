@@ -19,8 +19,11 @@ namespace Milpa\AppRuntime\Identity;
  *
  * The shape mirrors {@see \Milpa\Console\FileConfirmTokenStore}: every write takes an exclusive lock,
  * reads the current map, mutates, and writes it back, so two operations enrolling at once cannot lose
- * each other. Fingerprints are normalized (uppercased, spaces stripped) so a key pasted either way
- * reads back the same recognition.
+ * each other. Keys are compared through {@see IdentityKey::normalize()} — the same rule the root
+ * ({@see RootedSigners}) applies: a gpg FINGERPRINT is uppercased and space-stripped so a key pasted
+ * either way reads back the same recognition; any other id — a passkey's base64url credential id, since
+ * the convergence of decisions/0125 — is kept VERBATIM, because base64url is case-sensitive and two
+ * distinct credentials used to collapse onto one entry (greenhouse decisions/0206).
  */
 final class FileEnrollmentStore implements EnrollmentStore
 {
@@ -31,7 +34,7 @@ final class FileEnrollmentStore implements EnrollmentStore
     /** Persist a recognition, keyed by its (normalized) fingerprint, under an exclusive lock. */
     public function record(IdentityEnrolled $enrolled): void
     {
-        $key = self::normalize($enrolled->fingerprint);
+        $key = IdentityKey::normalize($enrolled->fingerprint);
         $this->mutate(static function (array $map) use ($key, $enrolled): array {
             $map[$key] = ['scopes' => $enrolled->scopes, 'authorized_by' => $enrolled->authorizedBy];
 
@@ -42,7 +45,7 @@ final class FileEnrollmentStore implements EnrollmentStore
     /** Lay a revocation over a live recognition (the enrollment stays); false if there was none. */
     public function revoke(string $fingerprint, string $revokedBy): bool
     {
-        $key = self::normalize($fingerprint);
+        $key = IdentityKey::normalize($fingerprint);
         $revoked = false;
         $this->mutate(static function (array $map) use ($key, $revokedBy, &$revoked): array {
             $entry = $map[$key] ?? null;
@@ -74,7 +77,7 @@ final class FileEnrollmentStore implements EnrollmentStore
     public function scopesFor(string $fingerprint): ?array
     {
         $map = $this->read();
-        $entry = $map[self::normalize($fingerprint)] ?? null;
+        $entry = $map[IdentityKey::normalize($fingerprint)] ?? null;
         if (!\is_array($entry) || !\is_array($entry['scopes'] ?? null)) {
             return null;
         }
@@ -92,11 +95,6 @@ final class FileEnrollmentStore implements EnrollmentStore
         }
 
         return $scopes;
-    }
-
-    private static function normalize(string $fingerprint): string
-    {
-        return strtoupper(str_replace(' ', '', $fingerprint));
     }
 
     /** @return array<string, mixed> */

@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Tests\Web;
 use Milpa\AppRuntime\Agent\InMemoryIntentChallengeStore;
 use Milpa\AppRuntime\Agent\PasskeyIntentAdmission;
 use Milpa\AppRuntime\Web\Controllers\PasskeyIntentController;
+use Milpa\AppRuntime\Web\RegisteredCredentialIds;
 use Milpa\Auth\WebAuthn\FileChallengeStore;
 use Milpa\Auth\WebAuthn\FilePasskeyCredentialStore;
 use Milpa\Auth\WebAuthn\PasskeyAuthenticator;
@@ -102,6 +103,25 @@ final class PasskeyIntentControllerTest extends TestCase
         self::assertStringContainsString('text/html', $res->getHeaderLine('Content-Type'));
         self::assertStringContainsString('navigator.credentials.get', (string) $res->getBody());
         self::assertStringContainsString('/webauthn/intent/admit', (string) $res->getBody());
+        // A non-discoverable key answers only a request that names it (greenhouse decisions/0206).
+        self::assertStringContainsString('allowCredentials: allow', (string) $res->getBody());
+        self::assertStringContainsString("userVerification: 'required'", (string) $res->getBody());
+    }
+
+    public function testOptionsNameEveryRegisteredCredential(): void
+    {
+        [$controller] = $this->controller();
+
+        $res = $controller->intentOptions(new ServerRequest(
+            'POST',
+            '/webauthn/intent/options',
+            [],
+            (string) json_encode(['operation' => 'capabilities.enable', 'arguments' => [], 'session' => null]),
+        ));
+        $body = json_decode((string) $res->getBody(), true);
+
+        self::assertSame(200, $res->getStatusCode());
+        self::assertSame([['type' => 'public-key', 'id' => self::CRED]], $body['allowCredentials']);
     }
 
     // --- helpers ---
@@ -163,6 +183,6 @@ final class PasskeyIntentControllerTest extends TestCase
         $authenticator = new PasskeyAuthenticator(new FileChallengeStore($dir . '-ch.json'), $credentials);
         $admission = new PasskeyIntentAdmission($authenticator, new InMemoryIntentChallengeStore());
 
-        return [new PasskeyIntentController($admission, self::RP_ID), $key, $authenticator];
+        return [new PasskeyIntentController($admission, new RegisteredCredentialIds($dir . '-cr.json'), self::RP_ID), $key, $authenticator];
     }
 }

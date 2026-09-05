@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Web\Controllers;
 
 use Milpa\AppRuntime\Agent\PasskeyIntentAdmission;
+use Milpa\AppRuntime\Web\RegisteredCredentialIds;
 use Milpa\Command\Consent\OperationId;
 use Nyholm\Psr7\Response;
 use Psr\Http\Message\ResponseInterface;
@@ -36,16 +37,23 @@ use Psr\Http\Message\ServerRequestInterface;
  * credential, a live signature, the challenge spent once — and mints a `ConsentGrant` for the bound
  * call. The grade is produced by that verification, never read from storage (evidence/0254): an
  * unregistered credential, a bad signature, or a replayed or unbound challenge authorise nothing.
+ *
+ * The options carry `allowCredentials` with every registered id, as the login options do (greenhouse
+ * decisions/0206): a non-discoverable key answers only a request that names it.
  */
 final class PasskeyIntentController
 {
     public function __construct(
         private readonly PasskeyIntentAdmission $admission,
+        private readonly RegisteredCredentialIds $registered,
         private readonly string $rpId,
     ) {
     }
 
-    /** Issue a challenge bound to a concrete call. The client shows the operation and runs the ceremony. */
+    /**
+     * Issue a challenge bound to a concrete call, naming every registered credential. The client shows
+     * the operation and runs the ceremony.
+     */
     public function intentOptions(ServerRequestInterface $request): ResponseInterface
     {
         $body = json_decode((string) $request->getBody(), true);
@@ -61,6 +69,7 @@ final class PasskeyIntentController
         return $this->json(200, [
             'rpId' => $this->rpId,
             'challenge' => self::base64UrlEncode($challenge),
+            'allowCredentials' => $this->registered->allowCredentials(),
             'operation' => $body['operation'],
             'arguments' => $arguments,
         ]);
@@ -177,10 +186,15 @@ async function approve() {
       body: JSON.stringify({ operation, arguments: args, session })
     })).json();
 
+    // Non-discoverable credentials (residentKey: discouraged at enrollment) are only found when the
+    // request names them — that is what allowCredentials is for. User verification is required, as
+    // at enrollment: the human's touch/PIN, not mere presence.
+    const allow = (opt.allowCredentials || []).map(c => ({ type: c.type, id: b64uToBuf(c.id) }));
     const assertion = await navigator.credentials.get({ publicKey: {
       challenge: b64uToBuf(opt.challenge),
       rpId: opt.rpId,
-      userVerification: 'preferred',
+      allowCredentials: allow,
+      userVerification: 'required',
       timeout: 60000,
     }});
 
