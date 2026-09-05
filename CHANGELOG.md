@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.118.0](https://github.com/getmilpa/app-runtime/compare/v0.117.0...v0.118.0) (2026-09-05)
+
+
+### Features
+
+* **passkey:** refuse to boot without milpa/auth and name a patched WebAuthn API ([#281](https://github.com/getmilpa/app-runtime/issues/281)) ([3f6fbe1](https://github.com/getmilpa/app-runtime/commit/3f6fbe1de6fbb3f22abc11b53fc04bbaa5bcacbe))
+
 ## [0.117.0](https://github.com/getmilpa/app-runtime/compare/v0.116.0...v0.117.0) (2026-09-05)
 
 
