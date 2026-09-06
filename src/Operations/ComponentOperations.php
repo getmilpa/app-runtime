@@ -18,10 +18,9 @@ use Milpa\AppRuntime\Web\ComponentDeclarations;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Declaration\DeclaredOperation;
 use Milpa\Interfaces\Di\DIContainerInterface;
-use Milpa\Live\Contracts\Component\ComponentDefinitionInterface;
 
 /**
- * Offers the UI catalogue, and offers nothing when there is no UI to catalogue.
+ * Offers the UI catalogue.
  *
  * The constructor takes the CONTAINER and only the container: the host fills a provider's
  * constructor slot itself, so a typed collaborator there type-errors in every real app while every
@@ -35,16 +34,12 @@ final class ComponentOperations implements CommandProvider
     }
 
     /**
-     * The operations this provider offers — none at all without `milpa/live`.
+     * The operations this provider offers.
      *
      * @return list<\Milpa\Command\Operation>
      */
     public function operations(): array
     {
-        if (!interface_exists(ComponentDefinitionInterface::class)) {
-            return [];
-        }
-
         $declarations = new ComponentDeclarations($this->container);
 
         return [

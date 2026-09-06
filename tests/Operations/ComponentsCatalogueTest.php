@@ -117,6 +117,81 @@ final class ComponentsCatalogueTest extends TestCase
         self::assertStringContainsString('App\\Nope', $catalogue->cannotSay[0]);
     }
 
+    public function testTheProviderOffersTheCatalogueAsADeclaredOperation(): void
+    {
+        $operations = (new \Milpa\AppRuntime\Operations\ComponentOperations(new DIContainer()))->operations();
+
+        self::assertCount(1, $operations);
+        self::assertSame('components:catalogue', $operations[0]->name);
+        self::assertFalse($operations[0]->mutating);
+        self::assertSame(['cli', 'tui', 'mcp', 'http'], $operations[0]->surfaces);
+    }
+
+    public function testAPluginThatDidNotBootDeclaresNothing(): void
+    {
+        // A plugin with no metadata cannot have booted: the kernel refuses it before boot. A row
+        // for it would describe a house that does not exist.
+        $container = new DIContainer();
+        $kernel = Kernel::boot([
+            'root' => \dirname(__DIR__, 2),
+            'container' => $container,
+            'plugins' => [],
+        ]);
+        $container->registerService(Kernel::class, $kernel);
+
+        $catalogue = (new ComponentsCatalogue())->run(new ComponentDeclarations($container));
+
+        self::assertSame(['Milpa\Live\Components\Library'], $catalogue->sources);
+    }
+
+    public function testAnActionSpecThatIsNotAMapIsStillAnswerableAsOne(): void
+    {
+        // An agent reading the catalogue must not face a union type in one field: `'start' => []`
+        // encodes as `[]` in JSON while `'fire' => [...]` encodes as an object.
+        $byName = $this->byName($this->catalogue([OddActionPlugin::class])->components);
+
+        self::assertSame(['spec' => 'legacy-string'], $byName['fixture-odd']['actions']['go']);
+    }
+
+    public function testWithNoKernelOnlyThisPackagesOwnPrimitivesAnswer(): void
+    {
+        // A terminal with no booted house still gets the framework's library: the catalogue reads
+        // declarations, and this package's declaration does not need a kernel to exist.
+        $catalogue = (new ComponentsCatalogue())->run(new ComponentDeclarations(new DIContainer()));
+
+        self::assertTrue($catalogue->ok);
+        self::assertSame(['Milpa\Live\Components\Library'], $catalogue->sources);
+    }
+
+    public function testAPluginThatDeclaresNoComponentsIsSkipped(): void
+    {
+        $catalogue = $this->catalogue([SilentPlugin::class]);
+
+        self::assertSame(['Milpa\Live\Components\Library'], $catalogue->sources);
+    }
+
+    public function testAPluginWithoutMetadataCannotHaveBootedAndIsSkipped(): void
+    {
+        // The kernel refuses a plugin without metadata before boot, so a row for it would describe
+        // a house that does not exist.
+        $container = new DIContainer();
+        $kernel = Kernel::boot(['root' => \dirname(__DIR__, 2), 'container' => $container, 'plugins' => []]);
+        $container->registerService(Kernel::class, $kernel);
+
+        $declarations = new ComponentDeclarations($container);
+        $reflection = new \ReflectionMethod($declarations, 'hasBooted');
+
+        self::assertFalse($reflection->invoke($declarations, new UnmarkedDeclarer(), ['anything']));
+    }
+
+    public function testAContractThatThrowsIsNamedNotFatal(): void
+    {
+        $catalogue = $this->catalogue([ThrowingContractPlugin::class]);
+
+        self::assertTrue($catalogue->ok);
+        self::assertStringContainsString('FixtureThrowingComponent', $catalogue->cannotSay[0]);
+    }
+
     /**
      * @param list<class-string> $plugins
      */
@@ -291,6 +366,169 @@ final class BrokenDeclarationPlugin implements PluginInterface, DeclaresComponen
     {
         /** @phpstan-ignore-next-line the point of the fixture is a class-string that does not load */
         return ['App\Nope'];
+    }
+
+    public function boot(): void
+    {
+    }
+
+    public function install(): void
+    {
+    }
+
+    public function uninstall(): void
+    {
+    }
+
+    public function enable(): void
+    {
+    }
+
+    public function disable(): void
+    {
+    }
+}
+
+/** A component whose action spec is not a map — the shape the catalogue must normalise. */
+final class FixtureOddComponent implements ComponentDefinitionInterface
+{
+    public static function contract(): ComponentContract
+    {
+        return new ComponentContract(
+            name: 'fixture-odd',
+            contractVersion: '1',
+            actions: ['go' => 'legacy-string'],
+        );
+    }
+
+    public function mount(array $props, ComponentContext $context): StateSnapshot
+    {
+        return new StateSnapshot($context->componentId, 'fixture-odd', '1', [], []);
+    }
+
+    public function handle(InteractionRequest $request): InteractionResult
+    {
+        return new InteractionResult($request->state);
+    }
+}
+
+#[PluginMetadata(
+    version: '1.0.0',
+    author: 'Milpa App Runtime Tests',
+    site: 'https://example.test',
+    name: 'OddActionPlugin',
+    type: 'Service',
+)]
+final class OddActionPlugin implements PluginInterface, DeclaresComponents
+{
+    public function __construct(private readonly DIContainerInterface $container)
+    {
+    }
+
+    public function declaredComponents(): array
+    {
+        return [FixtureOddComponent::class];
+    }
+
+    public function boot(): void
+    {
+    }
+
+    public function install(): void
+    {
+    }
+
+    public function uninstall(): void
+    {
+    }
+
+    public function enable(): void
+    {
+    }
+
+    public function disable(): void
+    {
+    }
+}
+
+/** A declarer the kernel never marked as booted — it carries no plugin metadata at all. */
+final class UnmarkedDeclarer implements DeclaresComponents
+{
+    public function declaredComponents(): array
+    {
+        return [];
+    }
+}
+
+/** A component whose contract cannot be built: the catalogue names it instead of dying with it. */
+final class FixtureThrowingComponent implements ComponentDefinitionInterface
+{
+    public static function contract(): ComponentContract
+    {
+        throw new \RuntimeException('this contract cannot be built');
+    }
+
+    public function mount(array $props, ComponentContext $context): StateSnapshot
+    {
+        return new StateSnapshot($context->componentId, 'never', '1', [], []);
+    }
+
+    public function handle(InteractionRequest $request): InteractionResult
+    {
+        return new InteractionResult($request->state);
+    }
+}
+
+#[PluginMetadata(
+    version: '1.0.0',
+    author: 'Milpa App Runtime Tests',
+    site: 'https://example.test',
+    name: 'ThrowingContractPlugin',
+    type: 'Service',
+)]
+final class ThrowingContractPlugin implements PluginInterface, DeclaresComponents
+{
+    public function __construct(private readonly DIContainerInterface $container)
+    {
+    }
+
+    public function declaredComponents(): array
+    {
+        return [FixtureThrowingComponent::class];
+    }
+
+    public function boot(): void
+    {
+    }
+
+    public function install(): void
+    {
+    }
+
+    public function uninstall(): void
+    {
+    }
+
+    public function enable(): void
+    {
+    }
+
+    public function disable(): void
+    {
+    }
+}
+
+#[PluginMetadata(
+    version: '1.0.0',
+    author: 'Milpa App Runtime Tests',
+    site: 'https://example.test',
+    name: 'SilentPlugin',
+    type: 'Service',
+)]
+final class SilentPlugin implements PluginInterface
+{
+    public function __construct(private readonly DIContainerInterface $container)
+    {
     }
 
     public function boot(): void

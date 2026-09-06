@@ -55,26 +55,10 @@ final class ComponentDeclarations
      */
     public function catalogue(?string $only = null): ComponentCatalogue
     {
-        if (!interface_exists(DeclaresComponents::class)) {
-            return new ComponentCatalogue(
-                ok: false,
-                total: 0,
-                components: [],
-                sources: [],
-                error: 'this app has no milpa/live installed, so no component declares anything yet',
-            );
-        }
-
+        // No guard for «milpa/live is missing»: it is a hard require of this package, so that branch
+        // cannot fire. A guard that cannot fire is debt that looks like robustness — the house
+        // deletes those rather than testing them (greenhouse decisions/0213).
         $declarers = $this->declarers();
-        if ($declarers === []) {
-            return new ComponentCatalogue(
-                ok: false,
-                total: 0,
-                components: [],
-                sources: [],
-                error: 'no booted host declares components — nothing implements ' . DeclaresComponents::class,
-            );
-        }
 
         /** @var array<string, array<string, mixed>> $rows keyed by component name */
         $rows = [];
@@ -128,11 +112,9 @@ final class ComponentDeclarations
      */
     private function declarers(): array
     {
-        $declarers = [];
-
-        if (class_exists(Library::class)) {
-            $declarers[Library::class] = (new Library())->declaredComponents();
-        }
+        // This package's own primitives, through the same interface a plugin uses. Present
+        // unconditionally: milpa/live is a hard require, so Library always exists.
+        $declarers = [Library::class => (new Library())->declaredComponents()];
 
         $kernel = $this->container->getContainer()->has(Kernel::class)
             ? $this->container->get(Kernel::class)
