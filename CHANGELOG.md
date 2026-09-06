@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.120.2](https://github.com/getmilpa/app-runtime/compare/v0.120.1...v0.120.2) (2026-09-06)
+
+
+### Bug Fixes
+
+* the app root is asked or walked to, never taken from the working directory ([#289](https://github.com/getmilpa/app-runtime/issues/289)) ([3f56ae5](https://github.com/getmilpa/app-runtime/commit/3f56ae501e6d2a4a2ad4a98a88336b96a4cfbd41))
+
 ## [0.120.1](https://github.com/getmilpa/app-runtime/compare/v0.120.0...v0.120.1) (2026-09-05)
 
 
