@@ -265,7 +265,9 @@ final class TrialOperations implements CommandProvider
     {
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
 
-        return $kernel instanceof Kernel ? $kernel->root() : (getcwd() ?: '.');
+        return $kernel instanceof Kernel
+            ? $kernel->root()
+            : \Milpa\AppRuntime\Support\AppRoot::of($this->container, 'TrialOperations');
     }
 
     /** The session store to record promotions and discards in, or null when this app keeps none. */
