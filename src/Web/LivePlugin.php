@@ -313,9 +313,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
 
     private function root(): string
     {
-        $kernel = $this->container->has(\Milpa\Runtime\Kernel::class) ? $this->container->get(\Milpa\Runtime\Kernel::class) : null;
-
-        return $kernel instanceof \Milpa\Runtime\Kernel ? $kernel->root() : (getcwd() ?: '.');
+        return \Milpa\AppRuntime\Support\AppRoot::of($this->container, 'LivePlugin');
     }
 
     /**
