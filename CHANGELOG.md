@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.121.0](https://github.com/getmilpa/app-runtime/compare/v0.120.2...v0.121.0) (2026-09-06)
+
+
+### Features
+
+* components:catalogue — the agent can ask what its own face is made of ([#291](https://github.com/getmilpa/app-runtime/issues/291)) ([4847a9d](https://github.com/getmilpa/app-runtime/commit/4847a9dd7b83134e477463e794d9fa958098866e))
+
 ## [0.120.2](https://github.com/getmilpa/app-runtime/compare/v0.120.1...v0.120.2) (2026-09-06)
 
 
