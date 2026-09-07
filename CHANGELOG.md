@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.127.0](https://github.com/getmilpa/app-runtime/compare/v0.126.0...v0.127.0) (2026-09-07)
+
+
+### Features
+
+* the forward call leaves its recipe in the ledger ([#307](https://github.com/getmilpa/app-runtime/issues/307)) ([c9d9a28](https://github.com/getmilpa/app-runtime/commit/c9d9a284e5480be547496a6821244e4934244332))
+
 ## [0.126.0](https://github.com/getmilpa/app-runtime/compare/v0.125.1...v0.126.0) (2026-09-07)
 
 
