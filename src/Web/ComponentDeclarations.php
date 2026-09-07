@@ -192,7 +192,7 @@ final class ComponentDeclarations
             'summary' => $contract->summary ?? '',
             'propsSchema' => $contract->propsSchema ?? [],
             'stateSchema' => $contract->stateSchema ?? [],
-            'actions' => $this->actions($contract->actions ?? []),
+            'actions' => $this->actions($contract),
             'dataSources' => $contract->dataSources ?? [],
             'designContract' => $contract->designContract ?? null,
             'defaultTemplate' => $contract->defaultTemplate ?? null,
@@ -262,18 +262,44 @@ final class ComponentDeclarations
     }
 
     /**
-     * Action specs normalised to maps, so one action never encodes as `[]` while another encodes
-     * as an object — an agent reading the catalogue would face a union type in a single field.
+     * What each action IS, read through the contract so both declaration shapes answer alike.
      *
-     * @param array<string, mixed> $actions
+     * Every row carries `payload` and `declaresEffects`, and carries `summary`, `mutating`, `effects` and
+     * `namedTarget` only when the component actually declared them. That asymmetry is the point: an action
+     * that declared nothing must not read as an action that declared «harmless». `declaresEffects` is the
+     * field a reader — human or agent — checks FIRST, because «nobody said» is neither a yes nor a no.
+     *
+     * Normalised to maps so one action never encodes as `[]` while another encodes as an object: an agent
+     * reading the catalogue would face a union type in a single field.
      *
      * @return array<string, array<string, mixed>>
      */
-    private function actions(array $actions): array
+    private function actions(object $contract): array
     {
         $normalised = [];
-        foreach ($actions as $action => $spec) {
-            $normalised[(string) $action] = \is_array($spec) ? $spec : ['spec' => $spec];
+        foreach (array_keys($contract->actions ?? []) as $name) {
+            $name = (string) $name;
+            $action = $contract->action($name);
+            if ($action === null) {
+                continue;
+            }
+
+            $row = ['payload' => $action->payload, 'declaresEffects' => $action->declaresEffects()];
+            if ($action->summary !== '') {
+                $row['summary'] = $action->summary;
+            }
+            if ($action->declaresEffects()) {
+                $row['mutating'] = $action->mutating;
+                $row['effects'] = $action->effects?->toArray() ?? [];
+            }
+            if ($action->namedTarget !== null) {
+                $row['namedTarget'] = $action->namedTarget;
+            }
+            if ($action->scopeBy !== null) {
+                $row['scopeBy'] = $action->scopeBy;
+            }
+
+            $normalised[$name] = $row;
         }
 
         return $normalised;
