@@ -163,6 +163,94 @@ final class TheInverseThroughTheGateTest extends TestCase
         self::assertFalse($store->load('s2')?->isRunnable(), 'the session is waiting for a human answer');
     }
 
+    /**
+     * F2 OF `decisions/0222` — THE UNDO IS READ FROM THE LEDGER, NOT FROM THE DECLARATION.
+     *
+     * The promise asks that the forward operation EMIT the invocation of its inverse as a recorded fact,
+     * so whoever undoes it does not have to go back to the code. This walks that path and nothing else:
+     * find the compensation, follow its `call_seq` to the call it cites, take the arguments from THERE,
+     * and put them through the same ceremony.
+     *
+     * Nothing in this test reads `EffectProfile`, `rollbackOperation()` or any declaration.
+     */
+    public function testTheUndoIsReconstructedFromTheLedgerAlone(): void
+    {
+        $store = new SessionStore($events = new InMemoryEventStore());
+        $store->start('s3', 'turn the ' . self::PLUGIN . ' plugin on and then off again', AutonomyMode::Ask);
+        $store->grant('s3', 'plugins.enable');
+        $store->grant('s3', 'plugins.disable');
+        $session = $store->load('s3');
+        self::assertNotNull($session);
+
+        $gate = new SessionToolGate($store, $session, $this->operations());
+        $bridge = new ConsentBridge(
+            $this->registry(),
+            grants: [$this->grant('plugins.enable'), $this->grant('plugins.disable')],
+            gate: $gate,
+            recorder: $gate,
+            executions: $gate,
+        );
+
+        $bridge->callTool('plugins_enable', ['name' => self::PLUGIN]);
+        self::assertTrue($this->pluginIsEnabled());
+
+        // ── FROM HERE ON, ONLY THE LEDGER ───────────────────────────────────────────────────────────
+        $recipe = null;
+        $calls = [];
+        foreach ($events->replay('agent-session:s3') as $event) {
+            if ($event->type === 'session.tool_called') {
+                $calls[$event->seq] = $event->payload;
+            }
+            if ($event->type === 'session.compensation_recorded') {
+                $recipe = $event->payload;
+            }
+        }
+
+        self::assertNotNull($recipe, 'the forward call left its recipe');
+        self::assertSame('plugins.enable', $recipe['of']);
+        self::assertSame('plugins.disable', $recipe['operation']);
+
+        $cited = $calls[$recipe['call_seq']] ?? null;
+        self::assertNotNull($cited, 'and the citation resolves inside the same stream');
+
+        // The arguments come from the CITED CALL — complete, not a subset somebody chose to copy.
+        $bridge->callTool(
+            str_replace([':', '.'], '_', (string) $recipe['operation']),
+            $cited['arguments'],
+        );
+
+        self::assertFalse($this->pluginIsEnabled(), 'undone, with nothing but what the ledger held');
+    }
+
+    /**
+     * F4 — PEDIR NO ES HABER HECHO, and this is the failure mode the house already measured
+     * (`evidence/0210`): a call that only asked for confirmation comes back with `ok: true` too.
+     *
+     * Gating the recipe on `ok` would write TWO compensations for ONE act, the first for a call that
+     * changed nothing. It is gated on `asksForConfirmation` instead.
+     */
+    public function testACallThatOnlyAskedForConfirmationLeavesNoRecipe(): void
+    {
+        $store = new SessionStore($events = new InMemoryEventStore());
+        $store->start('s4', 'turn the ' . self::PLUGIN . ' plugin on', AutonomyMode::Ask);
+        $store->grant('s4', 'plugins.enable');
+        $session = $store->load('s4');
+        self::assertNotNull($session);
+
+        $gate = new SessionToolGate($store, $session, $this->operations());
+
+        // The shape a confirmation request comes back in — success, and nothing done.
+        $gate->recorded('plugins_enable', ['name' => self::PLUGIN], (string) json_encode([
+            'ok' => true,
+            'requires_confirmation' => true,
+            'confirm_token' => 'tok',
+        ]), true);
+
+        foreach ($events->replay('agent-session:s4') as $event) {
+            self::assertNotSame('session.compensation_recorded', $event->type, 'asking promised nothing');
+        }
+    }
+
     /** The state the forward operation's postcondition declares, read through its declared evidence. */
     private function pluginIsEnabled(): bool
     {
