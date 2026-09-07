@@ -32,6 +32,8 @@ use Milpa\Runtime\Config;
 use Milpa\AppRuntime\Tui\AgentScreen;
 use Milpa\Agent\Session;
 use Milpa\DevTools\Doctor\AppDoctor;
+use Milpa\Console\State\InspectableSections;
+use Milpa\Console\Tui\ConsoleScreen;
 use Milpa\Console\Tui\OperationsScreen;
 use Milpa\Live\Tui\StreamTerminal;
 use Milpa\Runtime\Kernel;
@@ -345,6 +347,33 @@ final class Application
             ));
         }
 
+        // THE THIRD SCREEN: the app's own panel, in the terminal.
+        //
+        // `milpa/console` has carried this dashboard — sections, navigation, a state table per section —
+        // with no command to open it since the panel it came from was rewritten (greenhouse
+        // decisions/0220). Built, tested, unreachable: the shape decisions/0213 names as debt that looks
+        // like a capability.
+        //
+        // It shows whatever exposes state, and `milpa/admin` exposes EVERY section of the panel — its own
+        // and every plugin's — so a plugin that declared a section for the web gains this one without
+        // saying a word about a terminal. With nothing installed that exposes state, the screen says so
+        // rather than pretending: that is why the help below only announces it when the panel is here.
+        if ($comando === 'panel') {
+            $secciones = new InspectableSections($this->kernel()->plugins());
+
+            // THE TWO AUDIENCES, ONE ENGINE. `InspectableSections`' own docblock says it exists so the
+            // JSON an agent reads and the dashboard a person navigates come from the same place —
+            // building them twice is how the two end up answering differently about one app. Only the
+            // dashboard was ever wired; this is the other half.
+            if (\in_array('--json', $argv, true)) {
+                return $this->panelEnJson($secciones);
+            }
+
+            $pedida = \is_string($argv[2] ?? null) && !str_starts_with($argv[2], '-') ? $argv[2] : null;
+
+            return $this->pantalla(new ConsoleScreen($secciones, ...$this->tamano(), initialSection: $pedida));
+        }
+
         if ($comando === 'chat' && !Capabilities::installed('agent')) {
             return $this->faltaCapability(
                 '`chat` needs the agent, and this app does not have it yet.',
@@ -480,7 +509,29 @@ final class Application
      * interactivo. Es un hecho del DESTINO y lo sabe quien tiene el stream (ADR-0025): la pantalla
      * no se entera, y por eso se puede probar sin una.
      */
-    private function pantalla(OperationsScreen|AgentScreen $pantalla): int
+    /**
+     * The panel as one document — every section, its title and its state — for a program to read.
+     *
+     * The same sections, in the same order, with the state read the same way: what the dashboard paints
+     * is what this prints.
+     */
+    private function panelEnJson(InspectableSections $secciones): int
+    {
+        $salida = [];
+        foreach ($secciones->all() as $seccion) {
+            $salida[] = [
+                'id' => $seccion['id'],
+                'title' => $seccion['title'],
+                'state' => $seccion['provider']->state(),
+            ];
+        }
+
+        $this->line((string) json_encode(['sections' => $salida], \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE));
+
+        return 0;
+    }
+
+    private function pantalla(OperationsScreen|AgentScreen|ConsoleScreen $pantalla): int
     {
         if (!(\function_exists('stream_isatty') && @stream_isatty(\STDIN))) {
             $this->line($pantalla->render());
@@ -526,7 +577,7 @@ final class Application
     }
 
     /** El bucle en sí, para que el restaurador de arriba tenga un `finally` que lo abrace. */
-    private function correrPantalla(OperationsScreen|AgentScreen $pantalla): int
+    private function correrPantalla(OperationsScreen|AgentScreen|ConsoleScreen $pantalla): int
     {
         $terminal = new StreamTerminal('coa');
 
@@ -970,6 +1021,12 @@ final class Application
             $this->line('    doctor           Explain the architectural state of this app WITHOUT booting it');
         }
         $this->line('    shell            Every operation, on one screen');
+        // `panel` only with the admin: it is what puts sections in the terminal. Without it the screen
+        // would open on an empty state, and announcing a screen with nothing to show teaches that the
+        // help lies — the same rule `chat` follows one line below.
+        if (Capabilities::installed('admin')) {
+            $this->line('    panel [<section>] Every section of this app, on one screen (--json for a program)');
+        }
         // `chat` sólo si el agente está instalado. Este framework es tiny por default: anunciar una
         // pantalla que no puede abrirse enseñaría que la ayuda miente, y `coa capabilities` es donde
         // se ve lo que falta con el `composer require` que lo enciende.
