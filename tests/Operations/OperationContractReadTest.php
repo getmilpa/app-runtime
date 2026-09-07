@@ -193,8 +193,8 @@ final class OperationContractReadTest extends TestCase
         // say something other than what the atom declares.
         $self = $ops->contractFor(['name' => 'operation:contract']);
         self::assertSame('none', $self['effects']['mutation']);
-        self::assertSame('guaranteed', $self['effects']['reversibility']);
-        self::assertSame('nothing-to-roll-back', $self['effects']['rollback_contract']);
+        self::assertSame('not_applicable', $self['effects']['reversibility']);
+        self::assertNull($self['effects']['rollback_contract'], 'a read names no inverse: the AXIS says it now');
         self::assertSame('read', $self['authority']);
         self::assertFalse($self['mutating']);
         self::assertSame(['cli', 'tui', 'mcp'], $self['surfaces']);

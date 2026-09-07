@@ -127,14 +127,7 @@ final class SessionToolGateRecoveryTest extends TestCase
             name: 'inspect',
             description: 'reads and reports, changes nothing',
             handler: static fn (): array => ['ok' => true],
-            effects: new EffectProfile(
-                mutation: Mutation::None,
-                externality: Externality::None,
-                reversibility: Reversibility::Guaranteed,
-                authority: Authority::Read,
-                subject: Subject::None,
-                rollbackContract: 'nothing',
-            ),
+            effects: EffectProfile::readOnly(),
         );
     }
 

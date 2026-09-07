@@ -246,14 +246,7 @@ final class GateReadsComposedCeilingTest extends TestCase
         $bare = new Operation('probe', 'to read its digest', $handler);
         $digest = $bare->handlerDigest();
 
-        $to = new EffectProfile(
-            mutation: Mutation::None,
-            externality: Externality::None,
-            reversibility: Reversibility::Guaranteed,
-            authority: Authority::Read,
-            subject: Subject::None,
-            rollbackContract: 'nothing ran',
-        );
+        $to = EffectProfile::readOnly();
         $cert = (new DescentCertificate(
             verifier: 'verify-descent/2026-08-18',
             operation: 'probe',

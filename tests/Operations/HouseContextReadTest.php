@@ -202,9 +202,9 @@ final class HouseContextReadTest extends TestCase
         self::assertNotNull($declared->effects);
         self::assertSame('none', $declared->effects->toArray()['mutation']);
         self::assertSame('none', $declared->effects->toArray()['externality']);
-        self::assertSame('guaranteed', $declared->effects->toArray()['reversibility']);
+        self::assertSame('not_applicable', $declared->effects->toArray()['reversibility']);
         self::assertSame('read', $declared->effects->toArray()['authority']);
-        self::assertSame('nothing-to-roll-back', $declared->effects->toArray()['rollback_contract']);
+        self::assertNull($declared->effects->toArray()['rollback_contract'], 'a read names no inverse: the AXIS says it now');
         self::assertSame(['cli', 'tui', 'mcp'], $declared->surfaces);
         self::assertSame([], $declared->preconditions, 'it demands nothing to be asked');
         self::assertNotNull($declared->observableEvidence);

@@ -72,14 +72,7 @@ final readonly class TokenOperations implements CommandProvider
         return [
             new Operation(
                 name: 'token.list',
-                effects: new EffectProfile(
-                    Mutation::None,
-                    Externality::None,
-                    Reversibility::Guaranteed,
-                    Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'nothing-to-roll-back',
-                ),
+                effects: EffectProfile::readOnly(),
                 description: 'The API tokens of this app: who each one is and what it can do — never the secret',
                 handler: fn (array $input): array => $this->list($input),
                 inputSchema: ['type' => 'object', 'properties' => []],

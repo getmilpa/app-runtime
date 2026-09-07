@@ -149,14 +149,7 @@ final class BorrowedCeilingTest extends TestCase
             name: 'suave',
             description: 'a read that changes nothing',
             handler: static fn (): array => [],
-            effects: new EffectProfile(
-                mutation: Mutation::None,
-                externality: Externality::None,
-                reversibility: Reversibility::Guaranteed,
-                authority: Authority::Read,
-                subject: Subject::None,
-                rollbackContract: 'reads only',
-            ),
+            effects: EffectProfile::readOnly(),
         );
     }
 

@@ -216,14 +216,7 @@ class AgentOperations implements CommandProvider
                 //
                 // It reads. It writes nothing, it leaves the machine to reach no one, and it changes
                 // nothing that could need undoing.
-                effects: new EffectProfile(
-                    mutation: Mutation::None,
-                    externality: Externality::None,
-                    reversibility: Reversibility::Guaranteed,
-                    authority: Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'reads only: there is nothing to roll back',
-                ),
+                effects: EffectProfile::readOnly(),
             ),
             new Operation(
                 name: 'operation:contract',
@@ -262,14 +255,7 @@ class AgentOperations implements CommandProvider
                 ],
                 // Reads one declaration out of the assembled catalogue: it changes nothing, reaches
                 // nobody, and spends no authority.
-                effects: new EffectProfile(
-                    mutation: Mutation::None,
-                    externality: Externality::None,
-                    reversibility: Reversibility::Guaranteed,
-                    authority: Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'nothing-to-roll-back',
-                ),
+                effects: EffectProfile::readOnly(),
                 surfaces: ['cli', 'tui', 'mcp'],
             ),
             new Operation(
@@ -301,14 +287,7 @@ class AgentOperations implements CommandProvider
                 ],
                 // Reads the kernel, the config bag and the registries this app already assembled:
                 // it changes nothing, reaches nobody, and spends no authority.
-                effects: new EffectProfile(
-                    mutation: Mutation::None,
-                    externality: Externality::None,
-                    reversibility: Reversibility::Guaranteed,
-                    authority: Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'nothing-to-roll-back',
-                ),
+                effects: EffectProfile::readOnly(),
                 surfaces: ['cli', 'tui', 'mcp'],
                 // THE DECLARED CONTRACT (greenhouse decisions/0183): no preconditions — an aggregate
                 // that demanded something to be asked would be re-creating the orientation cost it
@@ -348,14 +327,7 @@ class AgentOperations implements CommandProvider
                 ],
                 // Reads the session's own stream and derives: it changes nothing, reaches nobody,
                 // spends no authority — the same contract as house:context, over work instead of structure.
-                effects: new EffectProfile(
-                    mutation: Mutation::None,
-                    externality: Externality::None,
-                    reversibility: Reversibility::Guaranteed,
-                    authority: Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'nothing-to-roll-back',
-                ),
+                effects: EffectProfile::readOnly(),
                 surfaces: ['cli', 'tui', 'mcp'],
                 observableEvidence: 'the answer itself: every field derived from the session stream — materialized and verified from the work-state fold, blocked from the pending question, house debt from the signalled facts',
             ),
@@ -388,14 +360,7 @@ class AgentOperations implements CommandProvider
                 ],
                 // Reflects the class and mutates a DISCARDED instance to decide mutability: it reads
                 // the class, changes nothing the app can see, spends no authority.
-                effects: new EffectProfile(
-                    mutation: Mutation::None,
-                    externality: Externality::None,
-                    reversibility: Reversibility::Guaranteed,
-                    authority: Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'nothing-to-roll-back',
-                ),
+                effects: EffectProfile::readOnly(),
                 surfaces: ['cli', 'tui', 'mcp'],
                 observableEvidence: 'the answer itself: mutability is whatever PHP did to a throwaway instance — a readonly entity reports immutable because its second write threw the same Error the agent hit; a plain one reports mutable because the write landed',
             ),
@@ -430,14 +395,7 @@ class AgentOperations implements CommandProvider
                 // A projection may not proclaim what only the house can verify: it RE-VERIFIES the
                 // stored assertion live and reports the fact, so a surface can show identity without
                 // inventing it (greenhouse decisions/0117). It reads, reaches nobody, changes nothing.
-                effects: new EffectProfile(
-                    mutation: Mutation::None,
-                    externality: Externality::None,
-                    reversibility: Reversibility::Guaranteed,
-                    authority: Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'reads only: there is nothing to roll back',
-                ),
+                effects: EffectProfile::readOnly(),
             ),
             new Operation(
                 name: 'skill:load',
@@ -461,14 +419,7 @@ class AgentOperations implements CommandProvider
                     'required' => ['ok'],
                 ],
                 // Reads a local skill file: changes nothing, reaches nobody.
-                effects: new EffectProfile(
-                    mutation: Mutation::None,
-                    externality: Externality::None,
-                    reversibility: Reversibility::Guaranteed,
-                    authority: Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'reads only: there is nothing to roll back',
-                ),
+                effects: EffectProfile::readOnly(),
             ),
             new Operation(
                 name: 'skill:invoke',
@@ -492,14 +443,7 @@ class AgentOperations implements CommandProvider
                     'required' => ['ok'],
                 ],
                 // Reads a local skill file: changes nothing, reaches nobody.
-                effects: new EffectProfile(
-                    mutation: Mutation::None,
-                    externality: Externality::None,
-                    reversibility: Reversibility::Guaranteed,
-                    authority: Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'reads only: there is nothing to roll back',
-                ),
+                effects: EffectProfile::readOnly(),
                 mutating: false,
                 // THE INVOKER COMES FROM THE SURFACE, never from an argument (greenhouse
                 // decisions/0202, review). The first cut let `skill:load` take `by: human` — and the
@@ -539,14 +483,7 @@ class AgentOperations implements CommandProvider
                     'required' => ['ok'],
                 ],
                 // Reads the app's skills directory: changes nothing, reaches nobody.
-                effects: new EffectProfile(
-                    mutation: Mutation::None,
-                    externality: Externality::None,
-                    reversibility: Reversibility::Guaranteed,
-                    authority: Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'reads only: there is nothing to roll back',
-                ),
+                effects: EffectProfile::readOnly(),
             ),
             new Operation(
                 name: 'agent:role:list',
@@ -574,14 +511,7 @@ class AgentOperations implements CommandProvider
                     ],
                     'required' => ['ok'],
                 ],
-                effects: new EffectProfile(
-                    mutation: Mutation::None,
-                    externality: Externality::None,
-                    reversibility: Reversibility::Guaranteed,
-                    authority: Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'reads only: there is nothing to roll back',
-                ),
+                effects: EffectProfile::readOnly(),
             ),
             new Operation(
                 name: 'agent:role:declare',

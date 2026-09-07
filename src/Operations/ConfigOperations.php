@@ -135,14 +135,7 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
                 description: 'The agent configuration this app runs on, and which keys two files declare at once',
                 handler: fn (array $input): array => $this->show(),
                 inputSchema: ['type' => 'object', 'properties' => [], 'required' => []],
-                effects: new EffectProfile(
-                    mutation: Mutation::None,
-                    externality: Externality::None,
-                    reversibility: Reversibility::Guaranteed,
-                    authority: Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'reads only: there is nothing to roll back',
-                ),
+                effects: EffectProfile::readOnly(),
             ),
             new Operation(
                 name: 'config:set',

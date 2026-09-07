@@ -39,17 +39,20 @@ final class AgentTableTest extends TestCase
     {
         return new Operation(
             name: $name,
-            effects: new EffectProfile(
-                $mutating ? Mutation::Persistent : Mutation::None,
-                Externality::None,
-                Reversibility::Guaranteed,
-                $mutating ? Authority::WriteAsUser : Authority::Read,
-                subject: Subject::None,
-                // La casa exige que una reversibilidad garantizada nombre qué la respalda: una
-                // afirmación que baja el escrutinio no puede certificarse sola. Aplica también a un
-                // fixture — y que el framework rechace el mío es el invariante funcionando.
-                rollbackContract: 'nothing-to-roll-back',
-            ),
+            // A read is `readOnly()`; a mutation names what backs its guarantee. The house demands that a
+            // guaranteed reversibility name what backs it — a claim that lowers scrutiny cannot certify
+            // itself — and that the profile agree with `mutating`. Both apply to a fixture, and the
+            // framework refusing mine is the invariant working.
+            effects: $mutating
+                ? new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    Reversibility::Guaranteed,
+                    Authority::WriteAsUser,
+                    subject: Subject::None,
+                    rollbackContract: 'nothing-to-roll-back',
+                )
+                : EffectProfile::readOnly(),
             description: 'x',
             handler: static fn (): array => ['ok' => true],
             inputSchema: ['type' => 'object'],
