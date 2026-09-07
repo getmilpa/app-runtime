@@ -164,7 +164,17 @@ final readonly class CapabilityOperations implements CommandProvider
                     Mutation::Persistent,
                     // Reads the package registry. Nothing is sent beyond the request itself.
                     Externality::ThirdParty,
-                    Reversibility::Guaranteed,
+                    // DEGRADED, and the degradation IS the result (greenhouse evidence/0553).
+                    //
+                    // This claimed `Guaranteed` backed by «delete var/capability-index.json» — a
+                    // sentence, not an operation. Nothing can run it, nothing can check it ran, and no
+                    // gate can put it through the ceremony this call went through. The index is a cache
+                    // and deleting it loses nothing, so recovering it by hand is cheap — but cheap is
+                    // not the same as guaranteed, and only a named inverse earns the lower scrutiny.
+                    //
+                    // If an operation to forget the index is ever declared, this becomes `Guaranteed`
+                    // naming it. Until then it says what it is.
+                    Reversibility::ManualRecovery,
                     // It changes what this app KNOWS exists — never what it can do.
                     Authority::Read,
                     subject: Subject::Data,

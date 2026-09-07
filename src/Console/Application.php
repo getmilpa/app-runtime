@@ -21,6 +21,7 @@ use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\DevTools\Doctor\Repair;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Operation;
+use Milpa\Command\RollbackContracts;
 use Milpa\Console\CliProjector;
 use Milpa\Console\CliRunner;
 use Milpa\Console\Rendering\JsonCliRenderer;
@@ -994,7 +995,46 @@ final class Application
         $this->line('');
         $this->line($reporte->ok() ? '✓ el grafo cierra' : '✗ esta app no va a arrancar así');
 
+        // LAS PROMESAS QUE ESTA APP NO PUEDE CUMPLIR, cuando hay tabla que preguntar.
+        //
+        // `Reversibility::Guaranteed` compra menos escrutinio, y el perfil ya rechaza la prosa. Lo que
+        // un perfil solo NO puede ver es si el nombre que declaró existe: `nothing-to-roll-back` es un
+        // nombre bien formado para una operación que nadie escribió. Eso lo sabe la tabla.
+        //
+        // Va aquí y no al arranque porque es una pregunta de GRADUACIÓN: una app que prometió algo que
+        // no puede hacer no está rota, está en deuda, y el doctor es donde esta casa dice en qué estado
+        // arquitectónico está. Y va DESPUÉS del veredicto del grafo, envuelta, porque el doctor existe
+        // justamente para el caso en que el kernel NO levanta — y una sección que necesita la tabla no
+        // puede quitarle esa razón de ser.
+        $this->promesasDeReversa();
+
         return $reporte->ok() ? 0 : 1;
+    }
+
+    /**
+     * Reports the guaranteed rollbacks whose inverse this app does not offer.
+     *
+     * Silent when everything resolves: a report that prints a heading to say «nothing» trains people to
+     * skip it. Silent too when the table cannot be composed — the graph verdict above already said the
+     * app will not boot, and repeating it as a second failure would read as a second defect.
+     */
+    private function promesasDeReversa(): void
+    {
+        try {
+            $rotas = RollbackContracts::findings($this->all());
+        } catch (\Throwable) {
+            return;
+        }
+
+        if ($rotas === []) {
+            return;
+        }
+
+        $this->line('');
+        $this->line('  promesas de reversa que esta app no puede cumplir:');
+        foreach ($rotas as $hallazgo) {
+            $this->line('  ✗ ' . $hallazgo);
+        }
     }
 
     private function help(): int

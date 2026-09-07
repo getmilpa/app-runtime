@@ -77,7 +77,7 @@ final class PasskeyIntentAdmissionTest extends TestCase
                 reversibility: Reversibility::Guaranteed,
                 authority: Authority::Privileged,
                 subject: Subject::Executable,
-                rollbackContract: 'synthetic probe',
+                rollbackContract: 'probe.undo',
             ),
         );
 
