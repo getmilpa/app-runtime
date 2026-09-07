@@ -33,6 +33,7 @@ use Milpa\Command\Effect\Externality;
 use Milpa\Command\Effect\Mutation;
 use Milpa\Command\Effect\ProfileComposition;
 use Milpa\Command\Effect\Subject;
+use Milpa\Command\Consent\OperationId;
 use Milpa\Command\Operation;
 use Milpa\Console\McpProjector;
 
@@ -715,7 +716,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // `resultChars` se sigue mandando: hoy iguala el largo guardado, y ese es el punto. Es el
         // mecanismo que declararía cualquier tope futuro —uno de disco, que es otra escasez y otro
         // tope— y no se quita porque haya dejado de tener algo que confesar (evidence/0202).
-        $this->sessions->recordToolCall(
+        $seqDeLaLlamada = $this->sessions->recordToolCall(
             $this->session->id,
             $tool,
             $arguments,
@@ -734,8 +735,32 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             // segundo lector discrepa con el primero el día que cualquiera de los dos cambie
             // (evidence/0141). El predicado además distingue una petición de un PLAN, que lleva la
             // misma llave anidada para decir qué requeriría confirmarse sin estar pidiéndolo.
-            ToolResult::asksForConfirmation($result),
+            $pidioConfirmacion = ToolResult::asksForConfirmation($result),
         );
+
+        // LA RECETA PARA DESHACER, dejada donde quien deshaga va a buscarla.
+        //
+        // greenhouse decisions/0222: la promesa de reversa pedía que la ida EMITA la invocación de su
+        // inversa como hecho registrado, para que se tome del LEDGER y no de la declaración. Este es el
+        // único punto de la ruta que tiene a la vez la operación resuelta y la llamada recién grabada.
+        //
+        // NO SE COPIA NADA: el hecho cita el `seq` del `tool_called` de arriba, que ya guarda los
+        // argumentos crudos. Copiarlos aquí sería el segundo inventario de la misma verdad que
+        // `arguments_digest` fue escrito para evitar.
+        //
+        // Y PEDIR NO ES HABER HECHO: se gatea por `asksForConfirmation`, no por `ok`, porque una
+        // llamada que sólo pidió permiso vuelve con éxito y no deshizo nada — la misma distinción que
+        // la línea de arriba ya tuvo que hacer (evidence/0200, 0210).
+        $inversa = $operacion instanceof Operation && $ok && !$pidioConfirmacion
+            ? $operacion->effects?->rollbackOperation()
+            : null;
+        if ($inversa !== null) {
+            $this->sessions->recordCompensation($this->session->id, [
+                'of' => (new OperationId($operacion->name))->canonical,
+                'operation' => $inversa->canonical,
+                'call_seq' => $seqDeLaLlamada,
+            ]);
+        }
     }
 
     /**
