@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [0.129.0](https://github.com/getmilpa/app-runtime/compare/v0.128.1...v0.129.0) (2026-09-07)
+
+
+### Features
+
+* **sequence:** the ceiling of sequence:run rises with its steps ([#317](https://github.com/getmilpa/app-runtime/issues/317)) ([f5345d6](https://github.com/getmilpa/app-runtime/commit/f5345d6802e4e568943fc2e1069ff3a03d29fa21))
+
+
+### Bug Fixes
+
+* a resume is of the sequence that was NAMED, not of whatever the session held ([#315](https://github.com/getmilpa/app-runtime/issues/315)) ([c4ae8e3](https://github.com/getmilpa/app-runtime/commit/c4ae8e30e07a5c95b6c891b7e73b97282075b74a))
+
 ## [0.128.1](https://github.com/getmilpa/app-runtime/compare/v0.128.0...v0.128.1) (2026-09-07)
 
 
