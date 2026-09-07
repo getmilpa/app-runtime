@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.123.1](https://github.com/getmilpa/app-runtime/compare/v0.123.0...v0.123.1) (2026-09-07)
+
+
+### Bug Fixes
+
+* **cli:** the panel's line in `coa list` sits in the same column as the others ([#297](https://github.com/getmilpa/app-runtime/issues/297)) ([61c6866](https://github.com/getmilpa/app-runtime/commit/61c6866b284597709366f3d4e001d39ff53350af))
+
 ## [0.123.0](https://github.com/getmilpa/app-runtime/compare/v0.122.0...v0.123.0) (2026-09-07)
 
 
