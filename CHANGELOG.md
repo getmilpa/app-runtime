@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.128.1](https://github.com/getmilpa/app-runtime/compare/v0.128.0...v0.128.1) (2026-09-07)
+
+
+### Bug Fixes
+
+* a read is not irreversible, and «withdraw what is irreversible» was taking every read ([#313](https://github.com/getmilpa/app-runtime/issues/313)) ([73e7265](https://github.com/getmilpa/app-runtime/commit/73e72658e6ae428f64fab4188a06a8ac60c41367))
+
 ## [0.128.0](https://github.com/getmilpa/app-runtime/compare/v0.127.0...v0.128.0) (2026-09-07)
 
 
