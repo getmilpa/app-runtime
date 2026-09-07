@@ -83,7 +83,8 @@ final class ScreenOperations implements CommandProvider
                     Externality::None,
                     Reversibility::Guaranteed,
                     subject: Subject::Data,
-                    rollbackContract: 'forget the screen with screen:forget',
+                    // The inverse was already IN the sentence, wrapped where no machine could use it.
+                    rollbackContract: 'screen:forget',
                 ),
             ),
             new Operation(
@@ -144,7 +145,9 @@ final class ScreenOperations implements CommandProvider
                     Reversibility::Guaranteed,
                     Authority::WriteAsUser,
                     subject: Subject::Data,
-                    rollbackContract: 'set the key back with screen:set-state',
+                    // The same call with the previous value is the inverse — it is the operation that
+                    // undoes this, named rather than described.
+                    rollbackContract: 'screen:set-state',
                 ),
             ),
         ];
