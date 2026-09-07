@@ -67,15 +67,7 @@ final readonly class FoundationOperations implements CommandProvider
         return [
             new Operation(
                 name: 'foundation',
-                effects: new EffectProfile(
-                    Mutation::None,
-                    // Reads `.milpa/foundation.json` from disk. Never the network.
-                    Externality::None,
-                    Reversibility::Guaranteed,
-                    Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'nothing-to-roll-back',
-                ),
+                effects: EffectProfile::readOnly(),
                 description: 'What this app is — or, if not founded yet, how it becomes something',
                 handler: static fn (array $input): array => Foundation::answer(),
                 inputSchema: ['type' => 'object', 'properties' => []],

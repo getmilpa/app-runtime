@@ -89,16 +89,7 @@ final readonly class CapabilityOperations implements CommandProvider
         return [
             new Operation(
                 name: 'capabilities',
-                effects: new EffectProfile(
-                    Mutation::None,
-                    // Reads `installed.json` from disk. Verified: it does not reach the network,
-                    // which is why the catalogue is the one operation a tiny app always has.
-                    Externality::None,
-                    Reversibility::Guaranteed,
-                    Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'nothing-to-roll-back',
-                ),
+                effects: EffectProfile::readOnly(),
                 description: 'What this app can do today, and the command that grows it',
                 handler: fn (array $input): array => Capabilities::answer(),
                 inputSchema: ['type' => 'object', 'properties' => [], 'required' => []],

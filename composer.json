@@ -11,21 +11,21 @@
     ],
     "require": {
         "php": "^8.3",
-        "milpa/command": ">=0.20 <1.0",
+        "milpa/command": ">=0.24 <1.0",
         "milpa/console": ">=0.12 <1.0",
         "milpa/container": ">=0.1 <1.0",
         "milpa/core": ">=0.6.2 <1.0",
         "milpa/http": ">=0.1.5 <1.0",
         "milpa/live": ">=0.6 <1.0",
         "milpa/live-tui": ">=0.7 <1.0",
-        "milpa/plugin": ">=0.10 <1.0",
+        "milpa/plugin": ">=0.14 <1.0",
         "milpa/runtime": ">=0.7.6 <1.0",
         "milpa/tool-runtime": ">=0.12 <1.0",
         "nyholm/psr7": "^1.8"
     },
     "conflict": {
         "milpa/agent": "<0.41",
-        "milpa/command": "<0.19",
+        "milpa/command": "<0.24",
         "milpa/event-store": "<0.3"
     },
     "require-dev": {
@@ -34,7 +34,7 @@
         "milpa/ai-gateway": ">=0.17 <1.0",
         "milpa/auth": ">=0.9 <1.0",
         "milpa/data": ">=0.2.2 <1.0",
-        "milpa/devtools": ">=0.14 <1.0",
+        "milpa/devtools": ">=0.26 <1.0",
         "milpa/event-store": ">=0.3 <1.0",
         "milpa/live-web": ">=0.4 <1.0",
         "milpa/mercure": "*",

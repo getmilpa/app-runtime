@@ -94,14 +94,7 @@ final class SessionOperations implements CommandProvider
                 // `config/http.php` era una lista de cosas públicas (evidence/0318). `hasAnyScope`: el token
                 // de respuesta que el README reparte sigue leyendo; un token de sólo lectura existe por fin.
                 scopes: ['agent:read', 'agent:answer'],
-                effects: new EffectProfile(
-                    Mutation::None,
-                    Externality::None,
-                    Reversibility::Guaranteed,
-                    Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'nothing-to-roll-back',
-                ),
+                effects: EffectProfile::readOnly(),
                 description: 'The agent sessions of this app, and where each one stands',
                 handler: fn (array $input): array => $this->listar(),
                 inputSchema: ['type' => 'object', 'properties' => []],
@@ -151,14 +144,7 @@ final class SessionOperations implements CommandProvider
                 // `config/http.php` era una lista de cosas públicas (evidence/0318). `hasAnyScope`: el token
                 // de respuesta que el README reparte sigue leyendo; un token de sólo lectura existe por fin.
                 scopes: ['agent:read', 'agent:answer'],
-                effects: new EffectProfile(
-                    Mutation::None,
-                    Externality::None,
-                    Reversibility::Guaranteed,
-                    Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'nothing-to-roll-back',
-                ),
+                effects: EffectProfile::readOnly(),
                 description: 'Everything known about one session: goal, plan, todos, permissions and how it ended',
                 handler: fn (array $input): array => $this->mostrar($input),
                 inputSchema: [
@@ -289,14 +275,7 @@ final class SessionOperations implements CommandProvider
                 // `config/http.php` era una lista de cosas públicas (evidence/0318). `hasAnyScope`: el token
                 // de respuesta que el README reparte sigue leyendo; un token de sólo lectura existe por fin.
                 scopes: ['agent:read', 'agent:answer'],
-                effects: new EffectProfile(
-                    Mutation::None,
-                    Externality::None,
-                    Reversibility::Guaranteed,
-                    Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'nothing-to-roll-back',
-                ),
+                effects: EffectProfile::readOnly(),
                 description: 'What happened in a session, translated for a surface to paint: cards, plan and closing',
                 handler: fn (array $input): array => $this->linea($input),
                 inputSchema: [
@@ -337,14 +316,7 @@ final class SessionOperations implements CommandProvider
             // parcial que no declara ser parcial es más peligrosa que una vista pequeña.
             new Operation(
                 name: 'agent:observe',
-                effects: new EffectProfile(
-                    Mutation::None,
-                    Externality::None,
-                    Reversibility::Guaranteed,
-                    Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'nothing-to-roll-back',
-                ),
+                effects: EffectProfile::readOnly(),
                 description: 'What the agent was given and what it did with it, from the same source — including what this view cannot say',
                 handler: fn (array $input): array => $this->observar($input),
                 inputSchema: [
@@ -435,14 +407,7 @@ final class SessionOperations implements CommandProvider
                 // `config/http.php` era una lista de cosas públicas (evidence/0318). `hasAnyScope`: el token
                 // de respuesta que el README reparte sigue leyendo; un token de sólo lectura existe por fin.
                 scopes: ['agent:read', 'agent:answer'],
-                effects: new EffectProfile(
-                    Mutation::None,
-                    Externality::None,
-                    Reversibility::Guaranteed,
-                    Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'nothing-to-roll-back',
-                ),
+                effects: EffectProfile::readOnly(),
                 description: 'The work of one session as four columns, derived from its stream',
                 handler: fn (array $input): array => $this->tablero($input),
                 inputSchema: [
