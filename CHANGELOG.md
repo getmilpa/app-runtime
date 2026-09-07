@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.123.0](https://github.com/getmilpa/app-runtime/compare/v0.122.0...v0.123.0) (2026-09-07)
+
+
+### Features
+
+* **cli:** `coa panel` — every section of this app, on one screen ([#295](https://github.com/getmilpa/app-runtime/issues/295)) ([da3e0b6](https://github.com/getmilpa/app-runtime/commit/da3e0b64d4f47565f452c17b5d40e036438fb6e5))
+
 ## [0.122.0](https://github.com/getmilpa/app-runtime/compare/v0.121.0...v0.122.0) (2026-09-07)
 
 
