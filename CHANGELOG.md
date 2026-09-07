@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.125.1](https://github.com/getmilpa/app-runtime/compare/v0.125.0...v0.125.1) (2026-09-07)
+
+
+### Bug Fixes
+
+* screen:set-state is compensatable, and the doctor says when it could not ask ([#303](https://github.com/getmilpa/app-runtime/issues/303)) ([a7fa7ba](https://github.com/getmilpa/app-runtime/commit/a7fa7ba6a3cb7e929a2b4516169455601bd1d498))
+
 ## [0.125.0](https://github.com/getmilpa/app-runtime/compare/v0.124.0...v0.125.0) (2026-09-07)
 
 
