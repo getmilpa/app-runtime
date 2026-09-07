@@ -54,7 +54,7 @@ final class ASequenceIsNamedFromAClosedSetTest extends TestCase
     #[DataProvider('namesNobodyDeclared')]
     public function testANameTheAppNeverDeclaredReachesNothing(string $name): void
     {
-        $declared = DeclaredSequences::fromArray([
+        $declared = self::declaring([
             'deploy' => [['op' => 'plugins:verify', 'args' => []]],
         ]);
 
@@ -64,7 +64,7 @@ final class ASequenceIsNamedFromAClosedSetTest extends TestCase
     /** THE POSITIVE CONTROL: a declared name resolves, so the refusal above is about the SET, not about everything. */
     public function testADeclaredNameResolvesToItsSteps(): void
     {
-        $declared = DeclaredSequences::fromArray([
+        $declared = self::declaring([
             'deploy' => [
                 ['op' => 'plugins:verify', 'args' => []],
                 ['op' => 'stack:up', 'args' => ['service' => 'web']],
@@ -86,7 +86,7 @@ final class ASequenceIsNamedFromAClosedSetTest extends TestCase
      */
     public function testASequenceWithAMalformedStepIsDroppedWhole(): void
     {
-        $declared = DeclaredSequences::fromArray([
+        $declared = self::declaring([
             'deploy' => [
                 ['op' => 'plugins:verify', 'args' => []],
                 ['args' => ['service' => 'web']],
@@ -100,7 +100,7 @@ final class ASequenceIsNamedFromAClosedSetTest extends TestCase
     /** An app that declares no sequences is an app, not an error: not deploying is a legitimate shape. */
     public function testAnAppThatDeclaresNoneIsAnEmptySetAndNotAFailure(): void
     {
-        self::assertSame([], DeclaredSequences::fromArray([])->names());
+        self::assertSame([], self::declaring([])->names());
         self::assertSame([], DeclaredSequences::underRoot(sys_get_temp_dir() . '/no-such-app-' . bin2hex(random_bytes(4)))->names());
     }
 
@@ -153,6 +153,31 @@ final class ASequenceIsNamedFromAClosedSetTest extends TestCase
 
         self::assertFalse($answer['ok'] ?? null);
         self::assertStringContainsString('name a sequence', (string) ($answer['error'] ?? ''));
+    }
+
+    /**
+     * A set read the way an app's is: written to `config/sequences.php` under a root and read back
+     * through {@see DeclaredSequences::underRoot()} — the one door, so these tests measure the path
+     * and not a shortcut past it.
+     *
+     * @param array<string, mixed> $declared
+     */
+    private static function declaring(array $declared): DeclaredSequences
+    {
+        $root = sys_get_temp_dir() . '/milpa-seq-' . bin2hex(random_bytes(4));
+        mkdir($root . '/config', 0o775, true);
+        file_put_contents(
+            $root . '/config/sequences.php',
+            "<?php\n\ndeclare(strict_types=1);\n\nreturn " . var_export($declared, true) . ";\n",
+        );
+
+        $set = DeclaredSequences::underRoot($root);
+
+        unlink($root . '/config/sequences.php');
+        rmdir($root . '/config');
+        rmdir($root);
+
+        return $set;
     }
 
     private function operation(): Operation
