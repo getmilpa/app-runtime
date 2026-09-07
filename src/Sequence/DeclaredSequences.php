@@ -71,9 +71,14 @@ final readonly class DeclaredSequences
      * The set as an app wrote it, validated: a sequence whose steps do not all name an operation is
      * dropped whole rather than silently shortened.
      *
+     * Private on purpose. It was public and nothing outside its own tests called it — a second public
+     * way into the same set is a second thing to keep true, and the one that matters is the one an app
+     * actually uses ({@see self::underRoot()}). The tests read through that door too, which is what
+     * makes them measure the path instead of the shortcut (greenhouse decisions/0213, caught by its gate).
+     *
      * @param array<mixed> $declared name → list of `['op' => string, 'args' => array]`
      */
-    public static function fromArray(array $declared): self
+    private static function fromArray(array $declared): self
     {
         $out = [];
         foreach ($declared as $name => $steps) {
