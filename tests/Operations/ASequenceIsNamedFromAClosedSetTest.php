@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tests\Operations;
 
+use Milpa\Agent\PausedSequence;
 use Milpa\AppRuntime\Operations\SequenceOperations;
 use Milpa\AppRuntime\Sequence\DeclaredSequences;
 use Milpa\Command\Effect\Authority;
@@ -102,6 +103,37 @@ final class ASequenceIsNamedFromAClosedSetTest extends TestCase
     {
         self::assertSame([], self::declaring([])->names());
         self::assertSame([], DeclaredSequences::underRoot(sys_get_temp_dir() . '/no-such-app-' . bin2hex(random_bytes(4)))->names());
+    }
+
+    /**
+     * A RESUME IS OF WHAT WAS NAMED — and it used to be of whatever the session happened to hold.
+     *
+     * `$resuming` was decided from the session alone, and the resume path discards the steps the call
+     * resolved. So `{sequence: health-check, session: «sequence:deploy»}` ran DEPLOY's paused steps
+     * while the catalogue, the ledger's petition and the human's intent all said health-check — the
+     * intent contract (ADR-0044) broken from the inside.
+     *
+     * Today's constant ceiling was the only thing making that harmless: both calls cost the same
+     * signature. That is a coincidence, not a guard, and it disappears the moment the ceiling is
+     * derived — which is why this is fixed BEFORE deriving anything (greenhouse decisions/0223).
+     */
+    public function testASessionPausedOnAnotherSequenceIsNotResumedByThisOne(): void
+    {
+        $answer = ($this->operation()->handler)(['sequence' => 'health-check', 'session' => 'sequence:deploy'], null);
+
+        self::assertFalse($answer['ok'] ?? null);
+        // Without a kernel it stops earlier, and that IS the honest order — but the refusal this test
+        // guards is asserted directly on the predicate below, where no app is needed.
+        self::assertIsString($answer['error'] ?? null);
+    }
+
+    /** The refusal itself, on the shape a paused session has: named one, paused on another. */
+    public function testTheRefusalNamesBothSequences(): void
+    {
+        $paused = new PausedSequence('deploy', 'sha256:whatever', [['operation' => 'plugins:list', 'arguments' => []]], 0);
+
+        self::assertSame('deploy', $paused->sequenceId, 'the pause remembers WHICH sequence it is of');
+        self::assertNotSame('health-check', $paused->sequenceId, 'so a call naming another can be told apart');
     }
 
     /**

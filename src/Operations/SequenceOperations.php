@@ -170,7 +170,34 @@ final readonly class SequenceOperations implements CommandProvider
         $petition = 'run the ' . $name . ' sequence';
 
         $existing = $store->load($sessionId);
-        $resuming = $existing?->pausedSequence !== null;
+        $paused = $existing?->pausedSequence;
+
+        // A RESUME IS OF WHAT WAS NAMED, and this used to resume whatever the session happened to hold.
+        //
+        // `$resuming` was set from the session alone, and the resume path then discards the steps this
+        // call resolved — so `sequence:run {sequence: health-check, session: «sequence:deploy»}` ran
+        // DEPLOY'S paused steps while the catalogue, the ledger's petition and the human's intent all
+        // said health-check. The intent contract (ADR-0044) exists so a human names the target; naming
+        // one and running another is that contract broken from the inside.
+        //
+        // Today's constant ceiling is the only reason this was not already dangerous: both calls cost
+        // the same signature. That is a coincidence, not a guard, and it disappears the moment the
+        // ceiling is derived (greenhouse decisions/0223, point 2).
+        if ($paused !== null && $paused->sequenceId !== $name) {
+            return [
+                'ok' => false,
+                'error' => \sprintf(
+                    'session «%s» is paused on «%s», not on «%s»: a resume continues the sequence that was '
+                    . 'named, and this call names another. Resume it as «%s», or use a different session.',
+                    $sessionId,
+                    $paused->sequenceId,
+                    $name,
+                    $paused->sequenceId,
+                ),
+            ];
+        }
+
+        $resuming = $paused !== null;
         if ($existing === null) {
             $store->start($sessionId, $petition, AutonomyMode::Ask);
         }
