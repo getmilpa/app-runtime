@@ -195,12 +195,24 @@ final class ProveedorQuePresta implements CommandProvider, CatalogueBorrower
     /** @return list<Operation> */
     public function operations(): array
     {
+        return self::build(self::loQueHace()->join(JudgeCeiling::prestado($this->catalogue)));
+    }
+
+    /** @return list<Operation> */
+    public function operationsAtTheFloor(): array
+    {
+        return self::build(self::loQueHace());
+    }
+
+    /** @return list<Operation> */
+    private static function build(EffectProfile $ceiling): array
+    {
         return [new Operation(
             name: 'presta',
             description: 'an operation that borrows its ceiling from the catalogue',
             handler: static fn (): array => [],
             mutating: true,
-            effects: self::loQueHace()->join(JudgeCeiling::prestado($this->catalogue)),
+            effects: $ceiling,
         )];
     }
 }

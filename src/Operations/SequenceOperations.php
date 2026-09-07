@@ -93,6 +93,23 @@ final class SequenceOperations implements CatalogueBorrower
      */
     public function operations(): array
     {
+        return $this->build(self::floor()->join($this->foldOfEverySequence()));
+    }
+
+    /**
+     * `sequence:run` at what originating a governed sequence does ALONE — the seed the loan is solved
+     * from (greenhouse decisions/0224), before a single step is folded in.
+     *
+     * @return list<Operation>
+     */
+    public function operationsAtTheFloor(): array
+    {
+        return $this->build(self::floor());
+    }
+
+    /** @return list<Operation> */
+    private function build(EffectProfile $ceiling): array
+    {
         return [
             new Operation(
                 name: 'sequence:run',
@@ -105,7 +122,7 @@ final class SequenceOperations implements CatalogueBorrower
                 // design — the bare join — was measured before this was written: join(config-write,
                 // data-write) reaches neither Executable nor Privileged, so a real deployment would
                 // have lost its ceremony while still mutating (greenhouse decisions/0223, point 2).
-                effects: self::floor()->join($this->foldOfEverySequence()),
+                effects: $ceiling,
                 description: 'Run a sequence this app declared, step by step through the gate, pausing for consent',
                 handler: fn (array $input, ?InvocationContext $context = null): array => $this->run($input, $context),
                 inputSchema: [
@@ -173,9 +190,10 @@ final class SequenceOperations implements CatalogueBorrower
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
         $root = $kernel instanceof Kernel ? $kernel->root() : Capabilities::raizDeLaApp();
 
+        $declared = DeclaredSequences::underRoot($root);
         $fold = null;
-        foreach (DeclaredSequences::underRoot($root)->names() as $name) {
-            foreach (DeclaredSequences::underRoot($root)->stepsOf($name) ?? [] as $step) {
+        foreach ($declared->names() as $name) {
+            foreach ($declared->stepsOf($name) ?? [] as $step) {
                 $resolved = $this->offered($step->operation);
                 if ($resolved === null) {
                     return EffectProfile::unclassified();

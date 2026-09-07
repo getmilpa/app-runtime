@@ -129,6 +129,23 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
      */
     public function operations(): array
     {
+        return $this->build(self::loQueEscribeHace()->join(JudgeCeiling::prestado($this->operations)));
+    }
+
+    /**
+     * The same two operations with `config:set` at what writing a key does ALONE — the seed the loan
+     * is solved from (greenhouse decisions/0224). `config` is a read either way.
+     *
+     * @return list<Operation>
+     */
+    public function operationsAtTheFloor(): array
+    {
+        return $this->build(self::loQueEscribeHace());
+    }
+
+    /** @return list<Operation> */
+    private function build(EffectProfile $ceilingOfSet): array
+    {
         return [
             new Operation(
                 name: 'config',
@@ -158,8 +175,6 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
                 // hand it would be a number somebody guessed; derived, it moves when the catalogue
                 // moves.
                 //
-                // `key` escalates: until it is known, this ceiling is provisional, and a caller can
-                // ask `unresolvedEscalators()` whether the ceiling is still the ceiling.
                 // THE LOAN IS JOINED WITH WHAT THIS ACT DOES, never substituted for it.
                 //
                 // A mild app lends a mild ceiling, and a ceiling below the act itself is a
@@ -167,7 +182,7 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
                 // cannot carry `Mutation::None` no matter how gentle the catalogue is. Joining also
                 // keeps the loan monotone: it can only raise this ceiling, never excuse it, which is
                 // what makes borrowing safe at all (GOV-14).
-                effects: self::loQueEscribeHace()->join(JudgeCeiling::prestado($this->operations)),
+                effects: $ceilingOfSet,
             ),
         ];
     }

@@ -46,8 +46,34 @@ interface CatalogueBorrower extends CommandProvider
     /**
      * The same provider, holding the catalogue it borrows from.
      *
+     * CALLED MORE THAN ONCE per catalogue. Two borrowers lend to each other, so the loan is solved
+     * as a fixed point (greenhouse decisions/0224): every round hands this provider the solver's
+     * current approximation of the OTHER borrowers' operations, and asks again. What it publishes
+     * must be its floor joined upward with what it was lent — monotone in the lent ceilings, reading
+     * nothing from them but `name` and `effectCeiling()` — or the solver refuses it by name: a loan
+     * that came DOWN between rounds is not a loan.
+     *
      * @param list<Operation> $catalogue every operation of the app EXCEPT the ones this provider
      *                                   contributed
      */
     public function withCatalogue(array $catalogue): self;
+
+    /**
+     * The same operations, each carrying only what its act does ALONE — before any loan.
+     *
+     * The solver seeds from here, not from the first pass: the first pass is the maximum on purpose
+     * (an app that never runs the second pass fails closed), and a fixed point iterated DOWN from the
+     * maximum stays there whenever two borrowers can reach each other — deriving nothing while
+     * looking exactly like it worked, the failure evidence/0154 already named. Iterated UP from the
+     * floors it settles at the least fixed point: the closure of what each act can reach.
+     *
+     * Same names, same handlers, same scopes and surfaces as `operations()`; only the ceiling
+     * differs. A floor is built through `Operation`'s constructor, so it cannot say a write does not
+     * mutate — and an axis it is silent on stays `Unknown` through every round, because the maximum
+     * of an axis is absorbing under join (GOV-05): silence is not a floor, and the published contract
+     * says so.
+     *
+     * @return list<Operation>
+     */
+    public function operationsAtTheFloor(): array;
 }
