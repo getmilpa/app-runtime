@@ -3917,8 +3917,19 @@ class AgentOperations implements CommandProvider
                     // mutates is denied whether or not anybody got around to classifying it.
                     'mutating' => $op->mutating || $e->mutation !== Mutation::None,
                     'external' => $e->externality !== Externality::None,
+                    // A READ IS NOT IRREVERSIBLE: there is nothing to take back.
+                    //
+                    // This list was written when a read declared `Guaranteed` — the placeholder
+                    // greenhouse evidence/0553 removed, because twenty of twenty-three «guaranteed»
+                    // operations changed nothing at all and were collecting a discount nobody had
+                    // promised them. Correcting that lie moved every read to `NotApplicable`, and this
+                    // line had never heard of it: «withdraw what is irreversible» began withdrawing
+                    // every read in the catalogue, so the four classes at once left the agent nothing
+                    // to look at. Caught by milpa/framework's own boot proof, which asserts that a
+                    // CLASSIFIED catalogue survives containment by every class at once.
                     'irreversible' => $e->reversibility !== Reversibility::Guaranteed
-                        && $e->reversibility !== Reversibility::Compensatable,
+                        && $e->reversibility !== Reversibility::Compensatable
+                        && $e->reversibility !== Reversibility::NotApplicable,
                     'authority' => $e->authority !== Authority::None && $e->authority !== Authority::Read,
                     default => false,
                 };
