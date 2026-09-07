@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Tests\Operations;
 
 use Milpa\AppRuntime\Agent\ObservedExecutor;
 use Milpa\AppRuntime\Operations\RecipeOperations;
+use Milpa\AppRuntime\Sequence\GovernedDoor;
 use Milpa\Command\InvocationContext;
 use Milpa\Container\DIContainer;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -84,7 +85,8 @@ final class ARecipeIsNamedNotLocatedTest extends TestCase
      */
     public function testTheObservedExecutorFollowsTheInvocation(): void
     {
-        $method = new \ReflectionMethod(RecipeOperations::class, 'observedExecutor');
+        // The door moved out of RecipeOperations: a recipe and a deployment share it (decisions/0223).
+        $method = new \ReflectionMethod(GovernedDoor::class, 'observedExecutor');
 
         $web = $method->invoke(null, InvocationContext::web(actor: 'passkey:rod', authorizationId: 'recipe:apply'));
         self::assertSame('passkey:rod', $web->principal?->id);

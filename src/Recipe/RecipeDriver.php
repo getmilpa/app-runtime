@@ -62,9 +62,32 @@ final class RecipeDriver
 
         $steps = (new RecipeExpander())->expand($recipe, $v['verdict'], $v['domain'], $installed());
 
+        return $this->runSteps($steps, $recipe->name, $executor, $store, $sessionId);
+    }
+
+    /**
+     * Runs an ALREADY-EXPANDED step list — the engine half, without the recipe half.
+     *
+     * A recipe and a deployment share this MOTOR and not their meaning (greenhouse decisions/0223): a
+     * recipe founds and installs before it makes, and a deployment must run exactly the list its app
+     * declared, with no preamble. Both want the same governed door, the same fail-closed first
+     * frontier, and the same durable pause — so the door lives here and the meaning lives in the
+     * operation that names the list.
+     *
+     * @param list<SequenceStep> $steps
+     *
+     * @return array<string, mixed> the same self-describing outcome {@see apply()} returns
+     */
+    public function runSteps(
+        array $steps,
+        string $sequenceId,
+        GovernedExecutor $executor,
+        SessionStore $store,
+        string $sessionId,
+    ): array {
         $result = (new GovernedSequenceRunner())->run($steps, $executor);
 
-        return $this->settle($result, $steps, $store, $sessionId, $recipe->name, resuming: false);
+        return $this->settle($result, $steps, $store, $sessionId, $sequenceId, resuming: false);
     }
 
     /**
