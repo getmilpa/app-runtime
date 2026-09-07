@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.125.0](https://github.com/getmilpa/app-runtime/compare/v0.124.0...v0.125.0) (2026-09-07)
+
+
+### Features
+
+* the three live prose rollbacks, and the doctor that finds the rest ([#301](https://github.com/getmilpa/app-runtime/issues/301)) ([53278af](https://github.com/getmilpa/app-runtime/commit/53278afd2746ff944f7bf5bf10068a5f3f6e3730))
+
 ## [0.124.0](https://github.com/getmilpa/app-runtime/compare/v0.123.1...v0.124.0) (2026-09-07)
 
 
