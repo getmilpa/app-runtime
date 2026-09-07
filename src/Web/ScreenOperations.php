@@ -142,12 +142,21 @@ final class ScreenOperations implements CommandProvider
                 effects: new EffectProfile(
                     Mutation::Ephemeral,
                     Externality::None,
-                    Reversibility::Guaranteed,
+                    // COMPENSATABLE, NOT GUARANTEED — greenhouse decisions/0221.
+                    //
+                    // Two reasons, and either one is enough. This handler REFUSES when no
+                    // `LayoutStateStore` is wired, so the undo depends on the host having wired
+                    // something; and «call me again with the previous value» is a claim about
+                    // ARGUMENTS, which nothing can check — `RollbackContracts` now reports an
+                    // operation that names itself, and it is right to.
+                    //
+                    // A compensating action exists and it is this one. What does not exist is a
+                    // guarantee, and `Guaranteed` is the only value in that enum that BUYS lower
+                    // scrutiny.
+                    Reversibility::Compensatable,
                     Authority::WriteAsUser,
                     subject: Subject::Data,
-                    // The same call with the previous value is the inverse — it is the operation that
-                    // undoes this, named rather than described.
-                    rollbackContract: 'screen:set-state',
+                    rollbackContract: 'call screen:set-state again with the previous value',
                 ),
             ),
         ];
