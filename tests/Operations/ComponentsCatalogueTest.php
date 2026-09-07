@@ -17,11 +17,17 @@ namespace Milpa\AppRuntime\Tests\Operations;
 use Milpa\AppRuntime\Operations\ComponentsCatalogue;
 use Milpa\AppRuntime\Web\ComponentDeclarations;
 use Milpa\Attributes\PluginMetadata;
+use Milpa\Command\Effect\Authority;
+use Milpa\Command\Effect\EffectProfile;
+use Milpa\Command\Effect\Externality;
+use Milpa\Command\Effect\Mutation;
+use Milpa\Command\Effect\Reversibility;
 use Milpa\Container\DIContainer;
 use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\Interfaces\Plugin\PluginInterface;
 use Milpa\Live\Contracts\Component\ComponentDefinitionInterface;
 use Milpa\Live\Contracts\Component\DeclaresComponents;
+use Milpa\Live\ValueObjects\ActionContract;
 use Milpa\Live\ValueObjects\ComponentContext;
 use Milpa\Live\ValueObjects\ComponentContract;
 use Milpa\Live\ValueObjects\InteractionRequest;
@@ -144,13 +150,33 @@ final class ComponentsCatalogueTest extends TestCase
         self::assertSame(['Milpa\Live\Components\Library'], $catalogue->sources);
     }
 
-    public function testAnActionSpecThatIsNotAMapIsStillAnswerableAsOne(): void
+    public function testEveryActionRowIsAMapSoNoAgentFacesAUnionType(): void
     {
-        // An agent reading the catalogue must not face a union type in one field: `'start' => []`
-        // encodes as `[]` in JSON while `'fire' => [...]` encodes as an object.
+        // `'start' => []` would encode as `[]` in JSON while `'fire' => [...]` encodes as an object,
+        // handing a reader two types in one field. Every row carries at least `payload` and
+        // `declaresEffects`, so none of them can ever be an empty list.
         $byName = $this->byName($this->catalogue([OddActionPlugin::class])->components);
+        $row = $byName['fixture-odd']['actions']['go'];
 
-        self::assertSame(['spec' => 'legacy-string'], $byName['fixture-odd']['actions']['go']);
+        self::assertArrayHasKey('payload', $row);
+        self::assertArrayHasKey('declaresEffects', $row);
+        self::assertFalse($row['declaresEffects'], 'a bare action declared nothing about its effects');
+        self::assertArrayNotHasKey('mutating', $row, 'and nothing may be answered on its behalf');
+    }
+
+    public function testADeclaredActionCarriesItsIntentAndAnUndeclaredOneSaysSo(): void
+    {
+        $byName = $this->byName($this->catalogue([CataloguedComponentsPlugin::class])->components);
+
+        $declared = $byName['fixture-rating']['actions']['set'];
+        self::assertTrue($declared['declaresEffects']);
+        self::assertTrue($declared['mutating']);
+        self::assertSame('Set the rating.', $declared['summary']);
+        self::assertSame('value', $declared['namedTarget']);
+        self::assertNotSame([], $declared['effects']);
+
+        $bare = $byName['fixture-bare']['actions'] ?? [];
+        self::assertSame([], $bare, 'a component that declares no actions carries none');
     }
 
     public function testWithNoKernelOnlyThisPackagesOwnPrimitivesAnswer(): void
@@ -237,7 +263,18 @@ final class FixtureRatingComponent implements ComponentDefinitionInterface
             defaultTemplate: 'components/fixture-rating.latte',
             propsSchema: ['max' => ['type' => 'int', 'default' => 5]],
             stateSchema: ['value' => ['type' => 'int']],
-            actions: ['set' => ['payload' => ['value' => 'int']]],
+            actions: ['set' => new ActionContract(
+                summary: 'Set the rating.',
+                mutating: true,
+                effects: new EffectProfile(
+                    mutation: Mutation::Persistent,
+                    externality: Externality::None,
+                    reversibility: Reversibility::Compensatable,
+                    authority: Authority::WriteAsUser,
+                ),
+                namedTarget: 'value',
+                payload: ['value' => 'int'],
+            )],
         );
     }
 
@@ -397,7 +434,7 @@ final class FixtureOddComponent implements ComponentDefinitionInterface
         return new ComponentContract(
             name: 'fixture-odd',
             contractVersion: '1',
-            actions: ['go' => 'legacy-string'],
+            actions: ['go' => []],
         );
     }
 
