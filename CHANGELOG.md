@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.126.0](https://github.com/getmilpa/app-runtime/compare/v0.125.1...v0.126.0) (2026-09-07)
+
+
+### Features
+
+* the reversal falsifier, through the gate — two ceremonies, not one ([#305](https://github.com/getmilpa/app-runtime/issues/305)) ([bafb75a](https://github.com/getmilpa/app-runtime/commit/bafb75aa51bc9cd90cf6adede082ab591a1afd43))
+
 ## [0.125.1](https://github.com/getmilpa/app-runtime/compare/v0.125.0...v0.125.1) (2026-09-07)
 
 
