@@ -1022,7 +1022,16 @@ final class Application
     {
         try {
             $rotas = RollbackContracts::findings($this->all());
-        } catch (\Throwable) {
+        } catch (\Throwable $noSePudo) {
+            // NO DEBER NADA Y NO HABER PODIDO PREGUNTAR NO SE VEN IGUAL.
+            //
+            // Esto callaba en los dos casos, así que un control positivo —«con la casa limpia, calla»—
+            // no distinguía una casa sin deudas de una tabla que no se pudo componer. Un control que no
+            // separa esas dos no controla nada, y `PluginManagementPlugin::operations()` lanza a
+            // propósito cuando no hay registro en el contenedor: el silencio era alcanzable de verdad.
+            $this->line('');
+            $this->line('  ? no se pudieron leer las promesas de reversa: ' . $noSePudo->getMessage());
+
             return;
         }
 

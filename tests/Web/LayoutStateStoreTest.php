@@ -115,7 +115,11 @@ final class LayoutStateStoreTest extends TestCase
         self::assertTrue($op->mutating);
         self::assertSame(Mutation::Ephemeral, $op->effects?->mutation);
         self::assertSame(Externality::None, $op->effects?->externality);
-        self::assertSame(Reversibility::Guaranteed, $op->effects?->reversibility);
+        // COMPENSATABLE, not Guaranteed (greenhouse decisions/0221): this handler refuses when no
+        // LayoutStateStore is wired, so the undo depends on the host; and «call me again with the
+        // previous value» is a claim about ARGUMENTS that nothing can check. A compensating action
+        // exists; a guarantee does not, and `Guaranteed` is the one value that buys lower scrutiny.
+        self::assertSame(Reversibility::Compensatable, $op->effects?->reversibility);
         self::assertSame(Authority::WriteAsUser, $op->effects?->authority);
     }
 }
