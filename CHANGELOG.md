@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [0.128.0](https://github.com/getmilpa/app-runtime/compare/v0.127.0...v0.128.0) (2026-09-07)
+
+
+### Features
+
+* `sequence:run` — a human starts a declared sequence from the panel ([#311](https://github.com/getmilpa/app-runtime/issues/311)) ([40b8780](https://github.com/getmilpa/app-runtime/commit/40b8780a85ccdad0b64a9c107aae600dd3235e89))
+
+
+### Bug Fixes
+
+* a recipe is NAMED, not located — and whoever runs it is READ, not invented ([#309](https://github.com/getmilpa/app-runtime/issues/309)) ([89f2750](https://github.com/getmilpa/app-runtime/commit/89f27502eeb143d9b6cc84bd5bc032d16d6c12de))
+
 ## [0.127.0](https://github.com/getmilpa/app-runtime/compare/v0.126.0...v0.127.0) (2026-09-07)
 
 
