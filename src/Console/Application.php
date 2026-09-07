@@ -1025,7 +1025,7 @@ final class Application
         // would open on an empty state, and announcing a screen with nothing to show teaches that the
         // help lies — the same rule `chat` follows one line below.
         if (Capabilities::installed('admin')) {
-            $this->line('    panel [<section>] Every section of this app, on one screen (--json for a program)');
+            $this->line('    panel            Every section of this app, on one screen (or one: `panel <section>`, `--json`)');
         }
         // `chat` sólo si el agente está instalado. Este framework es tiny por default: anunciar una
         // pantalla que no puede abrirse enseñaría que la ayuda miente, y `coa capabilities` es donde
