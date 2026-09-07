@@ -17,7 +17,13 @@
       No están sin probar: están probadas desde el OTRO lado. `Console/Application.php`,
       `Operations/AgentOperations.php`, `Operations/RecipeOperations.php` y `Support/Operations.php`
       sólo se ejercitan con una app Milpa ARRANCADA —`config/boot.php`, contenedor, plugins— y una
-      app es justo lo que un paquete no tiene. `RecipeOperations` cae aquí por lo mismo que
+      app es justo lo que un paquete no tiene. `SequenceOperations` y `Sequence/GovernedDoor.php` caen
+      aquí por la MISMA razón y no por una nueva: la puerta gobernada vivía dentro de
+      `RecipeOperations` —ya excluida— y salió de ahí porque una receta y un despliegue comparten el
+      motor y no el significado (greenhouse decisions/0223). Mover código excluido a un archivo nuevo
+      no lo vuelve medible; lo que sí se puede probar solo —el conjunto cerrado de secuencias
+      declaradas, y la declaración de la operación— vive medido en `Sequence/DeclaredSequences.php` y
+      en las pruebas de `sequence:run`. `RecipeOperations` cae aquí por lo mismo que
       `AgentOperations`: su manejador arma el registro, la compuerta de sesión y el puente de
       consentimiento contra un kernel booteado, y su núcleo puro —el que sí se puede probar solo— ya
       vive medido en `Recipe/RecipeDriver.php`. Sus pruebas de manejador viven en `milpa/framework`,
@@ -44,6 +50,8 @@
       <file>src/Console/Application.php</file>
       <file>src/Operations/AgentOperations.php</file>
       <file>src/Operations/RecipeOperations.php</file>
+      <file>src/Operations/SequenceOperations.php</file>
+      <file>src/Sequence/GovernedDoor.php</file>
       <file>src/Support/Operations.php</file>
       <file>src/Agent/TrialRunner.php</file>
     </exclude>
