@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.122.0](https://github.com/getmilpa/app-runtime/compare/v0.121.0...v0.122.0) (2026-09-07)
+
+
+### Features
+
+* the UI catalogue carries what an action is FOR, and says when nobody said ([#293](https://github.com/getmilpa/app-runtime/issues/293)) ([4b08d82](https://github.com/getmilpa/app-runtime/commit/4b08d829e9c51ed0264e7ed8c2dbc7aa12119a23))
+
 ## [0.121.0](https://github.com/getmilpa/app-runtime/compare/v0.120.2...v0.121.0) (2026-09-06)
 
 
