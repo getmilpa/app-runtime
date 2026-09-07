@@ -48,6 +48,13 @@ use Psr\Log\NullLogger;
  */
 final class GovernedDoor
 {
+    /**
+     * Opens the governed door one sequence originates every call through.
+     *
+     * The registry is projected from what this app OFFERS (`AgentTable::offers`), so a step naming an
+     * operation the app does not offer reaches the gate as unjudgeable and fails closed rather than
+     * running unjudged.
+     */
     public static function open(
         Kernel $kernel,
         string $root,

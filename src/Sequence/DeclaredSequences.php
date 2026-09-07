@@ -68,6 +68,9 @@ final readonly class DeclaredSequences
     }
 
     /**
+     * The set as an app wrote it, validated: a sequence whose steps do not all name an operation is
+     * dropped whole rather than silently shortened.
+     *
      * @param array<mixed> $declared name → list of `['op' => string, 'args' => array]`
      */
     public static function fromArray(array $declared): self

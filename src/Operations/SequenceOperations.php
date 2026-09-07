@@ -63,7 +63,11 @@ final readonly class SequenceOperations implements CommandProvider
     {
     }
 
-    /** @return list<Operation> */
+    /**
+     * The one operation this provider contributes: `sequence:run`.
+     *
+     * @return list<Operation>
+     */
     public function operations(): array
     {
         return [
