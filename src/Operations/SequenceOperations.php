@@ -18,7 +18,9 @@ use Milpa\Agent\AutonomyMode;
 use Milpa\AppRuntime\Recipe\RecipeDriver;
 use Milpa\AppRuntime\Sequence\DeclaredSequences;
 use Milpa\AppRuntime\Sequence\GovernedDoor;
-use Milpa\Command\CommandProvider;
+use Milpa\AppRuntime\Support\CatalogueBorrower;
+use Milpa\AppRuntime\Support\Capabilities;
+use Milpa\Command\Consent\OperationId;
 use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Externality;
@@ -57,10 +59,31 @@ use Milpa\Runtime\Kernel;
  * `ConsentBridge` an agent's calls go through, so the run stops at the first frontier and its pause is
  * a durable session fact another process can resume.
  */
-final readonly class SequenceOperations implements CommandProvider
+final class SequenceOperations implements CatalogueBorrower
 {
-    public function __construct(private DIContainerInterface $container)
+    /** @var list<Operation> the app's catalogue, EXCEPT this provider's own — null on the first pass */
+    private ?array $catalogue = null;
+
+    public function __construct(private readonly DIContainerInterface $container)
     {
+    }
+
+    /**
+     * The same provider, now holding the catalogue whose ceilings its steps are folded from.
+     *
+     * Built from `config/operations.php` this provider receives nothing, because it is built in order to
+     * PRODUCE that catalogue. `Operations::withBorrowedCeilings()` asks again once the catalogue is
+     * complete, and what it hands over excludes this provider's own operations — folding the borrower
+     * into its own loan is a fixed point that returns the maximum while looking like it worked.
+     *
+     * @param list<Operation> $catalogue
+     */
+    public function withCatalogue(array $catalogue): self
+    {
+        $provider = new self($this->container);
+        $provider->catalogue = $catalogue;
+
+        return $provider;
     }
 
     /**
@@ -73,23 +96,16 @@ final readonly class SequenceOperations implements CommandProvider
         return [
             new Operation(
                 name: 'sequence:run',
-                effects: new EffectProfile(
-                    // THE CEILING OF WHAT IT ORIGINATES, not of any single step — the same shape
-                    // `recipe:apply` declares, because the same door judges each step on its own
-                    // declared effects as the sequence runs.
-                    //
-                    // Deriving this from the declared steps (the `join` of their profiles) is the next
-                    // slice of decisions/0223 and deliberately NOT done here: a per-app ceiling read at
-                    // declaration time would be a profile that changes with config, and that is a
-                    // decision, not a detail.
-                    Mutation::Persistent,
-                    Externality::ThirdParty,
-                    // A sequence has no tested inverse: undoing it means undoing each step that ran,
-                    // and those are the steps' own promises, not this one's.
-                    Reversibility::ManualRecovery,
-                    Authority::Privileged,
-                    subject: Subject::Executable,
-                ),
+                // THE CEILING RISES WITH THE STEPS, AND NEVER FALLS BELOW THE FLOOR.
+                //
+                // `constant->join(steps)` — the shape `config:set` already borrows its ceiling with,
+                // and the three properties that make it safe are the same and deliberate: it only
+                // RAISES (joined onto a hand-written floor, never substituted), its empty case is the
+                // maximum, and a step the app does not offer folds to the maximum too. The naive
+                // design — the bare join — was measured before this was written: join(config-write,
+                // data-write) reaches neither Executable nor Privileged, so a real deployment would
+                // have lost its ceremony while still mutating (greenhouse decisions/0223, point 2).
+                effects: self::floor()->join($this->foldOfEverySequence()),
                 description: 'Run a sequence this app declared, step by step through the gate, pausing for consent',
                 handler: fn (array $input, ?InvocationContext $context = null): array => $this->run($input, $context),
                 inputSchema: [
@@ -119,6 +135,73 @@ final readonly class SequenceOperations implements CommandProvider
                 surfaces: ['cli', 'tui', 'mcp', 'http'],
             ),
         ];
+    }
+
+    /**
+     * What running ANY sequence does on its own, before folding a single step: the ceiling of what it
+     * originates — the same shape `recipe:apply` declares, because the same door judges each step on its
+     * own declared effects as the sequence runs. A floor is the one thing a fold can never lower.
+     */
+    private static function floor(): EffectProfile
+    {
+        return new EffectProfile(
+            Mutation::Persistent,
+            Externality::ThirdParty,
+            // A sequence has no tested inverse: undoing it means undoing each step that ran, and those
+            // are the steps' own promises, not this one's.
+            Reversibility::ManualRecovery,
+            Authority::Privileged,
+            subject: Subject::Executable,
+        );
+    }
+
+    /**
+     * The join of every step of every sequence this app declared, resolved against the catalogue.
+     *
+     * Two answers are the maximum on purpose, and the docblock of `JudgeCeiling::prestado()` already
+     * says why: what nobody classified carries the maximum of every dimension (GOV-05). No catalogue —
+     * the first pass, before the loan — is the maximum. A step naming an operation the app does not
+     * offer is the maximum too: a sequence that cannot be judged whole cannot be judged cheaper than
+     * its worst possibility, and this is the same refusal the gate makes at run time (UNJUDGEABLE).
+     */
+    private function foldOfEverySequence(): EffectProfile
+    {
+        if ($this->catalogue === null) {
+            return EffectProfile::unclassified();
+        }
+
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        $root = $kernel instanceof Kernel ? $kernel->root() : Capabilities::raizDeLaApp();
+
+        $fold = null;
+        foreach (DeclaredSequences::underRoot($root)->names() as $name) {
+            foreach (DeclaredSequences::underRoot($root)->stepsOf($name) ?? [] as $step) {
+                $resolved = $this->offered($step->operation);
+                if ($resolved === null) {
+                    return EffectProfile::unclassified();
+                }
+                $theirs = $resolved->effectCeiling();
+                $fold = $fold === null ? $theirs : $fold->join($theirs);
+            }
+        }
+
+        // No sequence declared at all is NOT the maximum: it is a floor with nothing to raise it. An app
+        // that deploys nothing should not carry an unbounded ceiling for an operation that answers
+        // «this app declares none».
+        return $fold ?? EffectProfile::readOnly();
+    }
+
+    /** The catalogue entry a step names — by IDENTITY, however the step spelled it. */
+    private function offered(string $name): ?Operation
+    {
+        $wanted = new OperationId($name);
+        foreach ($this->catalogue ?? [] as $operation) {
+            if ($wanted->is($operation->name)) {
+                return $operation;
+            }
+        }
+
+        return null;
     }
 
     /**

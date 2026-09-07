@@ -18,6 +18,11 @@ use Milpa\Agent\PausedSequence;
 use Milpa\AppRuntime\Operations\SequenceOperations;
 use Milpa\AppRuntime\Sequence\DeclaredSequences;
 use Milpa\Command\Effect\Authority;
+use Milpa\Runtime\Kernel;
+use Milpa\Command\Effect\Reversibility;
+use Milpa\Command\Effect\Mutation;
+use Milpa\Command\Effect\Externality;
+use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Subject;
 use Milpa\Command\Operation;
 use Milpa\Container\DIContainer;
@@ -155,17 +160,151 @@ final class ASequenceIsNamedFromAClosedSetTest extends TestCase
     }
 
     /**
-     * And it declares the ceiling of what it ORIGINATES — enough that `Consent::demanded()` is true by
-     * rule S2, so the surface's own confirm ceremony fires before a single step is judged.
+     * THE FIRST PASS IS THE MAXIMUM, by design and by precedent. Built from `config/operations.php` this
+     * provider receives no catalogue — it is built in order to PRODUCE one — so it borrows from nothing,
+     * and GOV-05 makes that the maximum of every axis: safe, and derived from nothing. That is exactly
+     * what `ConfigOperations` does on its first pass, and `Consent::demanded()` is still true by weight.
      */
-    public function testItDeclaresTheCeilingOfWhatItOriginates(): void
+    public function testBeforeTheLoanTheCeilingIsTheMaximum(): void
     {
         $effects = $this->operation()->effects;
 
         self::assertNotNull($effects);
-        self::assertSame(Subject::Executable, $effects->subject);
-        self::assertSame(Authority::Privileged, $effects->authority);
-        self::assertTrue($effects->isFullyClassified(), 'somebody decided this, it is not four unknowns');
+        self::assertFalse($effects->isFullyClassified(), 'nothing was derived yet, and it says so');
+        self::assertGreaterThanOrEqual(Subject::Executable->weight(), $effects->subject->weight());
+        self::assertGreaterThanOrEqual(Authority::Privileged->weight(), $effects->authority->weight());
+    }
+
+    /**
+     * F3 OF `decisions/0223` — THE CEILING RISES WITH THE STEPS.
+     *
+     * The floor says `ManualRecovery`. A declared step that is `Irreversible` lifts the whole sequence
+     * to `Irreversible`: what it originates includes that step, so the ceiling cannot say less.
+     */
+    public function testAStepWorseThanTheFloorRaisesTheCeiling(): void
+    {
+        $effects = $this->declaredWith(
+            ['deploy' => [['op' => 'plugins:list', 'args' => []], ['op' => 'db:drop', 'args' => []]]],
+            [self::read('plugins.list'), self::irreversible('db.drop')],
+        )->effects;
+
+        self::assertNotNull($effects);
+        self::assertSame(Reversibility::Irreversible, $effects->reversibility, 'the worst step decides');
+        self::assertTrue($effects->isFullyClassified(), 'derived from classified steps, so it IS classified');
+    }
+
+    /**
+     * F3'S CONTROL — AND THE FIRST VERSION OF THIS CONTROL WAS THE DEFECT.
+     *
+     * It used to read «removing that step LOWERS the ceiling — if it does not, the join is not being
+     * used». A control that celebrates the ceiling going down is a control that approves the hole: the
+     * naive join of two ordinary writes reaches neither Executable nor Privileged, so a real deployment
+     * would have lost its ceremony while still mutating. The fold is a FLOOR joined upward, never a
+     * substitute — so a sequence of pure reads keeps the floor exactly.
+     */
+    public function testASequenceOfPureReadsKeepsTheFloorAndNeverLowersIt(): void
+    {
+        $effects = $this->declaredWith(
+            ['health' => [['op' => 'plugins:list', 'args' => []], ['op' => 'plugins:show', 'args' => []]]],
+            [self::read('plugins.list'), self::read('plugins.show')],
+        )->effects;
+
+        self::assertNotNull($effects);
+        self::assertSame(Subject::Executable, $effects->subject, 'the floor held');
+        self::assertSame(Authority::Privileged, $effects->authority, 'the floor held');
+        self::assertSame(Reversibility::ManualRecovery, $effects->reversibility, 'nothing lowered it');
+        self::assertTrue($effects->isFullyClassified());
+    }
+
+    /**
+     * A step naming an operation the app does NOT offer folds to the maximum: a sequence that cannot be
+     * judged whole cannot be judged cheaper than its worst possibility — the same refusal the gate makes
+     * at run time (UNJUDGEABLE).
+     */
+    public function testAStepTheAppDoesNotOfferFoldsToTheMaximum(): void
+    {
+        $effects = $this->declaredWith(
+            ['deploy' => [['op' => 'plugins:list', 'args' => []], ['op' => 'nobody:has-this', 'args' => []]]],
+            [self::read('plugins.list')],
+        )->effects;
+
+        self::assertNotNull($effects);
+        self::assertFalse($effects->isFullyClassified(), 'unjudgeable whole, so unbounded');
+        self::assertSame(Reversibility::Unknown, $effects->reversibility);
+    }
+
+    /** No sequence declared is a floor with nothing to raise it — not an unbounded ceiling. */
+    public function testAnAppThatDeclaresNoSequencesKeepsTheFloor(): void
+    {
+        $effects = $this->declaredWith([], [self::read('plugins.list')])->effects;
+
+        self::assertNotNull($effects);
+        self::assertTrue($effects->isFullyClassified(), 'answering «this app declares none» is not unbounded');
+        self::assertSame(Reversibility::ManualRecovery, $effects->reversibility);
+    }
+
+    /**
+     * The provider AFTER the loan: a real `config/sequences.php` under a root the container's kernel
+     * points at, and the catalogue `Operations::withBorrowedCeilings()` would hand over.
+     *
+     * @param array<string, mixed> $sequences
+     * @param list<Operation>      $catalogue
+     */
+    private function declaredWith(array $sequences, array $catalogue): Operation
+    {
+        $root = sys_get_temp_dir() . '/milpa-fold-' . bin2hex(random_bytes(4));
+        mkdir($root . '/config', 0o775, true);
+        file_put_contents(
+            $root . '/config/sequences.php',
+            "<?php\n\ndeclare(strict_types=1);\n\nreturn " . var_export($sequences, true) . ";\n",
+        );
+
+        $kernel = (new \ReflectionClass(Kernel::class))->newInstanceWithoutConstructor();
+        foreach (['root' => $root, 'commands' => []] as $name => $value) {
+            $prop = new \ReflectionProperty(Kernel::class, $name);
+            $prop->setValue($kernel, $value);
+        }
+        $container = new DIContainer();
+        $container->registerService(Kernel::class, $kernel);
+
+        $operations = (new SequenceOperations($container))->withCatalogue($catalogue)->operations();
+
+        unlink($root . '/config/sequences.php');
+        rmdir($root . '/config');
+        rmdir($root);
+
+        self::assertCount(1, $operations);
+
+        return $operations[0];
+    }
+
+    private static function read(string $name): Operation
+    {
+        return new Operation(
+            name: $name,
+            effects: EffectProfile::readOnly(),
+            description: 'x',
+            handler: static fn (): array => [],
+            inputSchema: ['type' => 'object'],
+        );
+    }
+
+    private static function irreversible(string $name): Operation
+    {
+        return new Operation(
+            name: $name,
+            effects: new EffectProfile(
+                Mutation::Persistent,
+                Externality::None,
+                Reversibility::Irreversible,
+                Authority::WriteAsUser,
+                subject: Subject::Data,
+            ),
+            description: 'x',
+            handler: static fn (): array => [],
+            inputSchema: ['type' => 'object'],
+            mutating: true,
+        );
     }
 
     /** A name the app never declared is answered with the ones it DID: a wrong guess deserves the list. */
