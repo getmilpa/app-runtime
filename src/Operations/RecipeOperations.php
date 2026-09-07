@@ -41,6 +41,7 @@ use Milpa\Command\Effect\Externality;
 use Milpa\Command\Effect\Mutation;
 use Milpa\Command\Effect\Reversibility;
 use Milpa\Command\Effect\Subject;
+use Milpa\Command\InvocationContext;
 use Milpa\Command\Operation;
 use Milpa\Console\McpProjector;
 use Milpa\Interfaces\Di\DIContainerInterface;
@@ -89,7 +90,7 @@ final class RecipeOperations implements CommandProvider
                     subject: Subject::Executable,
                 ),
                 description: 'Apply a declared recipe — found, enable and make in one governed sequence, pausing for consent',
-                handler: fn (array $input): array => $this->apply($input),
+                handler: fn (array $input, ?InvocationContext $context = null): array => $this->apply($input, $context),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
@@ -121,18 +122,33 @@ final class RecipeOperations implements CommandProvider
      *
      * @return array<string, mixed>
      */
-    private function apply(array $input): array
+    private function apply(array $input, ?InvocationContext $context = null): array
     {
+        $name = \is_string($input['recipe'] ?? null) ? trim($input['recipe']) : '';
+        if ($name === '') {
+            return ['ok' => false, 'error' => 'name a recipe: recipe:apply reads recipes/<recipe>.json'];
+        }
+
+        // A RECIPE NAME IS NOT A PATH, and this concatenated one into a filename.
+        //
+        // `$name` comes from the request and went straight into `recipes/{$name}.json` with no
+        // `basename`, no `realpath` and no test. From a shell you already own that is harmless; the
+        // moment this operation reaches any surface a stranger can call, it stops being a NAME and
+        // becomes a choice of which file on disk holds the list of operations to run — an upload
+        // directory, `/tmp`, a JSON log. The step list is executable, so choosing it is choosing code.
+        //
+        // One segment, and the segment cannot be `.` or `..`. The check is on the NAME, before the
+        // filesystem is touched: a path that never gets built cannot escape.
+        if (preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]*$/', $name) !== 1 || str_contains($name, '..')) {
+            return ['ok' => false, 'error' => "«{$name}» is not a recipe name: a recipe is named, not located"];
+        }
+
+
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
         if (! $kernel instanceof Kernel) {
             return ['ok' => false, 'error' => 'no kernel: recipe:apply needs a booted app'];
         }
         $root = $kernel->root();
-
-        $name = \is_string($input['recipe'] ?? null) ? trim($input['recipe']) : '';
-        if ($name === '') {
-            return ['ok' => false, 'error' => 'name a recipe: recipe:apply reads recipes/<recipe>.json'];
-        }
 
         $file = $root . '/recipes/' . $name . '.json';
         if (! is_file($file)) {
@@ -176,7 +192,7 @@ final class RecipeOperations implements CommandProvider
             return ['ok' => false, 'error' => 'could not open a session to govern the recipe'];
         }
 
-        $executor = $this->governedExecutor($kernel, $root, $store, $session, $petition);
+        $executor = $this->governedExecutor($kernel, $root, $store, $session, $petition, $context);
         $driver = new RecipeDriver();
 
         if ($resuming) {
@@ -208,6 +224,7 @@ final class RecipeOperations implements CommandProvider
         SessionStore $store,
         Session $session,
         string $petition,
+        ?InvocationContext $context = null,
     ): ConsentBridge {
         $registry = new ToolRegistry(new NullLogger());
         $offered = array_values(array_filter(
@@ -257,11 +274,39 @@ final class RecipeOperations implements CommandProvider
             gate: $gate,
             recorder: $gate,
             executions: $gate,
-            executor: new ObservedExecutor(
+            executor: self::observedExecutor($context),
+        );
+    }
+
+    /**
+     * WHO IS OBSERVABLY RUNNING THIS, read from the invocation instead of from the environment.
+     *
+     * This used to build `Principal::fromTerminal(getenv('USER'), gethostname())` unconditionally, which
+     * is right on a terminal and false everywhere else: over HTTP it writes `cli:www-data@host,
+     * verified:false` into the ledger for EVERY step of the sequence — a chain of custody that names the
+     * server process as the operator. {@see \Milpa\AppRuntime\Agent\ObservedExecutor} says it in its own
+     * docblock: «a principal reconstructed at read time is false evidence with better typography», and it
+     * ships `unknown()` so the empty case has a name.
+     *
+     * Three honest answers, and no fourth:
+     *   · an actor the surface authenticated → that principal, with the channel as its provenance;
+     *   · no actor and a terminal → the process running it, which IS observable there;
+     *   · no actor anywhere else → `unknown()`, because inventing one is the defect this fixes.
+     */
+    private static function observedExecutor(?InvocationContext $context): ObservedExecutor
+    {
+        if ($context?->actor !== null && $context->actor !== '') {
+            return new ObservedExecutor(new Principal($context->actor, $context->verified), $context->channel);
+        }
+
+        if ($context === null || $context->channel === 'cli') {
+            return new ObservedExecutor(
                 Principal::fromTerminal(getenv('USER') ?: null, gethostname() ?: null),
                 ObservedExecutor::TERMINAL,
-            ),
-        );
+            );
+        }
+
+        return ObservedExecutor::unknown();
     }
 
     /**
