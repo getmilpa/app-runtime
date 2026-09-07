@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.130.0](https://github.com/getmilpa/app-runtime/compare/v0.129.0...v0.130.0) (2026-09-07)
+
+
+### Features
+
+* **loan:** a borrowed ceiling is the least fixed point of the loan, not a pass in file order ([#318](https://github.com/getmilpa/app-runtime/issues/318)) ([69a0b54](https://github.com/getmilpa/app-runtime/commit/69a0b540c6afddfa01486246e217646d9659a40d))
+
 ## [0.129.0](https://github.com/getmilpa/app-runtime/compare/v0.128.1...v0.129.0) (2026-09-07)
 
 
