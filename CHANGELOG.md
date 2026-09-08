@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.134.0](https://github.com/getmilpa/app-runtime/compare/v0.133.3...v0.134.0) (2026-09-08)
+
+
+### Features
+
+* events:catalogue — the house counts what was declared against what was fired ([#342](https://github.com/getmilpa/app-runtime/issues/342)) ([d71b7aa](https://github.com/getmilpa/app-runtime/commit/d71b7aac55dbc3fa35c564158c2fb0c28d391b2f))
+
 ## [0.133.3](https://github.com/getmilpa/app-runtime/compare/v0.133.2...v0.133.3) (2026-09-08)
 
 
