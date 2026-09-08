@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.130.1](https://github.com/getmilpa/app-runtime/compare/v0.130.0...v0.130.1) (2026-09-08)
+
+
+### Bug Fixes
+
+* **sequence:** a sequence carries the grants the human gave, so an approved step runs on resume ([#320](https://github.com/getmilpa/app-runtime/issues/320)) ([52fb572](https://github.com/getmilpa/app-runtime/commit/52fb5722a8e1740738c22b7ee789bdd2f33b2748))
+
 ## [0.130.0](https://github.com/getmilpa/app-runtime/compare/v0.129.0...v0.130.0) (2026-09-07)
 
 
