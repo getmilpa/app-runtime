@@ -143,6 +143,16 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
         // this line ever sees the un-canonicalized spelling again.
         $name = McpProjector::toolName($name);
 
+        // ONE SHAPE FOR EVERY DOOR (greenhouse decisions/0226): the ledger holds the call as JSON — the pause
+        // fact, the paused sequence — and PHP's encoder erases a zero fraction (1.0 → 1). Every door that
+        // compares this call against a recorded yes compares it in that shape, or a float the model writes
+        // as 1.0 never matches and the human is asked forever.
+        $encoded = json_encode($args, \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES);
+        if (\is_string($encoded)) {
+            $decoded = json_decode($encoded, true);
+            $args = \is_array($decoded) ? $decoded : $args;
+        }
+
         // THE SAME EXACTNESS, ONE LAYER EARLIER. `PolicyGate` decides on a `ConsentGrant` too, and it
         // compares that grant against `consent.arguments` — the arguments of the call being judged.
         // A context set once per run cannot carry those: they change with every call. Setting it here
@@ -234,7 +244,16 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
             // consumed or that ran out of time, and refusing is correct: the authority is still
             // valid, this particular attempt is not. The pending result travels on so the next turn
             // can mint a fresh attempt under the same standing yes.
-            unset($murió);
+            //
+            // ONLY THOSE TWO LAND HERE AS A PAUSE. Anything else that dies past the token — the tool's own
+            // failure, which the registry folds into an error result and the gate re-throws with the tool's
+            // message — is a FAILURE, not a pending confirmation: dressed as the pending sentinel it would
+            // persist a resumable cursor that re-runs the failing handler on every resume and never says
+            // what broke (found by the adversarial review of decisions/0226). The store refuses a dead token
+            // with one stable sentence, and that sentence is all that reaches this frame.
+            if (! str_contains($murió->getMessage(), 'Invalid or expired confirmation token')) {
+                throw $murió;
+            }
 
             return $result;
         }

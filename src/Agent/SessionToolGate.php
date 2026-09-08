@@ -35,6 +35,7 @@ use Milpa\Command\Effect\ProfileComposition;
 use Milpa\Command\Effect\Subject;
 use Milpa\Command\Consent\OperationId;
 use Milpa\Command\Operation;
+use Milpa\Console\Consent;
 use Milpa\Console\McpProjector;
 
 /**
@@ -64,6 +65,9 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      * so the fact keeps one name in one place.
      */
     public const PROGRESS_STALLED = 'session.progress_stalled';
+
+    /** @var null|list<\Milpa\Command\Consent\ConsentGrant> the yeses the ledger holds, derived once */
+    private ?array $recordedGrants = null;
 
     /**
      * SUMMARY: The marker every UNJUDGEABLE refusal carries, so audit can tell «I cannot judge this»
@@ -295,7 +299,11 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         );
 
         return match ($decision) {
-            PolicyDecision::Allow => null,
+            // ALLOWED BY NAME IS NOT YET ALLOWED FOR THIS CALL (greenhouse decisions/0226): when the yes that
+            // admits this call was recorded for OTHER arguments, the human is asked again — for these.
+            PolicyDecision::Allow => $this->aRecordedYesCoversTheseArguments($operacion, $arguments)
+                ? null
+                : $this->askUnlessAConfirmedIntentAdmits($operacion, $arguments, $composicion),
             // EL «why» SE GUARDA ESTRUCTURADO, igual que el de la pregunta de intención (:254).
             // `SessionPolicy` lo escribe como el JSON pelón de los argumentos, y así el operativo
             // que después quiera saber QUÉ autorizó el humano tendría que sacar la operación del
@@ -487,6 +495,43 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         return $this->permissionWindow === null
             ? null
             : (new \DateTimeImmutable())->add($this->permissionWindow);
+    }
+
+    /**
+     * TWO DOORS, ONE FACT. The session allows an operation by NAME (`Session::allows`); the tool-runtime gate
+     * admits a CALL by its exact arguments (`ConsentGrant::covers`), and the grant every door derives from
+     * the ledger (`SessionGrants::of`) carries the arguments the human was shown. When a recorded yes is what
+     * admits this call, this asks the other door's question first: does a recorded yes cover THESE arguments?
+     * If none does, the human is asked again — for these — instead of the call falling to the other door as a
+     * plain failure that no cursor records (greenhouse decisions/0226).
+     *
+     * A yes by name with NO fact behind it (a session older than the structured fact) has nothing to compare
+     * against: nothing changes for it here, the other door judges it as it always did. Only a recorded yes FOR
+     * OTHER ARGUMENTS asks again.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function aRecordedYesCoversTheseArguments(Operation $operacion, array $arguments): bool
+    {
+        if (! Consent::demanded($operacion) || ! \in_array($operacion->name, $this->session->permissions, true)) {
+            return true;
+        }
+
+        $recorded = false;
+        // DERIVED ONCE PER GATE: the session is a readonly value and this gate never swaps it, so its decisions
+        // cannot change under a live gate — the same one-time derivation the door hands the bridge.
+        $this->recordedGrants ??= SessionGrants::of($this->session->decisions, $this->session->id, new \DateTimeImmutable(), $this->operations);
+        foreach ($this->recordedGrants as $grant) {
+            if (! $grant->operation->is($operacion->name)) {
+                continue;
+            }
+            if ($grant->covers($operacion->name, $arguments)) {
+                return true;
+            }
+            $recorded = true;
+        }
+
+        return ! $recorded;
     }
 
     /**

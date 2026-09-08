@@ -130,6 +130,38 @@ final class LaunchGrants
     }
 
     /**
+     * The constraint values typed as the operation DECLARES them — so the seeded fact compares equal to the
+     * call the model makes. The command line hands every value over as a string; the model's JSON (and a
+     * recipe's) carries an int, a float or a bool for a field the schema declares so, and `ConsentGrant::covers()`
+     * compares strictly: `"1"` never covers `1` (found by the adversarial review of decisions/0226). A value
+     * that does not parse as its declared type is kept as written — the grant then covers nothing, the
+     * fail-closed side.
+     *
+     * @param array<string, string> $arguments
+     *
+     * @return array<string, scalar>
+     */
+    private static function typedByTheDeclaredSchema(Operation $operation, array $arguments): array
+    {
+        $properties = $operation->inputSchema['properties'] ?? null;
+        if (! \is_array($properties)) {
+            return $arguments;
+        }
+        $typed = [];
+        foreach ($arguments as $key => $value) {
+            $type = \is_array($properties[$key] ?? null) ? ($properties[$key]['type'] ?? null) : null;
+            $typed[$key] = match ($type) {
+                'integer' => preg_match('/^-?\\d+$/', $value) === 1 ? (int) $value : $value,
+                'number' => is_numeric($value) ? $value + 0 : $value,
+                'boolean' => \in_array(strtolower($value), ['true', 'false', '1', '0'], true) ? \in_array(strtolower($value), ['true', '1'], true) : $value,
+                default => $value,
+            };
+        }
+
+        return $typed;
+    }
+
+    /**
      * Seed every entry into the session as operator consent — once, all-or-nothing.
      *
      * Every entry is judged BEFORE anything is appended: an operation the catalogue does not
@@ -156,7 +188,7 @@ final class LaunchGrants
             if ($this->demandsSignature($operation)) {
                 return ['error' => "«{$operation->name}» demands a signature naming the call; a grant cannot replace it"];
             }
-            $resolved[] = ['operation' => $operation->name, 'arguments' => $entry['arguments']];
+            $resolved[] = ['operation' => $operation->name, 'arguments' => self::typedByTheDeclaredSchema($operation, $entry['arguments'])];
         }
 
         $session = $store->load($sessionId);

@@ -77,7 +77,9 @@ final class ASequenceCarriesTheGrantsTheHumanGaveTest extends TestCase
             'perm:' . $granted,
             'El agente quiere correr «' . $granted . '». ¿Lo autorizas en esta sesión?',
             ['sí', 'no'],
-            json_encode(['operation' => $granted, 'arguments' => []], \JSON_THROW_ON_ERROR),
+            // THE FACT AS THE GATE WRITES IT: with the exact arguments the human saw — never `[]`, a blanket
+            // grant the real gate never writes (greenhouse decisions/0226).
+            json_encode(['operation' => $granted, 'arguments' => ['what' => 'the approved thing']], \JSON_THROW_ON_ERROR),
             null,
             'permission',
         ));

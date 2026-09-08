@@ -183,6 +183,9 @@ final class GovernedSequenceRunner
      */
     private static function isHardDeny(string $reason): bool
     {
-        return str_contains($reason, SessionToolGate::UNJUDGEABLE);
+        // THE MARKER IS A PREFIX, never a substring: a pause message embeds the human's own arguments, and an
+        // argument that happens to contain the word would turn a consent pause into a hard deny — no cursor,
+        // and the consented prefix re-run on every retry (found by the adversarial review of decisions/0226).
+        return str_starts_with($reason, SessionToolGate::UNJUDGEABLE . ':');
     }
 }

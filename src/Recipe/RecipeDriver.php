@@ -216,11 +216,37 @@ final class RecipeDriver
         }
 
         // Not paused, not complete: a step failed (something broke, nobody is waiting on a human).
+        //
+        // A RESUMED RUN THAT FAILS STILL HOLDS THE PAUSE IT WAS RESUMED FROM — its cursor pointing BEFORE
+        // the prefix that just ran under the human's yes — and `recipe:apply` / `sequence:run` dispatch on
+        // that pause, so every retry re-executed the prefix (greenhouse decisions/0226). No new pause is
+        // minted and none is cleared: the EXISTING one is moved to the failed step, so a retry resumes there
+        // and the executed prefix is carried, never re-run. The frontier stays what it is — a failure.
+        if ($resuming && $frontier?->status === StepStatus::Failed) {
+            $index = array_search($frontier, $result->outcomes, true);
+            if (\is_int($index)) {
+                try {
+                    $store->recordSequencePaused($sessionId, new PausedSequence(
+                        $sequenceId,
+                        SequenceCursor::digestOf($steps),
+                        array_map(
+                            static fn (SequenceStep $step): array => ['operation' => $step->operation, 'arguments' => $step->arguments],
+                            $steps,
+                        ),
+                        $index,
+                    ));
+                } catch (\Throwable) {
+                    // The cursor could not be moved: the failure below is still reported, and the old pause
+                    // stands — the shape this branch improves on, never worse than it.
+                }
+            }
+        }
+
         return [
             'ok' => false,
             'applied' => false,
             'paused' => false,
-            'reason' => $result->frontier()?->reason,
+            'reason' => $frontier?->reason,
             'executed_count' => $result->executedCount(),
             'steps_total' => \count($steps),
         ];
