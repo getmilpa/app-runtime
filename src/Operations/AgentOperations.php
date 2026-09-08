@@ -92,6 +92,8 @@ use Milpa\AppRuntime\Agent\SessionBookkeeping;
 use Milpa\AppRuntime\Agent\PrerequisiteGate;
 use Milpa\AppRuntime\Agent\ContractProducer;
 use Milpa\AppRuntime\Agent\SessionToolGate;
+use Milpa\AppRuntime\Support\CapabilityIndex;
+use Milpa\AppRuntime\Support\Routes;
 use Milpa\AppRuntime\Support\Operations;
 use Milpa\Interfaces\Tooling\ToolProviderInterface;
 use Milpa\EventStore\EventStoreInterface;
@@ -257,6 +259,82 @@ class AgentOperations implements CommandProvider
                 // nobody, and spends no authority.
                 effects: EffectProfile::readOnly(),
                 surfaces: ['cli', 'tui', 'mcp'],
+            ),
+            // THE FIRST HOUR (greenhouse decisions/0216): a newborn app answers «and now what?» with its own
+            // voice — what it is, what it can switch on and for what, what it exposes, and the next real steps.
+            // Not a tutorial: the state of the house said by the house, from the same authorities the agent reads.
+            new Operation(
+                name: 'house:start',
+                description: 'Where this app stands and what to do next: what it is, the capabilities it can switch on and for what, the routes it exposes, and the next real steps — the house saying its own state',
+                handler: fn (array $input): array => $this->houseStart(),
+                inputSchema: ['type' => 'object', 'properties' => [], 'required' => []],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean'],
+                        'app' => ['type' => 'object', 'description' => 'name, root and the foundation verdict'],
+                        'capabilities' => ['type' => 'object', 'description' => 'installed ids, and every available one with the command that switches it on'],
+                        'routes' => ['type' => 'object', 'description' => 'count and paths, as routes:list folds them'],
+                        'next' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'the next real steps, in order: each {step, command, why} — every command is one this app offers today'],
+                        'error' => ['type' => 'string'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                effects: EffectProfile::readOnly(),
+                // NOT over http: the answer carries the app's filesystem root, and a route the ops surface
+                // publishes under `expose: ['*']` answers without a principal — the same reason house:context
+                // stays off that surface (decisions/0194: http is a per-op opt-in with its own measurement).
+                surfaces: ['cli', 'tui', 'mcp'],
+                observableEvidence: 'every command under `next` is offered by `coa list` of this very app, and following the first one literally changes what `house:start` answers next',
+            ),
+            new Operation(
+                name: 'routes:list',
+                description: 'The route table this app exposes, route by route: method, path, name, handler, middleware and the plugin that declared it — the same fold the admin panel shows',
+                handler: fn (array $input): array => $this->routesList(),
+                inputSchema: ['type' => 'object', 'properties' => [], 'required' => []],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean'],
+                        'count' => ['type' => 'integer'],
+                        'routes' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'Each {method, path, name, handler, middleware, plugin}, sorted by path then method'],
+                        'error' => ['type' => 'string'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                effects: EffectProfile::readOnly(),
+                surfaces: ['cli', 'tui', 'mcp'],
+                observableEvidence: 'the rows equal, one by one, what the admin panel\'s Routes section shows — both fold the same plugins\' declarations',
+            ),
+            // `coa serve` — the difference between «it boots» and «I saw it» (greenhouse decisions/0216, point 3).
+            // A TERMINAL operation only: it holds the process until the server stops, which no other surface
+            // can afford. It prints the URL and hands the terminal to PHP's built-in server, with the skeleton's
+            // router when the app ships one (so routes served by controllers, not files, reach the kernel).
+            new Operation(
+                name: 'serve',
+                description: 'Start the development server on this app and print the URL — PHP\'s built-in server over public/, with the app\'s router when it ships one',
+                handler: fn (array $input): array => $this->serve($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'host' => ['type' => 'string', 'description' => 'The address to bind (default 127.0.0.1)'],
+                        'port' => ['type' => 'integer', 'description' => 'The port to bind (default 8000)'],
+                        'dry_run' => ['type' => 'boolean', 'description' => 'Print the exact command instead of running it'],
+                    ],
+                    'required' => [],
+                ],
+                // It STARTS something: `coa list` sorts by this flag, and a server under «They read» is a lie.
+                mutating: true,
+                effects: new EffectProfile(
+                    Mutation::Ephemeral,
+                    Externality::None,
+                    // A server that runs until you stop it: nothing persists, and stopping it is the recovery.
+                    Reversibility::ManualRecovery,
+                    Authority::WriteAsUser,
+                    subject: Subject::Executable,
+                ),
+                surfaces: ['cli'],
+                observableEvidence: 'the URL it prints answers 200 in a browser while it runs',
             ),
             new Operation(
                 name: 'house:context',
@@ -804,6 +882,172 @@ class AgentOperations implements CommandProvider
             'name' => $name,
             'error' => "unknown operation «{$name}» — no operation in this app's catalogue has that identity",
         ];
+    }
+
+    /**
+     * `house:start` — the state of the house, said by the house, and the next real steps.
+     *
+     * Every step names a command THIS app offers today (an app that does not offer `serve` is not told to
+     * serve), and the steps change as they are taken: switch devtools on and the first step disappears.
+     *
+     * @param null|string $vendor the vendor root whose `installed.json` says what is switched on; the running
+     *                            app's when null — the same seam as {@see Capabilities::state()}, for the same
+     *                            reason (a provider's constructor is the host's, greenhouse decisions/0212)
+     *
+     * @return array<string, mixed>
+     */
+    public function houseStart(?string $vendor = null): array
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return ['ok' => false, 'error' => 'this app has no kernel, so there is no house to start from yet'];
+        }
+        $root = $kernel->root();
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $appName = $config instanceof Config ? $config->get('app.name') : null;
+
+        // THE SAME ANSWER `capabilities` GIVES: the derived registry index on top of the offline floor —
+        // two doors reading the state through two different sources would disagree the day the index exists.
+        $state = Capabilities::state($vendor, CapabilityIndex::read());
+        $installed = array_map(static fn (array $c): string => (string) $c['id'], $state['installed']);
+        $available = array_map(static fn (array $c): array => [
+            'package' => (string) $c['package'],
+            'title' => (string) $c['title'],
+            'unlocks' => \is_array($c['unlocks'] ?? null) ? array_values($c['unlocks']) : [],
+            'command' => (string) $c['command'],
+        ], $state['available']);
+        $availablePackages = array_column($available, 'package');
+        $offered = array_map(static fn (Operation $op): string => $op->name, Operations::all($kernel, $root));
+        $routes = Routes::table($kernel);
+        $foundation = Foundation::answer($root);
+
+        $next = [];
+        if (\in_array('milpa/devtools', $availablePackages, true) && \in_array('capabilities:enable', $offered, true)) {
+            $next[] = ['step' => 'switch on the generators', 'command' => 'coa capabilities:enable milpa/devtools', 'why' => 'make, validate and doctor: scaffold plugins, entities, controllers and tools, and let the house check them'];
+        }
+        $recipes = array_map(static fn (string $f): string => basename($f, '.json'), glob($root . '/recipes/*.json') ?: []);
+        if ($recipes !== [] && \in_array('recipe:apply', $offered, true)) {
+            $next[] = ['step' => 'become a domain', 'command' => 'coa recipe:apply --recipe=' . $recipes[0], 'why' => 'a recipe originates governed work: the foundation, the capabilities it needs and the scaffolds, each through the gate'];
+        } elseif (($foundation['verdict'] ?? '') === 'unfounded' && \in_array('foundation:found', $offered, true)) {
+            $next[] = ['step' => 'found the house', 'command' => 'coa foundation:found', 'why' => 'until a domain and an objective are declared, the agent can only read'];
+        }
+        if (\in_array('milpa/auth', $availablePackages, true) && \in_array('capabilities:enable', $offered, true)) {
+            $next[] = ['step' => 'put a door on it', 'command' => 'coa capabilities:enable milpa/auth', 'why' => 'identity: a passkey session becomes the principal of every operation over HTTP'];
+        }
+        if (\in_array('serve', $offered, true)) {
+            $next[] = ['step' => 'see it', 'command' => 'coa serve', 'why' => 'the development server, and the URL to open'];
+        }
+
+        return [
+            'ok' => true,
+            'app' => [
+                'name' => \is_string($appName) && $appName !== '' ? $appName : basename($root),
+                'root' => $root,
+                'foundation' => $foundation['verdict'] ?? 'indeterminate',
+            ],
+            'capabilities' => ['installed' => $installed, 'available' => $available],
+            'routes' => ['count' => \count($routes), 'paths' => array_values(array_unique(array_column($routes, 'path')))],
+            'next' => $next,
+        ];
+    }
+
+    /**
+     * `routes:list` — the table, route by route, with who declared each one.
+     *
+     * @return array<string, mixed>
+     */
+    public function routesList(): array
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return ['ok' => false, 'error' => 'this app has no kernel, so there is no route table to list yet'];
+        }
+        $routes = Routes::table($kernel);
+
+        return ['ok' => true, 'count' => \count($routes), 'routes' => $routes];
+    }
+
+    /**
+     * `serve` — PHP's built-in server over `public/`, with the app's router when it ships one.
+     *
+     * The server runs IN PLACE of `coa` (`pcntl_exec`): the signal that stops `coa` stops the server, where a
+     * child left behind by `passthru` outlived SIGTERM holding the port. Nothing returns once it started — the
+     * URL is printed before. Without pcntl it refuses and says the by-hand command; `dry_run` returns it.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    public function serve(array $input): array
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return ['ok' => false, 'error' => 'this app has no kernel, so there is nothing to serve yet'];
+        }
+        $root = $kernel->root();
+        if (!is_dir($root . '/public')) {
+            return ['ok' => false, 'error' => 'this app has no public/ directory to serve'];
+        }
+        // A MALFORMED VALUE IS REFUSED, NOT DEFAULTED: a port of «abc» that quietly became 8000 would start
+        // a server the caller did not ask for (the surfaces coerce well-formed input; a direct caller gets no
+        // second guess). Absent means the default; present and wrong means no.
+        if (\array_key_exists('host', $input) && !\is_string($input['host'])) {
+            return ['ok' => false, 'error' => 'the host must be a string: an address or a name'];
+        }
+        $host = \is_string($input['host'] ?? null) && trim($input['host']) !== '' ? trim($input['host']) : '127.0.0.1';
+        // `php -S` and a URL take an IPv6 literal only in brackets — a bare `::1` is «Invalid address» to both.
+        if (str_contains($host, ':') && !str_starts_with($host, '[')) {
+            $host = '[' . $host . ']';
+        }
+        $ipv6 = str_starts_with($host, '[') && str_ends_with($host, ']')
+            && filter_var(substr($host, 1, -1), \FILTER_VALIDATE_IP, \FILTER_FLAG_IPV6) !== false;
+        if (!$ipv6 && preg_match('/^[A-Za-z0-9][A-Za-z0-9.-]{0,63}$/', $host) !== 1) {
+            return ['ok' => false, 'error' => 'the host must be an address (IPv6 in brackets, e.g. [::1]) or a name, not «' . $host . '»'];
+        }
+        $port = 8000;
+        if (\array_key_exists('port', $input)) {
+            $given = $input['port'];
+            if (\is_string($given) && preg_match('/^-?\d+$/', $given) === 1) {
+                $given = (int) $given;
+            }
+            if (!\is_int($given)) {
+                return ['ok' => false, 'error' => 'the port must be an integer between 1 and 65535'];
+            }
+            $port = $given;
+        }
+        if ($port < 1 || $port > 65535) {
+            return ['ok' => false, 'error' => 'the port must be between 1 and 65535'];
+        }
+        if (\array_key_exists('dry_run', $input) && !\is_bool($input['dry_run'])) {
+            return ['ok' => false, 'error' => 'dry_run must be true or false'];
+        }
+        $router = is_file($root . '/public/router.php') ? 'public/router.php' : null;
+        $command = [\PHP_BINARY, '-S', $host . ':' . $port, '-t', 'public'];
+        if ($router !== null) {
+            $command[] = $router;
+        }
+        // THE URL TO OPEN IS `localhost`, not the address bound: a passkey door binds its assertions to a
+        // relying-party id, and `capabilities:enable identity` declares `localhost` — a browser at 127.0.0.1
+        // would be refused by the very door this server exists to show.
+        $url = 'http://' . (\in_array($host, ['0.0.0.0', '127.0.0.1', '[::1]', '[::]'], true) ? 'localhost' : $host) . ':' . $port . '/';
+
+        if (($input['dry_run'] ?? false) === true) {
+            return ['ok' => true, 'dry_run' => true, 'command' => implode(' ', $command), 'url' => $url, 'router' => $router];
+        }
+
+        if (!\function_exists('pcntl_exec')) {
+            return ['ok' => false, 'error' => 'this PHP has no pcntl, so coa cannot hand its process to the server; run it by hand', 'command' => implode(' ', $command), 'url' => $url];
+        }
+        if (!@chdir($root)) {
+            return ['ok' => false, 'error' => 'could not enter ' . $root];
+        }
+        echo 'Serving ' . basename($root) . ' at ' . $url . ($router !== null ? ' (with ' . $router . ')' : '') . "\n";
+        echo "Press Ctrl+C to stop.\n";
+        fflush(\STDOUT);
+        // Only returns when the exec itself failed: from here on, this process IS the server.
+        pcntl_exec(\PHP_BINARY, \array_slice($command, 1));
+
+        return ['ok' => false, 'error' => 'could not start ' . implode(' ', $command)];
     }
 
     /**
