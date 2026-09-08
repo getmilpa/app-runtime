@@ -18,6 +18,7 @@ use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\Principal;
 use Milpa\Agent\Session;
 use Milpa\Agent\SessionStore;
+use Milpa\AppRuntime\Agent\LaunchGrants;
 use Milpa\AppRuntime\Recipe\Recipe;
 use Milpa\AppRuntime\Recipe\RecipeDriver;
 use Milpa\AppRuntime\Sequence\GovernedDoor;
@@ -29,6 +30,7 @@ use Milpa\Command\Effect\Reversibility;
 use Milpa\Command\Effect\Subject;
 use Milpa\Command\Operation;
 use Milpa\Container\DIContainer;
+use Milpa\EventStore\FileEventStore;
 use Milpa\EventStore\InMemoryEventStore;
 use Milpa\Runtime\Kernel;
 use PHPUnit\Framework\Attributes\Test;
@@ -113,6 +115,138 @@ final class AYesForOtherArgumentsAsksAgainTest extends TestCase
         self::assertSame(['a', 'a'], self::$burned);
     }
 
+    #[Test]
+    public function an_argument_that_contains_the_unjudgeable_word_is_still_a_pause(): void
+    {
+        // The runner reads the UNJUDGEABLE marker as a PREFIX; a pause message embeds the human's own arguments,
+        // and a substring match turned this consent pause into a hard deny (no cursor, prefix re-run).
+        $recipe = Recipe::fromArray('demo', ['work' => [
+            ['op' => 'lab:burn', 'args' => ['what' => 'a']],
+            ['op' => 'lab:burn', 'args' => ['what' => 'note: UNJUDGEABLE by design']],
+        ]]);
+        $this->apply($recipe);
+        $this->sayYes();
+
+        $second = $this->apply($recipe);
+        self::assertTrue($second['paused'] ?? false, json_encode($second));
+        self::assertNotTrue($second['denied'] ?? false, 'a consent pause, not a hard deny');
+        self::assertSame(1, $second['executed_count'] ?? null);
+        $this->sayYes();
+
+        $third = $this->apply($recipe);
+        self::assertTrue($third['applied'] ?? false, json_encode($third));
+        self::assertSame(['a', 'note: UNJUDGEABLE by design'], self::$burned, 'each once, in order');
+    }
+
+    #[Test]
+    public function in_auto_mode_a_yes_for_other_arguments_asks_again_too(): void
+    {
+        // The mode is NOT consulted: auto means «do not ask for the reversible», never «do not ask». Before,
+        // an auto session with a yes for other arguments fell as a plain failure at the other door.
+        $recipe = Recipe::fromArray('demo', ['work' => [
+            ['op' => 'lab:burn', 'args' => ['what' => 'a']],
+            ['op' => 'lab:burn', 'args' => ['what' => 'b']],
+        ]]);
+        $this->apply($recipe);
+        $this->sayYes();
+        $this->store->setMode('recipe:demo', AutonomyMode::Auto);
+
+        $second = $this->apply($recipe);
+        self::assertTrue($second['paused'] ?? false, json_encode($second));
+        self::assertSame(['what' => 'b'], $this->askedFor());
+        self::assertSame(['a'], self::$burned);
+        $this->sayYes();
+
+        $third = $this->apply($recipe);
+        self::assertTrue($third['applied'] ?? false, json_encode($third));
+        self::assertSame(['a', 'b'], self::$burned);
+    }
+
+    #[Test]
+    public function a_float_the_model_writes_as_one_point_zero_is_covered_by_the_yes_it_got(): void
+    {
+        // The model path never passes the call through the store: `{"ratio":1.0}` decodes as float, the fact
+        // the ledger holds says int 1, and a strict comparison asked forever. Every door compares the call in
+        // the ledger's shape now. Measured against the store the app really uses.
+        $ledger = $this->root . '/ledger.jsonl';
+        $this->store = new SessionStore(new FileEventStore($ledger));
+        $this->store->start('recipe:demo', 'apply recipe demo', AutonomyMode::Ask);
+        $call = json_decode('{"ratio":1.0,"what":"a"}', true);
+        self::assertIsFloat($call['ratio'], 'the instrument: the model\'s JSON really carries a float');
+
+        try {
+            $this->door()->callTool('lab_burn', $call);
+            self::fail('the first call pauses for consent');
+        } catch (\Milpa\ToolRuntime\Gate\ToolCallRefused) {
+        }
+        $this->sayYes();
+        $result = $this->door()->callTool('lab_burn', $call);
+        self::assertIsArray($result);
+        self::assertTrue($result['ok'] ?? false, 'one yes covers the call it was given for: ' . json_encode($result));
+        self::assertSame(['a'], self::$burned);
+    }
+
+    #[Test]
+    public function a_step_that_fails_after_a_consented_prefix_does_not_make_the_retry_re_run_the_prefix(): void
+    {
+        $recipe = Recipe::fromArray('demo', ['work' => [
+            ['op' => 'lab:burn', 'args' => ['what' => 'a']],
+            ['op' => 'lab:boom'],
+        ]]);
+        $this->apply($recipe);
+        $this->sayYes();
+
+        $second = $this->apply($recipe);
+        self::assertFalse($second['ok'] ?? true, json_encode($second));
+        self::assertFalse($second['paused'] ?? true, 'a failure is not a pause');
+        self::assertSame('the read broke', $second['reason'] ?? null);
+        self::assertSame(['a'], self::$burned);
+
+        // THE RETRY resumes at the failed step — the consented prefix is carried, never re-run.
+        $third = $this->apply($recipe);
+        self::assertSame('the read broke', $third['reason'] ?? null, 'the failing step is what fails again');
+        self::assertSame(['a'], self::$burned, 'the Privileged first step did not run twice');
+    }
+
+    #[Test]
+    public function a_handler_that_dies_on_the_confirmed_call_is_a_failure_not_a_pending_confirmation(): void
+    {
+        $recipe = Recipe::fromArray('demo', ['work' => [['op' => 'lab:burn', 'args' => ['what' => 'BOOM']]]]);
+        $this->apply($recipe);
+        $this->sayYes();
+
+        $second = $this->apply($recipe);
+        self::assertFalse($second['ok'] ?? true, json_encode($second));
+        self::assertFalse($second['paused'] ?? true, 'a tool that broke past the token is a failure, never a resumable pause');
+        self::assertStringContainsString('the tool broke', (string) ($second['reason'] ?? ''));
+    }
+
+    #[Test]
+    public function a_launch_grant_typed_by_the_schema_covers_the_call_the_model_makes(): void
+    {
+        // `--grant=lab:count:times=2` arrives as the string "2"; the model calls with int 2. The seeded fact is
+        // typed as the schema declares, so the yes covers the call instead of asking (or failing) again.
+        $session = $this->store->load('recipe:demo');
+        self::assertInstanceOf(Session::class, $session);
+        $entries = LaunchGrants::parse('lab:count:times=2');
+        self::assertIsArray($entries);
+        $seeded = (new LaunchGrants())->seed($this->store, 'recipe:demo', $entries, $this->operations(), new Principal('actor:passkey:test', true));
+        self::assertSame(['lab:count'], $seeded['seeded'] ?? null, json_encode($seeded));
+
+        $result = $this->door()->callTool('lab_count', ['times' => 2]);
+        self::assertIsArray($result);
+        self::assertTrue($result['ok'] ?? false, 'the typed grant covers the int the model sends: ' . json_encode($result));
+        self::assertNull($this->store->load('recipe:demo')?->question, 'no question was opened');
+    }
+
+    private function door(): \Milpa\AppRuntime\Agent\ConsentBridge
+    {
+        $session = $this->store->load('recipe:demo');
+        self::assertInstanceOf(Session::class, $session);
+
+        return GovernedDoor::open($this->kernel(), $this->root, $this->store, $session, 'apply recipe demo');
+    }
+
     /** @return array<string, mixed> */
     private function apply(Recipe $recipe): array
     {
@@ -158,22 +292,50 @@ final class AYesForOtherArgumentsAsksAgainTest extends TestCase
         $this->store->grant('recipe:demo', 'lab:burn');
     }
 
-    private function kernel(): Kernel
+    /** @return list<Operation> */
+    private function operations(): array
     {
+        $s2 = new EffectProfile(Mutation::Persistent, Externality::None, Reversibility::ManualRecovery, Authority::Privileged, subject: Subject::Executable);
         $burn = new Operation(
             name: 'lab:burn',
             description: 'a governed write only a human may authorize',
             handler: static function (array $input): array {
+                if (($input['what'] ?? null) === 'BOOM') {
+                    throw new \RuntimeException('the tool broke');
+                }
                 self::$burned[] = (string) ($input['what'] ?? '');
 
                 return ['ok' => true, 'burned' => $input['what'] ?? null];
             },
-            inputSchema: ['type' => 'object', 'properties' => ['what' => ['type' => 'string']], 'required' => []],
+            inputSchema: ['type' => 'object', 'properties' => ['what' => ['type' => 'string'], 'ratio' => ['type' => 'number']], 'required' => []],
             mutating: true,
-            effects: new EffectProfile(Mutation::Persistent, Externality::None, Reversibility::ManualRecovery, Authority::Privileged, subject: Subject::Executable),
+            effects: $s2,
         );
+        $boom = new Operation(
+            name: 'lab:boom',
+            description: 'a declared read that breaks',
+            handler: static function (array $input): array {
+                throw new \RuntimeException('the read broke');
+            },
+            inputSchema: ['type' => 'object', 'properties' => [], 'required' => []],
+            effects: EffectProfile::readOnly(),
+        );
+        $count = new Operation(
+            name: 'lab:count',
+            description: 'a governed write with an integer argument',
+            handler: static fn (array $input): array => ['ok' => true, 'times' => $input['times'] ?? null],
+            inputSchema: ['type' => 'object', 'properties' => ['times' => ['type' => 'integer']], 'required' => []],
+            mutating: true,
+            effects: $s2,
+        );
+
+        return [$burn, $boom, $count];
+    }
+
+    private function kernel(): Kernel
+    {
         $kernel = (new \ReflectionClass(Kernel::class))->newInstanceWithoutConstructor();
-        foreach (['root' => $this->root, 'commands' => [$burn], 'container' => new DIContainer()] as $name => $value) {
+        foreach (['root' => $this->root, 'commands' => $this->operations(), 'container' => new DIContainer()] as $name => $value) {
             $prop = new \ReflectionProperty(Kernel::class, $name);
             $prop->setAccessible(true);
             $prop->setValue($kernel, $value);

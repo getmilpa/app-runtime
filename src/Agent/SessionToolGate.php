@@ -66,6 +66,9 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      */
     public const PROGRESS_STALLED = 'session.progress_stalled';
 
+    /** @var null|list<\Milpa\Command\Consent\ConsentGrant> the yeses the ledger holds, derived once */
+    private ?array $recordedGrants = null;
+
     /**
      * SUMMARY: The marker every UNJUDGEABLE refusal carries, so audit can tell «I cannot judge this»
      * apart from «I know this is forbidden» — both block the call, but they are NOT the same fact
@@ -515,7 +518,10 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         }
 
         $recorded = false;
-        foreach (SessionGrants::of($this->session->decisions, $this->session->id, new \DateTimeImmutable(), $this->operations) as $grant) {
+        // DERIVED ONCE PER GATE: the session is a readonly value and this gate never swaps it, so its decisions
+        // cannot change under a live gate — the same one-time derivation the door hands the bridge.
+        $this->recordedGrants ??= SessionGrants::of($this->session->decisions, $this->session->id, new \DateTimeImmutable(), $this->operations);
+        foreach ($this->recordedGrants as $grant) {
             if (! $grant->operation->is($operacion->name)) {
                 continue;
             }
