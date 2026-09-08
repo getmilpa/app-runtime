@@ -129,11 +129,24 @@ final class TheFirstHourTest extends TestCase
         self::assertNotContains('coa recipe:apply --recipe=notes', $commands, 'a recipe on disk is not a step when recipe:apply is not offered');
         self::assertContains('coa foundation:found', $commands, 'an unfounded app without a recipe to apply is told to found itself');
 
-        // POSITIVE CONTROL: the same recipe, now with recipe:apply offered — the step appears and displaces the founding one.
+        // POSITIVE CONTROL: the same recipe, now with recipe:apply offered AND the governed runtime switched on —
+        // the step appears and displaces the founding one.
         $this->declareOperations(['AgentOperations', 'CapabilityOperations', 'FoundationOperations', 'RecipeOperations']);
-        $commands = array_column($this->booted()->houseStart()['next'], 'command');
+        $grown = $this->vendorWith([$this->package('milpa/agent', 'agent'), $this->package('milpa/ai-gateway', 'agent-runs')]);
+        $commands = array_column($this->booted()->houseStart($grown)['next'], 'command');
         self::assertContains('coa recipe:apply --recipe=notes', $commands);
         self::assertNotContains('coa foundation:found', $commands);
+
+        // Without that runtime the recipe would refuse (measured on cattle: no session store, no gate), so the
+        // house names the two packages first and the recipe not yet — in the order they are needed.
+        $bare = array_column($this->booted()->houseStart($this->vendorWith([]))['next'], 'command');
+        self::assertNotContains('coa recipe:apply --recipe=notes', $bare);
+        self::assertContains('coa capabilities:enable milpa/agent', $bare);
+        self::assertContains('coa capabilities:enable milpa/ai-gateway', $bare);
+        self::assertLessThan(array_search('coa capabilities:enable milpa/ai-gateway', $bare, true), array_search('coa capabilities:enable milpa/agent', $bare, true));
+        $half = array_column($this->booted()->houseStart($this->vendorWith([$this->package('milpa/agent', 'agent')]))['next'], 'command');
+        self::assertNotContains('coa capabilities:enable milpa/agent', $half, 'what is installed is not recommended again');
+        self::assertContains('coa capabilities:enable milpa/ai-gateway', $half);
     }
 
     #[Test]

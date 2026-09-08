@@ -266,7 +266,12 @@ final class SequenceOperations implements CatalogueBorrower
         // pause written by one surface would be invisible to the other.
         $store = (new AgentOperations($this->container))->sessionStore();
         if ($store === null) {
-            return ['ok' => false, 'error' => 'no session store: install milpa/agent so a pause can be recorded'];
+            return ['ok' => false, 'error' => 'no session store: install milpa/agent so a pause can be recorded (coa capabilities:enable milpa/agent)'];
+        }
+        // THE GATE ITSELF is milpa/ai-gateway's contract (ToolCallGate): without the package the door cannot
+        // be built, and a fatal «interface not found» is not a refusal. Say what is missing and the command.
+        if (!interface_exists(\Milpa\AiGateway\ToolCallGate::class)) {
+            return ['ok' => false, 'error' => 'sequence:run runs each step through the agent gate, which milpa/ai-gateway provides: coa capabilities:enable milpa/ai-gateway'];
         }
 
         $petition = 'run the ' . $name . ' sequence';
