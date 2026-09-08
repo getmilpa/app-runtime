@@ -93,7 +93,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
     public function __construct(
         private readonly SessionStore $sessions,
         private readonly Session $session,
-        private readonly array $operations,
+        private array $operations,
         private readonly SessionPolicy $policy = new SessionPolicy(),
         // Cuánto tiempo tiene un humano para contestar antes de que la sesión se declare muerta.
         // `null` es sin plazo, que es lo que había; la decide el host en `agent.permissionWindow`
@@ -1034,6 +1034,19 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         }
 
         return $this->identity->admit($asercion, $this->session->id);
+    }
+
+    /**
+     * The app grew under this gate: a step switched a capability on and the catalogue has more operations now.
+     *
+     * The door hands the fresh fold in (greenhouse decisions/0226): a gate that kept judging against the
+     * catalogue it was born with would call the operation it just made possible UNJUDGEABLE.
+     *
+     * @param list<Operation> $operations
+     */
+    public function sees(array $operations): void
+    {
+        $this->operations = $operations;
     }
 
     /**

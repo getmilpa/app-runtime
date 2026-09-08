@@ -239,6 +239,31 @@ final class AYesForOtherArgumentsAsksAgainTest extends TestCase
         self::assertNull($this->store->load('recipe:demo')?->question, 'no question was opened');
     }
 
+    #[Test]
+    public function a_step_that_makes_the_app_grow_is_followed_by_a_step_the_door_can_now_judge(): void
+    {
+        // The real first hour: `capabilities:enable milpa/devtools` writes a provider into config/operations.php,
+        // and the NEXT step is `make`. A door born before the enable called it UNJUDGEABLE (measured on cattle).
+        mkdir($this->root . '/config');
+        file_put_contents($this->root . '/config/operations.php', "<?php\n\nreturn [];\n");
+        $door = $this->door();
+
+        // THE CONTROL: before the app grew, the door does not invent the operation — it is unjudgeable.
+        try {
+            $door->callTool('lab_new', []);
+            self::fail('an operation the app does not offer yet cannot be judged');
+        } catch (\Milpa\ToolRuntime\Gate\ToolCallRefused $refused) {
+            self::assertStringStartsWith('UNJUDGEABLE:', $refused->getMessage());
+        }
+
+        // The app grows: a provider lands in config/operations.php, the way the enable writes it.
+        \Milpa\AppRuntime\Support\Capabilities::registerOperations($this->root, [GrownProvider::class]);
+        $result = $door->callTool('lab_new', ['what' => 'x']);
+        self::assertIsArray($result);
+        self::assertTrue($result['ok'] ?? false, 'the same door now judges and runs what the app just learned: ' . json_encode($result));
+        self::assertSame('grown:x', $result['says'] ?? null);
+    }
+
     private function door(): \Milpa\AppRuntime\Agent\ConsentBridge
     {
         $session = $this->store->load('recipe:demo');
@@ -342,5 +367,24 @@ final class AYesForOtherArgumentsAsksAgainTest extends TestCase
         }
 
         return $kernel;
+    }
+}
+
+/** What `capabilities:enable` declares in config/operations.php: a provider that was not there when the door opened. */
+final class GrownProvider implements \Milpa\Command\CommandProvider
+{
+    public function __construct(\Milpa\Interfaces\Di\DIContainerInterface $container)
+    {
+    }
+
+    public function operations(): array
+    {
+        return [new Operation(
+            name: 'lab:new',
+            description: 'an operation the app learned mid-sequence',
+            handler: static fn (array $input): array => ['ok' => true, 'says' => 'grown:' . ($input['what'] ?? '')],
+            inputSchema: ['type' => 'object', 'properties' => ['what' => ['type' => 'string']], 'required' => []],
+            effects: EffectProfile::readOnly(),
+        )];
     }
 }
