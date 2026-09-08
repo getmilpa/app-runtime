@@ -28,7 +28,6 @@ use Milpa\Interfaces\Plugin\PluginInterface;
 use Milpa\Runtime\Http\RouteProviderInterface;
 use Milpa\Runtime\Kernel;
 use Milpa\ToolRuntime\ToolRegistry;
-use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
@@ -40,7 +39,6 @@ use Psr\Log\NullLogger;
  * attributes every route to the plugin that declared it; `serve` knows the skeleton's router when it is there
  * and refuses what it cannot serve. Each falsifier carries its positive control.
  */
-#[CoversNothing]
 final class TheFirstHourTest extends TestCase
 {
     private string $root;
