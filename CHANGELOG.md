@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.132.1](https://github.com/getmilpa/app-runtime/compare/v0.132.0...v0.132.1) (2026-09-08)
+
+
+### Bug Fixes
+
+* a recipe refuses without its gate instead of crashing, and house:start names the governed runtime first ([#332](https://github.com/getmilpa/app-runtime/issues/332)) ([ce2ec92](https://github.com/getmilpa/app-runtime/commit/ce2ec9249f67e1af38acbf6f98ff2a2eb217a8f9))
+
 ## [0.132.0](https://github.com/getmilpa/app-runtime/compare/v0.131.1...v0.132.0) (2026-09-08)
 
 
