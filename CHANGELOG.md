@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.133.2](https://github.com/getmilpa/app-runtime/compare/v0.133.1...v0.133.2) (2026-09-08)
+
+
+### Bug Fixes
+
+* the door sees the app as it grows — a step that switches a capability on is followed by a step the door can judge ([#338](https://github.com/getmilpa/app-runtime/issues/338)) ([4dca914](https://github.com/getmilpa/app-runtime/commit/4dca91415fd6a2ae14d92353f5337720707d985d))
+
 ## [0.133.1](https://github.com/getmilpa/app-runtime/compare/v0.133.0...v0.133.1) (2026-09-08)
 
 
