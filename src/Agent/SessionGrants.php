@@ -44,6 +44,9 @@ final class SessionGrants
      * @return list<ConsentGrant>
      */
     /**
+     * The grants a session's decisions derive — every affirmative answer to a permission question, and every
+     * confirmed intent claim the policy rules admissible — as the tool-runtime gate reads them.
+     *
      * @param list<array<string, mixed>> $decisions what the session already decided, each with its fact inside (`why`)
      * @param list<Operation>            $catalogue the operations whose DECLARED ceilings judge an intent claim
      *
