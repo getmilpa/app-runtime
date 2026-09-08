@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.131.0](https://github.com/getmilpa/app-runtime/compare/v0.130.2...v0.131.0) (2026-09-08)
+
+
+### Features
+
+* **session:** every door names who started the session in its opening event ([#325](https://github.com/getmilpa/app-runtime/issues/325)) ([c46da5e](https://github.com/getmilpa/app-runtime/commit/c46da5e8e21441414b182f1339c447f09c15b75b))
+
 ## [0.130.2](https://github.com/getmilpa/app-runtime/compare/v0.130.1...v0.130.2) (2026-09-08)
 
 
