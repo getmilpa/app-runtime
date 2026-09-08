@@ -1142,7 +1142,9 @@ class AgentOperations implements CommandProvider
             if ($sesion === null) {
                 // Se abre con el primer prompt como objetivo: continuar una sesión que no existe es
                 // empezarla, y negarse obligaría a dos comandos para lo que es una intención.
-                $store->start($sessionId, $prompt, $modo ?? AutonomyMode::Ask);
+                // WHO STARTED IT rides the opening event (greenhouse evidence/0561): the caller of this turn,
+                // read from its invocation — the passkey over HTTP, the operator at a terminal, nobody else.
+                $store->start($sessionId, $prompt, $modo ?? AutonomyMode::Ask, by: ObservedExecutor::fromContext($this->contextoDeLaVuelta)->principal);
                 $declaredWindow = $store->load($sessionId)?->classifiedWindow();
             } elseif (!$sesion->isRunnable()) {
                 // Una sesión con una pregunta abierta o ya terminada NO se sigue por accidente: se

@@ -20,6 +20,7 @@ use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Agent\SessionToolGate;
 use Milpa\AppRuntime\Recipe\Recipe;
 use Milpa\AppRuntime\Recipe\RecipeDriver;
+use Milpa\AppRuntime\Agent\ObservedExecutor;
 use Milpa\AppRuntime\Sequence\GovernedDoor;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\Foundation;
@@ -170,7 +171,7 @@ final class RecipeOperations implements CommandProvider
 
         if (! $resuming && $existing === null) {
             // AutonomyMode::Ask: the sequence pauses before any mutation until a human grants it.
-            $store->start($sessionId, $petition, AutonomyMode::Ask);
+            $store->start($sessionId, $petition, AutonomyMode::Ask, by: ObservedExecutor::fromContext($context)->principal);
         }
 
         $session = $store->load($sessionId);
