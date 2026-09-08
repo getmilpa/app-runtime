@@ -21,6 +21,7 @@ use Milpa\AppRuntime\Agent\SessionToolGate;
 use Milpa\Command\Consent\ConsentGrant;
 use Milpa\Command\Consent\OperationId;
 use Milpa\Command\Operation;
+use Milpa\Console\McpProjector;
 use Milpa\EventStore\InMemoryEventStore;
 use Milpa\Plugin\Contracts\ActivationSafetyInterface;
 use Milpa\Plugin\Contracts\PluginRecord;
@@ -214,8 +215,9 @@ final class TheInverseThroughTheGateTest extends TestCase
         self::assertNotNull($cited, 'and the citation resolves inside the same stream');
 
         // The arguments come from the CITED CALL — complete, not a subset somebody chose to copy.
+        // And the NAME comes from the projector for the same reason: see {@see self::toolName()}.
         $bridge->callTool(
-            str_replace([':', '.'], '_', (string) $recipe['operation']),
+            $this->toolName((string) $recipe['operation']),
             $cited['arguments'],
         );
 
@@ -269,10 +271,20 @@ final class TheInverseThroughTheGateTest extends TestCase
         return null;
     }
 
-    /** How a tool catalogue writes an act — the spelling the bridge answers to. */
-    private function toolName(OperationId $id): string
+    /**
+     * How a tool catalogue writes an act — the spelling the bridge answers to.
+     *
+     * THE NAME COMES FROM THE PROJECTOR, NEVER FROM A RULE WRITTEN HERE (greenhouse evidence/0141,
+     * and the copy this file itself carried until evidence/0571). `McpProjector::toolName()` is the
+     * one implementation of the convention: every char outside `[a-zA-Z0-9_-]` becomes `_`, and the
+     * name is cut to the 64 the MCP spec allows. `ConsentBridge::callTool()` canonicalizes with that
+     * same function, so a test that computes the spelling any other way is not measuring the door it
+     * claims to measure — it is measuring its own arithmetic, and only agrees by luck on the two
+     * names this fixture happens to use.
+     */
+    private function toolName(OperationId|string $id): string
     {
-        return $id->forTool();
+        return McpProjector::toolName((string) $id);
     }
 
     private function grant(string $operation): ConsentGrant
@@ -323,7 +335,7 @@ final class TheInverseThroughTheGateTest extends TestCase
         foreach ($this->operations() as $operation) {
             $handler = $operation->handler;
             $registry->register(
-                (new OperationId($operation->name))->forTool(),
+                $this->toolName($operation->name),
                 $operation->description,
                 $operation->inputSchema,
                 static fn (array $args): mixed => $handler($args),
