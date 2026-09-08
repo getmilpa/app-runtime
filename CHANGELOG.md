@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.133.1](https://github.com/getmilpa/app-runtime/compare/v0.133.0...v0.133.1) (2026-09-08)
+
+
+### Bug Fixes
+
+* a yes for other arguments asks again — the session door judges the same call the tool-runtime gate does ([#336](https://github.com/getmilpa/app-runtime/issues/336)) ([60a5432](https://github.com/getmilpa/app-runtime/commit/60a5432d7f78e880615b0d2155dbda92ade0234d))
+
 ## [0.133.0](https://github.com/getmilpa/app-runtime/compare/v0.132.1...v0.133.0) (2026-09-08)
 
 
