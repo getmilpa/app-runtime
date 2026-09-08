@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.130.2](https://github.com/getmilpa/app-runtime/compare/v0.130.1...v0.130.2) (2026-09-08)
+
+
+### Bug Fixes
+
+* **agent:** the agent's tools are executed by whoever called the turn, and a sequence runs in its own session ([#322](https://github.com/getmilpa/app-runtime/issues/322)) ([2907342](https://github.com/getmilpa/app-runtime/commit/29073426e83f9283cb70e8c8ae5a3fd4f36e5ae5))
+
 ## [0.130.1](https://github.com/getmilpa/app-runtime/compare/v0.130.0...v0.130.1) (2026-09-08)
 
 
