@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.133.3](https://github.com/getmilpa/app-runtime/compare/v0.133.2...v0.133.3) (2026-09-08)
+
+
+### Bug Fixes
+
+* a read without a profile asks once — the session door reads the same ceiling the tool-runtime gate does ([#340](https://github.com/getmilpa/app-runtime/issues/340)) ([d38056f](https://github.com/getmilpa/app-runtime/commit/d38056fe88efacde23a7cfff1936e37d6a25b801))
+
 ## [0.133.2](https://github.com/getmilpa/app-runtime/compare/v0.133.1...v0.133.2) (2026-09-08)
 
 
