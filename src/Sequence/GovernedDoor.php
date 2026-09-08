@@ -23,6 +23,7 @@ use Milpa\AppRuntime\Agent\ContractProducer;
 use Milpa\AppRuntime\Agent\ObservedExecutor;
 use Milpa\AppRuntime\Agent\SessionBookkeeping;
 use Milpa\AppRuntime\Agent\SessionIdentity;
+use Milpa\AppRuntime\Agent\SessionGrants;
 use Milpa\AppRuntime\Agent\SessionToolGate;
 use Milpa\AppRuntime\Agent\SubAgentSpawner;
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
@@ -107,7 +108,12 @@ final class GovernedDoor
 
         return new ConsentBridge(
             $registry,
-            grants: [],
+            // THE GRANTS THE HUMAN ALREADY GAVE, or the tool-runtime gate refuses the very step the session
+            // just allowed. Measured in the browser ceremony (greenhouse evidence/0561): `permission_granted`
+            // for `config:set` was in the ledger and the resume still answered «needs explicit consent —
+            // none was presented», because this door handed an empty list while the agent's door derived
+            // the session's. Same derivation now, for both.
+            grants: SessionGrants::of($session->decisions, $session->id, new \DateTimeImmutable(), $offered),
             gate: $gate,
             recorder: $gate,
             executions: $gate,
