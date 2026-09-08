@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.136.0](https://github.com/getmilpa/app-runtime/compare/v0.135.0...v0.136.0) (2026-09-08)
+
+
+### Features
+
+* the context window is the smaller of what was declared and what the provider allocated ([#347](https://github.com/getmilpa/app-runtime/issues/347)) ([3d2185a](https://github.com/getmilpa/app-runtime/commit/3d2185a0d438e4e4399ce7edd4737be5cda19f56))
+
 ## [0.135.0](https://github.com/getmilpa/app-runtime/compare/v0.134.0...v0.135.0) (2026-09-08)
 
 
