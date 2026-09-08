@@ -158,7 +158,7 @@ final class TheFirstHourTest extends TestCase
         self::assertIsArray($answer);
         self::assertTrue($answer['ok']);
         self::assertSame(\PHP_BINARY . ' -S 127.0.0.1:8000 -t public', $answer['command']);
-        self::assertSame('http://127.0.0.1:8000/', $answer['url']);
+        self::assertSame('http://localhost:8000/', $answer['url'], 'the address the passkey door will accept');
         self::assertNull($answer['router'], 'without a router the built-in server serves files only');
 
         // POSITIVE CONTROL: the skeleton's router, once shipped, is part of the command.
@@ -166,7 +166,7 @@ final class TheFirstHourTest extends TestCase
         $answer = $operations->serve(['dry_run' => true, 'host' => '0.0.0.0', 'port' => 8730]);
         self::assertIsArray($answer);
         self::assertSame(\PHP_BINARY . ' -S 0.0.0.0:8730 -t public public/router.php', $answer['command']);
-        self::assertSame('http://127.0.0.1:8730/', $answer['url'], 'bound everywhere, opened locally');
+        self::assertSame('http://localhost:8730/', $answer['url'], 'bound everywhere, opened at the relying party');
         self::assertSame('public/router.php', $answer['router']);
     }
 

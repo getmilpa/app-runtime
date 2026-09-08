@@ -987,7 +987,10 @@ class AgentOperations implements CommandProvider
         if ($router !== null) {
             $command[] = $router;
         }
-        $url = 'http://' . ($host === '0.0.0.0' ? '127.0.0.1' : $host) . ':' . $port . '/';
+        // THE URL TO OPEN IS `localhost`, not the address bound: a passkey door binds its assertions to a
+        // relying-party id, and `capabilities:enable identity` declares `localhost` — a browser at 127.0.0.1
+        // would be refused by the very door this server exists to show.
+        $url = 'http://' . (\in_array($host, ['0.0.0.0', '127.0.0.1', '::1', '[::1]'], true) ? 'localhost' : $host) . ':' . $port . '/';
 
         if (($input['dry_run'] ?? false) === true) {
             return ['ok' => true, 'dry_run' => true, 'command' => implode(' ', $command), 'url' => $url, 'router' => $router];
