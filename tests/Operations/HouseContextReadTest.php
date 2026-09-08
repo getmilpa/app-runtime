@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Tests\Operations;
 
 use Milpa\AppRuntime\Operations\AgentOperations;
 use Milpa\AppRuntime\Support\Capabilities;
+use Milpa\AppRuntime\Support\Events;
 use Milpa\AppRuntime\Support\Foundation;
 use Milpa\AppRuntime\Support\Operations;
 use Milpa\Attributes\PluginMetadata;
@@ -60,6 +61,7 @@ final class HouseContextReadTest extends TestCase
         'plugins',
         'storage',
         'routes',
+        'events',
         'capabilities',
         'operations',
         'sessionTools',
@@ -151,6 +153,15 @@ final class HouseContextReadTest extends TestCase
 
         // routes — the table the kernel's router holds: the two the fixture plugin contributed.
         self::assertSame(['count' => 2, 'paths' => ['/context', '/context/{id}']], $answer['routes']);
+
+        // events — the dispatcher's own memory, as `events:catalogue` folds it (greenhouse decisions/0228):
+        // the section EQUALS the compact fold, and the fold equals the catalogue's counts. The kernel's own
+        // dispatches are in it, so this fixture's `kernel.booted` is there whether or not anyone declared it.
+        $container = (new \ReflectionProperty(AgentOperations::class, 'container'))->getValue($ops);
+        self::assertInstanceOf(DIContainerInterface::class, $container);
+        self::assertSame(Events::summary($container), $answer['events'], 'events EQUAL the fold events:catalogue prints');
+        self::assertTrue($answer['events']['ok']);
+        self::assertContains('kernel.booted', $answer['events']['names'], 'the kernel dispatched it while booting this very fixture');
 
         // capabilities — the capability registry's OWN answer, verbatim.
         self::assertSame(Capabilities::answer(), $answer['capabilities'], 'capabilities EQUAL the registry\'s answer');

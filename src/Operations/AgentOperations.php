@@ -94,6 +94,7 @@ use Milpa\AppRuntime\Agent\ContractProducer;
 use Milpa\AppRuntime\Agent\SessionToolGate;
 use Milpa\AppRuntime\Support\CapabilityIndex;
 use Milpa\AppRuntime\Support\Routes;
+use Milpa\AppRuntime\Support\Events;
 use Milpa\AppRuntime\Support\Operations;
 use Milpa\Interfaces\Tooling\ToolProviderInterface;
 use Milpa\EventStore\EventStoreInterface;
@@ -306,6 +307,33 @@ class AgentOperations implements CommandProvider
                 surfaces: ['cli', 'tui', 'mcp'],
                 observableEvidence: 'the rows equal, one by one, what the admin panel\'s Routes section shows — both fold the same plugins\' declarations',
             ),
+            // THE EVENT TABLE (greenhouse decisions/0228): the dispatcher is the one place every dispatch
+            // passes through, so it is the one authority on what events exist — emitters declare to it, it
+            // remembers what it fired, and this reads both. A dispatcher that keeps no such record is named
+            // as the gap, never answered with an empty list.
+            new Operation(
+                name: 'events:catalogue',
+                description: 'The events this app\'s dispatcher was told exist, against the names it really dispatched in this process: each declared event with who dispatches it, when, and its subject — and every name dispatched without a declaration, as debt with a name',
+                handler: fn (array $input): array => $this->eventsCatalogue(),
+                inputSchema: ['type' => 'object', 'properties' => [], 'required' => []],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean'],
+                        'dispatcher' => ['type' => 'string', 'description' => 'The class of the dispatcher this app\'s container holds'],
+                        'counts' => ['type' => 'object', 'description' => '{declared, dispatched, undeclared}: names declared to the dispatcher, names it dispatched in this process, names it dispatched that nobody declared'],
+                        'events' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'One row per name, sorted by name: {name, dispatchedBy, when, subject: {key, type, mutable, interceptable}, declared, dispatched} — a name nobody declared carries null for what only a declaration can say'],
+                        'error' => ['type' => 'string', 'description' => 'Why nothing could be read: the dispatcher\'s class and the interface it lacks, with the package that implements it'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // Reads the dispatcher the kernel registered: it changes nothing, reaches nobody, spends no authority.
+                effects: EffectProfile::readOnly(),
+                // NOT over http, like `routes:list`: the answer names the app\'s classes to a route that answers
+                // without a principal under `expose: ['*']`.
+                surfaces: ['cli', 'tui', 'mcp'],
+                observableEvidence: 'a name dispatched in this process before the call shows dispatched:true, one declared and never fired shows dispatched:false, and one fired without a declaration shows declared:false — and a dispatcher that keeps no record answers ok:false naming what it lacks, never an empty list',
+            ),
             // `coa serve` — the difference between «it boots» and «I saw it» (greenhouse decisions/0216, point 3).
             // A TERMINAL operation only: it holds the process until the server stops, which no other surface
             // can afford. It prints the URL and hands the terminal to PHP's built-in server, with the skeleton's
@@ -338,7 +366,7 @@ class AgentOperations implements CommandProvider
             ),
             new Operation(
                 name: 'house:context',
-                description: 'The house explained structurally in one call: app identity, plugins as booted, storage, routes, capabilities, operations, session tools and the layout conventions — each section read from its one authority',
+                description: 'The house explained structurally in one call: app identity, plugins as booted, storage, routes, events, capabilities, operations, session tools and the layout conventions — each section read from its one authority',
                 handler: fn (array $input): array => $this->houseContext(),
                 inputSchema: [
                     'type' => 'object',
@@ -355,6 +383,7 @@ class AgentOperations implements CommandProvider
                         'plugins' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'Each {class, name, provides?} in the exact order the kernel holds them'],
                         'storage' => ['type' => 'object', 'description' => 'The storage block\'s shape: driver and where — never credentials'],
                         'routes' => ['type' => 'object', 'description' => 'count and paths of the route table the kernel\'s router holds'],
+                        'events' => ['type' => 'object', 'description' => 'The event table\'s own summary, as events:catalogue folds it: the dispatcher, counts {declared, dispatched, undeclared} and the names — or ok:false naming what the dispatcher lacks'],
                         'capabilities' => ['type' => 'object', 'description' => 'The capability registry\'s own answer: installed, available, ports'],
                         'operations' => ['type' => 'object', 'description' => 'count and names of the assembled catalogue — Operations::all'],
                         'sessionTools' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'The session notebook\'s names; empty when this app stores no sessions'],
@@ -977,6 +1006,18 @@ class AgentOperations implements CommandProvider
     }
 
     /**
+     * `events:catalogue` — the event table, name by name, with who declared each one and what was fired.
+     *
+     * The fold is {@see Events::catalogue()}, the same one `house:context` summarises: two doors, one fact.
+     *
+     * @return array<string, mixed>
+     */
+    public function eventsCatalogue(): array
+    {
+        return Events::catalogue($this->container);
+    }
+
+    /**
      * `serve` — PHP's built-in server over `public/`, with the app's router when it ships one.
      *
      * The server runs IN PLACE of `coa` (`pcntl_exec`): the signal that stops `coa` stops the server, where a
@@ -1080,6 +1121,9 @@ class AgentOperations implements CommandProvider
      * - `routes` — the table {@see Kernel::router()} actually holds. The router publishes no
      *   enumeration, so the table is read reflectively off the router itself rather than
      *   re-asking the plugins: a second derivation could drift from what the kernel serves;
+     * - `events` — {@see Events::summary()}, the same fold `events:catalogue` prints, compact: the
+     *   dispatcher, the counts and the names — or, when the dispatcher keeps no record, the same
+     *   `ok:false` and reason the catalogue gives (greenhouse decisions/0228);
      * - `capabilities` — {@see Capabilities::answer()}, the exact answer the `capabilities`
      *   operation gives (CapabilityOperations' authority);
      * - `operations` — the names in {@see Operations::all()}, the catalogue's own registry;
@@ -1184,6 +1228,7 @@ class AgentOperations implements CommandProvider
             'plugins' => $plugins,
             'storage' => ['driver' => $driver, 'where' => $where],
             'routes' => ['count' => \count($paths), 'paths' => $paths],
+            'events' => Events::summary($this->container),
             'capabilities' => Capabilities::answer(),
             'operations' => ['count' => \count($names), 'names' => $names],
             'sessionTools' => $sessionTools,
