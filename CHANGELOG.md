@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.135.0](https://github.com/getmilpa/app-runtime/compare/v0.134.0...v0.135.0) (2026-09-08)
+
+
+### Features
+
+* the event catalogue answers for the app, not for the process ([#344](https://github.com/getmilpa/app-runtime/issues/344)) ([fbaf16e](https://github.com/getmilpa/app-runtime/commit/fbaf16eeff896457ab3a401e6e2d8ff0e7afa66a))
+
 ## [0.134.0](https://github.com/getmilpa/app-runtime/compare/v0.133.3...v0.134.0) (2026-09-08)
 
 
