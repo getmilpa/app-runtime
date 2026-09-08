@@ -14,7 +14,6 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tests\Agent;
 
-use Milpa\AiGateway\McpClientService;
 use Milpa\ToolRuntime\Gate\ToolCallRecorder;
 use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\SessionStore;
@@ -42,13 +41,6 @@ use Psr\Log\NullLogger;
  */
 final class BridgeSignalsScopeFragilityTest extends TestCase
 {
-    protected function setUp(): void
-    {
-        if (! class_exists(McpClientService::class)) {
-            self::markTestSkipped('sin milpa/ai-gateway no hay cliente que puentear');
-        }
-    }
-
     /** A registry with ONE mutating tool that demands confirmation — the consent frontier. */
     private function registro(): ToolRegistry
     {

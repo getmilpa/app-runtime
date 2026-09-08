@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Agent;
 
 use Milpa\Agent\Principal;
-use Milpa\AiGateway\McpClientService;
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Agent\ExecutionRecorder;
 use Milpa\AppRuntime\Agent\ObservedExecutor;
@@ -44,9 +43,6 @@ final class ExecutionFactTest extends TestCase
 
     protected function setUp(): void
     {
-        if (! class_exists(McpClientService::class)) {
-            self::markTestSkipped('sin milpa/ai-gateway no hay cliente que puentear');
-        }
         $this->hechos = [];
         $this->corridas = [];
     }

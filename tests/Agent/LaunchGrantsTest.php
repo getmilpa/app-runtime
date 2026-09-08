@@ -7,7 +7,6 @@ namespace Milpa\AppRuntime\Tests\Agent;
 use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\Principal;
 use Milpa\Agent\SessionStore;
-use Milpa\AiGateway\McpClientService;
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Agent\LaunchGrants;
 use Milpa\AppRuntime\Agent\SessionToolGate;
@@ -334,9 +333,6 @@ final class LaunchGrantsTest extends TestCase
     /** The governed door of a seeded session: a real registry, the rebuilt grants, channel cli. */
     private function puenteDeUnaSesionSembrada(): ConsentBridge
     {
-        if (! class_exists(McpClientService::class)) {
-            self::markTestSkipped('sin milpa/ai-gateway no hay cliente que puentear');
-        }
 
         $registro = new ToolRegistry(new NullLogger());
         $registro->register(

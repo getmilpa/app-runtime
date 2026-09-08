@@ -6,7 +6,6 @@ namespace Milpa\AppRuntime\Tests\Agent;
 
 use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\SessionStore;
-use Milpa\AiGateway\McpClientService;
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Agent\GovernedSequenceRunner;
 use Milpa\AppRuntime\Agent\SequenceStep;
@@ -26,9 +25,9 @@ use Psr\Log\NullLogger;
  * like; this either confirms that assumption against the product or refutes it.
  *
  * TRACED, NOT GUESSED. `SessionToolGate::refuse()` runs BEFORE `ToolRegistry::call()` ever sees the
- * call (`McpClientService::callTool` checks the gate first). For a mutating operation with no grant
+ * call (`GatedToolCalls::callTool` checks the gate first). For a mutating operation with no grant
  * and a session in the default `Ask` mode, `SessionPolicy::decide()` returns `AskPermission`, the
- * gate's `refuse()` returns the pause text (non-null), and `McpClientService::callTool` throws
+ * gate's `refuse()` returns the pause text (non-null), and `GatedToolCalls::callTool` throws
  * `ToolCallRefused` — the call never reaches the OTHER confirmation mechanism
  * (`ToolRegistry`'s own `PolicyGate::requiresConfirmation`, which instead RETURNS a
  * `requires_confirmation`/`confirm_token` shape and is what `ConsentBridge`'s token-consuming branch
@@ -43,13 +42,6 @@ use Psr\Log\NullLogger;
  */
 final class GovernedSequenceRunnerConsentTest extends TestCase
 {
-    protected function setUp(): void
-    {
-        if (! class_exists(McpClientService::class)) {
-            self::markTestSkipped('sin milpa/ai-gateway no hay puente que construir');
-        }
-    }
-
     /** A registry holding a read (no gate opinion) and a mutation the session policy will gate. */
     private function registry(): ToolRegistry
     {

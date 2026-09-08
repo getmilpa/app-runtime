@@ -6,7 +6,6 @@ namespace Milpa\AppRuntime\Tests\Agent;
 
 use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\SessionStore;
-use Milpa\AiGateway\McpClientService;
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Agent\GovernedSequenceRunner;
 use Milpa\AppRuntime\Agent\SequenceStep;
@@ -53,13 +52,6 @@ use Psr\Log\NullLogger;
  */
 final class GovernedSequenceContinuationConsentTest extends TestCase
 {
-    protected function setUp(): void
-    {
-        if (! class_exists(McpClientService::class)) {
-            self::markTestSkipped('sin milpa/ai-gateway no hay puente que construir');
-        }
-    }
-
     /** A registry with a read and TWO DISTINCT mutating operations, both gated by SessionToolGate. */
     private function registry(): ToolRegistry
     {

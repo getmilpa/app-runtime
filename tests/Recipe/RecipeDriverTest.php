@@ -27,13 +27,6 @@ use PHPUnit\Framework\TestCase;
  */
 final class RecipeDriverTest extends TestCase
 {
-    protected function setUp(): void
-    {
-        if (! class_exists(ToolCallRefused::class)) {
-            self::markTestSkipped('sin milpa/ai-gateway no hay frontera de consentimiento que fingir');
-        }
-    }
-
     /** A recipe whose work is three passthrough operations: a read, a mutation, a read. */
     private function recipe(): Recipe
     {

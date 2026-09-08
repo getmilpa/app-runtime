@@ -36,7 +36,7 @@ final class APauseSurvivesTheProcessThatMadeItTest extends TestCase
         $said = implode("\n", $output);
 
         // THE CHILD PERSISTED THE PAUSE BEFORE IT DIED — its own last words, and the file.
-        self::assertStringContainsString('PAUSED', $said, $said);
+        self::assertContains('PAUSED', $output, $said);
         self::assertFileExists($ledger);
         $fresh = new SessionStore(new FileEventStore($ledger));
         $parked = $fresh->load('recipe:demo');
