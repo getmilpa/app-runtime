@@ -263,6 +263,31 @@ final class Capabilities
     }
 
     /**
+     * Teaches the running autoloader the classes composer just installed under `$vendor`.
+     *
+     * The loader that booted this process keeps the maps it was born with; a fresh `ClassLoader` over the
+     * rewritten `autoload_psr4.php` and `autoload_classmap.php` is prepended so what arrived resolves NOW,
+     * not in the next process. Nothing to teach when the maps are absent.
+     */
+    private static function teachTheRunningLoader(string $vendor): void
+    {
+        if (! class_exists(\Composer\Autoload\ClassLoader::class)) {
+            return;
+        }
+        $psr4 = is_file($vendor . '/composer/autoload_psr4.php') ? require $vendor . '/composer/autoload_psr4.php' : [];
+        $classMap = is_file($vendor . '/composer/autoload_classmap.php') ? require $vendor . '/composer/autoload_classmap.php' : [];
+        if (! \is_array($psr4) || ! \is_array($classMap) || ($psr4 === [] && $classMap === [])) {
+            return;
+        }
+        $loader = new \Composer\Autoload\ClassLoader($vendor);
+        foreach ($psr4 as $prefix => $paths) {
+            $loader->setPsr4((string) $prefix, $paths);
+        }
+        $loader->addClassMap($classMap);
+        $loader->register(true);
+    }
+
+    /**
      * Declares plugin classes in `config/plugins.php` — the same insertion `registerOperations()` makes,
      * on the other list. A class already named there is left alone; a file that is not there is not invented.
      *
@@ -656,6 +681,11 @@ final class Capabilities
         // The capability's operations must be DECLARED to project — composer landed the code, but a
         // third-party package's provider does not register itself (its ops live in the package, not in
         // app-runtime's gated list). The capability names its providers; enable writes them.
+        // THE RUNNING LOADER LEARNS THE TREE COMPOSER JUST WROTE: the booted autoloader caches its maps (and
+        // its misses) for the life of the process, so a provider installed a moment ago would stay
+        // «class not found» for the very sequence that installed it — and its next step UNJUDGEABLE
+        // (greenhouse decisions/0226, measured on cattle). A fresh loader over the new maps, prepended.
+        self::teachTheRunningLoader($vendorAfter ?? self::raizDeLaApp() . '/vendor');
         $root ??= self::raizDeLaApp();
         $registered = self::registerOperations($root, array_values(array_filter(
             (array) ($delivered0['operations'] ?? []),

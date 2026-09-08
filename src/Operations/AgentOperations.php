@@ -2383,7 +2383,50 @@ class AgentOperations implements CommandProvider
             debtSignals: $this->sesionDeLosPermisos === null
                 ? null
                 : new DebtSignal($this->sessionEvents, $this->sesionDeLosPermisos),
+            grown: $this->grownDoor($registry, $gate),
         );
+    }
+
+    /**
+     * What this door does when the model names a tool the registry does not know: the same re-fold the
+     * sequence door makes (greenhouse decisions/0226, `GovernedDoor::open`). A step that switched a
+     * capability on wrote a provider into config/operations.php; the catalogue is folded again, what is
+     * new is projected onto the table the loop re-reads every step, and the gate is told — reading the
+     * app as it is now, never inventing: a tool the app still does not offer stays unjudgeable. A memo on
+     * the declared list keeps a non-existent name from costing a fold per step.
+     */
+    private function grownDoor(ToolRegistry $registry, ?ToolCallGate $gate): ?\Closure
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (! $kernel instanceof Kernel) {
+            return null;
+        }
+        $root = $kernel->root();
+        $declared = $root . '/config/operations.php';
+        $stamp = static fn (): string => is_file($declared) ? (string) hash_file('xxh128', $declared) : '';
+        $folded = $stamp();
+
+        return static function (string $tool) use ($kernel, $root, $registry, $gate, $stamp, &$folded): void {
+            if ($registry->getDefinition($tool) !== null) {
+                return;
+            }
+            $now = $stamp();
+            if ($now === $folded) {
+                return;
+            }
+            $folded = $now;
+            $all = Operations::all($kernel, $root);
+            $fresh = array_values(array_filter(
+                $all,
+                static fn (Operation $op): bool => AgentTable::offers($op) && $registry->getDefinition(McpProjector::toolName($op->name)) === null,
+            ));
+            if ($fresh !== []) {
+                (new McpProjector())->projectAll($fresh, $registry, $kernel->container());
+            }
+            if ($gate instanceof SessionToolGate) {
+                $gate->sees($all);
+            }
+        };
     }
 
     /**

@@ -196,33 +196,16 @@ final class RecipeDriver
             ];
         }
 
-        // DENIED (greenhouse decisions/0079): the gate closed a door no human can open — an
-        // UNJUDGEABLE call (decisions/0078). Not paused, so nothing was persisted and nothing
-        // resumes; not failed, because nothing broke — the gate judged. The reason passes through
-        // verbatim, marker included; this driver still draws no line of its own, the runner did.
         $frontier = $result->frontier();
-        if ($frontier?->status === StepStatus::Denied) {
-            return [
-                'ok' => false,
-                'applied' => false,
-                'paused' => false,
-                'denied' => true,
-                'resumable' => false,
-                'denied_operation' => $frontier->step->operation,
-                'reason' => $frontier->reason,
-                'executed_count' => $result->executedCount(),
-                'steps_total' => \count($steps),
-            ];
-        }
 
-        // Not paused, not complete: a step failed (something broke, nobody is waiting on a human).
+        // Not paused, not complete: a step failed (something broke) or was denied (the gate closed it).
         //
         // A RESUMED RUN THAT FAILS STILL HOLDS THE PAUSE IT WAS RESUMED FROM — its cursor pointing BEFORE
         // the prefix that just ran under the human's yes — and `recipe:apply` / `sequence:run` dispatch on
         // that pause, so every retry re-executed the prefix (greenhouse decisions/0226). No new pause is
         // minted and none is cleared: the EXISTING one is moved to the failed step, so a retry resumes there
         // and the executed prefix is carried, never re-run. The frontier stays what it is — a failure.
-        if ($resuming && $frontier?->status === StepStatus::Failed) {
+        if ($resuming && \in_array($frontier?->status, [StepStatus::Failed, StepStatus::Denied], true)) {
             $index = array_search($frontier, $result->outcomes, true);
             if (\is_int($index)) {
                 try {
@@ -240,6 +223,24 @@ final class RecipeDriver
                     // stands — the shape this branch improves on, never worse than it.
                 }
             }
+        }
+
+        // DENIED (greenhouse decisions/0079): the gate closed a door no human can open — an
+        // UNJUDGEABLE call (decisions/0078). Not paused, so nothing was persisted and nothing
+        // resumes; not failed, because nothing broke — the gate judged. The reason passes through
+        // verbatim, marker included; this driver still draws no line of its own, the runner did.
+        if ($frontier?->status === StepStatus::Denied) {
+            return [
+                'ok' => false,
+                'applied' => false,
+                'paused' => false,
+                'denied' => true,
+                'resumable' => false,
+                'denied_operation' => $frontier->step->operation,
+                'reason' => $frontier->reason,
+                'executed_count' => $result->executedCount(),
+                'steps_total' => \count($steps),
+            ];
         }
 
         return [

@@ -109,10 +109,20 @@ final class GovernedDoor
         // the next step may name an operation this door was not born with. Asked for a tool the registry does
         // not know, the door folds the catalogue again, projects what is new, and tells the gate — reading
         // the app as it is now, never inventing: a tool the app still does not offer stays unjudgeable.
-        $grown = static function (string $tool) use ($kernel, $root, $registry, $gate): void {
+        // A memo on the DECLARED list: the app grows by a line in config/operations.php, so the fold repeats
+        // only when that file changed — a model naming a tool that does not exist pays nothing per step.
+        $declared = $root . '/config/operations.php';
+        $stamp = static fn (): string => is_file($declared) ? (string) hash_file('xxh128', $declared) : '';
+        $folded = $stamp();
+        $grown = static function (string $tool) use ($kernel, $root, $registry, $gate, $stamp, &$folded): void {
             if ($registry->getDefinition($tool) !== null) {
                 return;
             }
+            $now = $stamp();
+            if ($now === $folded) {
+                return;
+            }
+            $folded = $now;
             $all = Operations::all($kernel, $root);
             $fresh = array_values(array_filter(
                 $all,

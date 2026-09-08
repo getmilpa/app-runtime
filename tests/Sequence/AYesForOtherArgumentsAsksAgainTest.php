@@ -264,6 +264,101 @@ final class AYesForOtherArgumentsAsksAgainTest extends TestCase
         self::assertSame('grown:x', $result['says'] ?? null);
     }
 
+    #[Test]
+    public function a_step_the_gate_denies_after_a_consented_prefix_does_not_make_the_retry_re_run_the_prefix(): void
+    {
+        // `lab:nope` is no operation of this app: unjudgeable, a hard deny. On resume, the pause the run was
+        // resumed from must move to the denied step — or the retry would re-run the Privileged prefix.
+        $recipe = Recipe::fromArray('demo', ['work' => [
+            ['op' => 'lab:burn', 'args' => ['what' => 'a']],
+            ['op' => 'lab:nope'],
+        ]]);
+        $this->apply($recipe);
+        $this->sayYes();
+
+        $second = $this->apply($recipe);
+        self::assertTrue($second['denied'] ?? false, json_encode($second));
+        self::assertSame(['a'], self::$burned);
+        $paused = $this->store->load('recipe:demo')?->pausedSequence;
+        self::assertNotNull($paused);
+        self::assertSame(1, $paused->nextIndex, 'the pause moved to the denied step');
+
+        $third = $this->apply($recipe);
+        self::assertTrue($third['denied'] ?? false, 'still not offered, still denied: ' . json_encode($third));
+        self::assertSame(['a'], self::$burned, 'the Privileged first step did not run twice');
+    }
+
+    #[Test]
+    public function what_the_enable_installed_a_moment_ago_is_loadable_and_judged_in_the_same_process(): void
+    {
+        // The booted autoloader keeps the maps it was born with: a provider composer just installed stayed
+        // «class not found» for the very sequence that installed it. `Capabilities::install` teaches the
+        // running loader the tree composer wrote, so the door's re-fold sees the class NOW.
+        mkdir($this->root . '/config');
+        file_put_contents($this->root . '/config/operations.php', "<?php\n\nreturn [];\n");
+        mkdir($this->root . '/grown');
+        $class = 'LabGrown\\Ops\\GrownOnDiskProvider';
+        file_put_contents($this->root . '/grown/GrownOnDiskProvider.php', <<<'PHP_'
+            <?php
+            namespace LabGrown\Ops;
+            final class GrownOnDiskProvider implements \Milpa\Command\CommandProvider
+            {
+                public function __construct(\Milpa\Interfaces\Di\DIContainerInterface $container) {}
+                public function operations(): array
+                {
+                    return [new \Milpa\Command\Operation(
+                        name: 'lab:disk',
+                        description: 'an operation installed a moment ago',
+                        handler: static fn (array $input): array => ['ok' => true, 'says' => 'disk:' . ($input['what'] ?? '')],
+                        inputSchema: ['type' => 'object', 'properties' => ['what' => ['type' => 'string']], 'required' => []],
+                        effects: \Milpa\Command\Effect\EffectProfile::readOnly(),
+                    )];
+                }
+            }
+            PHP_);
+        self::assertFalse(class_exists($class), 'the instrument: no loader maps the namespace yet');
+        $door = $this->door();
+        try {
+            $door->callTool('lab_disk', []);
+            self::fail('unjudgeable before the install');
+        } catch (\Milpa\ToolRuntime\Gate\ToolCallRefused $refused) {
+            self::assertStringStartsWith('UNJUDGEABLE:', $refused->getMessage());
+        }
+
+        // THE ENABLE, as it happens: composer writes the tree (maps + installed.json), then install() registers.
+        $before = $this->vendorWith([]);
+        $after = $this->vendorWith([[
+            'name' => 'lab/grown', 'version' => '1.0.0',
+            'extra' => ['milpa' => ['capability' => ['id' => 'grown', 'title' => 'grown', 'unlocks' => [], 'provides' => [], 'operations' => [$class]]]],
+        ]]);
+        file_put_contents($after . '/composer/autoload_psr4.php', "<?php\n\nreturn ['LabGrown\\\\Ops\\\\' => [" . var_export($this->root . '/grown', true) . "]];\n");
+        file_put_contents($after . '/composer/autoload_classmap.php', "<?php\n\nreturn [];\n");
+        $answer = \Milpa\AppRuntime\Support\Capabilities::install(
+            'lab/grown',
+            $before,
+            static fn (string $command): array => [0, []],
+            index: ['capabilities' => ['lab/grown' => ['id' => 'grown', 'title' => 'grown', 'unlocks' => [], 'version' => '1.0.0']]],
+            vendorAfter: $after,
+            root: $this->root,
+        );
+        self::assertTrue($answer['ok'] ?? false, json_encode($answer));
+        self::assertSame([$class], $answer['registered'] ?? null, 'the provider was written into config/operations.php');
+
+        $result = $door->callTool('lab_disk', ['what' => 'y']);
+        self::assertIsArray($result);
+        self::assertSame('disk:y', $result['says'] ?? null, 'loadable and judged in the same process: ' . json_encode($result));
+    }
+
+    /** @param list<array<string, mixed>> $packages */
+    private function vendorWith(array $packages): string
+    {
+        $dir = $this->root . '/vendor-' . bin2hex(random_bytes(3));
+        mkdir($dir . '/composer', 0o775, true);
+        file_put_contents($dir . '/composer/installed.json', json_encode(['packages' => $packages], \JSON_THROW_ON_ERROR));
+
+        return $dir;
+    }
+
     private function door(): \Milpa\AppRuntime\Agent\ConsentBridge
     {
         $session = $this->store->load('recipe:demo');
