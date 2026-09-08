@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.132.0](https://github.com/getmilpa/app-runtime/compare/v0.131.1...v0.132.0) (2026-09-08)
+
+
+### Features
+
+* capabilities:enable identity opens the door — by id, plugin declared, relying party written ([#330](https://github.com/getmilpa/app-runtime/issues/330)) ([a170f38](https://github.com/getmilpa/app-runtime/commit/a170f3821f17e3be96a9ce947087ffba254367bf))
+* the first hour — house:start, routes:list and serve ([#329](https://github.com/getmilpa/app-runtime/issues/329)) ([6c0bbb8](https://github.com/getmilpa/app-runtime/commit/6c0bbb8979f64c38cf73513e8edcc578c57b384d))
+
 ## [0.131.1](https://github.com/getmilpa/app-runtime/compare/v0.131.0...v0.131.1) (2026-09-08)
 
 
