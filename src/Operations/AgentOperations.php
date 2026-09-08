@@ -926,8 +926,19 @@ class AgentOperations implements CommandProvider
             $next[] = ['step' => 'switch on the generators', 'command' => 'coa capabilities:enable milpa/devtools', 'why' => 'make, validate and doctor: scaffold plugins, entities, controllers and tools, and let the house check them'];
         }
         $recipes = array_map(static fn (string $f): string => basename($f, '.json'), glob($root . '/recipes/*.json') ?: []);
-        if ($recipes !== [] && \in_array('recipe:apply', $offered, true)) {
-            $next[] = ['step' => 'become a domain', 'command' => 'coa recipe:apply --recipe=' . $recipes[0], 'why' => 'a recipe originates governed work: the foundation, the capabilities it needs and the scaffolds, each through the gate'];
+        // A RECIPE RUNS THROUGH THE GOVERNED RUNTIME — the session store (milpa/agent) that records its pauses
+        // and the gate (milpa/ai-gateway) each step passes. Measured on fresh cattle (greenhouse evidence/0562):
+        // without them `recipe:apply` refuses, so the house names them first and the recipe only once they are in.
+        $governed = ['milpa/agent', 'milpa/ai-gateway'];
+        $missingForRecipes = array_values(array_intersect($governed, $availablePackages));
+        if ($recipes !== [] && \in_array('recipe:apply', $offered, true) && $missingForRecipes !== [] && \in_array('capabilities:enable', $offered, true)) {
+            foreach ($missingForRecipes as $package) {
+                $next[] = ['step' => 'switch on the governed runtime', 'command' => 'coa capabilities:enable ' . $package, 'why' => $package === 'milpa/agent'
+                    ? 'sessions that pause and are recorded: recipe:apply and sequence:run run through them'
+                    : 'the gate each governed step passes; a recipe cannot open its door without it'];
+            }
+        } elseif ($recipes !== [] && \in_array('recipe:apply', $offered, true)) {
+            $next[] = ['step' => 'become a domain', 'command' => 'coa recipe:apply --recipe=' . $recipes[0], 'why' => 'a recipe originates governed work: the foundation, the capabilities it needs and the scaffolds, each through the gate — it pauses for your consent; answer with agent:answer and call it again'];
         } elseif (($foundation['verdict'] ?? '') === 'unfounded' && \in_array('foundation:found', $offered, true)) {
             $next[] = ['step' => 'found the house', 'command' => 'coa foundation:found', 'why' => 'until a domain and an objective are declared, the agent can only read'];
         }
