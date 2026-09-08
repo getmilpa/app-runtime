@@ -32,6 +32,7 @@ use Milpa\Command\Operation;
 use Milpa\Container\DIContainer;
 use Milpa\EventStore\InMemoryEventStore;
 use Milpa\Runtime\Kernel;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
@@ -79,6 +80,51 @@ final class AReadWithoutAProfileAsksOnceTest extends TestCase
         self::assertNotNull($reason, 'a read that declares nothing is Unknown on every axis: it asks');
         self::assertStringNotContainsString(SessionToolGate::UNJUDGEABLE, $reason, 'asked, not denied: it is an operation of this app');
         self::assertNotNull($this->store->load('recipe:demo')?->question, 'the question is open for a human');
+    }
+
+    /** @return iterable<string, array{AutonomyMode}> */
+    public static function everyMode(): iterable
+    {
+        foreach (AutonomyMode::cases() as $mode) {
+            yield $mode->value => [$mode];
+        }
+    }
+
+    #[Test]
+    #[DataProvider('everyMode')]
+    public function the_undeclared_read_asks_in_every_mode_not_only_in_ask(AutonomyMode $mode): void
+    {
+        // «en cualquier modo» (decisions/0227): the declared-confirmation arm of SessionPolicy runs before the
+        // mode is read, and «auto» means «do not ask for the reversible», never «do not ask».
+        $store = new SessionStore(new InMemoryEventStore());
+        $store->start('s-' . $mode->value, 'x', $mode);
+        $session = $store->load('s-' . $mode->value);
+        self::assertInstanceOf(Session::class, $session);
+        $gate = new SessionToolGate($store, $session, $this->operations());
+
+        self::assertNotNull($gate->refuse('lab_peek', ['what' => 'x']), 'asks in mode ' . $mode->value);
+        self::assertNull($gate->refuse('lab_declared', []), 'the declared read passes in mode ' . $mode->value);
+    }
+
+    #[Test]
+    public function at_the_gate_a_read_whose_declared_profile_still_demands_consent_asks_too(): void
+    {
+        // THE CONTROL FOR THE RULE (decisions/0227 point 2): the question is not «did it declare a profile?» but
+        // «does its ceiling demand consent?» — Consent::demanded. A profile that only says Mutation::None leaves
+        // subject and authority Unknown (weight 4), so it asks exactly like the undeclared one.
+        $partial = new Operation(
+            name: 'lab:partial',
+            description: 'a read that declared only that it does not mutate',
+            handler: static fn (array $input): array => ['ok' => true],
+            inputSchema: ['type' => 'object', 'properties' => [], 'required' => []],
+            effects: new EffectProfile(Mutation::None),
+        );
+        $session = $this->store->load('recipe:demo');
+        self::assertInstanceOf(Session::class, $session);
+        $gate = new SessionToolGate($this->store, $session, [...$this->operations(), $partial]);
+
+        self::assertNotNull($gate->refuse('lab_partial', []), 'subject and authority still Unknown: it asks');
+        self::assertNull($gate->refuse('lab_declared', []), 'the fully declared read passes');
     }
 
     #[Test]

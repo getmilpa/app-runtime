@@ -290,7 +290,8 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             // `requiresConfirmation` and the tool-runtime gate on `cli` then wants a covering grant — an
             // operation with no EffectProfile carries Unknown on every axis (GOV-05: unclassified is not
             // safe). So the session door asks first, once per call shape, and the recorded yes is the grant
-            // the other door reads. A declared read never enters here.
+            // the other door reads. A read whose declared profile does not demand consent (`readOnly()`, `#[Reads]`)
+            // never enters here; one whose profile still leaves subject and authority Unknown does, by the same rule.
             $operacion->requiresConfirmation || (! $operacion->mutating && Consent::demanded($operacion)),
             // El techo se pide AQUÍ, por llamada, y no se guarda en el constructor: si el padre baja
             // a `ask` a media corrida del hijo, la siguiente herramienta ya lo siente. Un techo

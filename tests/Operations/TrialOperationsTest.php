@@ -80,6 +80,25 @@ final class TrialOperationsTest extends TestCase
         self::assertSame([], TrialWorkspace::ids($root), 'and it never goes to trial itself');
     }
 
+    /** `sandbox:list` is a declared read: the governed door lets it through; `sandbox:discard` still asks. */
+    public function testTheListIsADeclaredReadAndTheDiscardStillAsks(): void
+    {
+        $root = sys_get_temp_dir() . '/trial-ops-declared-' . bin2hex(random_bytes(4));
+        mkdir($root, 0o775, true);
+        $almacen = new SessionStore(new InMemoryEventStore());
+        $almacen->start('s1', 'x', AutonomyMode::Ask);
+        $sesion = $almacen->load('s1');
+        self::assertNotNull($sesion);
+        $ops = (new TrialOperations(new DIContainer(), $almacen, $root))->operations();
+        foreach ($ops as $op) {
+            self::assertNotNull($op->effects, $op->name . ' declares what it does');
+        }
+        $gate = new SessionToolGate($almacen, $sesion, $ops);
+
+        self::assertNull($gate->refuse('sandbox_list', []), 'a declared read passes the door without a question');
+        self::assertNotNull($gate->refuse('sandbox_discard', ['workspace' => 'w1']), 'erasing a trial asks');
+    }
+
     public function testPromoteAppliesTheDiffKeepsAPreImageAndRecordsIt(): void
     {
         $root = $this->root();
