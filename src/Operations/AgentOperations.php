@@ -23,7 +23,6 @@ use Milpa\AiGateway\PlanBoard;
 use Milpa\AiGateway\ProgressProbe;
 use Milpa\AiGateway\RunInterrupted;
 use Milpa\Agent\Principal;
-use Milpa\AppRuntime\Agent\AffirmativeAnswer;
 use Milpa\AppRuntime\Support\ContratoInstalado;
 use Milpa\AppRuntime\Support\Foundation;
 use Milpa\Http\Routing\Route;
@@ -33,6 +32,7 @@ use Milpa\AppRuntime\Agent\ClosureVerdict;
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Agent\DebtSignal;
 use Milpa\AppRuntime\Agent\LaunchGrants;
+use Milpa\AppRuntime\Agent\SessionGrants;
 use Milpa\AppRuntime\Agent\SessionIdentity;
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
 use Milpa\AppRuntime\Identity\IdentityConfig;
@@ -48,7 +48,6 @@ use Milpa\AppRuntime\Agent\EffectClasses;
 use Milpa\AppRuntime\Agent\ExecutionRecorder;
 use Milpa\AppRuntime\Agent\ObservedExecutor;
 use Milpa\AppRuntime\Agent\IntakeObserver;
-use Milpa\AppRuntime\Agent\IntentAdmissibility;
 use Milpa\AiGateway\McpClientService;
 use Milpa\AiGateway\OptionTable;
 use Milpa\AiGateway\SecondOpinionGate;
@@ -1841,140 +1840,14 @@ class AgentOperations implements CommandProvider
      * ya lo extendió, y esa lección la pagó v0.28.0.
      */
     /**
-     * Los sí de esta sesión, como hechos con sus argumentos exactos.
-     *
-     * **Sólo cuentan las decisiones que guardaron el hecho estructurado.** Una sesión vieja trae el
-     * `why` como el JSON pelón de los argumentos, sin decir de qué operación son, y de ahí no se
-     * puede reconstruir a qué dijo que sí el humano sin leer el TEXTO de la pregunta. Esa sesión
-     * vuelve a preguntar, y eso es lo correcto: fallar hacia arriba es la única falla que esta
-     * familia se puede permitir en este eje (greenhouse decisions/0029).
+     * The ConsentGrants this session already collected — derived from its decisions by {@see SessionGrants},
+     * the one derivation every door shares (greenhouse evidence/0561).
      *
      * @return list<ConsentGrant>
      */
     private function grantsDeLaSesion(): array
     {
-        if ($this->decisionesDeLaSesion === []) {
-            return [];
-        }
-
-        $ahora = new \DateTimeImmutable();
-        $grants = [];
-
-        foreach ($this->decisionesDeLaSesion as $decision) {
-            $reason = $decision['reason'] ?? null;
-            if ($reason !== 'permission' && $reason !== 'target_not_named') {
-                continue;
-            }
-            if (! AffirmativeAnswer::is((string) ($decision['answer'] ?? ''))) {
-                continue;
-            }
-            $hecho = json_decode(\is_string($decision['why'] ?? null) ? $decision['why'] : '', true);
-            if (! \is_array($hecho) || ! \is_string($hecho['operation'] ?? null)) {
-                continue;
-            }
-
-            // A CONFIRMED INTENT IS A CLAIM, NOT A PERMISSION (greenhouse decisions/0184). It never
-            // minted an event, so it is DERIVED per run like everything else here — but only for the
-            // tiers the policy rules admissible, judged from the operation's declared ceiling. The
-            // PolicyGate layer then honours the same semantics with its exact `covers()`.
-            if ($reason === 'target_not_named') {
-                $grant = $this->grantFromIntentClaim($decision, $hecho, $ahora);
-                if ($grant !== null) {
-                    $grants[] = $grant;
-                }
-
-                continue;
-            }
-
-            // QUIÉN LO AUTORIZÓ SE LEE DEL REGISTRO, NO DEL ENTORNO.
-            //
-            // Esto se armaba con `getenv('USER')` y `gethostname()`, o sea con la identidad de quien
-            // estuviera corriendo AHORA. Como el consentimiento no se guarda sino que se re-deriva
-            // cada vez, el mismo sí grabado volvía a nombre de otra persona según quién retomara la
-            // sesión: medido en ganado —rod contestó, impostor retomó, la operación corrió— y el
-            // registro sólo nombraba a rod (greenhouse evidence/0209).
-            //
-            // Leer el `by` grabado NO lo asciende: llega `verified:false` y se queda `verified:false`.
-            // Lo único que cambia es que la autoridad deja de pertenecerle al lector.
-            //
-            // Y donde no hay `by` —streams escritos antes de que la respuesta lo cargara— queda
-            // `null`. Un registro con un hueco es peor de ver y más verdadero que uno rellenado con
-            // quien pasaba por ahí, que es exactamente el defecto que esto viene a quitar.
-            $concedio = ($decision['by'] ?? null) instanceof Principal ? $decision['by'] : null;
-
-            $grants[] = new ConsentGrant(
-                operation: new OperationId($hecho['operation']),
-                principal: $concedio?->id,
-                session: $this->sesionDeLosPermisos,
-                grantedAt: $ahora,
-                // Cómo se ganó, para que ningún consumidor tenga que volver a ganarlo. Un sí
-                // sembrado al lanzar conserva su procedencia: el auditor distingue el grant de
-                // arranque del sí contestado a media sesión sin releer el stream.
-                provenance: ($decision['executor'] ?? null) === LaunchGrants::EXECUTOR
-                    ? LaunchGrants::EXECUTOR
-                    : 'session.question_answered',
-                arguments: \is_array($hecho['arguments'] ?? null) ? $hecho['arguments'] : [],
-            );
-        }
-
-        return $grants;
-    }
-
-    /**
-     * The ConsentGrant a confirmed intent claim derives, or `null` when the claim buys none.
-     *
-     * «La intención describe qué quiere el humano. La policy decide qué autoridad compra haberlo
-     * dicho.» (Rod, greenhouse decisions/0184). The tier is judged at judgment time from the
-     * operation's DECLARED ceiling — an operation the captured catalogue does not declare, or one
-     * that never declared its effects, fails closed. A claim that names no arguments also derives
-     * nothing: an argument-less ConsentGrant covers every call of its operation, and a claim may
-     * never buy a blanket.
-     *
-     * @param array<string, mixed> $decision
-     * @param array<string, mixed> $hecho
-     */
-    private function grantFromIntentClaim(array $decision, array $hecho, \DateTimeImmutable $ahora): ?ConsentGrant
-    {
-        $argumentos = \is_array($hecho['arguments'] ?? null) ? $hecho['arguments'] : null;
-        if ($argumentos === null || $argumentos === []) {
-            return null;
-        }
-
-        $operation = (string) $hecho['operation'];
-        if (IntentAdmissibility::tier($this->declaredCeilingOf($operation)) === IntentAdmissibility::NEVER) {
-            return null;
-        }
-
-        // WHO CONFIRMED IT, read from the record — never from the environment (evidence/0209).
-        $concedio = ($decision['by'] ?? null) instanceof Principal ? $decision['by'] : null;
-
-        return new ConsentGrant(
-            operation: new OperationId($operation),
-            principal: $concedio?->id,
-            session: $this->sesionDeLosPermisos,
-            grantedAt: $ahora,
-            provenance: 'intent-confirmed',
-            arguments: $argumentos,
-        );
-    }
-
-    /**
-     * The declared EffectProfile of an operation in the captured catalogue — identity, not spelling.
-     *
-     * `null` both when the catalogue does not declare the operation and when the operation declared
-     * no profile: the two are the same answer to the caller, «no ceiling to judge by», and the
-     * admissibility table treats that as NEVER.
-     */
-    private function declaredCeilingOf(string $operation): ?EffectProfile
-    {
-        $id = new OperationId($operation);
-        foreach ($this->catalogueForIntentClaims as $operacion) {
-            if ($id->is($operacion->name)) {
-                return $operacion->effects;
-            }
-        }
-
-        return null;
+        return SessionGrants::of($this->decisionesDeLaSesion, $this->sesionDeLosPermisos, new \DateTimeImmutable(), $this->catalogueForIntentClaims);
     }
 
     /** @var list<array<string, mixed>> lo que ESTA sesión ya decidió, con su hecho adentro */
