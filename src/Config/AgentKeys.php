@@ -107,7 +107,9 @@ final class AgentKeys
                 'type' => DeclaredType::integer(),
                 'does' => 'The model\'s declared context window in tokens; hands the Compactor a '
                     . 'whole-window budget so composition never outgrows what the model can read '
-                    . '(MILPA_AGENT_CONTEXT_TOKENS is the environment fallback)',
+                    . '(MILPA_AGENT_CONTEXT_TOKENS is the environment fallback). When agent.baseUrl '
+                    . 'is set, the provider is asked what it actually allocated and the SMALLER of '
+                    . 'the two governs — declare less to leave air, never more than exists',
             ],
             'agent.permissionWindow' => [
                 'type' => DeclaredType::text('ISO-8601 duration, e.g. PT1H'),
