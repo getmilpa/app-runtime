@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Operations;
 use Milpa\Agent\AutonomyMode;
 use Milpa\AppRuntime\Recipe\RecipeDriver;
 use Milpa\AppRuntime\Sequence\DeclaredSequences;
+use Milpa\AppRuntime\Agent\ObservedExecutor;
 use Milpa\AppRuntime\Sequence\GovernedDoor;
 use Milpa\AppRuntime\Support\CatalogueBorrower;
 use Milpa\AppRuntime\Support\Capabilities;
@@ -317,7 +318,7 @@ final class SequenceOperations implements CatalogueBorrower
 
         $resuming = $paused !== null;
         if ($existing === null) {
-            $store->start($sessionId, $petition, AutonomyMode::Ask);
+            $store->start($sessionId, $petition, AutonomyMode::Ask, by: ObservedExecutor::fromContext($context)->principal);
         }
 
         $session = $store->load($sessionId);

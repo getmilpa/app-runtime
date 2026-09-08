@@ -24,6 +24,7 @@ use Milpa\Command\Effect\Mutation;
 use Milpa\Command\Effect\Externality;
 use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Subject;
+use Milpa\Command\InvocationContext;
 use Milpa\Command\Operation;
 use Milpa\Container\DIContainer;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -179,6 +180,31 @@ final class ASequenceIsNamedFromAClosedSetTest extends TestCase
         $container->registerService(Kernel::class, $kernel);
 
         return [$container, $root];
+    }
+
+    /**
+     * WHO STARTED IT RIDES THE OPENING EVENT (greenhouse evidence/0561): a sequence started over HTTP by a
+     * passkey used to open a session that named nobody while every answer and execution named the human.
+     * Control: a terminal names the operator, unverified.
+     */
+    public function testTheSessionASequenceOpensRecordsWhoStartedIt(): void
+    {
+        [$container, $root] = $this->appDeclaring(['deploy' => [['op' => 'lab:ping', 'args' => []]]]);
+        $handler = (new SequenceOperations($container))->operations()[0]->handler;
+
+        $handler(['sequence' => 'deploy'], InvocationContext::web(actor: 'actor:passkey:YkS3', authorizationId: 'sequence:run'));
+        $rows = array_map(static fn (string $l): array => json_decode($l, true, 512, \JSON_THROW_ON_ERROR), file($root . '/var/agent-sessions.jsonl', \FILE_IGNORE_NEW_LINES | \FILE_SKIP_EMPTY_LINES) ?: []);
+        $started = array_values(array_filter($rows, static fn (array $r): bool => $r['type'] === 'session.started'))[0] ?? null;
+        self::assertNotNull($started);
+        self::assertSame(['id' => 'actor:passkey:YkS3', 'verified' => true], $started['payload']['by'] ?? null, 'the passkey that started it');
+
+        [$container2, $root2] = $this->appDeclaring(['deploy' => [['op' => 'lab:ping', 'args' => []]]]);
+        $handler2 = (new SequenceOperations($container2))->operations()[0]->handler;
+        $handler2(['sequence' => 'deploy'], InvocationContext::cli());
+        $rows2 = array_map(static fn (string $l): array => json_decode($l, true, 512, \JSON_THROW_ON_ERROR), file($root2 . '/var/agent-sessions.jsonl', \FILE_IGNORE_NEW_LINES | \FILE_SKIP_EMPTY_LINES) ?: []);
+        $by = array_values(array_filter($rows2, static fn (array $r): bool => $r['type'] === 'session.started'))[0]['payload']['by'] ?? null;
+        self::assertIsArray($by);
+        self::assertFalse($by['verified'], 'the terminal names the operator, unverified');
     }
 
     /** The refusal itself, on the shape a paused session has: named one, paused on another. */
