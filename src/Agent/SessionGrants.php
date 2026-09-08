@@ -33,19 +33,14 @@ use Milpa\Command\Operation;
 final class SessionGrants
 {
     /**
-     * Los sí de esta sesión, como hechos con sus argumentos exactos.
-     *
-     * **Sólo cuentan las decisiones que guardaron el hecho estructurado.** Una sesión vieja trae el
-     * `why` como el JSON pelón de los argumentos, sin decir de qué operación son, y de ahí no se
-     * puede reconstruir a qué dijo que sí el humano sin leer el TEXTO de la pregunta. Esa sesión
-     * vuelve a preguntar, y eso es lo correcto: fallar hacia arriba es la única falla que esta
-     * familia se puede permitir en este eje (greenhouse decisions/0029).
-     *
-     * @return list<ConsentGrant>
-     */
-    /**
      * The grants a session's decisions derive — every affirmative answer to a permission question, and every
-     * confirmed intent claim the policy rules admissible — as the tool-runtime gate reads them.
+     * confirmed intent claim the policy rules admissible — as the tool-runtime gate reads them: facts with
+     * their exact arguments.
+     *
+     * ONLY DECISIONS THAT STORED THE STRUCTURED FACT COUNT. An old session carries `why` as the bare JSON
+     * of the arguments without naming the operation, and from that nobody can reconstruct what the human
+     * said yes to without reading the question's TEXT. That session asks again, and that is right: failing
+     * upwards is the only failure this family can afford on this axis (greenhouse decisions/0029).
      *
      * @param list<array<string, mixed>> $decisions what the session already decided, each with its fact inside (`why`)
      * @param list<Operation>            $catalogue the operations whose DECLARED ceilings judge an intent claim
