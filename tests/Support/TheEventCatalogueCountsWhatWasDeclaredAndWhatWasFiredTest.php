@@ -49,6 +49,29 @@ final class TheEventCatalogueCountsWhatWasDeclaredAndWhatWasFiredTest extends Te
     /** The two events the fixture emitter declares — one of them is never dispatched, on purpose. */
     private const DECLARED = ['fixture.opened', 'fixture.closed'];
 
+    /**
+     * An app root with NO manifests at all, so what these tests measure is the dispatcher's own memory.
+     *
+     * The fold also declares what installed packages name in their manifests (that is what makes the answer
+     * the app's and not the process's, greenhouse decisions/0228 second slice); pointed at this empty root it
+     * has nothing to read there, which is exactly the isolation these rows need — and the manifest pass gets
+     * its own falsifiers in {@see TheCatalogueAnswersForTheAppAndNotForTheProcessTest}.
+     */
+    private string $root = '';
+
+    protected function setUp(): void
+    {
+        $this->root = sys_get_temp_dir() . '/milpa-events-' . bin2hex(random_bytes(6));
+        mkdir($this->root, 0o777, true);
+    }
+
+    protected function tearDown(): void
+    {
+        if (is_dir($this->root)) {
+            rmdir($this->root);
+        }
+    }
+
     #[Test]
     public function a_declared_event_that_never_fired_a_declared_one_that_did_and_an_undeclared_dispatch_are_three_distinct_rows(): void
     {
@@ -61,14 +84,15 @@ final class TheEventCatalogueCountsWhatWasDeclaredAndWhatWasFiredTest extends Te
 
         // CONTROL, before the undeclared dispatch: `foo.bar` is not in the catalogue at all. The row cannot
         // be a fixture of the fold — it appears because the dispatcher saw the name, or it does not appear.
-        $before = Events::catalogue($container);
+        $before = Events::catalogue($container, $this->root);
         self::assertTrue($before['ok']);
+        self::assertSame([], $before['warnings'], 'an app root with no manifests at all has nothing to warn about');
         self::assertSame(['fixture.closed', 'fixture.opened'], array_column($before['events'], 'name'));
         self::assertSame(['declared' => 2, 'dispatched' => 1, 'undeclared' => 0], $before['counts']);
 
         $dispatcher->dispatch('foo.bar', ['event' => new \stdClass()]);
 
-        $after = Events::catalogue($container);
+        $after = Events::catalogue($container, $this->root);
         self::assertTrue($after['ok']);
         self::assertSame(EventDispatcher::class, $after['dispatcher']);
         // Sorted by name, and the undeclared one is IN the list — not hidden because nobody declared it.
@@ -135,7 +159,7 @@ final class TheEventCatalogueCountsWhatWasDeclaredAndWhatWasFiredTest extends Te
     {
         // F2: a plain dispatcher — it implements the dispatch contract and nothing else, which is exactly
         // what an app on milpa/events < 0.4 holds.
-        $answer = Events::catalogue($this->containerWith(new PlainDispatcher()));
+        $answer = Events::catalogue($this->containerWith(new PlainDispatcher()), $this->root);
 
         self::assertFalse($answer['ok']);
         self::assertArrayNotHasKey('events', $answer, 'an empty list would read as «this app dispatches no events»');
@@ -146,7 +170,7 @@ final class TheEventCatalogueCountsWhatWasDeclaredAndWhatWasFiredTest extends Te
 
         // POSITIVE CONTROL: the same container, the same call, with a dispatcher that DOES keep the record —
         // the refusal is about the dispatcher, not about the fold being unable to answer at all.
-        $ok = Events::catalogue($this->containerWith(new EventDispatcher(new NullLogger())));
+        $ok = Events::catalogue($this->containerWith(new EventDispatcher(new NullLogger())), $this->root);
         self::assertTrue($ok['ok']);
         self::assertSame([], $ok['events']);
     }
@@ -154,7 +178,7 @@ final class TheEventCatalogueCountsWhatWasDeclaredAndWhatWasFiredTest extends Te
     #[Test]
     public function an_app_with_no_dispatcher_at_all_fails_closed_in_words(): void
     {
-        $answer = Events::catalogue(new DIContainer());
+        $answer = Events::catalogue(new DIContainer(), $this->root);
 
         self::assertFalse($answer['ok']);
         self::assertStringContainsString('no event dispatcher', $answer['error']);
@@ -172,7 +196,7 @@ final class TheEventCatalogueCountsWhatWasDeclaredAndWhatWasFiredTest extends Te
             when: 'A second declarer got there later.',
         ));
 
-        $answer = Events::catalogue($this->containerWith($dispatcher));
+        $answer = Events::catalogue($this->containerWith($dispatcher), $this->root);
 
         self::assertSame(['fixture.closed', 'fixture.opened'], array_column($answer['events'], 'name'));
         self::assertSame(2, $answer['counts']['declared']);
@@ -190,7 +214,7 @@ final class TheEventCatalogueCountsWhatWasDeclaredAndWhatWasFiredTest extends Te
         ));
         self::assertCount(3, $naive->declared(), 'the fixture really did keep both — the fold, not the dispatcher, is what is under test');
 
-        $folded = Events::catalogue($this->containerWith($naive));
+        $folded = Events::catalogue($this->containerWith($naive), $this->root);
         self::assertSame(['fixture.closed', 'fixture.opened'], array_column($folded['events'], 'name'));
         self::assertSame(2, $folded['counts']['declared']);
         self::assertSame('The fixture emitter opened, once.', $folded['events'][1]['when']);
@@ -207,15 +231,16 @@ final class TheEventCatalogueCountsWhatWasDeclaredAndWhatWasFiredTest extends Te
         $dispatcher->dispatch('foo.bar');
         $container = $this->containerWith($dispatcher);
 
-        $catalogue = Events::catalogue($container);
-        $summary = Events::summary($container);
+        $catalogue = Events::catalogue($container, $this->root);
+        $summary = Events::summary($container, $this->root);
 
         self::assertSame($catalogue['counts'], $summary['counts']);
         self::assertSame(array_column($catalogue['events'], 'name'), $summary['names']);
         self::assertSame($catalogue['dispatcher'], $summary['dispatcher']);
+        self::assertSame($catalogue['warnings'], $summary['warnings'], 'and a manifest it could not resolve is named in both doors');
 
         // And the section refuses exactly as the catalogue does: zeros with the right shape would be a lie.
-        $refused = Events::summary($this->containerWith(new PlainDispatcher()));
+        $refused = Events::summary($this->containerWith(new PlainDispatcher()), $this->root);
         self::assertFalse($refused['ok']);
         self::assertStringContainsString(DeclaredEvents::class, $refused['error']);
     }
@@ -252,10 +277,21 @@ final class TheEventCatalogueCountsWhatWasDeclaredAndWhatWasFiredTest extends Te
         $dispatcher->declare(...FixtureEmitter::declarations());
         $container = $this->containerWith($dispatcher);
 
+        // No isolated root here, on purpose: the operation reads THIS app's manifests, so the comparison is
+        // made against the fold reading them too — including the manifest pass, which is the half the
+        // operation would be most likely to have re-derived differently.
+        $fold = Events::catalogue($container);
         self::assertSame(
-            Events::catalogue($container),
+            $fold,
             (new AgentOperations($container))->eventsCatalogue(),
             'the operation is the fold, not a second derivation of it',
+        );
+        // And this repo's own vendor really does name holders, so the comparison is not between two empties:
+        // packages of the family declare their events here without a single emitter being constructed.
+        self::assertGreaterThan(
+            \count(self::DECLARED),
+            $fold['counts']['declared'],
+            'the manifests of the installed packages declared more than the fixture did',
         );
     }
 

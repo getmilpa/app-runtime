@@ -310,10 +310,12 @@ class AgentOperations implements CommandProvider
             // THE EVENT TABLE (greenhouse decisions/0228): the dispatcher is the one place every dispatch
             // passes through, so it is the one authority on what events exist — emitters declare to it, it
             // remembers what it fired, and this reads both. A dispatcher that keeps no such record is named
-            // as the gap, never answered with an empty list.
+            // as the gap, never answered with an empty list. And because an emitter only declares when it is
+            // CONSTRUCTED, the fold first declares, on behalf of the emitters this process will never build,
+            // what each installed package names in its manifest: the answer is the APP's, not the process's.
             new Operation(
                 name: 'events:catalogue',
-                description: 'The events this app\'s dispatcher was told exist, against the names it really dispatched in this process: each declared event with who dispatches it, when, and its subject — and every name dispatched without a declaration, as debt with a name',
+                description: 'The events this app was told exist — declared by its emitters and by every installed package\'s manifest — against the names its dispatcher really fired in this process: each event with who dispatches it, when, and its subject, plus every name dispatched without a declaration, as debt with a name',
                 handler: fn (array $input): array => $this->eventsCatalogue(),
                 inputSchema: ['type' => 'object', 'properties' => [], 'required' => []],
                 outputSchema: [
@@ -323,6 +325,7 @@ class AgentOperations implements CommandProvider
                         'dispatcher' => ['type' => 'string', 'description' => 'The class of the dispatcher this app\'s container holds'],
                         'counts' => ['type' => 'object', 'description' => '{declared, dispatched, undeclared}: names declared to the dispatcher, names it dispatched in this process, names it dispatched that nobody declared'],
                         'events' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'One row per name, sorted by name: {name, dispatchedBy, when, subject: {key, type, mutable, interceptable}, declared, dispatched} — a name nobody declared carries null for what only a declaration can say'],
+                        'warnings' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'Every manifest entry that could not be resolved: {package, class, why} — a class that is not autoloadable here or is not a DeclaresEvents holder. Its events are MISSING from this catalogue, which is why it is said out loud instead of dropped'],
                         'error' => ['type' => 'string', 'description' => 'Why nothing could be read: the dispatcher\'s class and the interface it lacks, with the package that implements it'],
                     ],
                     'required' => ['ok'],
@@ -332,7 +335,7 @@ class AgentOperations implements CommandProvider
                 // NOT over http, like `routes:list`: the answer names the app\'s classes to a route that answers
                 // without a principal under `expose: ['*']`.
                 surfaces: ['cli', 'tui', 'mcp'],
-                observableEvidence: 'a name dispatched in this process before the call shows dispatched:true, one declared and never fired shows dispatched:false, and one fired without a declaration shows declared:false — and a dispatcher that keeps no record answers ok:false naming what it lacks, never an empty list',
+                observableEvidence: 'a name dispatched in this process before the call shows dispatched:true, one declared and never fired shows dispatched:false, and one fired without a declaration shows declared:false; an installed package\'s events are listed though nothing constructed its emitter, and a manifest naming a class this app cannot resolve comes back as a warning with its package — and a dispatcher that keeps no record answers ok:false naming what it lacks, never an empty list',
             ),
             // `coa serve` — the difference between «it boots» and «I saw it» (greenhouse decisions/0216, point 3).
             // A TERMINAL operation only: it holds the process until the server stops, which no other surface
@@ -383,7 +386,7 @@ class AgentOperations implements CommandProvider
                         'plugins' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'Each {class, name, provides?} in the exact order the kernel holds them'],
                         'storage' => ['type' => 'object', 'description' => 'The storage block\'s shape: driver and where — never credentials'],
                         'routes' => ['type' => 'object', 'description' => 'count and paths of the route table the kernel\'s router holds'],
-                        'events' => ['type' => 'object', 'description' => 'The event table\'s own summary, as events:catalogue folds it: the dispatcher, counts {declared, dispatched, undeclared} and the names — or ok:false naming what the dispatcher lacks'],
+                        'events' => ['type' => 'object', 'description' => 'The event table\'s own summary, as events:catalogue folds it: the dispatcher, counts {declared, dispatched, undeclared}, the names and the same warnings for manifests that could not be resolved — or ok:false naming what the dispatcher lacks'],
                         'capabilities' => ['type' => 'object', 'description' => 'The capability registry\'s own answer: installed, available, ports'],
                         'operations' => ['type' => 'object', 'description' => 'count and names of the assembled catalogue — Operations::all'],
                         'sessionTools' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'The session notebook\'s names; empty when this app stores no sessions'],
@@ -1122,8 +1125,10 @@ class AgentOperations implements CommandProvider
      *   enumeration, so the table is read reflectively off the router itself rather than
      *   re-asking the plugins: a second derivation could drift from what the kernel serves;
      * - `events` — {@see Events::summary()}, the same fold `events:catalogue` prints, compact: the
-     *   dispatcher, the counts and the names — or, when the dispatcher keeps no record, the same
-     *   `ok:false` and reason the catalogue gives (greenhouse decisions/0228);
+     *   dispatcher, the counts, the names and the warnings — so the section counts what the APP
+     *   declares (its emitters plus every installed package's manifest), not what this process
+     *   happened to construct — or, when the dispatcher keeps no record, the same `ok:false` and
+     *   reason the catalogue gives (greenhouse decisions/0228);
      * - `capabilities` — {@see Capabilities::answer()}, the exact answer the `capabilities`
      *   operation gives (CapabilityOperations' authority);
      * - `operations` — the names in {@see Operations::all()}, the catalogue's own registry;

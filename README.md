@@ -305,12 +305,40 @@ $response = $handler->handle($request);
 
 ## Upgrading
 
+### `events:catalogue` answers for the APP, not for the process
+
+An emitter declares its events to the dispatcher **when it is constructed**, so a CLI process that builds
+almost none of them heard about almost none of them: measured on fresh cattle, the catalogue listed **7 of
+the family's 24** framework events (greenhouse decisions/0228, second slice). The package now speaks for the
+emitter nobody built — it names a `Milpa\Interfaces\Event\DeclaresEvents` holder in its own manifest, and
+this fold reads those manifests and declares on the emitter's behalf, so `events:catalogue` and
+`house:context`'s `events` section both answer for what the app HAS installed.
+
+```json
+{ "extra": { "milpa": { "events": ["Acme\\Shop\\Event\\ShopEvents"] } } }
+```
+
+- **The floor moved**: `milpa/core >= 0.12` (where `DeclaresEvents` lives), and with it
+  `milpa/runtime >= 0.14`, `milpa/plugin >= 0.17` and `milpa/live >= 0.23` — the versions whose manifests
+  name their holders. `milpa/mcp-server >= 0.7` and `milpa/admin >= 0.16` do the same for the apps that
+  install them.
+- **The manifests read are `vendor/composer/installed.json`** — what Composer really resolved — plus the
+  app's own `composer.json`, so an app declares the events IT dispatches the same way. Nothing is probed
+  and no path is invented; an app without an `installed.json` answers from its dispatcher alone.
+- **The dispatcher stays the authority.** It keeps the first declaration of a name, so an emitter that was
+  really constructed is never overridden by its manifest, and asking twice changes nothing.
+- **A new `warnings` list**: a manifest entry naming a class that is not autoloadable here, or one that is
+  not a `DeclaresEvents` holder, comes back as `{package, class, why}` with `ok` still `true`. Its events
+  are MISSING from the catalogue, which is exactly why it is said out loud instead of dropped — and no row
+  is invented for it.
+
 ### `events:catalogue` — the house counts its own events; `house:context` gains a section
 
 `events:catalogue` answers what this app's dispatcher was **told** exists against what it really
 **dispatched** in this process (greenhouse decisions/0228), and `house:context` carries the same fold
-compact under a new `events` key. Both read the dispatcher and nothing else: the authority on «what
-events exist» is the emitter, and the one place every dispatch passes through is the dispatcher.
+compact under a new `events` key. Both read the dispatcher and nothing else — the manifest pass described
+above came after this and declares TO that same dispatcher: the authority on «what events exist» is the
+emitter, and the one place every dispatch passes through is the dispatcher.
 
 - **The floor moved**: `milpa/core >= 0.11`, which is where the contract lives
   (`Milpa\Interfaces\Event\DeclaredEvents`, `EventDeclaration`). `MilpaEventDispatcherInterface` was
