@@ -13,6 +13,7 @@ use Milpa\AppRuntime\Agent\SessionToolGate;
 use Milpa\AppRuntime\Agent\StepStatus;
 use Milpa\Command\Consent\ConsentGrant;
 use Milpa\Command\Consent\OperationId;
+use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Operation;
 use Milpa\EventStore\InMemoryEventStore;
 use Milpa\ToolRuntime\ToolRegistry;
@@ -90,6 +91,7 @@ final class GovernedSequenceContinuationConsentTest extends TestCase
                 'Reads',
                 static fn (array $i): array => ['ok' => true],
                 inputSchema: ['type' => 'object', 'properties' => []],
+                effects: EffectProfile::readOnly(),
             ),
             new Operation(
                 'demo_mutate_b',

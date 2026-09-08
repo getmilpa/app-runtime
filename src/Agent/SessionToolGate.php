@@ -285,7 +285,14 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             $this->session,
             $operacion->name,
             $composicion !== null && $composicion->effective->mutation !== Mutation::None,
-            $operacion->requiresConfirmation,
+            // A READ THE OTHER DOOR WILL NOT ADMIT WITHOUT A YES asks for it here (greenhouse decisions/0227):
+            // SessionPolicy's read arm never asks, but McpProjector projects `Consent::demanded()` as
+            // `requiresConfirmation` and the tool-runtime gate on `cli` then wants a covering grant — an
+            // operation with no EffectProfile carries Unknown on every axis (GOV-05: unclassified is not
+            // safe). So the session door asks first, once per call shape, and the recorded yes is the grant
+            // the other door reads. A read whose declared profile does not demand consent (`readOnly()`, `#[Reads]`)
+            // never enters here; one whose profile still leaves subject and authority Unknown does, by the same rule.
+            $operacion->requiresConfirmation || (! $operacion->mutating && Consent::demanded($operacion)),
             // El techo se pide AQUÍ, por llamada, y no se guarda en el constructor: si el padre baja
             // a `ask` a media corrida del hijo, la siguiente herramienta ya lo siente. Un techo
             // cacheado se queda viejo exactamente cuando el humano acaba de decidir supervisar —
@@ -944,9 +951,11 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      * Does THIS call really change the world, once its ceiling is composed (greenhouse decisions/0058)?
      *
      * It STARTS from the declared flag and only ever LOWERS it: a declared read stays a read
-     * (composition can only descend, never raise, so a read never becomes a mutation — and an
-     * operation with no EffectProfile carries the conservative maximum, which must not turn its
-     * honest `mutating: false` into a pause). A declared mutation becomes a read only when a certified
+     * (composition can only descend, never raise, so a read never becomes a mutation). An operation
+     * with no EffectProfile carries the conservative maximum — Unknown on every axis — which does NOT
+     * turn its honest `mutating: false` into a mutation, but does make it ASK once (GOV-05, greenhouse
+     * decisions/0227): what is unclassified is not safe, and {@see self::refuse()} hands the policy the
+     * same `Consent::demanded()` the other door projects. A declared mutation becomes a read only when a certified
      * rehearsal descends it to None. The certificate produces the observed axes; the app's policy and
      * the session's OWNER produce authority, but a mutation descent needs only a valid signed
      * certificate, so this works even before an owner exists.

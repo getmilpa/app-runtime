@@ -91,6 +91,9 @@ final class TrialOperations implements CommandProvider
                 handler: fn (array $input): array => $this->list($root),
                 inputSchema: ['type' => 'object', 'properties' => []],
                 mutating: false,
+                // A read that says so: ids, manifests and hashes under var/trials, nothing written. Undeclared it
+                // carried Unknown on every axis and the governed door asked for it (greenhouse decisions/0227).
+                effects: EffectProfile::readOnly(),
             ),
             new Operation(
                 name: 'sandbox:discard',
@@ -105,6 +108,15 @@ final class TrialOperations implements CommandProvider
                     'required' => ['workspace'],
                 ],
                 mutating: true,
+                // It erases the trial's copy and manifest under var/trials: persistent, reaches nobody, gone for
+                // good, as the user, on data — never on the house's code (greenhouse decisions/0227).
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    Reversibility::Irreversible,
+                    Authority::WriteAsUser,
+                    subject: Subject::Data,
+                ),
             ),
             new Operation(
                 name: 'sandbox:undo',
