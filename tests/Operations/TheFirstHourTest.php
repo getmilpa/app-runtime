@@ -15,11 +15,11 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Operations;
 
 use Milpa\AppRuntime\Operations\AgentOperations;
-use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\Operations;
 use Milpa\Attributes\PluginMetadata;
 use Milpa\Command\Operation;
 use Milpa\Container\DIContainer;
+use Milpa\Eventing\EventDispatcher;
 use Milpa\Http\HttpMethod;
 use Milpa\Http\Routing\HandlerReference;
 use Milpa\Http\Routing\Route;
@@ -106,11 +106,17 @@ final class TheFirstHourTest extends TestCase
         }
         self::assertSame('coa serve', end($answer['next'])['command'], 'seeing it is always the last step');
 
-        // THE STEPS FOLLOW THE HOUSE: a capability already installed is never recommended again; one still
-        // available is. This fixture runs inside app-runtime's own vendor, so it reads what is installed HERE.
-        $commands = array_column($answer['next'], 'command');
-        self::assertSame(!Capabilities::installed('devtools'), \in_array('coa capabilities:enable milpa/devtools', $commands, true));
-        self::assertSame(!Capabilities::installed('identity'), \in_array('coa capabilities:enable milpa/auth', $commands, true));
+        // THE STEPS FOLLOW THE HOUSE, read from a vendor this test writes: nothing switched on → the generators
+        // first, then the door; both switched on → neither step, and the answer does not even mention them.
+        $bare = array_column($operations->houseStart($this->vendorWith([]))['next'], 'command');
+        self::assertSame('coa capabilities:enable milpa/devtools', $bare[0], 'the generators come first in a bare house');
+        self::assertContains('coa capabilities:enable milpa/auth', $bare);
+        $grown = array_column($operations->houseStart($this->vendorWith([
+            $this->package('milpa/devtools', 'devtools'),
+            $this->package('milpa/auth', 'identity'),
+        ]))['next'], 'command');
+        self::assertNotContains('coa capabilities:enable milpa/devtools', $grown);
+        self::assertNotContains('coa capabilities:enable milpa/auth', $grown);
     }
 
     #[Test]
@@ -218,6 +224,142 @@ final class TheFirstHourTest extends TestCase
         self::assertSame($operations->serve(['dry_run' => true, 'port' => -5]), $operations->serve(['dry_run' => true, 'port' => '-5']));
     }
 
+    #[Test]
+    public function routes_of_a_plugin_the_kernel_vetoed_are_not_listed(): void
+    {
+        // A `plugin.booting` listener stops the slot: the kernel never runs boot() nor mounts the routes.
+        $dispatcher = new EventDispatcher(new NullLogger());
+        $dispatcher->subscribe('plugin.booting', static function (string $event, array $payload): void {
+            if (($payload['event']->pluginName ?? null) === 'FirstHourRoutedPlugin') {
+                $payload['slot']->stop();
+            }
+        });
+        $vetoed = $this->booted($dispatcher);
+        self::assertSame([], (new \ReflectionProperty($vetoed, 'container'))->getValue($vetoed)->get(Kernel::class)->bootedPluginNames());
+
+        self::assertSame(0, $vetoed->routesList()['count'], 'a route the kernel will 404 is not a route this app exposes');
+        self::assertSame(['count' => 0, 'paths' => []], $vetoed->houseStart()['routes']);
+
+        // POSITIVE CONTROL: the same plugin, booted — two routes, one path.
+        $booted = $this->booted();
+        self::assertSame(2, $booted->routesList()['count']);
+        self::assertSame(['/first-hour/notes'], $booted->houseStart()['routes']['paths']);
+    }
+
+    #[Test]
+    public function the_first_hour_stays_off_the_http_surface_and_serve_says_it_starts_something(): void
+    {
+        $byName = [];
+        foreach ((new AgentOperations(new DIContainer()))->operations() as $op) {
+            $byName[$op->name] = $op;
+        }
+        // The answers carry the app's filesystem root and its whole route table: not for a route that
+        // answers without a principal under `expose: ['*']` (house:context keeps the same surfaces).
+        self::assertSame(['cli', 'tui', 'mcp'], $byName['house:start']->surfaces);
+        self::assertSame(['cli', 'tui', 'mcp'], $byName['routes:list']->surfaces);
+        self::assertSame(['cli'], $byName['serve']->surfaces);
+        self::assertTrue($byName['serve']->mutating, '`coa list` sorts by this flag: a server under «They read» is a lie');
+        self::assertFalse($byName['house:start']->mutating);
+        self::assertFalse($byName['routes:list']->mutating);
+    }
+
+    #[Test]
+    public function serve_takes_an_ipv6_literal_only_the_way_the_built_in_server_does(): void
+    {
+        mkdir($this->root . '/public');
+        $operations = $this->booted();
+
+        // `php -S ::1:8000` is «Invalid address»; in brackets it binds. A bare literal is bracketed, not refused.
+        foreach (['::1', '[::1]'] as $host) {
+            $answer = $operations->serve(['dry_run' => true, 'host' => $host, 'port' => 8731]);
+            self::assertIsArray($answer);
+            self::assertTrue($answer['ok'], $host);
+            self::assertSame(\PHP_BINARY . ' -S [::1]:8731 -t public', $answer['command']);
+            self::assertSame('http://localhost:8731/', $answer['url']);
+        }
+        // POSITIVE CONTROLS: what is not an address and not a name is refused by name.
+        foreach (['zz::gg', '-x', '[not-v6]'] as $host) {
+            $answer = $operations->serve(['dry_run' => true, 'host' => $host]);
+            self::assertIsArray($answer);
+            self::assertFalse($answer['ok'], $host);
+            self::assertStringContainsString('host', $answer['error']);
+        }
+    }
+
+    #[Test]
+    public function the_signal_that_stops_coa_stops_the_server(): void
+    {
+        if (!\function_exists('pcntl_exec')) {
+            self::markTestSkipped('needs pcntl: serve hands its process to the server with pcntl_exec');
+        }
+        mkdir($this->root . '/public');
+        file_put_contents($this->root . '/public/index.php', '<?php echo "first hour";');
+        $port = $this->freePort();
+        $script = $this->root . '/serve.php';
+        file_put_contents($script, '<?php require ' . var_export(\dirname(__DIR__, 2) . '/vendor/autoload.php', true) . ";\n"
+            . '$container = new \Milpa\Container\DIContainer();' . "\n"
+            . '$kernel = \Milpa\Runtime\Kernel::boot(["root" => ' . var_export($this->root, true) . ', "container" => $container, "toolRegistry" => new \Milpa\ToolRuntime\ToolRegistry(new \Psr\Log\NullLogger()), "plugins" => [], "config" => []]);' . "\n"
+            . '$container->registerService(\Milpa\Runtime\Kernel::class, $kernel);' . "\n"
+            . 'var_export((new \Milpa\AppRuntime\Operations\AgentOperations($container))->serve(["port" => ' . $port . ']));');
+        $process = proc_open([\PHP_BINARY, $script], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        self::assertIsResource($process);
+        try {
+            $body = $this->awaitAnswer($port);
+            self::assertSame('first hour', $body, 'the URL serve printed answers while it runs');
+
+            // THE MEASUREMENT: SIGTERM to the process coa started — the one the terminal, a supervisor or a
+            // test harness would signal — and the port is free afterwards. With passthru it stayed taken.
+            proc_terminate($process, 15);
+            $freed = false;
+            for ($i = 0; $i < 50 && !$freed; $i++) {
+                usleep(100_000);
+                $freed = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.2) === false;
+            }
+            self::assertTrue($freed, 'the server outlived the signal that stopped coa');
+        } finally {
+            proc_terminate($process, 9);
+            proc_close($process);
+        }
+    }
+
+    private function freePort(): int
+    {
+        $socket = stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
+        self::assertIsResource($socket, (string) $errstr);
+        $name = stream_socket_get_name($socket, false);
+        fclose($socket);
+
+        return (int) substr((string) $name, strrpos((string) $name, ':') + 1);
+    }
+
+    private function awaitAnswer(int $port): string
+    {
+        for ($i = 0; $i < 100; $i++) {
+            $body = @file_get_contents('http://127.0.0.1:' . $port . '/', false, stream_context_create(['http' => ['timeout' => 1]]));
+            if (\is_string($body)) {
+                return $body;
+            }
+            usleep(100_000);
+        }
+        self::fail('the server never answered on port ' . $port);
+    }
+
+    /** @param list<array<string, mixed>> $packages */
+    private function vendorWith(array $packages): string
+    {
+        $dir = $this->root . '/vendor-' . bin2hex(random_bytes(3));
+        mkdir($dir . '/composer', 0o775, true);
+        file_put_contents($dir . '/composer/installed.json', json_encode(['packages' => $packages], \JSON_THROW_ON_ERROR));
+
+        return $dir;
+    }
+
+    /** @return array<string, mixed> */
+    private function package(string $name, string $id): array
+    {
+        return ['name' => $name, 'version' => '1.0.0', 'extra' => ['milpa' => ['capability' => ['id' => $id, 'title' => $id, 'unlocks' => [], 'provides' => []]]]];
+    }
+
     /** @param list<string> $classes */
     private function declareOperations(array $classes): void
     {
@@ -233,12 +375,13 @@ final class TheFirstHourTest extends TestCase
         return array_map(static fn (Operation $op): string => $op->name, Operations::all($kernel, $this->root));
     }
 
-    private function booted(): AgentOperations
+    private function booted(?EventDispatcher $dispatcher = null): AgentOperations
     {
         $container = new DIContainer();
         $kernel = Kernel::boot([
             'root' => $this->root,
             'container' => $container,
+            'dispatcher' => $dispatcher ?? new EventDispatcher(new NullLogger()),
             'toolRegistry' => new ToolRegistry(new NullLogger()),
             'plugins' => [FirstHourRoutedPlugin::class],
             'config' => ['app' => ['name' => 'first-hour-house']],

@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Support;
 
+use Milpa\Attributes\PluginMetadata;
 use Milpa\Http\HttpMethod;
 use Milpa\Http\Routing\Route;
 use Milpa\Runtime\Http\RouteProviderInterface;
@@ -37,8 +38,16 @@ final class Routes
     public static function table(Kernel $kernel): array
     {
         $rows = [];
+        $booted = $kernel->bootedPluginNames();
         foreach ($kernel->plugins() as $plugin) {
             if (!$plugin instanceof RouteProviderInterface) {
+                continue;
+            }
+            // ONLY plugins whose `boot()` ran: `plugins()` also carries the ones a `plugin.booting` listener
+            // vetoed, and the boot loop mounts a plugin's routes AFTER `boot()` — a vetoed plugin's routes are
+            // declared but not served, and a row for them would describe a house that does not exist.
+            $attributes = (new \ReflectionClass($plugin))->getAttributes(PluginMetadata::class);
+            if ($attributes === [] || !\in_array($attributes[0]->newInstance()->name, $booted, true)) {
                 continue;
             }
             foreach ($plugin->routes() as $route) {

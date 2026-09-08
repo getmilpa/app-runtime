@@ -92,6 +92,7 @@ use Milpa\AppRuntime\Agent\SessionBookkeeping;
 use Milpa\AppRuntime\Agent\PrerequisiteGate;
 use Milpa\AppRuntime\Agent\ContractProducer;
 use Milpa\AppRuntime\Agent\SessionToolGate;
+use Milpa\AppRuntime\Support\CapabilityIndex;
 use Milpa\AppRuntime\Support\Routes;
 use Milpa\AppRuntime\Support\Operations;
 use Milpa\Interfaces\Tooling\ToolProviderInterface;
@@ -280,7 +281,10 @@ class AgentOperations implements CommandProvider
                     'required' => ['ok'],
                 ],
                 effects: EffectProfile::readOnly(),
-                surfaces: ['cli', 'tui', 'mcp', 'http'],
+                // NOT over http: the answer carries the app's filesystem root, and a route the ops surface
+                // publishes under `expose: ['*']` answers without a principal — the same reason house:context
+                // stays off that surface (decisions/0194: http is a per-op opt-in with its own measurement).
+                surfaces: ['cli', 'tui', 'mcp'],
                 observableEvidence: 'every command under `next` is offered by `coa list` of this very app, and following the first one literally changes what `house:start` answers next',
             ),
             new Operation(
@@ -299,7 +303,7 @@ class AgentOperations implements CommandProvider
                     'required' => ['ok'],
                 ],
                 effects: EffectProfile::readOnly(),
-                surfaces: ['cli', 'tui', 'mcp', 'http'],
+                surfaces: ['cli', 'tui', 'mcp'],
                 observableEvidence: 'the rows equal, one by one, what the admin panel\'s Routes section shows — both fold the same plugins\' declarations',
             ),
             // `coa serve` — the difference between «it boots» and «I saw it» (greenhouse decisions/0216, point 3).
@@ -309,7 +313,7 @@ class AgentOperations implements CommandProvider
             new Operation(
                 name: 'serve',
                 description: 'Start the development server on this app and print the URL — PHP\'s built-in server over public/, with the app\'s router when it ships one',
-                handler: fn (array $input): array|int => $this->serve($input),
+                handler: fn (array $input): array => $this->serve($input),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
@@ -319,6 +323,8 @@ class AgentOperations implements CommandProvider
                     ],
                     'required' => [],
                 ],
+                // It STARTS something: `coa list` sorts by this flag, and a server under «They read» is a lie.
+                mutating: true,
                 effects: new EffectProfile(
                     Mutation::Ephemeral,
                     Externality::None,
@@ -884,9 +890,13 @@ class AgentOperations implements CommandProvider
      * Every step names a command THIS app offers today (an app that does not offer `serve` is not told to
      * serve), and the steps change as they are taken: switch devtools on and the first step disappears.
      *
+     * @param null|string $vendor the vendor root whose `installed.json` says what is switched on; the running
+     *                            app's when null — the same seam as {@see Capabilities::state()}, for the same
+     *                            reason (a provider's constructor is the host's, greenhouse decisions/0212)
+     *
      * @return array<string, mixed>
      */
-    public function houseStart(): array
+    public function houseStart(?string $vendor = null): array
     {
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
         if (!$kernel instanceof Kernel) {
@@ -896,11 +906,14 @@ class AgentOperations implements CommandProvider
         $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
         $appName = $config instanceof Config ? $config->get('app.name') : null;
 
-        $state = Capabilities::state();
+        // THE SAME ANSWER `capabilities` GIVES: the derived registry index on top of the offline floor —
+        // two doors reading the state through two different sources would disagree the day the index exists.
+        $state = Capabilities::state($vendor, CapabilityIndex::read());
         $installed = array_map(static fn (array $c): string => (string) $c['id'], $state['installed']);
         $available = array_map(static fn (array $c): array => [
             'package' => (string) $c['package'],
             'title' => (string) $c['title'],
+            'unlocks' => \is_array($c['unlocks'] ?? null) ? array_values($c['unlocks']) : [],
             'command' => (string) $c['command'],
         ], $state['available']);
         $availablePackages = array_column($available, 'package');
@@ -957,14 +970,15 @@ class AgentOperations implements CommandProvider
     /**
      * `serve` — PHP's built-in server over `public/`, with the app's router when it ships one.
      *
-     * Returns the exit code as an INT when it ran: the CLI's convention for «I already reported» — the URL was
-     * printed before the terminal was handed to the server. With `dry_run` it returns the command instead.
+     * The server runs IN PLACE of `coa` (`pcntl_exec`): the signal that stops `coa` stops the server, where a
+     * child left behind by `passthru` outlived SIGTERM holding the port. Nothing returns once it started — the
+     * URL is printed before. Without pcntl it refuses and says the by-hand command; `dry_run` returns it.
      *
      * @param array<string, mixed> $input
      *
-     * @return array<string, mixed>|int
+     * @return array<string, mixed>
      */
-    public function serve(array $input): array|int
+    public function serve(array $input): array
     {
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
         if (!$kernel instanceof Kernel) {
@@ -981,8 +995,14 @@ class AgentOperations implements CommandProvider
             return ['ok' => false, 'error' => 'the host must be a string: an address or a name'];
         }
         $host = \is_string($input['host'] ?? null) && trim($input['host']) !== '' ? trim($input['host']) : '127.0.0.1';
-        if (preg_match('/^[A-Za-z0-9.:\[\]-]{1,64}$/', $host) !== 1) {
-            return ['ok' => false, 'error' => 'the host must be an address or a name, not «' . $host . '»'];
+        // `php -S` and a URL take an IPv6 literal only in brackets — a bare `::1` is «Invalid address» to both.
+        if (str_contains($host, ':') && !str_starts_with($host, '[')) {
+            $host = '[' . $host . ']';
+        }
+        $ipv6 = str_starts_with($host, '[') && str_ends_with($host, ']')
+            && filter_var(substr($host, 1, -1), \FILTER_VALIDATE_IP, \FILTER_FLAG_IPV6) !== false;
+        if (!$ipv6 && preg_match('/^[A-Za-z0-9][A-Za-z0-9.-]{0,63}$/', $host) !== 1) {
+            return ['ok' => false, 'error' => 'the host must be an address (IPv6 in brackets, e.g. [::1]) or a name, not «' . $host . '»'];
         }
         $port = 8000;
         if (\array_key_exists('port', $input)) {
@@ -1009,18 +1029,25 @@ class AgentOperations implements CommandProvider
         // THE URL TO OPEN IS `localhost`, not the address bound: a passkey door binds its assertions to a
         // relying-party id, and `capabilities:enable identity` declares `localhost` — a browser at 127.0.0.1
         // would be refused by the very door this server exists to show.
-        $url = 'http://' . (\in_array($host, ['0.0.0.0', '127.0.0.1', '::1', '[::1]'], true) ? 'localhost' : $host) . ':' . $port . '/';
+        $url = 'http://' . (\in_array($host, ['0.0.0.0', '127.0.0.1', '[::1]', '[::]'], true) ? 'localhost' : $host) . ':' . $port . '/';
 
         if (($input['dry_run'] ?? false) === true) {
             return ['ok' => true, 'dry_run' => true, 'command' => implode(' ', $command), 'url' => $url, 'router' => $router];
         }
 
+        if (!\function_exists('pcntl_exec')) {
+            return ['ok' => false, 'error' => 'this PHP has no pcntl, so coa cannot hand its process to the server; run it by hand', 'command' => implode(' ', $command), 'url' => $url];
+        }
+        if (!@chdir($root)) {
+            return ['ok' => false, 'error' => 'could not enter ' . $root];
+        }
         echo 'Serving ' . basename($root) . ' at ' . $url . ($router !== null ? ' (with ' . $router . ')' : '') . "\n";
         echo "Press Ctrl+C to stop.\n";
-        $exit = 0;
-        passthru('cd ' . escapeshellarg($root) . ' && ' . implode(' ', array_map('escapeshellarg', $command)), $exit);
+        fflush(\STDOUT);
+        // Only returns when the exec itself failed: from here on, this process IS the server.
+        pcntl_exec(\PHP_BINARY, \array_slice($command, 1));
 
-        return $exit;
+        return ['ok' => false, 'error' => 'could not start ' . implode(' ', $command)];
     }
 
     /**
