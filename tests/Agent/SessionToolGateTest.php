@@ -36,7 +36,7 @@ final class SessionToolGateTest extends TestCase
     private function operaciones(): array
     {
         return [
-            new Operation('plugins_list', 'Lista', static fn (array $i): array => ['ok' => true], inputSchema: ['type' => 'object', 'properties' => []]),
+            new Operation('plugins_list', 'Lista', static fn (array $i): array => ['ok' => true], inputSchema: ['type' => 'object', 'properties' => []], effects: EffectProfile::readOnly()),
             new Operation('make', 'Andamia', static fn (array $i): array => ['ok' => true], inputSchema: ['type' => 'object', 'properties' => []], mutating: true),
             new Operation('plugins_remove', 'Quita', static fn (array $i): array => ['ok' => true], inputSchema: ['type' => 'object', 'properties' => []], mutating: true, requiresConfirmation: true),
         ];
@@ -300,7 +300,7 @@ final class SessionToolGateTest extends TestCase
 
         // Two operations a third party contributed to this app's catalogue — the gate judges by these.
         $compuerta = new SessionToolGate($almacen, $sesion, [
-            new Operation('vendor_probe', 'A read a third party added', static fn (array $i): array => ['ok' => true], inputSchema: ['type' => 'object', 'properties' => []]),
+            new Operation('vendor_probe', 'A read a third party added', static fn (array $i): array => ['ok' => true], inputSchema: ['type' => 'object', 'properties' => []], effects: EffectProfile::readOnly()),
             new Operation('vendor_write', 'A mutation a third party added', static fn (array $i): array => ['ok' => true], inputSchema: ['type' => 'object', 'properties' => []], mutating: true),
         ]);
 
@@ -762,6 +762,7 @@ final class SessionToolGateTest extends TestCase
             'The same tool, now a read',
             static fn (array $i): array => ['ok' => true],
             inputSchema: $schema,
+            effects: EffectProfile::readOnly(),
         );
         $c2 = (new SessionToolGate($almacen, $sesion, [], contractProducers: [$productorDe($soloLee)]))->refuse('gold_probe', []);
         self::assertNull($c2, 'same name, a read contract now: allowed — the verdict follows the CONTRACT');

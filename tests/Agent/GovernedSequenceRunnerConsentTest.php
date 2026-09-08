@@ -11,6 +11,7 @@ use Milpa\AppRuntime\Agent\GovernedSequenceRunner;
 use Milpa\AppRuntime\Agent\SequenceStep;
 use Milpa\AppRuntime\Agent\SessionToolGate;
 use Milpa\AppRuntime\Agent\StepStatus;
+use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Operation;
 use Milpa\EventStore\InMemoryEventStore;
 use Milpa\ToolRuntime\ToolRegistry;
@@ -73,6 +74,7 @@ final class GovernedSequenceRunnerConsentTest extends TestCase
                 'Reads',
                 static fn (array $i): array => ['ok' => true],
                 inputSchema: ['type' => 'object', 'properties' => []],
+                effects: EffectProfile::readOnly(),
             ),
             new Operation(
                 'demo_mutate',
