@@ -14,6 +14,8 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Support;
 
+use Milpa\AppRuntime\Web\PasskeyPlugin;
+
 /**
  * Lo que esta app puede hacer, lo que le falta, y quién lo aporta.
  *
@@ -67,6 +69,43 @@ namespace Milpa\AppRuntime\Support;
  */
 final class Capabilities
 {
+    /**
+     * The capability id each known opt-in declares once installed — so `capabilities:enable identity`
+     * resolves to `milpa/auth` BEFORE the package is there to say so itself. Read from each package's own
+     * manifest (`extra.milpa.capability.id`) and pinned here; a mismatch on arrival is reported as a
+     * promise mismatch, never hidden.
+     *
+     * @return array<string, string> package => id
+     */
+    public static function knownIds(): array
+    {
+        return [
+            'milpa/agent' => 'agent',
+            'milpa/ai-gateway' => 'agent-runs',
+            'milpa/auth' => 'identity',
+            'milpa/data' => 'persistence',
+            'milpa/devtools' => 'devtools',
+            'milpa/mcp-server' => 'mcp',
+        ];
+    }
+
+    /**
+     * The plugins THIS package owns that a capability switches on — declared in `config/plugins.php` by
+     * `capabilities:enable` so the door opens without hand edits (greenhouse decisions/0216, point 7).
+     *
+     * `identity` brings the passkey door: {@see PasskeyPlugin} is app-runtime's own last mile over
+     * milpa/auth, so the knowledge that it belongs to that capability lives here, with its owner.
+     *
+     * @return list<class-string>
+     */
+    public static function pluginsUnlockedBy(string $id): array
+    {
+        return match ($id) {
+            'identity' => [PasskeyPlugin::class],
+            default => [],
+        };
+    }
+
     /**
      * Lo que este piso conoce como posible, aunque no esté instalado.
      *
@@ -223,6 +262,93 @@ final class Capabilities
         return $escritas;
     }
 
+    /**
+     * Declares plugin classes in `config/plugins.php` — the same insertion `registerOperations()` makes,
+     * on the other list. A class already named there is left alone; a file that is not there is not invented.
+     *
+     * @param list<string> $classes
+     *
+     * @return list<string> the classes actually written
+     */
+    public static function registerPlugins(string $root, array $classes): array
+    {
+        $file = rtrim($root, '/') . '/config/plugins.php';
+        if (!is_file($file)) {
+            return [];
+        }
+        $src = (string) file_get_contents($file);
+        $written = [];
+        foreach ($classes as $class) {
+            $class = trim($class, " \\");
+            if ($class === '' || str_contains($src, $class)) {
+                continue;
+            }
+            $pos = strrpos($src, '];');
+            if ($pos === false) {
+                continue;
+            }
+            $src = substr($src, 0, $pos) . '    \\' . $class . "::class,\n" . substr($src, $pos);
+            $written[] = $class;
+        }
+        if ($written !== []) {
+            file_put_contents($file, $src);
+        }
+
+        return $written;
+    }
+
+    /**
+     * Declares `passkey.rpId` in `config/app.php` when nothing declares it yet, and VERIFIES the
+     * declaration by loading the file back: a write that did not land is reverted and reported, not
+     * assumed. The value is written where the human edits config, with the lines that say who wrote it
+     * and why — a declaration on disk, not a default in code.
+     *
+     * @return array{rpId: string, written: bool, file: string, error?: string}|null `null` when the app has no config/app.php
+     */
+    public static function declareRelyingParty(string $root, string $rpId = 'localhost'): ?array
+    {
+        $file = rtrim($root, '/') . '/config/app.php';
+        if (!is_file($file)) {
+            return null;
+        }
+        $current = self::loadConfig($file);
+        $declared = $current['passkey']['rpId'] ?? null;
+        if (\is_string($declared) && $declared !== '') {
+            return ['rpId' => $declared, 'written' => false, 'file' => 'config/app.php'];
+        }
+        $src = (string) file_get_contents($file);
+        $pos = strrpos($src, '];');
+        if ($pos === false) {
+            return ['rpId' => '', 'written' => false, 'file' => 'config/app.php', 'error' => 'config/app.php does not end with the returned array; declare passkey.rpId by hand'];
+        }
+        $block = "\n    // Declared by `capabilities:enable identity`: the relying-party id passkey assertions bind to.\n"
+            . "    // It must equal the host the browser uses (`coa serve` answers at http://localhost:…). Change it\n"
+            . "    // to your domain before enrolling anyone there.\n"
+            . "    'passkey' => ['rpId' => " . var_export($rpId, true) . "],\n";
+        file_put_contents($file, substr($src, 0, $pos) . $block . substr($src, $pos));
+
+        $after = self::loadConfig($file);
+        if (($after['passkey']['rpId'] ?? null) !== $rpId) {
+            file_put_contents($file, $src);
+
+            return ['rpId' => '', 'written' => false, 'file' => 'config/app.php', 'error' => 'the declaration did not load back from config/app.php, so it was reverted; declare passkey.rpId by hand'];
+        }
+
+        return ['rpId' => $rpId, 'written' => true, 'file' => 'config/app.php'];
+    }
+
+    /** @return array<string, mixed> */
+    private static function loadConfig(string $file): array
+    {
+        try {
+            $loaded = (static fn (): mixed => include $file)();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        return \is_array($loaded) ? $loaded : [];
+    }
+
     /** ¿Está puesta esta capacidad, por su `id`? */
     public static function installed(string $id, ?string $vendor = null): bool
     {
@@ -327,6 +453,7 @@ final class Capabilities
                 continue;
             }
             $faltantes[] = [
+                'id' => \is_string($cap['id'] ?? null) ? $cap['id'] : (self::knownIds()[$package] ?? null),
                 'package' => $package,
                 'title' => \is_string($cap['title'] ?? null) ? $cap['title'] : '',
                 // FILLED from what was published: the registry already declared what this version unlocks.
@@ -341,6 +468,7 @@ final class Capabilities
                 continue;
             }
             $faltantes[] = [
+                'id' => self::knownIds()[$paquete] ?? null,
                 'package' => $paquete,
                 'title' => $para,
                 // What it unlocks CANNOT be known with no network and no package: it ships empty
@@ -416,6 +544,7 @@ final class Capabilities
         bool $dryRun = false,
         ?array $index = null,
         ?string $vendorAfter = null,
+        ?string $root = null,
     ): array {
         $pedido = trim($pedido);
         if ($pedido === '') {
@@ -438,7 +567,9 @@ final class Capabilities
 
         $objetivo = null;
         foreach ($estado['available'] as $falta) {
-            if ($falta['package'] === $pedido) {
+            // BY PACKAGE OR BY ID: `identity` is how the capability is named everywhere else the app
+            // speaks of it; making the human translate it to `milpa/auth` was one decision too many.
+            if ($falta['package'] === $pedido || ($falta['id'] ?? null) === $pedido) {
                 $objetivo = $falta;
             }
         }
@@ -525,23 +656,36 @@ final class Capabilities
         // The capability's operations must be DECLARED to project — composer landed the code, but a
         // third-party package's provider does not register itself (its ops live in the package, not in
         // app-runtime's gated list). The capability names its providers; enable writes them.
-        $registered = self::registerOperations(self::raizDeLaApp(), array_values(array_filter(
+        $root ??= self::raizDeLaApp();
+        $registered = self::registerOperations($root, array_values(array_filter(
             (array) ($delivered0['operations'] ?? []),
             static fn ($c): bool => \is_string($c) && $c !== '',
         )));
+        // THE DOOR, DECLARED: a capability that brings one of this package's plugins gets it named in
+        // config/plugins.php, and identity gets its relying party declared — the enable that leaves the
+        // human three hand edits away from the door has not enabled anything (decisions/0216, F6).
+        $deliveredId = \is_string($delivered0['id'] ?? null) ? $delivered0['id'] : '';
+        $pluginsDeclared = self::registerPlugins($root, self::pluginsUnlockedBy($deliveredId));
+        $relyingParty = $deliveredId === 'identity' ? self::declareRelyingParty($root) : null;
 
         $okOut = [
             'ok' => true,
             'capability' => $objetivo['package'],
             'command' => $comando,
             'registered' => $registered,
+            'plugins_declared' => $pluginsDeclared,
             // WHAT IT UNLOCKED, read AFTER installing — the package could not declare anything
             // before it was on disk, so reading `$objetivo` here would always return an empty list:
             // a field that is always empty is the same defect this repo keeps finding, something
             // declared that never lands.
             'unlocked' => $llego,
-            'hint' => 'run `coa list` to see the new operations',
+            'hint' => $deliveredId === 'identity'
+                ? 'the passkey door is declared: run `coa serve`, open http://localhost:8000/webauthn/enroll and enroll the first key'
+                : 'run `coa list` to see the new operations',
         ];
+        if ($relyingParty !== null) {
+            $okOut['relying_party'] = $relyingParty;
+        }
 
         // ── THE PROMISE IS COMPARED WITH THE DELIVERY, and any difference is RECORDED ────────────
         //
