@@ -273,6 +273,23 @@ final class SequenceOperations implements CatalogueBorrower
         $existing = $store->load($sessionId);
         $paused = $existing?->pausedSequence;
 
+        // A SEQUENCE RUNS IN THE SESSION ITS NAME DERIVES. `session` exists to RESUME a run that is paused —
+        // never to mint one under a name of the caller's choosing: the model called this tool with an id it
+        // invented (`sequence-rollout`, greenhouse evidence/0561) and forked a second run of the same
+        // sequence beside the one the human was answering. A name that is not the derived one and names no
+        // session that exists is refused, and the refusal says which id the sequence runs in.
+        if ($existing === null && $sessionId !== 'sequence:' . $name) {
+            return [
+                'ok' => false,
+                'error' => \sprintf(
+                    'a sequence runs in the session its name derives («sequence:%s»); `session` names a paused run '
+                    . 'to resume, and «%s» is no session of this app. Leave `session` out, or name the paused one.',
+                    $name,
+                    $sessionId,
+                ),
+            ];
+        }
+
         // A RESUME IS OF WHAT WAS NAMED, and this used to resume whatever the session happened to hold.
         //
         // `$resuming` was set from the session alone, and the resume path then discards the steps this

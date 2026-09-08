@@ -132,6 +132,55 @@ final class ASequenceIsNamedFromAClosedSetTest extends TestCase
         self::assertIsString($answer['error'] ?? null);
     }
 
+    /**
+     * A SEQUENCE RUNS IN THE SESSION ITS NAME DERIVES (greenhouse evidence/0561): the model called this tool
+     * with a `session` it invented and forked a second run of the same sequence beside the one the human
+     * was answering. `session` names a paused run to resume; a name that is not the derived one and names
+     * no session that exists is refused — and the refusal says which id the sequence runs in.
+     */
+    public function testASessionNobodyStartedIsNotAPlaceToRunASequence(): void
+    {
+        [$container, $root] = $this->appDeclaring(['deploy' => [['op' => 'lab:ping', 'args' => []]]]);
+        $handler = (new SequenceOperations($container))->operations()[0]->handler;
+
+        $invented = $handler(['sequence' => 'deploy', 'session' => 'sequence-deploy'], null);
+        self::assertFalse($invented['ok'] ?? null);
+        self::assertStringContainsString('runs in the session its name derives («sequence:deploy»)', $invented['error'] ?? '');
+        self::assertStringContainsString('«sequence-deploy» is no session of this app', $invented['error'] ?? '');
+        self::assertFileDoesNotExist($root . '/var/agent-sessions.jsonl', 'nothing was started under the invented name');
+
+        // THE CONTROL: the derived id, named explicitly, is the same run — accepted.
+        $named = $handler(['sequence' => 'deploy', 'session' => 'sequence:deploy'], null);
+        self::assertTrue($named['ok'] ?? false, json_encode($named));
+        self::assertTrue($named['applied'] ?? false, 'one read step, applied whole');
+    }
+
+    /**
+     * An app with a kernel that offers `lab:ping` and declares the sequences given — enough for `sequence:run`
+     * to reach its store and its door.
+     *
+     * @param array<string, mixed> $sequences
+     *
+     * @return array{0: DIContainer, 1: string}
+     */
+    private function appDeclaring(array $sequences): array
+    {
+        $root = sys_get_temp_dir() . '/milpa-seq-session-' . bin2hex(random_bytes(4));
+        mkdir($root . '/config', 0o775, true);
+        file_put_contents($root . '/config/sequences.php', "<?php\n\ndeclare(strict_types=1);\n\nreturn " . var_export($sequences, true) . ";\n");
+
+        $ping = new Operation(name: 'lab:ping', effects: EffectProfile::readOnly(), description: 'x', handler: static fn (): array => ['ok' => true, 'pong' => true], inputSchema: ['type' => 'object']);
+        $container = new DIContainer();
+        $kernel = (new \ReflectionClass(Kernel::class))->newInstanceWithoutConstructor();
+        foreach (['root' => $root, 'commands' => [$ping], 'container' => $container] as $name => $value) {
+            $prop = new \ReflectionProperty(Kernel::class, $name);
+            $prop->setValue($kernel, $value);
+        }
+        $container->registerService(Kernel::class, $kernel);
+
+        return [$container, $root];
+    }
+
     /** The refusal itself, on the shape a paused session has: named one, paused on another. */
     public function testTheRefusalNamesBothSequences(): void
     {
