@@ -98,6 +98,10 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
         // nothing. An OBSERVATION channel only: it carries no authority and reshapes nothing this
         // bridge carries — with the seam absent every path behaves byte-identically.
         ?DebtSignal $debtSignals = null,
+        // THE APP MAY GROW MID-SEQUENCE (greenhouse decisions/0226): a step that switches a capability on adds
+        // operations the registry and the gate were not born with. The door hands in what to do before a
+        // call it does not know yet — re-fold the catalogue, project the new tools, tell the gate.
+        private readonly ?\Closure $grown = null,
     ) {
         // THE DOOR DOES NOT NEED THE MODEL GATEWAY (greenhouse decisions/0225): gate, registry and recorder
         // are milpa/tool-runtime's. The option table is the model loop's own concern and stays optional —
@@ -152,6 +156,8 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
             $decoded = json_decode($encoded, true);
             $args = \is_array($decoded) ? $decoded : $args;
         }
+
+        ($this->grown)?->__invoke($name);
 
         // THE SAME EXACTNESS, ONE LAYER EARLIER. `PolicyGate` decides on a `ConsentGrant` too, and it
         // compares that grant against `consent.arguments` — the arguments of the call being judged.

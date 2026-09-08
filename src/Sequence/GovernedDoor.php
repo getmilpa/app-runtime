@@ -105,6 +105,35 @@ final class GovernedDoor
             contractProducers: self::contractProducers($store, $session->id),
         );
 
+        // WHEN A STEP MAKES THE APP GROW (`capabilities:enable` writes a provider into config/operations.php),
+        // the next step may name an operation this door was not born with. Asked for a tool the registry does
+        // not know, the door folds the catalogue again, projects what is new, and tells the gate — reading
+        // the app as it is now, never inventing: a tool the app still does not offer stays unjudgeable.
+        // A memo on the DECLARED list: the app grows by a line in config/operations.php, so the fold repeats
+        // only when that file changed — a model naming a tool that does not exist pays nothing per step.
+        $declared = $root . '/config/operations.php';
+        $stamp = static fn (): string => is_file($declared) ? (string) hash_file('xxh128', $declared) : '';
+        $folded = $stamp();
+        $grown = static function (string $tool) use ($kernel, $root, $registry, $gate, $stamp, &$folded): void {
+            if ($registry->getDefinition($tool) !== null) {
+                return;
+            }
+            $now = $stamp();
+            if ($now === $folded) {
+                return;
+            }
+            $folded = $now;
+            $all = Operations::all($kernel, $root);
+            $fresh = array_values(array_filter(
+                $all,
+                static fn (Operation $op): bool => AgentTable::offers($op) && $registry->getDefinition(McpProjector::toolName($op->name)) === null,
+            ));
+            if ($fresh !== []) {
+                (new McpProjector())->projectAll($fresh, $registry, $kernel->container());
+            }
+            $gate->sees($all);
+        };
+
         return new ConsentBridge(
             $registry,
             // THE GRANTS THE HUMAN ALREADY GAVE, or the tool-runtime gate refuses the very step the session
@@ -117,6 +146,7 @@ final class GovernedDoor
             recorder: $gate,
             executions: $gate,
             executor: self::observedExecutor($context),
+            grown: $grown,
         );
     }
 
