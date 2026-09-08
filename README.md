@@ -305,6 +305,24 @@ $response = $handler->handle($request);
 
 ## Upgrading
 
+### `events:catalogue` — the house counts its own events; `house:context` gains a section
+
+`events:catalogue` answers what this app's dispatcher was **told** exists against what it really
+**dispatched** in this process (greenhouse decisions/0228), and `house:context` carries the same fold
+compact under a new `events` key. Both read the dispatcher and nothing else: the authority on «what
+events exist» is the emitter, and the one place every dispatch passes through is the dispatcher.
+
+- **The floor moved**: `milpa/core >= 0.11`, which is where the contract lives
+  (`Milpa\Interfaces\Event\DeclaredEvents`, `EventDeclaration`). `MilpaEventDispatcherInterface` was
+  **not** widened — a dispatcher either implements the new interface or is asked nothing.
+- **An app on an older dispatcher is not broken, it is named.** `milpa/events < 0.4` implements no
+  memory of what was declared or dispatched, so both answer `ok:false` with the dispatcher's class and
+  the interface it lacks — never an empty list, which would read as «this app dispatches no events».
+  `composer update milpa/events` to `>= 0.4` and the rows appear.
+- **A name dispatched without a declaration is listed as debt**, with `declared: false` and `null` for
+  everything only a declaration could say. Nothing is invented to fill the row out, and nothing is
+  hidden for lacking one.
+
 ### 0.120.0 — driving the agent requires `agent:run`; the passkey session is a principal
 
 The four operations that drive the agent — `agent`, `skill:invoke`, `agent:goal`, `agent:mode` — now declare
