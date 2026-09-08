@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.133.0](https://github.com/getmilpa/app-runtime/compare/v0.132.1...v0.133.0) (2026-09-08)
+
+
+### Features
+
+* the governed door runs without the model gateway — ConsentBridge on tool-runtime's gate ([#334](https://github.com/getmilpa/app-runtime/issues/334)) ([9e8989a](https://github.com/getmilpa/app-runtime/commit/9e8989a3c50d1fdac4b8e2d896a8ae7f1a261a14))
+
 ## [0.132.1](https://github.com/getmilpa/app-runtime/compare/v0.132.0...v0.132.1) (2026-09-08)
 
 
