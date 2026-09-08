@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.131.1](https://github.com/getmilpa/app-runtime/compare/v0.131.0...v0.131.1) (2026-09-08)
+
+
+### Bug Fixes
+
+* **deps:** an app with milpa/agent older than 0.43 is refused, not broken ([#327](https://github.com/getmilpa/app-runtime/issues/327)) ([1137306](https://github.com/getmilpa/app-runtime/commit/1137306c19a88cf548a3fde36be0422bd7c2d448))
+
 ## [0.131.0](https://github.com/getmilpa/app-runtime/compare/v0.130.2...v0.131.0) (2026-09-08)
 
 
