@@ -26,7 +26,7 @@ interface GovernedExecutor
      * A consent frontier is signalled TWO ways, and a governed caller (the sequence runner) MUST
      * treat both as a stop:
      *
-     *   1. THROWS `Milpa\AiGateway\ToolCallRefusedException` when the SESSION gate refuses or
+     *   1. THROWS `Milpa\ToolRuntime\Gate\ToolCallRefused` when the SESSION gate refuses or
      *      pauses the call — e.g. AutonomyMode::Ask with no grant yet
      *      (`SessionToolGate::refuse()`, checked before the call ever reaches the tool registry).
      *
@@ -48,7 +48,7 @@ interface GovernedExecutor
      *
      * @param array<string, mixed> $arguments
      *
-     * @throws \Milpa\AiGateway\ToolCallRefusedException when the session gate refuses or pauses.
+     * @throws \Milpa\ToolRuntime\Gate\ToolCallRefused when the session gate refuses or pauses.
      */
     public function callTool(string $operation, array $arguments): mixed;
 }

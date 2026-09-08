@@ -9,7 +9,7 @@ use Milpa\Agent\Principal;
 /**
  * Whoever can write down that an operation was MATERIALISED.
  *
- * This is deliberately not {@see \Milpa\AiGateway\ToolCallRecorder}. That contract receives `tool`,
+ * This is deliberately not {@see \Milpa\ToolRuntime\Gate\ToolCallRecorder}. That contract receives `tool`,
  * `arguments`, `result` and `ok` — everything you need to describe a CALL and nothing you need to
  * describe a FACT. Its implementor is told about the call after it returned, so it can only write what
  * it was handed, and what it was handed has nowhere to put either the effect or the executor.

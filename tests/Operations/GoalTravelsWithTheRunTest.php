@@ -18,11 +18,11 @@ use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\SessionStore;
 use Milpa\AiGateway\AgentOrchestrator;
 use Milpa\AiGateway\LlmService;
-use Milpa\AiGateway\McpClientService;
+use Milpa\ToolRuntime\Gate\GatedToolCalls;
 use Milpa\AiGateway\OptionTable;
 use Milpa\AiGateway\PlanBoard;
-use Milpa\AiGateway\ToolCallGate;
-use Milpa\AiGateway\ToolCallRecorder;
+use Milpa\ToolRuntime\Gate\ToolCallGate;
+use Milpa\ToolRuntime\Gate\ToolCallRecorder;
 use Milpa\AppRuntime\Agent\SessionProgressProbe;
 use Milpa\AppRuntime\Operations\AgentOperations;
 use Milpa\Container\DIContainer;
@@ -228,7 +228,7 @@ final class PromptCapturingAgentOperations extends AgentOperations
 
     protected function orchestrator(
         LlmService $modeloRemoto,
-        McpClientService $cliente,
+        GatedToolCalls $cliente,
         int $pasos,
         ?PlanBoard $tablero,
         bool $lazyTools,
@@ -257,7 +257,7 @@ final class PromptCapturingOrchestrator extends AgentOrchestrator
 {
     public function __construct(
         LlmService $llm,
-        McpClientService $client,
+        GatedToolCalls $client,
         int $steps,
         private readonly PromptCapturingAgentOperations $ops,
     ) {

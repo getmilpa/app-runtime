@@ -20,18 +20,19 @@
         "milpa/live-tui": ">=0.7 <1.0",
         "milpa/plugin": ">=0.14 <1.0",
         "milpa/runtime": ">=0.7.6 <1.0",
-        "milpa/tool-runtime": ">=0.12 <1.0",
+        "milpa/tool-runtime": ">=0.13 <1.0",
         "nyholm/psr7": "^1.8"
     },
     "conflict": {
         "milpa/agent": "<0.43",
         "milpa/command": "<0.25",
-        "milpa/event-store": "<0.3"
+        "milpa/event-store": "<0.3",
+        "milpa/ai-gateway": "<0.22"
     },
     "require-dev": {
         "milpa/agent": ">=0.43 <1.0",
         "friendsofphp/php-cs-fixer": "^3.75",
-        "milpa/ai-gateway": ">=0.17 <1.0",
+        "milpa/ai-gateway": ">=0.22.1 <1.0",
         "milpa/auth": ">=0.9 <1.0",
         "milpa/data": ">=0.2.2 <1.0",
         "milpa/devtools": ">=0.26 <1.0",

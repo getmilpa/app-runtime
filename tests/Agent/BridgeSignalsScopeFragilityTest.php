@@ -15,7 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Agent;
 
 use Milpa\AiGateway\McpClientService;
-use Milpa\AiGateway\ToolCallRecorder;
+use Milpa\ToolRuntime\Gate\ToolCallRecorder;
 use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\SessionStore;
 use Milpa\AppRuntime\Agent\ConsentBridge;

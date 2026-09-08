@@ -21,8 +21,8 @@ use Milpa\Agent\Principal;
 use Milpa\Agent\Session;
 use Milpa\Agent\SessionPolicy;
 use Milpa\Agent\SessionStore;
-use Milpa\AiGateway\ToolCallGate;
-use Milpa\AiGateway\ToolCallRecorder;
+use Milpa\ToolRuntime\Gate\ToolCallGate;
+use Milpa\ToolRuntime\Gate\ToolCallRecorder;
 use Milpa\AppRuntime\Policy\PolicyProvider;
 use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\AxisReduction;
@@ -65,7 +65,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      * It is a stable string and not a new enum ON PURPOSE. {@see ToolCallGate::refuse()} is a RELEASED
      * interface (`milpa/ai-gateway`) whose contract is `?string`; widening it to carry a typed reason
      * would break every published implementer. The refusal reason is already the channel a refusal
-     * travels on — down to {@see \Milpa\AiGateway\ToolCallRefusedException} — so the minimal honest
+     * travels on — down to {@see \Milpa\ToolRuntime\Gate\ToolCallRefused} — so the minimal honest
      * signal is a recognizable prefix inside that `?string`, not a second shape. A recorder or an
      * auditor recognises the state with `str_contains($reason, self::UNJUDGEABLE)`.
      */

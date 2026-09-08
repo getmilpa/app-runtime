@@ -150,7 +150,7 @@ final class GovernedSequenceContinuationConsentTest extends TestCase
      *
      * `[read, mutate_b, mutate_c]` runs with NO grants in `AutonomyMode::Ask`: the read executes
      * freely, `mutate_b` is the real `SessionToolGate` consent frontier (a thrown
-     * `ToolCallRefusedException`, exactly as `GovernedSequenceRunnerConsentTest` established), and
+     * `ToolCallRefused`, exactly as `GovernedSequenceRunnerConsentTest` established), and
      * `mutate_c` never starts.
      *
      * The human's "sí" to `mutate_b` is then applied the way production actually applies it —
