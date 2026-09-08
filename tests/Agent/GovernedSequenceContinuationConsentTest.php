@@ -6,7 +6,6 @@ namespace Milpa\AppRuntime\Tests\Agent;
 
 use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\SessionStore;
-use Milpa\AiGateway\McpClientService;
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Agent\GovernedSequenceRunner;
 use Milpa\AppRuntime\Agent\SequenceStep;
@@ -53,13 +52,6 @@ use Psr\Log\NullLogger;
  */
 final class GovernedSequenceContinuationConsentTest extends TestCase
 {
-    protected function setUp(): void
-    {
-        if (! class_exists(McpClientService::class)) {
-            self::markTestSkipped('sin milpa/ai-gateway no hay puente que construir');
-        }
-    }
-
     /** A registry with a read and TWO DISTINCT mutating operations, both gated by SessionToolGate. */
     private function registry(): ToolRegistry
     {
@@ -150,7 +142,7 @@ final class GovernedSequenceContinuationConsentTest extends TestCase
      *
      * `[read, mutate_b, mutate_c]` runs with NO grants in `AutonomyMode::Ask`: the read executes
      * freely, `mutate_b` is the real `SessionToolGate` consent frontier (a thrown
-     * `ToolCallRefusedException`, exactly as `GovernedSequenceRunnerConsentTest` established), and
+     * `ToolCallRefused`, exactly as `GovernedSequenceRunnerConsentTest` established), and
      * `mutate_c` never starts.
      *
      * The human's "sí" to `mutate_b` is then applied the way production actually applies it —

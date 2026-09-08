@@ -14,15 +14,15 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Agent;
 
-use Milpa\AiGateway\McpClientService;
 use Milpa\Command\Consent\ConsentGrant;
 use Milpa\Command\Consent\OperationId;
 use Milpa\AiGateway\OptionTable;
-use Milpa\AiGateway\ToolCallGate;
-use Milpa\AiGateway\ToolCallRecorder;
-use Milpa\AiGateway\ToolCallRefusedException;
 use Milpa\Console\McpProjector;
 use Milpa\ToolRuntime\Contracts\ToolContext;
+use Milpa\ToolRuntime\Gate\GatedToolCalls;
+use Milpa\ToolRuntime\Gate\ToolCallGate;
+use Milpa\ToolRuntime\Gate\ToolCallRecorder;
+use Milpa\ToolRuntime\Gate\ToolCallRefused;
 use Milpa\ToolRuntime\ToolRegistry;
 
 /**
@@ -58,8 +58,11 @@ use Milpa\ToolRuntime\ToolRegistry;
  *
  * @internal to app-runtime — surfaces get the projection, never this
  */
-final class ConsentBridge extends McpClientService implements GovernedExecutor
+final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
 {
+    /** The model loop's option table, when a model is on the other side; `null` for a door a human opens. */
+    private readonly ?OptionTable $table;
+
     /** @var list<ConsentGrant> */
     private array $grants;
 
@@ -96,7 +99,11 @@ final class ConsentBridge extends McpClientService implements GovernedExecutor
         // bridge carries — with the seam absent every path behaves byte-identically.
         ?DebtSignal $debtSignals = null,
     ) {
-        parent::__construct($registry, $gate, $recorder, $table);
+        // THE DOOR DOES NOT NEED THE MODEL GATEWAY (greenhouse decisions/0225): gate, registry and recorder
+        // are milpa/tool-runtime's. The option table is the model loop's own concern and stays optional —
+        // resolved lazily, so without milpa/ai-gateway this class still declares and a recipe still runs.
+        parent::__construct($registry, $gate, $recorder);
+        $this->table = $table;
         $this->grants = $grants;
         $this->channel = $channel;
         $this->catalogue = $registry;
@@ -318,6 +325,22 @@ final class ConsentBridge extends McpClientService implements GovernedExecutor
     }
 
     /**
+     * What the model's option table took away leaves the catalogue — none when no table was handed in.
+     *
+     * @return list<string>
+     */
+    protected function hidden(): array
+    {
+        return $this->table?->removed() ?? [];
+    }
+
+    /** A refusal of an option the table already removed is a different fact from one never offered. */
+    protected function optionRemoved(string $tool): bool
+    {
+        return $this->table?->wasRemoved($tool) ?? false;
+    }
+
+    /**
      * The chain, for whoever has to explain in six months why this call landed.
      *
      * @return list<array{principal: ?string, operation: string, tool: string, arguments: array<string, mixed>, confirm_token: string, provenance: string, session: ?string}>
@@ -337,7 +360,7 @@ final class ConsentBridge extends McpClientService implements GovernedExecutor
      * registry folds it into a failed `ToolResult` and the client re-throws only its message — the
      * same released `?string` channel the gate's UNJUDGEABLE marker rides. «needs explicit
      * consent» is the stable core of that denial's reason. A session-gate refusal
-     * ({@see ToolCallRefusedException}) is a different frontier and never this observation.
+     * ({@see ToolCallRefused}) is a different frontier and never this observation.
      *
      * One occurrence, one signal — the first stale grant names the observation, and digests travel
      * instead of raw values on both sides. With no seam, silence: an observation channel must
@@ -347,7 +370,7 @@ final class ConsentBridge extends McpClientService implements GovernedExecutor
      */
     private function signalIfConsentScopeWasFragile(\Throwable $rechazo, string $tool, array $args): void
     {
-        if ($this->debtSignals === null || $rechazo instanceof ToolCallRefusedException) {
+        if ($this->debtSignals === null || $rechazo instanceof ToolCallRefused) {
             return;
         }
         if (! str_contains($rechazo->getMessage(), 'needs explicit consent')) {

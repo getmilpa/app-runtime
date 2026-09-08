@@ -36,7 +36,7 @@ final class APauseSurvivesTheProcessThatMadeItTest extends TestCase
         $said = implode("\n", $output);
 
         // THE CHILD PERSISTED THE PAUSE BEFORE IT DIED — its own last words, and the file.
-        self::assertStringContainsString('PAUSED', $said, $said);
+        self::assertContains('PAUSED', $output, $said);
         self::assertFileExists($ledger);
         $fresh = new SessionStore(new FileEventStore($ledger));
         $parked = $fresh->load('recipe:demo');
@@ -78,7 +78,7 @@ require '{$autoload}';
     public function callTool(string \$operation, array \$arguments): mixed
     {
         if (\$operation === 'demo:mutate') {
-            throw new \\Milpa\\AiGateway\\ToolCallRefusedException("consent needed: {\$operation}");
+            throw new \\Milpa\\ToolRuntime\\Gate\\ToolCallRefused("consent needed: {\$operation}");
         }
         return ['ok' => true, 'operation' => \$operation];
     }

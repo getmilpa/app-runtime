@@ -57,7 +57,7 @@ final class SessionProgressProbe implements ProgressProbe
      * Outside {@see \Milpa\Agent\SessionEvent} on purpose, precedent {@see DebtSignal::EVENT}:
      * the tolerant reducer skips it, projections read it back by this constant.
      */
-    public const EVENT = 'session.progress_stalled';
+    public const EVENT = SessionToolGate::PROGRESS_STALLED;
 
     /**
      * The last stream position already measured — `null` until a replay succeeds, so a store that

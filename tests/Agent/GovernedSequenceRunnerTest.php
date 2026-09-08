@@ -49,7 +49,7 @@ final class GovernedSequenceRunnerTest extends TestCase
             {
                 $this->seen[] = $operation;
                 if ($operation === 'b') {
-                    throw new \Milpa\AiGateway\ToolCallRefusedException('needs your authorization');
+                    throw new \Milpa\ToolRuntime\Gate\ToolCallRefused('needs your authorization');
                 }
                 return ['ok' => true];
             }
@@ -72,7 +72,7 @@ final class GovernedSequenceRunnerTest extends TestCase
 
     public function testItStopsAtAReturnedConsentFrontierWithoutThrowing(): void
     {
-        // ConsentBridge signals a consent frontier TWO ways: a thrown ToolCallRefusedException
+        // ConsentBridge signals a consent frontier TWO ways: a thrown ToolCallRefused
         // (the session gate, covered above) and a non-throwing RETURN of a
         // requires_confirmation/confirm_token sentinel (the tool-runtime token gate, reachable in
         // AutonomyMode Auto/Acknowledge, a confirming channel, or a non-Operation tool). This must
@@ -193,7 +193,7 @@ final class GovernedSequenceRunnerTest extends TestCase
             {
                 $this->seen[] = $operation;
                 if ($operation === 'b') {
-                    throw new \Milpa\AiGateway\ToolCallRefusedException(
+                    throw new \Milpa\ToolRuntime\Gate\ToolCallRefused(
                         \Milpa\AppRuntime\Agent\SessionToolGate::UNJUDGEABLE
                         . ': «b» resolves to no Operation of this app and no producer states its effect.',
                     );
@@ -232,7 +232,7 @@ final class GovernedSequenceRunnerTest extends TestCase
             public function callTool(string $operation, array $arguments): mixed
             {
                 if ($operation === 'b') {
-                    throw new \Milpa\AiGateway\ToolCallRefusedException(
+                    throw new \Milpa\ToolRuntime\Gate\ToolCallRefused(
                         '«b» resolves to no Operation of this app and no producer states its effect.',
                     );
                 }

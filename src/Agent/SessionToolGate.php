@@ -21,8 +21,8 @@ use Milpa\Agent\Principal;
 use Milpa\Agent\Session;
 use Milpa\Agent\SessionPolicy;
 use Milpa\Agent\SessionStore;
-use Milpa\AiGateway\ToolCallGate;
-use Milpa\AiGateway\ToolCallRecorder;
+use Milpa\ToolRuntime\Gate\ToolCallGate;
+use Milpa\ToolRuntime\Gate\ToolCallRecorder;
 use Milpa\AppRuntime\Policy\PolicyProvider;
 use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\AxisReduction;
@@ -58,14 +58,22 @@ use Milpa\Console\McpProjector;
 final class SessionToolGate implements ToolCallGate, ToolCallRecorder, ExecutionRecorder
 {
     /**
+     * The `progress_stalled` fact's literal type, read here by NAME so this gate never loads its emitter:
+     * {@see SessionProgressProbe} implements ai-gateway's ProgressProbe, and the governed door (recipes,
+     * sequences) must run without that package (greenhouse decisions/0225). The probe cites this constant,
+     * so the fact keeps one name in one place.
+     */
+    public const PROGRESS_STALLED = 'session.progress_stalled';
+
+    /**
      * SUMMARY: The marker every UNJUDGEABLE refusal carries, so audit can tell «I cannot judge this»
      * apart from «I know this is forbidden» — both block the call, but they are NOT the same fact
      * (greenhouse decisions/0078, H-GATE-1).
      *
      * It is a stable string and not a new enum ON PURPOSE. {@see ToolCallGate::refuse()} is a RELEASED
-     * interface (`milpa/ai-gateway`) whose contract is `?string`; widening it to carry a typed reason
+     * interface (`milpa/tool-runtime` >= 0.13, greenhouse decisions/0225) whose contract is `?string`; widening it to carry a typed reason
      * would break every published implementer. The refusal reason is already the channel a refusal
-     * travels on — down to {@see \Milpa\AiGateway\ToolCallRefusedException} — so the minimal honest
+     * travels on — down to {@see \Milpa\ToolRuntime\Gate\ToolCallRefused} — so the minimal honest
      * signal is a recognizable prefix inside that `?string`, not a second shape. A recorder or an
      * auditor recognises the state with `str_contains($reason, self::UNJUDGEABLE)`.
      */
@@ -442,7 +450,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         $stalled = 0;
         $acted = 0;
         foreach ($stream as $event) {
-            if ($event->type === SessionProgressProbe::EVENT) {
+            if ($event->type === self::PROGRESS_STALLED) {
                 $stalled = max($stalled, $event->seq);
             } elseif (
                 $event->type === 'session.tool_called'

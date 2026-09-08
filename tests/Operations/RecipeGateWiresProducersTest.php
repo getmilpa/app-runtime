@@ -18,6 +18,7 @@ use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\Session;
 use Milpa\Agent\SessionStore;
 use Milpa\AiGateway\McpClientService;
+use Milpa\ToolRuntime\Gate\GatedToolCalls;
 use Milpa\AppRuntime\Agent\SessionBookkeeping;
 use Milpa\AppRuntime\Agent\SessionToolGate;
 use Milpa\AppRuntime\Sequence\GovernedDoor;
@@ -49,7 +50,7 @@ final class RecipeGateWiresProducersTest extends TestCase
         // `gate` is declared PRIVATE on `McpClientService` (the parent `ConsentBridge` extends),
         // so it must be reflected from ITS declaring class — `ReflectionObject($bridge)` alone
         // cannot see a private property it did not declare.
-        $gate = $this->prop(McpClientService::class, $bridge, 'gate');
+        $gate = $this->prop(GatedToolCalls::class, $bridge, 'gate');
         self::assertInstanceOf(SessionToolGate::class, $gate, 'the bridge must carry the built SessionToolGate');
 
         $producers = $this->prop(SessionToolGate::class, $gate, 'contractProducers');

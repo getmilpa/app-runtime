@@ -48,7 +48,6 @@ use Milpa\AppRuntime\Agent\EffectClasses;
 use Milpa\AppRuntime\Agent\ExecutionRecorder;
 use Milpa\AppRuntime\Agent\ObservedExecutor;
 use Milpa\AppRuntime\Agent\IntakeObserver;
-use Milpa\AiGateway\McpClientService;
 use Milpa\AiGateway\OptionTable;
 use Milpa\AiGateway\SecondOpinionGate;
 use Milpa\AppRuntime\Agent\RecordOnlyOptionTable;
@@ -60,8 +59,9 @@ use Milpa\AppRuntime\Agent\SterileLoopGuard;
 use Milpa\AppRuntime\Agent\SubAgentSpawner;
 use Milpa\AppRuntime\Agent\TransitionGate;
 use Milpa\AppRuntime\Agent\TreeBudget;
-use Milpa\AiGateway\ToolCallGate;
-use Milpa\AiGateway\ToolCallRecorder;
+use Milpa\ToolRuntime\Gate\GatedToolCalls;
+use Milpa\ToolRuntime\Gate\ToolCallGate;
+use Milpa\ToolRuntime\Gate\ToolCallRecorder;
 use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\Compactor;
 use Milpa\Agent\Session;
@@ -926,16 +926,14 @@ class AgentOperations implements CommandProvider
             $next[] = ['step' => 'switch on the generators', 'command' => 'coa capabilities:enable milpa/devtools', 'why' => 'make, validate and doctor: scaffold plugins, entities, controllers and tools, and let the house check them'];
         }
         $recipes = array_map(static fn (string $f): string => basename($f, '.json'), glob($root . '/recipes/*.json') ?: []);
-        // A RECIPE RUNS THROUGH THE GOVERNED RUNTIME — the session store (milpa/agent) that records its pauses
-        // and the gate (milpa/ai-gateway) each step passes. Measured on fresh cattle (greenhouse evidence/0562):
-        // without them `recipe:apply` refuses, so the house names them first and the recipe only once they are in.
-        $governed = ['milpa/agent', 'milpa/ai-gateway'];
+        // A RECIPE RUNS THROUGH THE GOVERNED RUNTIME — the session store (milpa/agent) that records its pauses.
+        // The gate itself is milpa/tool-runtime's (greenhouse decisions/0225): no model gateway is needed for a
+        // door a human opens. Without the store `recipe:apply` refuses (evidence/0562), so the house names it first.
+        $governed = ['milpa/agent'];
         $missingForRecipes = array_values(array_intersect($governed, $availablePackages));
         if ($recipes !== [] && \in_array('recipe:apply', $offered, true) && $missingForRecipes !== [] && \in_array('capabilities:enable', $offered, true)) {
             foreach ($missingForRecipes as $package) {
-                $next[] = ['step' => 'switch on the governed runtime', 'command' => 'coa capabilities:enable ' . $package, 'why' => $package === 'milpa/agent'
-                    ? 'sessions that pause and are recorded: recipe:apply and sequence:run run through them'
-                    : 'the gate each governed step passes; a recipe cannot open its door without it'];
+                $next[] = ['step' => 'switch on the governed runtime', 'command' => 'coa capabilities:enable ' . $package, 'why' => 'sessions that pause and are recorded: recipe:apply and sequence:run run through them'];
             }
         } elseif ($recipes !== [] && \in_array('recipe:apply', $offered, true)) {
             $next[] = ['step' => 'become a domain', 'command' => 'coa recipe:apply --recipe=' . $recipes[0], 'why' => 'a recipe originates governed work: the foundation, the capabilities it needs and the scaffolds, each through the gate — it pauses for your consent; answer with agent:answer and call it again'];
@@ -1816,7 +1814,7 @@ class AgentOperations implements CommandProvider
 
         // QUIÉN REGISTRA SE CAPTURA ANTES DE ENVOLVER, y esto es un arreglo, no un refinamiento.
         //
-        // `McpClientService` deducía la grabadora del gate final (`$gate instanceof ToolCallRecorder`).
+        // The gated calls used to deduce the recorder from the final gate (`$gate instanceof ToolCallRecorder`).
         // `SessionToolGate` implementa los dos papeles; `SecondOpinionGate` sólo juzga. Así que en
         // cuanto una app declaraba `agent.secondOpinion`, envolver la compuerta **apagaba el registro
         // de herramientas**: la sesión seguía apendando preguntas y turnos, y ni una sola
@@ -2286,7 +2284,7 @@ class AgentOperations implements CommandProvider
      */
     protected function orchestrator(
         LlmService $modeloRemoto,
-        McpClientService $cliente,
+        GatedToolCalls $cliente,
         int $pasos,
         ?PlanBoard $tablero,
         bool $lazyTools,

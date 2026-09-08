@@ -132,21 +132,18 @@ final class TheFirstHourTest extends TestCase
         // POSITIVE CONTROL: the same recipe, now with recipe:apply offered AND the governed runtime switched on —
         // the step appears and displaces the founding one.
         $this->declareOperations(['AgentOperations', 'CapabilityOperations', 'FoundationOperations', 'RecipeOperations']);
-        $grown = $this->vendorWith([$this->package('milpa/agent', 'agent'), $this->package('milpa/ai-gateway', 'agent-runs')]);
+        $grown = $this->vendorWith([$this->package('milpa/agent', 'agent')]);
         $commands = array_column($this->booted()->houseStart($grown)['next'], 'command');
         self::assertContains('coa recipe:apply --recipe=notes', $commands);
         self::assertNotContains('coa foundation:found', $commands);
 
-        // Without that runtime the recipe would refuse (measured on cattle: no session store, no gate), so the
-        // house names the two packages first and the recipe not yet — in the order they are needed.
+        // Without the session store the recipe would refuse (measured on cattle, evidence/0562), so the house
+        // names milpa/agent first and the recipe not yet. The gate is milpa/tool-runtime's (decisions/0225):
+        // the model gateway is NOT asked for — a door a human opens needs no model on the other side.
         $bare = array_column($this->booted()->houseStart($this->vendorWith([]))['next'], 'command');
         self::assertNotContains('coa recipe:apply --recipe=notes', $bare);
         self::assertContains('coa capabilities:enable milpa/agent', $bare);
-        self::assertContains('coa capabilities:enable milpa/ai-gateway', $bare);
-        self::assertLessThan(array_search('coa capabilities:enable milpa/ai-gateway', $bare, true), array_search('coa capabilities:enable milpa/agent', $bare, true));
-        $half = array_column($this->booted()->houseStart($this->vendorWith([$this->package('milpa/agent', 'agent')]))['next'], 'command');
-        self::assertNotContains('coa capabilities:enable milpa/agent', $half, 'what is installed is not recommended again');
-        self::assertContains('coa capabilities:enable milpa/ai-gateway', $half);
+        self::assertNotContains('coa capabilities:enable milpa/ai-gateway', $bare, 'the door does not need the model gateway');
     }
 
     #[Test]

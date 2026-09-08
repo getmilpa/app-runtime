@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tests\Agent;
 
-use Milpa\AiGateway\McpClientService;
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\Command\Consent\ConsentGrant;
 use Milpa\Command\Consent\OperationId;
@@ -37,9 +36,6 @@ final class ConsentBridgeTest extends TestCase
 
     protected function setUp(): void
     {
-        if (! class_exists(McpClientService::class)) {
-            self::markTestSkipped('sin milpa/ai-gateway no hay cliente que puentear');
-        }
         $this->corridas = [];
     }
 

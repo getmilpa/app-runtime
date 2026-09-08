@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Recipe;
 
 use Milpa\Agent\SessionStore;
-use Milpa\AiGateway\ToolCallRefusedException;
+use Milpa\ToolRuntime\Gate\ToolCallRefused;
 use Milpa\AppRuntime\Agent\GovernedExecutor;
 use Milpa\AppRuntime\Agent\SessionToolGate;
 use Milpa\AppRuntime\Recipe\Recipe;
@@ -27,13 +27,6 @@ use PHPUnit\Framework\TestCase;
  */
 final class RecipeDriverTest extends TestCase
 {
-    protected function setUp(): void
-    {
-        if (! class_exists(ToolCallRefusedException::class)) {
-            self::markTestSkipped('sin milpa/ai-gateway no hay frontera de consentimiento que fingir');
-        }
-    }
-
     /** A recipe whose work is three passthrough operations: a read, a mutation, a read. */
     private function recipe(): Recipe
     {
@@ -62,7 +55,7 @@ final class RecipeDriverTest extends TestCase
             {
                 $this->calls[] = $operation;
                 if ($operation === 'demo:mutate') {
-                    throw new ToolCallRefusedException("consent needed: {$operation}");
+                    throw new ToolCallRefused("consent needed: {$operation}");
                 }
 
                 return ['ok' => true, 'operation' => $operation];
@@ -80,7 +73,7 @@ final class RecipeDriverTest extends TestCase
             public function callTool(string $operation, array $arguments): mixed
             {
                 if ($operation === 'demo:mutate') {
-                    throw new ToolCallRefusedException(
+                    throw new ToolCallRefused(
                         SessionToolGate::UNJUDGEABLE . ": «{$operation}» resolves to no Operation of this app"
                         . ' and no producer states its effect.',
                     );
