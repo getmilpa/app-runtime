@@ -14,7 +14,6 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Sequence;
 
-use Milpa\Agent\Principal;
 use Milpa\Agent\Session;
 use Milpa\Agent\SessionStore;
 use Milpa\AppRuntime\Agent\AgentTable;
@@ -121,35 +120,10 @@ final class GovernedDoor
         );
     }
 
-    /**
-     * WHO IS OBSERVABLY RUNNING THIS, read from the invocation instead of from the environment.
-     *
-     * This used to build `Principal::fromTerminal(getenv('USER'), gethostname())` unconditionally, which
-     * is right on a terminal and false everywhere else: over HTTP it writes `cli:www-data@host,
-     * verified:false` into the ledger for EVERY step of the sequence — a chain of custody that names the
-     * server process as the operator. {@see \Milpa\AppRuntime\Agent\ObservedExecutor} says it in its own
-     * docblock: «a principal reconstructed at read time is false evidence with better typography», and it
-     * ships `unknown()` so the empty case has a name.
-     *
-     * Three honest answers, and no fourth:
-     *   · an actor the surface authenticated → that principal, with the channel as its provenance;
-     *   · no actor and a terminal → the process running it, which IS observable there;
-     *   · no actor anywhere else → `unknown()`, because inventing one is the defect this fixes.
-     */
+    /** Who materialises the steps — read from the invocation, the one derivation every door shares. */
     private static function observedExecutor(?InvocationContext $context): ObservedExecutor
     {
-        if ($context?->actor !== null && $context->actor !== '') {
-            return new ObservedExecutor(new Principal($context->actor, $context->verified), $context->channel);
-        }
-
-        if ($context === null || $context->channel === 'cli') {
-            return new ObservedExecutor(
-                Principal::fromTerminal(getenv('USER') ?: null, gethostname() ?: null),
-                ObservedExecutor::TERMINAL,
-            );
-        }
-
-        return ObservedExecutor::unknown();
+        return ObservedExecutor::fromContext($context);
     }
 
     /**

@@ -77,6 +77,7 @@ use Milpa\Command\CommandProvider;
 use Milpa\Command\Consent\OperationId;
 use Milpa\Command\DeclaredCondition;
 use Milpa\Command\Consent\ConsentGrant;
+use Milpa\Command\InvocationContext;
 use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Externality;
@@ -565,7 +566,7 @@ class AgentOperations implements CommandProvider
                     subject: Subject::Data,
                 ),
                 description: 'Ask the agent to do something using the operations of this app',
-                handler: fn (array $input): array => $this->run($input),
+                handler: fn (array $input, ?InvocationContext $context = null): array => $this->run($input, $context),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
@@ -1053,8 +1054,11 @@ class AgentOperations implements CommandProvider
      *
      * @return array{ok: bool, answer?: string, steps?: int, tools?: int, error?: string, hint?: string, paused?: bool, exhausted?: bool, stalled?: bool, receipt?: array<string, mixed>, houseDebt?: bool, interrupted?: bool, closure?: array{verified: bool, reasons: list<string>}}
      */
-    private function run(array $input): array
+    private function run(array $input, ?InvocationContext $context = null): array
     {
+        // WHO CALLED THE TURN, kept for the tools it runs (greenhouse evidence/0561): over HTTP the actor is
+        // the passkey the door verified, and every effect the agent materialises on this turn is his.
+        $this->contextoDeLaVuelta = $context;
         $prompt = \is_string($input['prompt'] ?? null) ? trim($input['prompt']) : '';
         if ($prompt === '') {
             return ['ok' => false, 'error' => 'falta `prompt`: qué quieres que haga'];
@@ -1195,9 +1199,11 @@ class AgentOperations implements CommandProvider
                     $sessionId,
                     $grantsAsked,
                     Operations::all($kernelDeGrants, $kernelDeGrants->root()),
-                    // WHO CONFERS IT: the operator at the terminal, observed now and written once —
-                    // the same reading `governedExecutor()` makes for who materialises effects.
-                    Principal::fromTerminal(getenv('USER') ?: null, gethostname() ?: null),
+                    // WHO CONFERS IT: whoever called the turn, observed now and written once — the same
+                    // reading `governedExecutor()` makes for who materialises effects; the terminal
+                    // only when a terminal called (greenhouse evidence/0561).
+                    ObservedExecutor::fromContext($this->contextoDeLaVuelta)->principal
+                        ?? Principal::fromTerminal(getenv('USER') ?: null, gethostname() ?: null),
                 );
                 if (isset($sembrado['error'])) {
                     return ['ok' => false, 'error' => (string) $sembrado['error']];
@@ -1864,6 +1870,9 @@ class AgentOperations implements CommandProvider
 
     private ?string $sesionDeLosPermisos = null;
 
+    /** The invocation that called the current turn — who the tools it runs are executed by. */
+    private ?InvocationContext $contextoDeLaVuelta = null;
+
     private ?string $intakeSession = null;
 
     /**
@@ -2106,18 +2115,12 @@ class AgentOperations implements CommandProvider
             $recorder ?? ($gate instanceof ToolCallRecorder ? $gate : null),
             $mesa,
             executions: $gate instanceof ExecutionRecorder ? $gate : null,
-            // WHO IS RUNNING, OBSERVED HERE AND WRITTEN ONCE.
-            //
-            // The expression looks like the one in `grantsDeLaSesion()`, and the difference is
-            // everything. There the environment is read to REBUILD an authority somebody else already
-            // granted, which makes an old fact change author depending on who reads it. Here it is
-            // read to DECLARE who is materialising the effect now, and it is written down once. Same
-            // reading, different moment, different destination (greenhouse evidence/0209,
-            // decisions/0037).
-            executor: new ObservedExecutor(
-                Principal::fromTerminal(getenv('USER') ?: null, gethostname() ?: null),
-                ObservedExecutor::TERMINAL,
-            ),
+            // WHO IS RUNNING, OBSERVED HERE AND WRITTEN ONCE — read from the invocation that called the
+            // turn, not from the environment. A turn over HTTP with a passkey session used to write the
+            // process user as the executor of every tool (greenhouse evidence/0561: `cli:rod@…` beside an
+            // `authorized_by` that named the passkey); the terminal is the answer only when a terminal
+            // called. Same derivation the sequence door makes (greenhouse evidence/0209, decisions/0037).
+            executor: ObservedExecutor::fromContext($this->contextoDeLaVuelta),
             // THE SAME SEAM THE GATE CARRIES (greenhouse decisions/0183): the bridge observes the
             // consent frontier, so its signals land in the session whose grants it holds. Without
             // a session there is no stream to observe into, and the seam stays silent by

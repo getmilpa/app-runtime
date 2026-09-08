@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Agent;
 
 use Milpa\Agent\Principal;
+use Milpa\Command\InvocationContext;
 
 /**
  * The identity the channel could observe of whoever materialised an effect — and where it saw it.
@@ -47,5 +48,28 @@ final readonly class ObservedExecutor
     public static function unknown(): self
     {
         return new self(null, self::UNKNOWN);
+    }
+
+    /**
+     * Who is materialising effects, read from the invocation that asked — for EVERY door.
+     *
+     * A turn that arrived over HTTP with a passkey session carries its actor in the context; that actor
+     * is the executor, verified as the door verified it. A terminal carries none, and the operator at the
+     * keyboard is the honest answer. Anything else — a context with no actor over a channel that is not a
+     * terminal — is unknown, and says so. The sequence door derived this already; the agent's door wrote
+     * the terminal regardless of the door the turn came through, so a tool the agent ran on the human's
+     * word over HTTP was attributed to the process (greenhouse evidence/0561). One derivation now.
+     */
+    public static function fromContext(?InvocationContext $context): self
+    {
+        if ($context?->actor !== null && $context->actor !== '') {
+            return new self(new Principal($context->actor, $context->verified), $context->channel);
+        }
+
+        if ($context === null || $context->channel === 'cli') {
+            return new self(Principal::fromTerminal(getenv('USER') ?: null, gethostname() ?: null), self::TERMINAL);
+        }
+
+        return self::unknown();
     }
 }
