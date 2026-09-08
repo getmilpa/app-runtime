@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tests\Operations;
 
+use Milpa\AppRuntime\Config\AgentEndpoint;
 use Milpa\AppRuntime\Config\AgentKeys;
 use Milpa\AppRuntime\Operations\AgentOperations;
 use PHPUnit\Framework\TestCase;
@@ -25,10 +26,17 @@ final class WindowBudgetConfigTest extends TestCase
 {
     private string|false $entorno = false;
 
+    private string|false $proveedor = false;
+
     protected function setUp(): void
     {
         $this->entorno = getenv('MILPA_AGENT_CONTEXT_TOKENS');
         putenv('MILPA_AGENT_CONTEXT_TOKENS');
+        // The window gained a second source in greenhouse decisions/0233; both are neutralised so
+        // this battery keeps measuring the bridge, and so no CI run quietly asks a model host.
+        $this->proveedor = getenv('MILPA_AGENT_BASE_URL');
+        putenv('MILPA_AGENT_BASE_URL');
+        AgentEndpoint::useProviderFetcher(static fn (string $url): ?string => null);
     }
 
     protected function tearDown(): void
@@ -36,6 +44,10 @@ final class WindowBudgetConfigTest extends TestCase
         $this->entorno === false
             ? putenv('MILPA_AGENT_CONTEXT_TOKENS')
             : putenv('MILPA_AGENT_CONTEXT_TOKENS=' . $this->entorno);
+        $this->proveedor === false
+            ? putenv('MILPA_AGENT_BASE_URL')
+            : putenv('MILPA_AGENT_BASE_URL=' . $this->proveedor);
+        AgentEndpoint::useProviderFetcher(null);
     }
 
     /** The declared key reaches the Compactor as its whole-window budget. */
@@ -70,6 +82,36 @@ final class WindowBudgetConfigTest extends TestCase
         self::assertSame(40, $this->read($compactor, 'maxTurns'));
         self::assertSame(12, $this->read($compactor, 'keepRecent'));
         self::assertSame(16000, $this->read($compactor, 'maxTokens'));
+    }
+
+    /**
+     * greenhouse decisions/0233 at the POINT OF USE: what the Compactor receives is the smaller of
+     * the two, not merely what the resolver returns.
+     *
+     * The resolver being right is not the same claim as the bridge passing the right number, and it
+     * is the second one that decides whether a session compacts at the ceiling that actually exists.
+     */
+    public function testTheCompactorReceivesTheSmallerOfTheDeclaredAndTheMeasured(): void
+    {
+        AgentEndpoint::useProviderFetcher(static fn (string $url): ?string => str_ends_with($url, '/v1/models')
+            ? '{"data":[{"meta":{"n_ctx":32768,"n_ctx_train":262144}}]}'
+            : null);
+
+        $compactor = $this->compactorFor(['baseUrl' => 'http://provider.test', 'contextTokens' => 100000]);
+
+        self::assertSame(32768, $this->read($compactor, 'windowBudget'), 'the provider clipped the declaration');
+    }
+
+    /** THE INVERSE CONTROL: a tighter declaration reaches the Compactor unclipped. */
+    public function testATighterDeclarationReachesTheCompactorUntouched(): void
+    {
+        AgentEndpoint::useProviderFetcher(static fn (string $url): ?string => str_ends_with($url, '/v1/models')
+            ? '{"data":[{"meta":{"n_ctx":32768}}]}'
+            : null);
+
+        $compactor = $this->compactorFor(['baseUrl' => 'http://provider.test', 'contextTokens' => 8000]);
+
+        self::assertSame(8000, $this->read($compactor, 'windowBudget'), 'declaring less is how a human leaves air');
     }
 
     /** The key is part of the app's declared contract, so `coa config` can teach it. */

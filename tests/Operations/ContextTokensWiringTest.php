@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Tests\Operations;
 use Milpa\AiGateway\AgentOrchestrator;
 use Milpa\AiGateway\LlmService;
 use Milpa\AiGateway\McpClientService;
+use Milpa\AppRuntime\Config\AgentEndpoint;
 use Milpa\AppRuntime\Operations\AgentOperations;
 use Milpa\Container\DIContainer;
 use PHPUnit\Framework\TestCase;
@@ -33,11 +34,20 @@ final class ContextTokensWiringTest extends TestCase
 {
     private string|false $previousEnv = false;
 
+    private string|false $previousBaseUrl = false;
+
     protected function setUp(): void
     {
         parent::setUp();
         $this->previousEnv = getenv('MILPA_AGENT_CONTEXT_TOKENS');
         putenv('MILPA_AGENT_CONTEXT_TOKENS');
+        // Since greenhouse decisions/0233 the window has a SECOND source, and resolving it reaches a
+        // provider. Both are neutralised here so this battery keeps measuring the wiring it was
+        // written for — and so a developer with MILPA_AGENT_BASE_URL exported does not silently turn
+        // `vendor/bin/phpunit` into egress against their model host.
+        $this->previousBaseUrl = getenv('MILPA_AGENT_BASE_URL');
+        putenv('MILPA_AGENT_BASE_URL');
+        AgentEndpoint::useProviderFetcher(static fn (string $url): ?string => null);
     }
 
     protected function tearDown(): void
@@ -45,6 +55,10 @@ final class ContextTokensWiringTest extends TestCase
         $this->previousEnv === false
             ? putenv('MILPA_AGENT_CONTEXT_TOKENS')
             : putenv('MILPA_AGENT_CONTEXT_TOKENS=' . $this->previousEnv);
+        $this->previousBaseUrl === false
+            ? putenv('MILPA_AGENT_BASE_URL')
+            : putenv('MILPA_AGENT_BASE_URL=' . $this->previousBaseUrl);
+        AgentEndpoint::useProviderFetcher(null);
         parent::tearDown();
     }
 
@@ -92,6 +106,34 @@ final class ContextTokensWiringTest extends TestCase
         $built = $this->builtOrchestrator(new AgentOperations(new DIContainer()));
 
         self::assertSame(0, $this->contextTokensOf($built), 'absent config must pass 0 — unbounded, exactly today');
+    }
+
+    /**
+     * Falsifier 4 (greenhouse decisions/0233): the orchestrator receives the SMALLER of the declared
+     * and the measured window — the point of use, not just the resolver's return value.
+     */
+    public function testTheOrchestratorReceivesTheSmallerOfTheDeclaredAndTheMeasured(): void
+    {
+        putenv('MILPA_AGENT_CONTEXT_TOKENS=100000');
+        putenv('MILPA_AGENT_BASE_URL=http://provider.test');
+        AgentEndpoint::useProviderFetcher(static fn (string $url): ?string => str_ends_with($url, '/v1/models')
+            ? '{"data":[{"meta":{"n_ctx":32768,"n_ctx_train":262144}}]}'
+            : null);
+
+        $built = $this->builtOrchestrator(new AgentOperations(new DIContainer()));
+
+        self::assertSame(32768, $this->contextTokensOf($built), 'the provider clipped the declaration on the way in');
+    }
+
+    /** Falsifier 4, THE CONTROL: a silent provider leaves the declaration on its way to the orchestrator. */
+    public function testASilentProviderLeavesTheDeclaredContextOnItsWayIn(): void
+    {
+        putenv('MILPA_AGENT_CONTEXT_TOKENS=24000');
+        putenv('MILPA_AGENT_BASE_URL=http://provider.test');
+
+        $built = $this->builtOrchestrator(new AgentOperations(new DIContainer()));
+
+        self::assertSame(24000, $this->contextTokensOf($built), 'a provider that says nothing tightens nothing');
     }
 
     /**
