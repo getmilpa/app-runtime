@@ -187,6 +187,37 @@ final class TheFirstHourTest extends TestCase
         self::assertStringContainsString('host', $answer['error']);
     }
 
+    #[Test]
+    public function serve_refuses_a_malformed_host_port_or_dry_run_instead_of_defaulting(): void
+    {
+        mkdir($this->root . '/public');
+        $operations = $this->booted();
+
+        // Each malformed value would, defaulted, have run something the caller did not ask for. `port: 1`
+        // keeps the dry_run cases from hanging if the refusal ever regresses: an unprivileged bind fails at once.
+        $malformed = [
+            'port' => [['dry_run' => true, 'port' => 'abc'], ['dry_run' => true, 'port' => 3.5], ['dry_run' => true, 'port' => true]],
+            'host' => [['dry_run' => true, 'host' => 123], ['dry_run' => true, 'host' => ['127.0.0.1']]],
+            'dry_run' => [['dry_run' => '1', 'port' => 1], ['dry_run' => 'true', 'port' => 1], ['dry_run' => 1, 'port' => 1]],
+        ];
+        foreach ($malformed as $field => $inputs) {
+            foreach ($inputs as $input) {
+                $answer = $operations->serve($input);
+                self::assertIsArray($answer, json_encode($input, \JSON_THROW_ON_ERROR));
+                self::assertFalse($answer['ok'], json_encode($input, \JSON_THROW_ON_ERROR) . ' must be refused, not defaulted');
+                self::assertStringContainsString($field, $answer['error']);
+            }
+        }
+
+        // POSITIVE CONTROL: the same fields, well-formed — a digit string port included — are accepted; and a
+        // negative string port reaches the range check with the same words as a negative int.
+        $answer = $operations->serve(['dry_run' => true, 'host' => 'localhost', 'port' => '8730']);
+        self::assertIsArray($answer);
+        self::assertTrue($answer['ok']);
+        self::assertSame(\PHP_BINARY . ' -S localhost:8730 -t public', $answer['command']);
+        self::assertSame($operations->serve(['dry_run' => true, 'port' => -5]), $operations->serve(['dry_run' => true, 'port' => '-5']));
+    }
+
     /** @param list<string> $classes */
     private function declareOperations(array $classes): void
     {

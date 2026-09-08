@@ -974,13 +974,32 @@ class AgentOperations implements CommandProvider
         if (!is_dir($root . '/public')) {
             return ['ok' => false, 'error' => 'this app has no public/ directory to serve'];
         }
+        // A MALFORMED VALUE IS REFUSED, NOT DEFAULTED: a port of «abc» that quietly became 8000 would start
+        // a server the caller did not ask for (the surfaces coerce well-formed input; a direct caller gets no
+        // second guess). Absent means the default; present and wrong means no.
+        if (\array_key_exists('host', $input) && !\is_string($input['host'])) {
+            return ['ok' => false, 'error' => 'the host must be a string: an address or a name'];
+        }
         $host = \is_string($input['host'] ?? null) && trim($input['host']) !== '' ? trim($input['host']) : '127.0.0.1';
         if (preg_match('/^[A-Za-z0-9.:\[\]-]{1,64}$/', $host) !== 1) {
             return ['ok' => false, 'error' => 'the host must be an address or a name, not «' . $host . '»'];
         }
-        $port = \is_int($input['port'] ?? null) ? $input['port'] : (\is_string($input['port'] ?? null) && ctype_digit($input['port']) ? (int) $input['port'] : 8000);
+        $port = 8000;
+        if (\array_key_exists('port', $input)) {
+            $given = $input['port'];
+            if (\is_string($given) && preg_match('/^-?\d+$/', $given) === 1) {
+                $given = (int) $given;
+            }
+            if (!\is_int($given)) {
+                return ['ok' => false, 'error' => 'the port must be an integer between 1 and 65535'];
+            }
+            $port = $given;
+        }
         if ($port < 1 || $port > 65535) {
             return ['ok' => false, 'error' => 'the port must be between 1 and 65535'];
+        }
+        if (\array_key_exists('dry_run', $input) && !\is_bool($input['dry_run'])) {
+            return ['ok' => false, 'error' => 'dry_run must be true or false'];
         }
         $router = is_file($root . '/public/router.php') ? 'public/router.php' : null;
         $command = [\PHP_BINARY, '-S', $host . ':' . $port, '-t', 'public'];
