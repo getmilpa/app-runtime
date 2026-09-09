@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.136.1](https://github.com/getmilpa/app-runtime/compare/v0.136.0...v0.136.1) (2026-09-09)
+
+
+### Bug Fixes
+
+* name the context window's type at the site that reads it ([#349](https://github.com/getmilpa/app-runtime/issues/349)) ([bff650d](https://github.com/getmilpa/app-runtime/commit/bff650df068eb869bc627784fab7b8a651f59626))
+
 ## [0.136.0](https://github.com/getmilpa/app-runtime/compare/v0.135.0...v0.136.0) (2026-09-08)
 
 
