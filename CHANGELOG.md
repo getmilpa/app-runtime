@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.140.0](https://github.com/getmilpa/app-runtime/compare/v0.139.1...v0.140.0) (2026-09-09)
+
+
+### Features
+
+* the passkey ceremony looks like the house, without needing the panel ([#359](https://github.com/getmilpa/app-runtime/issues/359)) ([2947e6d](https://github.com/getmilpa/app-runtime/commit/2947e6d013c25962b0a8d6e95f8a99b25a091349))
+
 ## [0.139.1](https://github.com/getmilpa/app-runtime/compare/v0.139.0...v0.139.1) (2026-09-09)
 
 
