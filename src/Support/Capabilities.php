@@ -512,7 +512,7 @@ final class Capabilities
      *                                         and the floor answers — whoever holds one passes it
      *                                         (the operation passes {@see CapabilityIndex::read()})
      *
-     * @return array{installed: list<array<string, mixed>>, available: list<array<string, mixed>>, ports: array<string, list<string>>, source: string}
+     * @return array{installed: list<array<string, mixed>>, available: list<array<string, mixed>>, ports: array<string, list<string>>, source: string, complete: bool, grow?: string}
      */
     public static function state(?string $vendor = null, ?array $index = null): array
     {

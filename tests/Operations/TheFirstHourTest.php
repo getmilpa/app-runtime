@@ -106,17 +106,26 @@ final class TheFirstHourTest extends TestCase
         }
         self::assertSame('coa serve', end($answer['next'])['command'], 'seeing it is always the last step');
 
-        // THE STEPS FOLLOW THE HOUSE, read from a vendor this test writes: nothing switched on → the generators
-        // first, then the door; both switched on → neither step, and the answer does not even mention them.
+        // THE STEPS FOLLOW THE HOUSE, read from a vendor this test writes: nothing switched on → see
+        // what exists FIRST, then the generators, then the door; switched on → neither step, and the
+        // answer does not even mention them.
         $bare = array_column($operations->houseStart($this->vendorWith([]))['next'], 'command');
-        self::assertSame('coa capabilities:enable milpa/devtools --sign', $bare[0], 'the generators come first in a bare house');
-        self::assertContains('coa capabilities:enable milpa/auth', $bare);
+        self::assertSame('coa capabilities:refresh', $bare[0], 'a house that never looked cannot propose what it has not seen');
+        self::assertSame('coa capabilities:enable milpa/devtools --sign', $bare[1], 'then the generators');
+        self::assertContains('coa capabilities:enable milpa/auth --sign', $bare);
+        // EVERY TAUGHT COMMAND RUNS. A privileged one printed without `--sign` is refused the moment
+        // somebody types it, which is worse than not offering it (greenhouse decisions/0241).
+        foreach ($bare as $command) {
+            if (str_starts_with($command, 'coa capabilities:enable ')) {
+                self::assertStringEndsWith(' --sign', $command, sprintf('«%s» would be refused as printed', $command));
+            }
+        }
         $grown = array_column($operations->houseStart($this->vendorWith([
             $this->package('milpa/devtools', 'devtools'),
             $this->package('milpa/auth', 'identity'),
         ]))['next'], 'command');
         self::assertNotContains('coa capabilities:enable milpa/devtools --sign', $grown);
-        self::assertNotContains('coa capabilities:enable milpa/auth', $grown);
+        self::assertNotContains('coa capabilities:enable milpa/auth --sign', $grown);
     }
 
     #[Test]
