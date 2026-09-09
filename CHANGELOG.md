@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.145.1](https://github.com/getmilpa/app-runtime/compare/v0.145.0...v0.145.1) (2026-09-09)
+
+
+### Bug Fixes
+
+* **passkey:** a gate does not teach the framework ([#375](https://github.com/getmilpa/app-runtime/issues/375)) ([e362beb](https://github.com/getmilpa/app-runtime/commit/e362bebafc806a8ea562178aa605f3b2178baaf6))
+
 ## [0.145.0](https://github.com/getmilpa/app-runtime/compare/v0.144.2...v0.145.0) (2026-09-09)
 
 
