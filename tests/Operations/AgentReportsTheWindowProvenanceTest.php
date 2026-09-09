@@ -18,6 +18,7 @@ use Milpa\Agent\SessionStore;
 use Milpa\AiGateway\OptionTable;
 use Milpa\AiGateway\PlanBoard;
 use Milpa\AppRuntime\Config\AgentEndpoint;
+use Milpa\AppRuntime\Config\ContextWindow;
 use Milpa\AppRuntime\Operations\AgentOperations;
 use Milpa\Container\DIContainer;
 use Milpa\EventStore\EventStoreInterface;
@@ -27,6 +28,7 @@ use Milpa\Runtime\Kernel;
 use Milpa\ToolRuntime\Gate\ToolCallGate;
 use Milpa\ToolRuntime\Gate\ToolCallRecorder;
 use Milpa\ToolRuntime\ToolRegistry;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 
@@ -75,6 +77,28 @@ final class AgentReportsTheWindowProvenanceTest extends TestCase
         self::assertSame(32768, $result['contextWindow'] ?? null);
         self::assertSame('tightened-by-the-provider', $result['contextWindowSource'] ?? null);
         self::assertFalse($result['contextWindowCouldNotAsk'] ?? null);
+        self::assertSame(100000, $result['contextWindowDeclared'] ?? null, 'what the human asked for is still visible');
+        self::assertSame(32768, $result['contextWindowMeasured'] ?? null, 'and what the provider answered');
+    }
+
+    /**
+     * A declaration UNDER the provider's window keeps governing — and both numbers still show.
+     *
+     * This is the control for the one above: same two sources, opposite winner. If the surface only
+     * ever reported the pair when the provider clipped, it would be telling a story about clipping
+     * instead of reporting the arithmetic, and a human leaving air on purpose could not see that
+     * their smaller number is the one in force.
+     */
+    public function testADeclarationUnderTheProvidersWindowStillShowsBothNumbers(): void
+    {
+        AgentEndpoint::useProviderFetcher(static fn (string $url): ?string => str_ends_with($url, '/v1/models') ? self::MODELS_AS_MEASURED : null);
+
+        $result = $this->runAgentWith(['baseUrl' => 'http://provider.test', 'contextTokens' => 8000]);
+
+        self::assertSame(8000, $result['contextWindow'] ?? null, 'the smaller one governs, and here it is the human\'s');
+        self::assertSame('declared', $result['contextWindowSource'] ?? null);
+        self::assertSame(8000, $result['contextWindowDeclared'] ?? null);
+        self::assertSame(32768, $result['contextWindowMeasured'] ?? null, 'the provider\'s window is reported even when it did not win');
     }
 
     /** A provider that did not answer leaves the declaration standing AND is said out loud. */
@@ -85,6 +109,9 @@ final class AgentReportsTheWindowProvenanceTest extends TestCase
         self::assertSame(100000, $result['contextWindow'] ?? null, 'the run continues with what was declared');
         self::assertSame('declared', $result['contextWindowSource'] ?? null);
         self::assertTrue($result['contextWindowCouldNotAsk'] ?? null, 'never quiet about an unverified ceiling');
+        self::assertSame(100000, $result['contextWindowDeclared'] ?? null);
+        self::assertNull($result['contextWindowMeasured'] ?? null, 'nothing is invented for the source that stayed silent');
+        self::assertArrayHasKey('contextWindowMeasured', $result, '«it did not answer» is SAID, not left to be inferred from a missing key');
     }
 
     /**
@@ -103,6 +130,41 @@ final class AgentReportsTheWindowProvenanceTest extends TestCase
         self::assertFalse($result['contextWindowCouldNotAsk'] ?? null, 'there was nobody to ask');
         self::assertSame(120, $result['contextTokens'] ?? null, 'the context IN PLAY is untouched by the window');
         self::assertSame(280, $result['tokens'] ?? null);
+        self::assertNull($result['contextWindowDeclared'] ?? null);
+        self::assertNull($result['contextWindowMeasured'] ?? null);
+    }
+
+    /**
+     * THE ONE THAT CAN SAY NO: reporting the pair must not move the figure the run obeys.
+     *
+     * Every window this slice touches is composed the same way it was before it — the two new keys are
+     * a projection, and a projection that changed the governing number would be a behaviour change
+     * wearing a reporting slice's clothes (greenhouse decisions/0236, F5). The table walks the four
+     * shapes the composition can take; the assertion is on `contextWindow`, not on the new keys.
+     *
+     * @param null|int $declared
+     * @param null|int $measured
+     */
+    #[DataProvider('windowShapes')]
+    public function testTheGoverningNumberIsUnchangedByReportingThePair(?int $declared, ?int $measured, ?int $governs, string $source): void
+    {
+        $window = ContextWindow::compose($declared, $measured, asked: $measured !== null);
+
+        self::assertSame($governs, $window->tokens, 'the composition is what it always was');
+        self::assertSame($source, $window->source->value);
+        self::assertSame($declared, $window->declared);
+        self::assertSame($measured, $window->measured);
+    }
+
+    /** @return iterable<string, array{null|int, null|int, null|int, string}> */
+    public static function windowShapes(): iterable
+    {
+        yield 'the provider clips a big declaration' => [100000, 32768, 32768, 'tightened-by-the-provider'];
+        yield 'a small declaration keeps governing' => [8000, 32768, 8000, 'declared'];
+        yield 'the two agree' => [32768, 32768, 32768, 'declared'];
+        yield 'only the provider spoke' => [null, 32768, 32768, 'measured'];
+        yield 'only the app spoke' => [100000, null, 100000, 'declared'];
+        yield 'nobody spoke' => [null, null, null, 'undeclared'];
     }
 
     /**

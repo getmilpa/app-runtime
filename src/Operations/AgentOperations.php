@@ -2033,8 +2033,8 @@ class AgentOperations implements CommandProvider
         // WHERE THE WINDOW CAME FROM, SAID AND NOT SUPPOSED (greenhouse decisions/0233, point 4).
         //
         // `contextTokens` above is the context IN PLAY — the last call's prompt tokens, straight from
-        // the provider's usage. It is NOT the window, and relabelling it would have been a lie: these
-        // three keys are the window that BOUNDS it, so a surface can say «12,340 of 32,768» and, when
+        // the provider's usage. It is NOT the window, and relabelling it would have been a lie: the
+        // keys below are the window that BOUNDS it, so a surface can say «12,340 of 32,768» and, when
         // the two sources disagreed, why the ceiling is what it is. A human who declared 100,000 and
         // finds the run compacting at 32,768 must see that the PROVIDER said so, rather than wonder
         // whether their configuration was read at all.
@@ -2049,6 +2049,14 @@ class AgentOperations implements CommandProvider
         $resultado['contextWindow'] = $ventana->tokens;
         $resultado['contextWindowSource'] = $ventana->source->value;
         $resultado['contextWindowCouldNotAsk'] = $ventana->couldNotAsk();
+        // AND THE TWO NUMBERS THAT PRODUCED IT — the winner alone does not answer the question above
+        // (greenhouse decisions/0236). `contextWindowSource` names WHO won; a human who declared
+        // 100,000 and reads «tightened by the provider» still cannot see WHAT they declared, and so
+        // cannot tell a provider that clipped them from a configuration that was never read. Both are
+        // reported, each `null` when that source did not speak, and neither of them governs anything:
+        // `contextWindow` above is still the only figure the run obeys.
+        $resultado['contextWindowDeclared'] = $ventana->declared;
+        $resultado['contextWindowMeasured'] = $ventana->measured;
 
         if ($sessionId !== '') {
             $resultado['session'] = $sessionId;

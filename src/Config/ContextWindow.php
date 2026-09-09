@@ -49,14 +49,17 @@ final readonly class ContextWindow
      * @param ContextWindowSource $source   which of the two produced {@see $tokens}
      * @param null|int            $declared what the app declared, config first then environment
      * @param null|int            $measured what the provider said it had allocated
-     * @param bool                $asked    whether there was a provider to ask at all
+     * @param bool                $asked    whether there was a provider to ask at all — PRIVATE on
+     *                                      purpose: the caller reads the ANSWER, {@see couldNotAsk()},
+     *                                      never the raw fact. It stays a constructor argument because
+     *                                      that answer cannot be derived from the other four
      */
     public function __construct(
         public ?int $tokens,
         public ContextWindowSource $source,
         public ?int $declared,
         public ?int $measured,
-        public bool $asked,
+        private bool $asked,
     ) {
     }
 
