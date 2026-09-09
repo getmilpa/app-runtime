@@ -319,7 +319,7 @@ final class PasskeyControllerTest extends TestCase
     }
 
     /**
-     * 🚨 THE SCRIPT THESE PAGES SHIP MUST ACTUALLY PARSE (greenhouse decisions/0261).
+     * 🚨 EVERY SCRIPT THESE PAGES SHIP MUST ACTUALLY PARSE (greenhouse decisions/0261, 0263).
      *
      * Every other test here asserts the HTML CONTAINS a string, and not one of them ever asked whether
      * the JavaScript was valid — so a broken script shipped and the ceremony did not work in a browser
@@ -327,26 +327,90 @@ final class PasskeyControllerTest extends TestCase
      * string literal and wrote a real newline into it: `Uncaught SyntaxError: Invalid or unexpected
      * token`, no listener on the button, and a click that did nothing at all. Rod found it by clicking.
      *
-     * This checks the shape that broke — a quoted literal cannot span lines — over the script both
-     * pages ship, and it does it without needing a JS engine in CI.
+     * AND THIS TEST SHIPPED WITH THE SAME DEFECT IT WAS WRITTEN TO CLOSE. It took `preg_match` — ONE
+     * match, non-greedy — so on a page with two inline scripts it checked the FIRST. The sign-in page
+     * emits a 44-byte `const NEXT = …;` one-liner before its ceremony, so the 5982 bytes carrying
+     * `navigator.credentials.get` were never parsed, and the test was green about a page it had not
+     * read. A test that checks *a* script cannot say the ceremony parses.
+     *
+     * So: every inline script, and an assertion that the CEREMONY was among what got checked. That
+     * second one is what stops the blind spot returning in another shape — a third script, a reordered
+     * body, an external file — while the check stays green.
      */
     #[DataProvider('ceremonyPages')]
-    public function testTheScriptEachCeremonyPageShipsIsNotBrokenAcrossLines(string $page): void
+    public function testEveryScriptACeremonyPageShipsIsNotBrokenAcrossLines(string $page): void
     {
         [$controller] = $this->controller(recognized: true);
         $body = (string) ($page === 'enroll'
             ? $controller->enrollPage(new ServerRequest('GET', '/webauthn/enroll'))
             : $controller->signinPage(new ServerRequest('GET', '/webauthn/signin')))->getBody();
 
-        self::assertSame(1, preg_match('#<script>(.*?)</script>#s', $body, $m), "$page ships a script");
+        $scripts = self::inlineScripts($body);
+        self::assertNotSame([], $scripts, "$page ships no inline script at all");
 
+        // THE ANTI-BLIND-SPOT ASSERTION: the ceremony itself is what the browser runs when the human
+        // touches the key, so the check has to have seen it. Without this, a page can grow a script
+        // and quietly move the ceremony out of coverage while every assertion below still passes.
+        self::assertNotSame(
+            [],
+            array_filter($scripts, static fn (string $js): bool => str_contains($js, 'navigator.credentials')),
+            "$page: none of the checked scripts is the ceremony — the coverage moved off the thing that matters",
+        );
+
+        foreach ($scripts as $index => $script) {
+            self::assertScriptParses($page . " script #$index", $script, $this->files);
+        }
+    }
+
+    /**
+     * Every INLINE JavaScript block of a document: no `src` (that is another file), and a `type` either
+     * absent or naming JavaScript.
+     *
+     * The type filter is not politeness — a Milpa page carries `application/json` seeds and
+     * `application/milpa+xhtml` state envelopes in `<script>` tags, and handing those to a JS parser
+     * calls a correct page broken. Measured while writing this: on a shell page 36 of 36 script tags
+     * were non-JS, so an unfiltered check reports 36 failures and means nothing.
+     *
+     * @return list<string>
+     */
+    private static function inlineScripts(string $html): array
+    {
+        if (preg_match_all('#<script\b([^>]*)>(.*?)</script>#si', $html, $all, \PREG_SET_ORDER) === false) {
+            return [];
+        }
+        $out = [];
+        foreach ($all as [, $attributes, $js]) {
+            if (preg_match('#\bsrc\s*=#i', $attributes) === 1) {
+                continue;
+            }
+            if (preg_match('#\btype\s*=\s*["\']?([^"\'\s>]+)#i', $attributes, $type) === 1
+                && !\in_array(strtolower($type[1]), ['text/javascript', 'application/javascript', 'module'], true)
+            ) {
+                continue;
+            }
+            if (trim($js) === '') {
+                continue;
+            }
+            $out[] = $js;
+        }
+
+        return $out;
+    }
+
+    /**
+     * One script parses: the lexer that names the shape which broke, plus a real parser when `node` is
+     * on the box.
+     *
+     * @param list<string> $files scratch files to clean up, by reference through the caller's property
+     */
+    private static function assertScriptParses(string $what, string $script, array &$files): void
+    {
+        $quote = null;
+        $line = 1;
         // A tiny lexer, not a regex: walk the script tracking whether we are inside a quoted literal,
         // and assert we never reach a newline while still in one. That IS the defect, stated exactly —
         // guessing at it with patterns produced two false positives (an apostrophe in a comment, and a
         // `'//'` inside a string), which is the instrument arguing with the finding.
-        $script = $m[1];
-        $quote = null;
-        $line = 1;
         for ($i = 0, $len = \strlen($script); $i < $len; $i++) {
             $c = $script[$i];
             if ($c === '\\' && $quote !== null) {
@@ -354,7 +418,7 @@ final class PasskeyControllerTest extends TestCase
                 continue;
             }
             if ($c === "\n") {
-                self::assertNull($quote, \sprintf('%s: a %s-quoted string is still open at the end of line %d', $page, $quote ?? '', $line));
+                self::assertNull($quote, \sprintf('%s: a %s-quoted string is still open at the end of line %d', $what, $quote ?? '', $line));
                 $line++;
                 continue;
             }
@@ -372,7 +436,7 @@ final class PasskeyControllerTest extends TestCase
                 $i = $nl === false ? $len : $nl - 1;
             }
         }
-        self::assertNull($quote, "$page: the script ends inside an unterminated string");
+        self::assertNull($quote, "$what: the script ends inside an unterminated string");
 
         // AND WHEN A JS ENGINE IS AT HAND, ASK IT — the lexer above catches a string broken across
         // lines, which is the shape that shipped, and it did NOT catch the second one: a COMMENT broken
@@ -383,11 +447,11 @@ final class PasskeyControllerTest extends TestCase
             return;
         }
         $file = tempnam(sys_get_temp_dir(), 'milpa-gate-') . '.js';
-        $this->files[] = $file;
+        $files[] = $file;
         file_put_contents($file, $script);
         @exec(escapeshellarg($node) . ' --check ' . escapeshellarg($file) . ' 2>&1', $said, $status);
 
-        self::assertSame(0, $status, \sprintf("%s ships a script that does not parse:\n%s", $page, implode("\n", $said)));
+        self::assertSame(0, $status, \sprintf("%s does not parse:\n%s", $what, implode("\n", $said)));
     }
 
     /** @return iterable<string, array{0: string}> */
