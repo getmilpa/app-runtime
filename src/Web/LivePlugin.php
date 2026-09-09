@@ -42,6 +42,7 @@ use Milpa\Live\Contracts\Component\ComponentRegistryInterface;
 use Milpa\Live\Contracts\Security\CsrfGuardInterface;
 use Milpa\Live\Contracts\Transport\StateTransferCodecInterface;
 use Milpa\Live\Http\LiveBoot;
+use Milpa\Live\Assets\ComponentMessages;
 use Milpa\Live\Http\LiveEndpoint;
 use Milpa\Live\Rendering\AutocompleteHtmlRenderer;
 use Milpa\Live\Rendering\DashboardHtmlRenderer;
@@ -245,6 +246,10 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 $route,
                 $provider,
                 $this->layoutStateStore(),
+                // The language this house's live pages are read in. Declared, not sniffed from the
+                // request: a house serves the language it chose, and a component that has not been
+                // translated into it falls back per key rather than per page.
+                \is_string($this->config()['locale'] ?? null) ? (string) $this->config()['locale'] : ComponentMessages::DEFAULT_LOCALE,
             ),
         );
         $this->route = $route;
