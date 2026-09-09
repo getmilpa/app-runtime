@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.143.0](https://github.com/getmilpa/app-runtime/compare/v0.142.0...v0.143.0) (2026-09-09)
+
+
+### Features
+
+* an override happens because a human said so ([#365](https://github.com/getmilpa/app-runtime/issues/365)) ([727df10](https://github.com/getmilpa/app-runtime/commit/727df102a1db8c98abbac1a517b6da7d14d12b92))
+
 ## [0.142.0](https://github.com/getmilpa/app-runtime/compare/v0.141.0...v0.142.0) (2026-09-09)
 
 
