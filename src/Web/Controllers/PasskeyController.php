@@ -24,6 +24,7 @@ use Milpa\Auth\WebAuthn\PasskeyCredentialStore;
 use Milpa\Auth\WebAuthn\PasskeyLogin;
 use Milpa\Auth\WebAuthn\WebAuthnRegistrationVerifier;
 use Nyholm\Psr7\Response;
+use Milpa\Live\Support\DesignTokens;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -59,6 +60,22 @@ final class PasskeyController
         private readonly string $rpId,
         private readonly string $cookieName,
         private readonly string $gateScope = 'milpa.admin',
+        /**
+         * Which authenticators this house admits, or `null` to admit whatever the person has.
+         *
+         * This was written into the code as `'cross-platform'`, which **excludes** the platform
+         * authenticator — Touch ID, Windows Hello, a phone's fingerprint — and the password managers
+         * that hold passkeys too. That is, both of the places a passkey lives on the machine anyone
+         * already owns (greenhouse decisions/0244).
+         *
+         * `evidence/0486` wired it on request, under the name "the enroll PREFERS the YubiKey". The
+         * crack is in the verb: WebAuthn cannot prefer an attachment — either you name one and
+         * discard the rest, or you omit it. The name was written meaning the preference.
+         *
+         * Absent by default, deliberately. A house that wants hardware only declares it and gets
+         * exactly the previous behaviour back. What was law becomes each house's decision.
+         */
+        private readonly ?string $authenticatorAttachment = null,
     ) {
     }
 
@@ -170,6 +187,38 @@ final class PasskeyController
     }
 
     /**
+     * The house's design tokens, served beside the ceremony that needs them.
+     *
+     * Read from `milpa/live-web`, which ships them so a surface can look like the house WITHOUT
+     * copying them — three packages already carry drifting copies (greenhouse decisions/0243). This
+     * route is not behind the gate on purpose: these pages are how somebody GETS a session, so a
+     * stylesheet they cannot fetch would leave the way in looking like nothing else in the house.
+     */
+    public function tokens(ServerRequestInterface $request): ResponseInterface
+    {
+        // The name comes from the ROUTE, and `DesignTokens::path()` decides whether it owns it:
+        // this class does not validate the path, because validating in two places is having two
+        // rules that can disagree. A name the package does not ship comes back `null` and leaves as
+        // a 404 — never as a read from disk.
+        $name = basename(parse_url((string) $request->getUri()->getPath(), \PHP_URL_PATH) ?: '');
+        $file = DesignTokens::path($name === '' ? DesignTokens::TOKENS : $name);
+        if ($file === null && $name !== '' && $name !== DesignTokens::TOKENS) {
+            return new Response(404, ['Content-Type' => 'text/plain; charset=utf-8'], 'this package does not ship ' . $name);
+        }
+        if ($file === null) {
+            // Said, not guessed: a surface that silently serves an empty stylesheet looks styled and
+            // is not, and the next person debugs CSS instead of an install.
+            return new Response(500, ['Content-Type' => 'text/plain; charset=utf-8'], 'the design tokens are not installed: milpa/live-web ships them');
+        }
+
+        return new Response(
+            200,
+            ['Content-Type' => DesignTokens::contentType($name), 'Cache-Control' => 'public, max-age=300'],
+            (string) file_get_contents($file),
+        );
+    }
+
+    /**
      * The sign-in page (greenhouse decisions/0206, wireframe 2j): runs the authentication ceremony and,
      * on success, returns the browser to `next`.
      *
@@ -226,29 +275,233 @@ final class PasskeyController
         // navigator.credentials.create against the real authenticator (the human's device), and posts
         // the attestation back to /webauthn/register. The base64url helpers are the standard WebAuthn
         // marshalling; the server verifies and stores the credential (registered, then enrolled).
-        return <<<'HTML'
+        // The relying party is SHOWN because it is the fact that decides whether this credential
+        // will work: a key enrolled against another rpId does not open this house, and finding that
+        // out at signing time is too late.
+        $rp = htmlspecialchars($this->rpId, \ENT_QUOTES | \ENT_SUBSTITUTE, 'UTF-8');
+        // This house's REAL scope, because step 2's command carries it as an argument. Printing an
+        // invented "milpa.admin" when the app declared something else would be a value placed for
+        // convenience, which is precisely what the house refuses to do on every surface.
+        $scope = htmlspecialchars($this->gateScope, \ENT_QUOTES | \ENT_SUBSTITUTE, 'UTF-8');
+        // Built here rather than in the template: when the house declares nothing, the property is
+        // not emitted at all — an `authenticatorAttachment: null` is NOT the same as omitting it,
+        // and the browser reads the first as a constraint nothing can satisfy.
+        $attachment = $this->authenticatorAttachment === null
+            ? ''
+            : \sprintf("authenticatorAttachment: '%s', ", $this->authenticatorAttachment);
+
+        return <<<HTML
 <!doctype html>
+<html lang="en" data-theme="dark">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Register a passkey</title>
+<title>Register a passkey · Milpa</title>
+<link rel="stylesheet" href="/webauthn/milpa-fonts.css">
+<link rel="stylesheet" href="/webauthn/milpa-tokens.css">
 <style>
-  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 4rem auto; padding: 0 1rem; color: #1a1a1a; }
-  button { font: inherit; padding: .7rem 1.2rem; border: 0; border-radius: 8px; background: #111; color: #fff; cursor: pointer; }
+  /* THE SCREEN BEFORE THE PANEL (greenhouse decisions/0243).
+     Everything comes from the tokens: a value written by hand here is a fourth copy of the
+     design system, which is exactly how the drift started. */
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; font-family: var(--font-body); font-size: var(--text-base, 1rem);
+         line-height: var(--leading-normal, 1.5); color: var(--text); background: var(--bg); }
+
+  .gate { min-height: 100%; display: grid; grid-template-columns: 1fr; }
+  @media (min-width: 56rem) { .gate { grid-template-columns: 1fr minmax(24rem, 27rem); } }
+
+  /* ── the brand's half ─────────────────────────────────────────────────── */
+  /* The mark and the text are ONE group, anchored to the bottom — not two things pinned to
+     opposite corners. The empty space goes above, where it is not in the way. */
+  .gate__brand { background: var(--bg); padding: var(--space-8, 2rem);
+                 display: grid; grid-template-rows: auto 1fr auto; align-content: stretch;
+                 gap: var(--space-8, 2rem); min-width: 0; }
+  .gate__brand .gate__mark { align-self: end; }
+  .gate__mark { display: flex; align-items: flex-end; }
+  /* The wordmark IDENTIFIES — top, small, still; the symbol REPORTS state below. They stay
+     apart rather than as a lockup because one of them moves and the kit's lockup does not. */
+  .gate__wordmark { display: inline-flex; align-self: flex-start; border-radius: var(--radius-sm, 4px); }
+  .gate__wordmark img { height: var(--space-8, 2rem); width: auto; display: block; }
+  .gate__wordmark:focus-visible { outline: var(--focus-width, 2px) solid var(--accent); outline-offset: 4px; }
+  /* The symbol is BRAND, not UI: constant mono-gold in both themes, never var(--accent)
+     (logo/README.txt). That is why the fill is a literal and not a token. */
+  .grano { width: clamp(5rem, 13vw, 9rem); height: auto; display: block; overflow: visible; }
+  .grano rect { fill: #E8B14C; }
+  .gate__lede { max-width: 34ch; }
+  .kicker { font-family: var(--font-mono); font-size: var(--text-xs, .75rem);
+            letter-spacing: var(--tracking-wide, .08em); text-transform: uppercase;
+            color: var(--olivo-300, var(--text-muted)); margin: 0 0 var(--space-3, .75rem); }
+  h1 { font-family: var(--font-heading); font-size: var(--text-4xl, 2.25rem);
+       line-height: var(--leading-tight, 1.1); letter-spacing: var(--tracking-tight, -.02em);
+       font-weight: var(--weight-bold, 700); color: var(--text); margin: 0 0 var(--space-3, .75rem);
+       text-wrap: balance; }
+  .gate__lede p { color: var(--text-secondary); margin: 0; text-wrap: pretty; }
+
+  /* ── the act's half ───────────────────────────────────────────────────── */
+  /* The act is centred: pinned to the top it left the whole column empty below the button. */
+  .gate__act { background: var(--surface); border-left: 1px solid var(--border-subtle);
+               padding: var(--space-8, 2rem); display: grid;
+               grid-template-rows: 1fr auto; gap: var(--space-6, 1.5rem); min-width: 0; }
+  .gate__body { align-self: center; }
+  @media (max-width: 55.99rem) { .gate__act { border-left: 0; border-top: 1px solid var(--border-subtle); } }
+  .gate__body { display: flex; flex-direction: column; gap: var(--space-4, 1rem); }
+  .gate__foot { align-self: end; }
+  .gate__foot { font-family: var(--font-mono); font-size: var(--text-2xs, .6875rem);
+                color: var(--text-muted); display: flex; flex-direction: column;
+                gap: var(--space-2, .5rem); }
+  .gate__foot p { margin: 0; display: flex; flex-wrap: wrap;
+                  gap: var(--space-1, .25rem) var(--space-3, .75rem); color: inherit; }
+  /* The sentence that teaches the term takes the text face, not the data face: it is prose. */
+  .gate__foot .gate__teach { font-family: var(--font-body); font-size: var(--text-xs, .75rem);
+                             max-width: 44ch; display: block; }
+  .gate__foot a { color: var(--accent-text, var(--accent)); text-decoration: none; }
+  .gate__foot a:hover { text-decoration: underline; }
+  .gate__foot a:focus-visible { outline: var(--focus-width, 2px) solid var(--accent); outline-offset: 2px; }
+
+  button { font: inherit; font-family: var(--font-heading); font-weight: var(--weight-medium, 500);
+           width: 100%; padding: var(--space-3, .75rem) var(--space-5, 1.25rem);
+           border: var(--border-width, 1px) var(--border-style, solid) transparent;
+           border-radius: var(--radius-md, 6px); background: var(--accent);
+           color: var(--text-on-accent); cursor: pointer; }
+  button:hover:not(:disabled) { background: var(--accent-hover); }
+  button:focus-visible { outline: var(--focus-width, 2px) solid var(--accent); outline-offset: 2px; }
   button:disabled { opacity: .5; cursor: default; }
-  .r { margin-top: 1rem; padding: .8rem 1rem; border-radius: 8px; word-break: break-all; }
-  .ok { background: #dcfce7; } .no { background: #fee2e2; }
+  .scope { color: var(--text-muted); font-size: var(--text-sm, .875rem); margin: 0; }
+  code { font-family: var(--font-mono); background: var(--surface-raised, var(--bg));
+         border: 1px solid var(--border-subtle); border-radius: var(--radius-sm, 4px);
+         padding: 0 var(--space-1, .25rem); }
+  .r { padding: var(--space-3, .75rem) var(--space-4, 1rem); border-radius: var(--radius-md, 6px);
+       overflow-wrap: anywhere; white-space: pre-wrap; font-family: var(--font-mono);
+       font-size: var(--text-sm, .875rem); line-height: var(--leading-normal, 1.5);
+       border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  .ok { border-color: var(--success); } .no { border-color: var(--danger); }
+
+  /* ── THE MARK HAS THREE STATES ─────────────────────────────────────────────
+     And all three are the same plant, not three separate animations pasted together:
+
+       sown       on arrival the grains fall in SOWING ORDER — the left stem top to
+                  bottom, the diagonal, the right one — and settle.
+       growing    while it waits: a wave travels that same order. It is the loader,
+                  and it is the mark doing what the mark does, not a borrowed spinner
+                  that could belong to any product.
+       ready      the wave stops and the grains open once, together, before the page
+                  leaves. Without that beat the jump feels like a cut.
+
+     The JS sets the state on the <body>, at the same points it already knew: asking for
+     the key, receiving the yes, failing. */
+  @keyframes sembrar {
+    from { opacity: 0; transform: translateY(-.6rem) scale(.85); }
+    to   { opacity: 1; transform: none; }
+  }
+  @keyframes creciendo {
+    0%, 100% { opacity: .35; transform: scale(.88); }
+    45%      { opacity: 1;   transform: scale(1.06); }
+  }
+  @keyframes listo {
+    0%   { transform: scale(1); }
+    45%  { transform: scale(1.18); }
+    100% { transform: scale(1); }
+  }
+  .grano rect { opacity: 0; transform-box: fill-box; transform-origin: center;
+                animation: sembrar var(--dur-slow, 420ms) var(--ease-standard, cubic-bezier(.4,0,.2,1)) forwards;
+                animation-delay: calc(var(--i) * var(--stagger-tight, 40ms)); }
+
+  /* The wave uses the SAME `--i` as the sowing, so it travels the same path: one numbering
+     governs both, and they cannot disagree. */
+  body[data-mark="working"] .grano rect {
+    opacity: 1;
+    animation: creciendo 1.4s var(--ease-standard, cubic-bezier(.4,0,.2,1)) infinite;
+    animation-delay: calc(var(--i) * 90ms);
+  }
+  body[data-mark="done"] .grano rect {
+    opacity: 1;
+    animation: listo var(--dur-slow, 420ms) var(--ease-standard, cubic-bezier(.4,0,.2,1)) both;
+    animation-delay: calc(var(--i) * var(--stagger-tight, 40ms));
+  }
+
+  /* Whoever asked for less motion gets the STATE, not the choreography: the mark dims while
+     it waits and returns when it is done. A loader that vanishes under reduced-motion leaves
+     that person with no way to know something is running. */
+  @media (prefers-reduced-motion: reduce) {
+    .grano rect { animation: none; opacity: 1; transform: none; }
+    body[data-mark="working"] .grano rect { animation: none; opacity: .5; }
+    body[data-mark="done"] .grano rect { animation: none; opacity: 1; }
+  }
 </style>
-<h1>Register a passkey</h1>
-<p>Enroll this device's authenticator so it can approve operations. You will be asked to touch it.</p>
-<p><button id="go">Register with passkey</button></p>
-<div id="out"></div>
+<div class="gate">
+  <aside class="gate__brand">
+    <a class="gate__wordmark" href="https://getmilpa.com" target="_blank" rel="noopener noreferrer"><img src="/webauthn/milpa-wordmark.svg" alt="Milpa" width="2407" height="900"></a>
+    <div class="gate__mark"><svg class="grano" viewBox="0 0 60 60" role="img" aria-label="Milpa"><rect x="0.0" y="0.0" width="10" height="10" rx="2.5" style="--i:0"/><rect x="0.0" y="12.5" width="10" height="10" rx="2.5" style="--i:1"/><rect x="0.0" y="25.0" width="10" height="10" rx="2.5" style="--i:2"/><rect x="0.0" y="37.5" width="10" height="10" rx="2.5" style="--i:3"/><rect x="0.0" y="50.0" width="10" height="10" rx="2.5" style="--i:4"/><rect x="12.5" y="12.5" width="10" height="10" rx="2.5" style="--i:5"/><rect x="25.0" y="25.0" width="10" height="10" rx="2.5" style="--i:6"/><rect x="37.5" y="12.5" width="10" height="10" rx="2.5" style="--i:7"/><rect x="50.0" y="0.0" width="10" height="10" rx="2.5" style="--i:8"/><rect x="50.0" y="12.5" width="10" height="10" rx="2.5" style="--i:9"/><rect x="50.0" y="25.0" width="10" height="10" rx="2.5" style="--i:10"/><rect x="50.0" y="37.5" width="10" height="10" rx="2.5" style="--i:11"/><rect x="50.0" y="50.0" width="10" height="10" rx="2.5" style="--i:12"/></svg></div>
+    <div class="gate__lede">
+      <p class="kicker">House identity · step 1 of 2</p>
+      <h1>Register a passkey</h1>
+      <p>Milpa is a PHP framework where an effect records who authorized it and who executed it — they
+      are not always the same. This is where the house learns your key. Use whatever you already have:
+      the fingerprint or face on this device, your password manager, or a security key. You will be
+      asked to confirm it. Registering is not permission — what this key may do is granted in step 2,
+      by a governed operation, not by a button.</p>
+    </div>
+  </aside>
+  <main class="gate__act">
+    <div class="gate__body">
+      <button id="go">Register with passkey</button>
+      <div id="out"></div>
+    </div>
+    <div class="gate__foot">
+      <p><span>house: <code>{$rp}</code></span><span>this gate requires: <code>{$scope}</code></span></p>
+      <p class="gate__teach">The house is the WebAuthn relying party — a key registered against another name does not open this one.</p>
+      <p><a href="/webauthn/signin">Already enrolled? Sign in →</a></p>
+    </div>
+  </main>
+</div>
 <script>
+// The name this house answers to, placed by the server: the client cannot guess it, and asking
+// for it over the network would be a round trip for a fact that is already here.
+const RP_ID = "{$rp}";
+const SCOPE = "{$scope}";
+// The mark reports where the ceremony is: sown on arrival, growing while it waits — the touch,
+// the verification, whatever comes next loading — and opening once when it lands. One state,
+// not three animations stuck together (greenhouse decisions/0243).
+const mark = state => document.body.setAttribute('data-mark', state);
+
+// THE PAGE CHECKS ITSELF BEFORE IT OFFERS THE BUTTON (greenhouse decisions/0244).
+//
+// WebAuthn requires the relying party id to be a registrable suffix of the page's own host, and it
+// requires a secure context. Neither is knowable to the server — it cannot see the URL the human
+// typed — but both are knowable HERE, at load, before anybody presses anything. Without this the
+// ceremony fails with the browser's own words: "This is an invalid domain." True, and useless: it
+// names neither what was expected nor how to get there.
+//
+// Measured: a page served on 127.0.0.1 with rpId `localhost` refuses every ceremony this way. Same
+// bytes, same app — a different name in the address bar.
+function houseIsReachable() {
+  const out = document.getElementById('out');
+  const btn = document.getElementById('go');
+  const host = location.hostname;
+  const suffix = host === RP_ID || host.endsWith('.' + RP_ID);
+  if (!window.isSecureContext) {
+    out.className = 'r no';
+    out.textContent = 'A passkey needs a secure page. Open this over https, or on localhost. This page is ' + location.origin + '.';
+    btn.disabled = true;
+    return false;
+  }
+  if (!suffix) {
+    out.className = 'r no';
+    out.textContent = 'This house answers to \u201c' + RP_ID + '\u201d and you opened it as \u201c' + host + '\u201d, so no key can be registered here — a passkey is bound to the name in the address bar. Open ' + location.protocol + '//' + RP_ID + (location.port ? ':' + location.port : '') + location.pathname + ' instead, or declare passkey.rpId to match the name you use.';
+    btn.disabled = true;
+    return false;
+  }
+  return true;
+}
+document.addEventListener('DOMContentLoaded', houseIsReachable);
+
 const b64uToBuf = s => Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0));
 const bufToB64u = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 
 async function register() {
   const btn = document.getElementById('go'); const out = document.getElementById('out');
-  btn.disabled = true; out.textContent = '';
+  if (!houseIsReachable()) { return; }
+  btn.disabled = true; out.textContent = ''; mark('working');
   try {
     // Same lesson as the sign-in page (greenhouse evidence/0519): an extension that replaced
     // navigator.credentials.create can swallow the ceremony without a dialog or an error.
@@ -264,12 +517,19 @@ async function register() {
       user: { id: userId, name: 'operator', displayName: 'Operator' },
       challenge: b64uToBuf(opt.challenge),
       pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
-      // Prefer a roaming security key (a YubiKey): cross-platform excludes the built-in platform
-      // authenticator, and required user verification means the human's touch/PIN, not mere presence.
+      // WHAT THIS HOUSE ACCEPTS, declared and not assumed (greenhouse decisions/0244).
+      //
+      // `userVerification: 'required'` stays and is the point: the human's touch or PIN, never mere
+      // presence — a platform authenticator and a password manager both satisfy it. What left is the
+      // hardcoded `authenticatorAttachment: 'cross-platform'`, which EXCLUDED the built-in
+      // authenticator and every password manager, i.e. the two places a passkey lives on a machine
+      // somebody already owns. A house that wants hardware only declares `passkey.authenticator`.
+      //
       // residentKey is discouraged so a hardware key with scarce slots enrolls as a non-discoverable
-      // credential (the server holds the credential id for the approve ceremony). ES256 (alg -7) above
-      // is what a FIDO2 key produces, so this stays within the one algorithm milpa/auth verifies.
-      authenticatorSelection: { authenticatorAttachment: 'cross-platform', userVerification: 'required', residentKey: 'discouraged' },
+      // credential (the server holds the credential id for the approve ceremony), and it works the
+      // same for the other two. ES256 (alg -7) above is what a FIDO2 key produces, so this stays
+      // within the one algorithm milpa/auth verifies.
+      authenticatorSelection: { {$attachment}userVerification: 'required', residentKey: 'discouraged' },
       timeout: 60000,
     }});
 
@@ -281,10 +541,22 @@ async function register() {
       })
     })).json();
 
+    // SUCCESS SAYS WHAT IS STILL MISSING. Registering is not permission: the server has been
+    // saying so in `note` all along and this page threw it away, so somebody read "Registered
+    // credential: T05…" and concluded, reasonably, that they were in. They were not
+    // (greenhouse decisions/0244).
     out.className = 'r ' + (res.ok ? 'ok' : 'no');
-    out.textContent = res.ok ? ('Registered credential: ' + res.credentialId) : ('Refused: ' + (res.error || 'unknown'));
+    out.textContent = res.ok
+      ? 'Registered. This house now holds the public key of credential ' + res.credentialId
+        + '. It grants nothing yet — to say what this key may do, run:\n\n'
+        + 'php bin/coa identity:enroll --fingerprint=' + res.credentialId + ' --scopes=' + SCOPE + ' --sign\n\n'
+        + 'That command needs a principal this house already recognizes. Then sign in at /webauthn/signin.'
+      : 'Refused: the challenge was already spent, or the attestation did not verify. Nothing was stored — press again for a fresh challenge.';
+    mark(res.ok ? 'done' : 'idle');
   } catch (e) {
-    out.className = 'r no'; out.textContent = 'Registration failed: ' + e.message;
+    out.className = 'r no';
+    out.textContent = 'The key did not answer: ' + e.message + '. Nothing was stored.';
+    mark('idle');
   } finally { btn.disabled = false; }
 }
 document.getElementById('go').addEventListener('click', register);
@@ -303,33 +575,203 @@ HTML;
 
         $head = <<<'HTML'
 <!doctype html>
+<html lang="en" data-theme="dark">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in to open the panel</title>
+<title>Sign in · Milpa</title>
+<link rel="stylesheet" href="/webauthn/milpa-fonts.css">
+<link rel="stylesheet" href="/webauthn/milpa-tokens.css">
 <style>
-  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 4rem auto; padding: 0 1rem; color: #1a1a1a; }
-  .brand { font-weight: 600; letter-spacing: .02em; margin: 0 0 1.5rem; }
-  h1 { font-size: 1.25rem; margin: .75rem 0 .5rem; }
-  button { font: inherit; padding: .7rem 1.2rem; border: 0; border-radius: 8px; background: #111; color: #fff; cursor: pointer; }
+  /* THE SCREEN BEFORE THE PANEL (greenhouse decisions/0243).
+     Everything comes from the tokens: a value written by hand here is a fourth copy of the
+     design system, which is exactly how the drift started. */
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; font-family: var(--font-body); font-size: var(--text-base, 1rem);
+         line-height: var(--leading-normal, 1.5); color: var(--text); background: var(--bg); }
+
+  .gate { min-height: 100%; display: grid; grid-template-columns: 1fr; }
+  @media (min-width: 56rem) { .gate { grid-template-columns: 1fr minmax(24rem, 27rem); } }
+
+  /* ── the brand's half ─────────────────────────────────────────────────── */
+  /* The mark and the text are ONE group, anchored to the bottom — not two things pinned to
+     opposite corners. The empty space goes above, where it is not in the way. */
+  .gate__brand { background: var(--bg); padding: var(--space-8, 2rem);
+                 display: grid; grid-template-rows: auto 1fr auto; align-content: stretch;
+                 gap: var(--space-8, 2rem); min-width: 0; }
+  .gate__brand .gate__mark { align-self: end; }
+  .gate__mark { display: flex; align-items: flex-end; }
+  /* The wordmark IDENTIFIES — top, small, still; the symbol REPORTS state below. They stay
+     apart rather than as a lockup because one of them moves and the kit's lockup does not. */
+  .gate__wordmark { display: inline-flex; align-self: flex-start; border-radius: var(--radius-sm, 4px); }
+  .gate__wordmark img { height: var(--space-8, 2rem); width: auto; display: block; }
+  .gate__wordmark:focus-visible { outline: var(--focus-width, 2px) solid var(--accent); outline-offset: 4px; }
+  /* The symbol is BRAND, not UI: constant mono-gold in both themes, never var(--accent)
+     (logo/README.txt). That is why the fill is a literal and not a token. */
+  .grano { width: clamp(5rem, 13vw, 9rem); height: auto; display: block; overflow: visible; }
+  .grano rect { fill: #E8B14C; }
+  .gate__lede { max-width: 34ch; }
+  .kicker { font-family: var(--font-mono); font-size: var(--text-xs, .75rem);
+            letter-spacing: var(--tracking-wide, .08em); text-transform: uppercase;
+            color: var(--olivo-300, var(--text-muted)); margin: 0 0 var(--space-3, .75rem); }
+  h1 { font-family: var(--font-heading); font-size: var(--text-4xl, 2.25rem);
+       line-height: var(--leading-tight, 1.1); letter-spacing: var(--tracking-tight, -.02em);
+       font-weight: var(--weight-bold, 700); color: var(--text); margin: 0 0 var(--space-3, .75rem);
+       text-wrap: balance; }
+  .gate__lede p { color: var(--text-secondary); margin: 0; text-wrap: pretty; }
+
+  /* ── the act's half ───────────────────────────────────────────────────── */
+  /* The act is centred: pinned to the top it left the whole column empty below the button. */
+  .gate__act { background: var(--surface); border-left: 1px solid var(--border-subtle);
+               padding: var(--space-8, 2rem); display: grid;
+               grid-template-rows: 1fr auto; gap: var(--space-6, 1.5rem); min-width: 0; }
+  .gate__body { align-self: center; }
+  @media (max-width: 55.99rem) { .gate__act { border-left: 0; border-top: 1px solid var(--border-subtle); } }
+  .gate__body { display: flex; flex-direction: column; gap: var(--space-4, 1rem); }
+  .gate__foot { align-self: end; }
+  .gate__foot { font-family: var(--font-mono); font-size: var(--text-2xs, .6875rem);
+                color: var(--text-muted); display: flex; flex-direction: column;
+                gap: var(--space-2, .5rem); }
+  .gate__foot p { margin: 0; display: flex; flex-wrap: wrap;
+                  gap: var(--space-1, .25rem) var(--space-3, .75rem); color: inherit; }
+  /* The sentence that teaches the term takes the text face, not the data face: it is prose. */
+  .gate__foot .gate__teach { font-family: var(--font-body); font-size: var(--text-xs, .75rem);
+                             max-width: 44ch; display: block; }
+  .gate__foot a { color: var(--accent-text, var(--accent)); text-decoration: none; }
+  .gate__foot a:hover { text-decoration: underline; }
+  .gate__foot a:focus-visible { outline: var(--focus-width, 2px) solid var(--accent); outline-offset: 2px; }
+
+  button { font: inherit; font-family: var(--font-heading); font-weight: var(--weight-medium, 500);
+           width: 100%; padding: var(--space-3, .75rem) var(--space-5, 1.25rem);
+           border: var(--border-width, 1px) var(--border-style, solid) transparent;
+           border-radius: var(--radius-md, 6px); background: var(--accent);
+           color: var(--text-on-accent); cursor: pointer; }
+  button:hover:not(:disabled) { background: var(--accent-hover); }
+  button:focus-visible { outline: var(--focus-width, 2px) solid var(--accent); outline-offset: 2px; }
   button:disabled { opacity: .5; cursor: default; }
-  .scope { color: #4b5563; font-size: .9rem; }
-  code { background: #f3f4f6; border-radius: 4px; padding: .1rem .3rem; }
-  .r { margin-top: 1rem; padding: .8rem 1rem; border-radius: 8px; }
-  .ok { background: #dcfce7; } .no { background: #fee2e2; }
+  .scope { color: var(--text-muted); font-size: var(--text-sm, .875rem); margin: 0; }
+  code { font-family: var(--font-mono); background: var(--surface-raised, var(--bg));
+         border: 1px solid var(--border-subtle); border-radius: var(--radius-sm, 4px);
+         padding: 0 var(--space-1, .25rem); }
+  .r { padding: var(--space-3, .75rem) var(--space-4, 1rem); border-radius: var(--radius-md, 6px);
+       overflow-wrap: anywhere; white-space: pre-wrap; font-family: var(--font-mono);
+       font-size: var(--text-sm, .875rem); line-height: var(--leading-normal, 1.5);
+       border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  .ok { border-color: var(--success); } .no { border-color: var(--danger); }
+
+  /* ── THE MARK HAS THREE STATES ─────────────────────────────────────────────
+     And all three are the same plant, not three separate animations pasted together:
+
+       sown       on arrival the grains fall in SOWING ORDER — the left stem top to
+                  bottom, the diagonal, the right one — and settle.
+       growing    while it waits: a wave travels that same order. It is the loader,
+                  and it is the mark doing what the mark does, not a borrowed spinner
+                  that could belong to any product.
+       ready      the wave stops and the grains open once, together, before the page
+                  leaves. Without that beat the jump feels like a cut.
+
+     The JS sets the state on the <body>, at the same points it already knew: asking for
+     the key, receiving the yes, failing. */
+  @keyframes sembrar {
+    from { opacity: 0; transform: translateY(-.6rem) scale(.85); }
+    to   { opacity: 1; transform: none; }
+  }
+  @keyframes creciendo {
+    0%, 100% { opacity: .35; transform: scale(.88); }
+    45%      { opacity: 1;   transform: scale(1.06); }
+  }
+  @keyframes listo {
+    0%   { transform: scale(1); }
+    45%  { transform: scale(1.18); }
+    100% { transform: scale(1); }
+  }
+  .grano rect { opacity: 0; transform-box: fill-box; transform-origin: center;
+                animation: sembrar var(--dur-slow, 420ms) var(--ease-standard, cubic-bezier(.4,0,.2,1)) forwards;
+                animation-delay: calc(var(--i) * var(--stagger-tight, 40ms)); }
+
+  /* The wave uses the SAME `--i` as the sowing, so it travels the same path: one numbering
+     governs both, and they cannot disagree. */
+  body[data-mark="working"] .grano rect {
+    opacity: 1;
+    animation: creciendo 1.4s var(--ease-standard, cubic-bezier(.4,0,.2,1)) infinite;
+    animation-delay: calc(var(--i) * 90ms);
+  }
+  body[data-mark="done"] .grano rect {
+    opacity: 1;
+    animation: listo var(--dur-slow, 420ms) var(--ease-standard, cubic-bezier(.4,0,.2,1)) both;
+    animation-delay: calc(var(--i) * var(--stagger-tight, 40ms));
+  }
+
+  /* Whoever asked for less motion gets the STATE, not the choreography: the mark dims while
+     it waits and returns when it is done. A loader that vanishes under reduced-motion leaves
+     that person with no way to know something is running. */
+  @media (prefers-reduced-motion: reduce) {
+    .grano rect { animation: none; opacity: 1; transform: none; }
+    body[data-mark="working"] .grano rect { animation: none; opacity: .5; }
+    body[data-mark="done"] .grano rect { animation: none; opacity: 1; }
+  }
 </style>
-<p class="brand">Milpa Admin</p>
-<h1>Sign in to open the panel</h1>
-<p>The gate is configured to accept a passkey. One scope covers the whole panel.</p>
+<div class="gate">
+  <aside class="gate__brand">
+    <a class="gate__wordmark" href="https://getmilpa.com" target="_blank" rel="noopener noreferrer"><img src="/webauthn/milpa-wordmark.svg" alt="Milpa" width="2407" height="900"></a>
+    <div class="gate__mark"><svg class="grano" viewBox="0 0 60 60" role="img" aria-label="Milpa"><rect x="0.0" y="0.0" width="10" height="10" rx="2.5" style="--i:0"/><rect x="0.0" y="12.5" width="10" height="10" rx="2.5" style="--i:1"/><rect x="0.0" y="25.0" width="10" height="10" rx="2.5" style="--i:2"/><rect x="0.0" y="37.5" width="10" height="10" rx="2.5" style="--i:3"/><rect x="0.0" y="50.0" width="10" height="10" rx="2.5" style="--i:4"/><rect x="12.5" y="12.5" width="10" height="10" rx="2.5" style="--i:5"/><rect x="25.0" y="25.0" width="10" height="10" rx="2.5" style="--i:6"/><rect x="37.5" y="12.5" width="10" height="10" rx="2.5" style="--i:7"/><rect x="50.0" y="0.0" width="10" height="10" rx="2.5" style="--i:8"/><rect x="50.0" y="12.5" width="10" height="10" rx="2.5" style="--i:9"/><rect x="50.0" y="25.0" width="10" height="10" rx="2.5" style="--i:10"/><rect x="50.0" y="37.5" width="10" height="10" rx="2.5" style="--i:11"/><rect x="50.0" y="50.0" width="10" height="10" rx="2.5" style="--i:12"/></svg></div>
+    <div class="gate__lede">
+      <p class="kicker">House identity · the gate</p>
+      <h1>Sign in</h1>
+      <p>Milpa is a PHP framework where an effect records who authorized it and who executed it;
+      without a session the house answers <em>unknown</em>. This gate takes a passkey and nothing
+      else: confirm the key this house already recognizes, and it checks the signature before it mints
+      a session.</p>
+    </div>
+  </aside>
+  <main class="gate__act">
 HTML;
 
         $script = <<<'HTML'
 <script>
+// The mark reports where the ceremony is: sown on arrival, growing while it waits — the touch,
+// the verification, whatever comes next loading — and opening once when it lands. One state,
+// not three animations stuck together (greenhouse decisions/0243).
+const mark = state => document.body.setAttribute('data-mark', state);
+
+// THE PAGE CHECKS ITSELF BEFORE IT OFFERS THE BUTTON (greenhouse decisions/0244).
+//
+// WebAuthn requires the relying party id to be a registrable suffix of the page's own host, and it
+// requires a secure context. Neither is knowable to the server — it cannot see the URL the human
+// typed — but both are knowable HERE, at load, before anybody presses anything. Without this the
+// ceremony fails with the browser's own words: "This is an invalid domain." True, and useless: it
+// names neither what was expected nor how to get there.
+//
+// Measured: a page served on 127.0.0.1 with rpId `localhost` refuses every ceremony this way. Same
+// bytes, same app — a different name in the address bar.
+function houseIsReachable() {
+  const out = document.getElementById('out');
+  const btn = document.getElementById('go');
+  const host = location.hostname;
+  const suffix = host === RP_ID || host.endsWith('.' + RP_ID);
+  if (!window.isSecureContext) {
+    out.className = 'r no';
+    out.textContent = 'A passkey needs a secure page. Open this over https, or on localhost. This page is ' + location.origin + '.';
+    btn.disabled = true;
+    return false;
+  }
+  if (!suffix) {
+    out.className = 'r no';
+    out.textContent = 'This house answers to \u201c' + RP_ID + '\u201d and you opened it as \u201c' + host + '\u201d, so no key can be registered here — a passkey is bound to the name in the address bar. Open ' + location.protocol + '//' + RP_ID + (location.port ? ':' + location.port : '') + location.pathname + ' instead, or declare passkey.rpId to match the name you use.';
+    btn.disabled = true;
+    return false;
+  }
+  return true;
+}
+document.addEventListener('DOMContentLoaded', houseIsReachable);
+
 const b64uToBuf = s => Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0));
 const bufToB64u = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 
 async function signin() {
   const btn = document.getElementById('go'); const out = document.getElementById('out');
-  btn.disabled = true; out.className = ''; out.textContent = '';
+  if (!houseIsReachable()) { return; }
+  btn.disabled = true; out.className = ''; out.textContent = ''; mark('working');
   try {
     // A browser extension (a password manager offering its own passkeys, usually) may have replaced
     // navigator.credentials.get; when it swallows the call, no dialog opens and no error ever comes
@@ -371,14 +813,21 @@ async function signin() {
     });
     const body = await res.json().catch(() => ({}));
     if (res.ok && body.ok) {
-      out.className = 'r ok'; out.textContent = 'Signed in as ' + body.actor + '. Opening the panel…';
-      location.replace(NEXT);
+      // Names WHERE it goes, not what it assumes is there: this gate guards whatever the app put
+      // behind it, and a house with no panel installed still has to be able to get in.
+      out.className = 'r ok'; out.textContent = 'Signed in as ' + body.actor + '. Returning you to ' + NEXT;
+      // The mark opens BEFORE the jump: without that pulse the page change reads as a cut and
+      // nobody sees their key worked. The wait is the animation's, not an invented number — and
+      // whoever asked for less motion does not sit through it.
+      mark('done');
+      const wait = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 520;
+      setTimeout(() => location.replace(NEXT), wait);
       return;
     }
     out.className = 'r no';
     out.textContent = 'Passkey rejected: the credential is not registered, not enrolled, or the assertion did not verify.';
   } catch (e) {
-    out.className = 'r no'; out.textContent = 'Sign-in failed: ' + e.message;
+    out.className = 'r no'; out.textContent = 'Sign-in failed: ' + e.message; mark('idle');
   } finally { btn.disabled = false; }
 }
 document.getElementById('go').addEventListener('click', signin);
@@ -386,10 +835,20 @@ document.getElementById('go').addEventListener('click', signin);
 HTML;
 
         return $head
-            . '<p><button id="go">Continue with a passkey</button></p>' . "\n"
-            . '<p class="scope">Scope requested: <code>' . $scope . '</code></p>' . "\n"
+            . '<div class="gate__body">' . "\n"
+            . '<button id="go">Continue with a passkey</button>' . "\n"
             . '<div id="out"></div>' . "\n"
-            . '<script>const NEXT = ' . $nextLiteral . ';</script>' . "\n"
+            . '</div>' . "\n"
+            . '<div class="gate__foot">'
+            . '<p><span>house: <code>' . htmlspecialchars($this->rpId, \ENT_QUOTES | \ENT_SUBSTITUTE, 'UTF-8') . '</code></span>'
+            . '<span>scope: <code>' . $scope . '</code></span></p>'
+            . '<p class="gate__teach">The house is the WebAuthn relying party — a key registered against another name does not open this one.</p>'
+            . '<p><a href="/webauthn/enroll">No key on this house yet? Register one →</a></p>'
+            . '</div>' . "\n"
+            . '</main></div>' . "\n"
+            . '<script>const NEXT = ' . $nextLiteral . '; const RP_ID = '
+            . json_encode($this->rpId, \JSON_HEX_TAG | \JSON_HEX_AMP | \JSON_HEX_APOS | \JSON_HEX_QUOT | \JSON_THROW_ON_ERROR)
+            . ';</script>' . "\n"
             . $script;
     }
 }
