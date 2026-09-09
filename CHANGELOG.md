@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.138.0](https://github.com/getmilpa/app-runtime/compare/v0.137.0...v0.138.0) (2026-09-09)
+
+
+### Features
+
+* the capability index tells a page from a listing, and refuses by name ([#353](https://github.com/getmilpa/app-runtime/issues/353)) ([8e124e8](https://github.com/getmilpa/app-runtime/commit/8e124e86a18df76112f4a6007981b85598fd2627))
+
 ## [0.137.0](https://github.com/getmilpa/app-runtime/compare/v0.136.1...v0.137.0) (2026-09-09)
 
 
