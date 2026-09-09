@@ -545,8 +545,16 @@ async function register() {
     out.className = 'r ' + (res.ok ? 'ok' : 'no');
     out.textContent = res.ok
       ? 'Registered. This house now holds the public key of credential ' + res.credentialId
-        + '. It grants nothing yet — to say what this key may do, run:\n\n'
-        + 'php bin/coa identity:enroll --fingerprint=' + res.credentialId + ' --scopes=' + SCOPE + ' --sign\n\n'
+        // 🚨 ESCAPE THE ESCAPE. This whole page is an INTERPOLATING heredoc, so a lone backslash-n is
+        // eaten by PHP and written into the JavaScript as a REAL newline — which broke the string
+        // literal below, threw a SyntaxError, and left the button with no listener at all. The ceremony
+        // did not work in a browser from the day it was written: every test here asserts the HTML
+        // CONTAINS a string, and none ever parsed the script (greenhouse decisions/0261).
+        //
+        // The comment that first explained this had the same bug inside it, for the same reason. That is
+        // why there is not a single raw backslash-n in this note.
+        + '. It grants nothing yet — to say what this key may do, run:\\n\\n'
+        + 'php bin/coa identity:enroll --fingerprint=' + res.credentialId + ' --scopes=' + SCOPE + ' --sign\\n\\n'
         + 'That command needs a principal this house already recognizes. Then sign in at /webauthn/signin.'
       : 'Refused: the challenge was already spent, or the attestation did not verify. Nothing was stored — press again for a fresh challenge.';
     mark(res.ok ? 'ready' : 'sown');

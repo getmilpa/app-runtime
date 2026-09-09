@@ -27,6 +27,7 @@ use Milpa\Auth\WebAuthn\FileChallengeStore;
 use Milpa\Auth\WebAuthn\RegisteredCredential;
 use Milpa\Auth\WebAuthn\WebAuthnRegistrationVerifier;
 use Nyholm\Psr7\ServerRequest;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -164,7 +165,7 @@ final class PasskeyControllerTest extends TestCase
     {
         [$controller] = $this->controller(recognized: true, gateScope: 'ops.panel');
 
-        self::assertStringContainsString('scope: <code>ops.panel</code>', (string) $controller->signinPage(new ServerRequest('GET', '/webauthn/signin'))->getBody());
+        self::assertStringContainsString('Required scope: <code>ops.panel</code>', (string) $controller->signinPage(new ServerRequest('GET', '/webauthn/signin'))->getBody());
     }
 
     /** @return iterable<string, array{0: string}> */
@@ -315,6 +316,85 @@ final class PasskeyControllerTest extends TestCase
         self::assertSame(201, $controller->register($req)->getStatusCode());
         // The challenge is spent — the same registration again is refused.
         self::assertSame(401, $controller->register($req)->getStatusCode());
+    }
+
+    /**
+     * 🚨 THE SCRIPT THESE PAGES SHIP MUST ACTUALLY PARSE (greenhouse decisions/0261).
+     *
+     * Every other test here asserts the HTML CONTAINS a string, and not one of them ever asked whether
+     * the JavaScript was valid — so a broken script shipped and the ceremony did not work in a browser
+     * from the day it was written. The page is an INTERPOLATING heredoc, so PHP ate the `\n` in a JS
+     * string literal and wrote a real newline into it: `Uncaught SyntaxError: Invalid or unexpected
+     * token`, no listener on the button, and a click that did nothing at all. Rod found it by clicking.
+     *
+     * This checks the shape that broke — a quoted literal cannot span lines — over the script both
+     * pages ship, and it does it without needing a JS engine in CI.
+     */
+    #[DataProvider('ceremonyPages')]
+    public function testTheScriptEachCeremonyPageShipsIsNotBrokenAcrossLines(string $page): void
+    {
+        [$controller] = $this->controller(recognized: true);
+        $body = (string) ($page === 'enroll'
+            ? $controller->enrollPage(new ServerRequest('GET', '/webauthn/enroll'))
+            : $controller->signinPage(new ServerRequest('GET', '/webauthn/signin')))->getBody();
+
+        self::assertSame(1, preg_match('#<script>(.*?)</script>#s', $body, $m), "$page ships a script");
+
+        // A tiny lexer, not a regex: walk the script tracking whether we are inside a quoted literal,
+        // and assert we never reach a newline while still in one. That IS the defect, stated exactly —
+        // guessing at it with patterns produced two false positives (an apostrophe in a comment, and a
+        // `'//'` inside a string), which is the instrument arguing with the finding.
+        $script = $m[1];
+        $quote = null;
+        $line = 1;
+        for ($i = 0, $len = \strlen($script); $i < $len; $i++) {
+            $c = $script[$i];
+            if ($c === '\\' && $quote !== null) {
+                $i++;
+                continue;
+            }
+            if ($c === "\n") {
+                self::assertNull($quote, \sprintf('%s: a %s-quoted string is still open at the end of line %d', $page, $quote ?? '', $line));
+                $line++;
+                continue;
+            }
+            if ($quote !== null) {
+                if ($c === $quote) {
+                    $quote = null;
+                }
+                continue;
+            }
+            if ($c === "'" || $c === '"') {
+                // A quote inside a `// …` comment opens nothing; skip the rest of that line.
+                $quote = $c;
+            } elseif ($c === '/' && ($script[$i + 1] ?? '') === '/') {
+                $nl = strpos($script, "\n", $i);
+                $i = $nl === false ? $len : $nl - 1;
+            }
+        }
+        self::assertNull($quote, "$page: the script ends inside an unterminated string");
+
+        // AND WHEN A JS ENGINE IS AT HAND, ASK IT — the lexer above catches a string broken across
+        // lines, which is the shape that shipped, and it did NOT catch the second one: a COMMENT broken
+        // the same way, by the very note that explained the first. A parser has no such blind spots, so
+        // it runs whenever `node` is on the box and this stays a lexer-only check where it is not.
+        $node = trim((string) @shell_exec('command -v node 2>/dev/null'));
+        if ($node === '') {
+            return;
+        }
+        $file = tempnam(sys_get_temp_dir(), 'milpa-gate-') . '.js';
+        $this->files[] = $file;
+        file_put_contents($file, $script);
+        @exec(escapeshellarg($node) . ' --check ' . escapeshellarg($file) . ' 2>&1', $said, $status);
+
+        self::assertSame(0, $status, \sprintf("%s ships a script that does not parse:\n%s", $page, implode("\n", $said)));
+    }
+
+    /** @return iterable<string, array{0: string}> */
+    public static function ceremonyPages(): iterable
+    {
+        yield 'enroll' => ['enroll'];
+        yield 'sign in' => ['signin'];
     }
 
     public function testAMalformedRegistrationBodyIsRejected(): void
