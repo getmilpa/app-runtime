@@ -955,7 +955,16 @@ class AgentOperations implements CommandProvider
         $foundation = Foundation::answer($root);
 
         $next = [];
-        // THE PANEL COMES FIRST, because it is where a human meets this house (greenhouse
+        // A HOUSE THAT HAS NEVER LOOKED CANNOT PROPOSE WHAT IT HAS NOT SEEN.
+        //
+        // The floor knows six packages by name and the panel is not one of them, so on a bare house
+        // every step below is chosen from a catalogue that is missing most of the world — including
+        // the capability a person is most likely to want. Growing it comes first, and it is exactly
+        // the step nobody was told to run (greenhouse decisions/0241).
+        if ($state['complete'] === false && \in_array('capabilities:refresh', $offered, true)) {
+            $next[] = ['step' => 'see what exists', 'command' => (string) ($state['grow'] ?? 'coa capabilities:refresh'), 'why' => 'this catalogue is the offline floor — a handful of packages this runtime knows by name. Deriving the registry index is what puts the rest, the admin panel among them, on the list below'];
+        }
+        // THE PANEL COMES FIRST once it can be seen, because it is where a human meets this house (greenhouse
         // decisions/0241, station 2 of the ideal path). It used to be absent from the next steps
         // entirely: the capability a person is most likely to want was listed among the others and
         // proposed by nobody.
@@ -981,7 +990,7 @@ class AgentOperations implements CommandProvider
             $next[] = ['step' => 'found the house', 'command' => 'coa foundation:found', 'why' => 'until a domain and an objective are declared, the agent can only read'];
         }
         if (\in_array('milpa/auth', $availablePackages, true) && \in_array('capabilities:enable', $offered, true)) {
-            $next[] = ['step' => 'put a door on it', 'command' => 'coa capabilities:enable milpa/auth', 'why' => 'identity: a passkey session becomes the principal of every operation over HTTP'];
+            $next[] = ['step' => 'put a door on it', 'command' => Capabilities::ENABLE_COMMAND . 'milpa/auth --sign', 'why' => 'identity: a passkey session becomes the principal of every operation over HTTP'];
         }
         if (\in_array('serve', $offered, true)) {
             $next[] = ['step' => 'see it', 'command' => 'coa serve', 'why' => 'the development server, and the URL to open'];
