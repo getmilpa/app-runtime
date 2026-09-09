@@ -114,9 +114,13 @@ final class PasskeyControllerTest extends TestCase
         self::assertSame(200, $res->getStatusCode());
         self::assertStringContainsString('text/html', $res->getHeaderLine('Content-Type'));
         self::assertSame('no-store', $res->getHeaderLine('Cache-Control'));
-        self::assertStringContainsString('Sign in to open the panel', $body);
+        // The headline is the act; where it leads is the lede's job (greenhouse decisions/0243).
+        // It also stopped naming the panel: this page gates whatever the app put behind it, and the
+        // panel is only the most common one.
+        self::assertStringContainsString('<h1>Sign in</h1>', $body);
+        self::assertStringContainsString('The gate is configured to accept a passkey', $body);
         self::assertStringContainsString('Continue with a passkey', $body);
-        self::assertStringContainsString('Scope requested: <code>milpa.admin</code>', $body);
+        self::assertStringContainsString('scope: <code>milpa.admin</code>', $body);
         self::assertStringContainsString('const NEXT = "/milpa/admin?tab=routes";', $body);
         self::assertStringContainsString('/webauthn/authenticate/options', $body);
         self::assertStringContainsString('allowCredentials: allow', $body);
@@ -135,7 +139,7 @@ final class PasskeyControllerTest extends TestCase
     {
         [$controller] = $this->controller(recognized: true, gateScope: 'ops.panel');
 
-        self::assertStringContainsString('Scope requested: <code>ops.panel</code>', (string) $controller->signinPage(new ServerRequest('GET', '/webauthn/signin'))->getBody());
+        self::assertStringContainsString('scope: <code>ops.panel</code>', (string) $controller->signinPage(new ServerRequest('GET', '/webauthn/signin'))->getBody());
     }
 
     /** @return iterable<string, array{0: string}> */

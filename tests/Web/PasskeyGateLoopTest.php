@@ -79,7 +79,7 @@ final class PasskeyGateLoopTest extends TestCase
         // The sign-in page is served by the same router, with the scope and the validated next.
         $page = $http->handle($this->browserGet('/webauthn/signin?next=' . rawurlencode('/milpa/admin?tab=routes')));
         self::assertSame(200, $page->getStatusCode());
-        self::assertStringContainsString('Scope requested: <code>milpa.admin</code>', (string) $page->getBody());
+        self::assertStringContainsString('scope: <code>milpa.admin</code>', (string) $page->getBody());
         self::assertStringContainsString('const NEXT = "/milpa/admin?tab=routes";', (string) $page->getBody());
 
         // (b) Register the key through the HTTP door.

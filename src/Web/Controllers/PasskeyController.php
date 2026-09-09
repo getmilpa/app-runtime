@@ -251,7 +251,11 @@ final class PasskeyController
         // navigator.credentials.create against the real authenticator (the human's device), and posts
         // the attestation back to /webauthn/register. The base64url helpers are the standard WebAuthn
         // marshalling; the server verifies and stores the credential (registered, then enrolled).
-        return <<<'HTML'
+        // El relying party se PINTA porque es el hecho que decide si esta credencial servirá: una
+        // llave enrolada contra otro rpId no abre esta casa, y descubrirlo al firmar es tarde.
+        $rp = htmlspecialchars($this->rpId, \ENT_QUOTES | \ENT_SUBSTITUTE, 'UTF-8');
+
+        return <<<HTML
 <!doctype html>
 <html lang="en" data-theme="dark">
 <meta charset="utf-8">
@@ -259,42 +263,100 @@ final class PasskeyController
 <title>Register a passkey · Milpa</title>
 <link rel="stylesheet" href="/webauthn/milpa-tokens.css">
 <style>
-  /* La ceremonia se ve de la casa: todo sale de los tokens, ni un color propio
-     (greenhouse decisions/0243). Un valor escrito a mano aquí es una cuarta copia. */
-  html { background: var(--bg); color-scheme: dark light; }
-  body { font-family: var(--font-body); font-size: var(--text-base, 1rem); line-height: var(--leading-normal, 1.5);
-         color: var(--text); background: var(--bg); max-width: 34rem; margin: 0 auto;
-         padding: var(--space-16, 4rem) var(--space-4, 1rem); }
-  .brand { font-family: var(--font-heading); font-weight: var(--weight-semibold, 600);
-           letter-spacing: var(--tracking-tight); color: var(--text-secondary);
-           margin: 0 0 var(--space-6, 1.5rem); }
-  h1 { font-family: var(--font-heading); font-size: var(--text-2xl, 1.5rem); line-height: var(--leading-tight);
-       letter-spacing: var(--tracking-tight); font-weight: var(--weight-bold, 700);
-       margin: var(--space-3, .75rem) 0 var(--space-2, .5rem); }
-  p { color: var(--text-secondary); }
+  /* LA PANTALLA DE ANTES DEL PANEL (greenhouse decisions/0243).
+     Todo sale de los tokens: un valor escrito a mano aquí es una cuarta copia
+     del sistema de diseño, que es exactamente como empezó el drift. */
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; font-family: var(--font-body); font-size: var(--text-base, 1rem);
+         line-height: var(--leading-normal, 1.5); color: var(--text); background: var(--bg); }
+
+  .gate { min-height: 100%; display: grid; grid-template-columns: 1fr; }
+  @media (min-width: 56rem) { .gate { grid-template-columns: 1fr minmax(24rem, 27rem); } }
+
+  /* ── la mitad de la marca ─────────────────────────────────────────────── */
+  /* La marca y el texto son UN grupo, anclado abajo — no dos cosas pegadas a esquinas
+     opuestas. El vacío va arriba, que es donde no estorba. */
+  .gate__brand { background: var(--bg); padding: var(--space-8, 2rem);
+                 display: flex; flex-direction: column; justify-content: flex-end;
+                 gap: var(--space-8, 2rem); min-width: 0; }
+  .gate__mark { display: flex; align-items: flex-end; }
+  /* El símbolo es MARCA, no UI: mono-oro constante en ambos temas, nunca var(--accent)
+     (logo/README.txt). Por eso el fill va literal y no por token. */
+  .grano { width: clamp(5rem, 13vw, 9rem); height: auto; display: block; overflow: visible; }
+  .grano rect { fill: #E8B14C; }
+  .gate__lede { max-width: 34ch; }
+  .kicker { font-family: var(--font-mono); font-size: var(--text-xs, .75rem);
+            letter-spacing: var(--tracking-wide, .08em); text-transform: uppercase;
+            color: var(--olivo-300, var(--text-muted)); margin: 0 0 var(--space-3, .75rem); }
+  h1 { font-family: var(--font-heading); font-size: var(--text-4xl, 2.25rem);
+       line-height: var(--leading-tight, 1.1); letter-spacing: var(--tracking-tight, -.02em);
+       font-weight: var(--weight-bold, 700); color: var(--text); margin: 0 0 var(--space-3, .75rem);
+       text-wrap: balance; }
+  .gate__lede p { color: var(--text-secondary); margin: 0; text-wrap: pretty; }
+
+  /* ── la mitad del acto ────────────────────────────────────────────────── */
+  /* El acto se centra: pegado arriba dejaba la columna entera vacía debajo del botón. */
+  .gate__act { background: var(--surface); border-left: 1px solid var(--border-subtle);
+               padding: var(--space-8, 2rem); display: grid;
+               grid-template-rows: 1fr auto; gap: var(--space-6, 1.5rem); min-width: 0; }
+  .gate__body { align-self: center; }
+  @media (max-width: 55.99rem) { .gate__act { border-left: 0; border-top: 1px solid var(--border-subtle); } }
+  .gate__body { display: flex; flex-direction: column; gap: var(--space-4, 1rem); }
+  .gate__foot { align-self: end; }
+  .gate__foot { font-family: var(--font-mono); font-size: var(--text-2xs, .6875rem);
+                color: var(--text-muted); margin: 0; display: flex; flex-wrap: wrap;
+                gap: var(--space-1, .25rem) var(--space-3, .75rem); }
+
   button { font: inherit; font-family: var(--font-heading); font-weight: var(--weight-medium, 500);
-           padding: var(--space-3, .75rem) var(--space-5, 1.25rem);
+           width: 100%; padding: var(--space-3, .75rem) var(--space-5, 1.25rem);
            border: var(--border-width, 1px) var(--border-style, solid) transparent;
-           border-radius: var(--radius-md, 6px); background: var(--accent); color: var(--text-on-accent);
-           cursor: pointer; }
+           border-radius: var(--radius-md, 6px); background: var(--accent);
+           color: var(--text-on-accent); cursor: pointer; }
   button:hover:not(:disabled) { background: var(--accent-hover); }
   button:focus-visible { outline: var(--focus-width, 2px) solid var(--accent); outline-offset: 2px; }
   button:disabled { opacity: .5; cursor: default; }
-  .scope { color: var(--text-muted); font-size: var(--text-sm, .875rem); }
-  code, .r { font-family: var(--font-mono); }
-  code { background: var(--surface); border: 1px solid var(--border-subtle);
-         border-radius: var(--radius-sm, 4px); padding: 0 var(--space-1, .25rem); }
-  .r { margin-top: var(--space-4, 1rem); padding: var(--space-3, .75rem) var(--space-4, 1rem);
-       border-radius: var(--radius-md, 6px); word-break: break-all; font-size: var(--text-sm, .875rem);
-       border: 1px solid var(--border); background: var(--surface); color: var(--text); }
-  .ok { border-color: var(--success); background: var(--success-subtle, var(--surface)); }
-  .no { border-color: var(--danger); background: var(--danger-subtle, var(--surface)); }
+  .scope { color: var(--text-muted); font-size: var(--text-sm, .875rem); margin: 0; }
+  code { font-family: var(--font-mono); background: var(--surface-raised, var(--bg));
+         border: 1px solid var(--border-subtle); border-radius: var(--radius-sm, 4px);
+         padding: 0 var(--space-1, .25rem); }
+  .r { padding: var(--space-3, .75rem) var(--space-4, 1rem); border-radius: var(--radius-md, 6px);
+       word-break: break-all; font-family: var(--font-mono); font-size: var(--text-sm, .875rem);
+       border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  .ok { border-color: var(--success); } .no { border-color: var(--danger); }
+
+  /* ── LA SIEMBRA ───────────────────────────────────────────────────────────
+     Una milpa se siembra: los granos caen en el orden en que se plantan —la
+     columna izquierda, la diagonal, la derecha— y se asientan. No es un
+     fade-in genérico; es lo que hace la marca. */
+  @keyframes sembrar {
+    from { opacity: 0; transform: translateY(-.6rem) scale(.85); }
+    to   { opacity: 1; transform: none; }
+  }
+  .grano rect { opacity: 0; transform-box: fill-box; transform-origin: center;
+                animation: sembrar var(--dur-slow, 420ms) var(--ease-standard, cubic-bezier(.4,0,.2,1)) forwards;
+                animation-delay: calc(var(--i) * var(--stagger-tight, 40ms)); }
+  @media (prefers-reduced-motion: reduce) {
+    .grano rect { animation: none; opacity: 1; transform: none; }
+  }
 </style>
-<p class="brand">Milpa</p>
-<h1>Register a passkey</h1>
-<p>Enroll this device's authenticator so it can approve operations. You will be asked to touch it.</p>
-<p><button id="go">Register with passkey</button></p>
-<div id="out"></div>
+<div class="gate">
+  <aside class="gate__brand">
+    <div class="gate__mark"><svg class="grano" viewBox="0 0 60 60" role="img" aria-label="Milpa"><rect x="0.0" y="0.0" width="10" height="10" rx="2.5" style="--i:0"/><rect x="0.0" y="12.5" width="10" height="10" rx="2.5" style="--i:1"/><rect x="0.0" y="25.0" width="10" height="10" rx="2.5" style="--i:2"/><rect x="0.0" y="37.5" width="10" height="10" rx="2.5" style="--i:3"/><rect x="0.0" y="50.0" width="10" height="10" rx="2.5" style="--i:4"/><rect x="12.5" y="12.5" width="10" height="10" rx="2.5" style="--i:5"/><rect x="25.0" y="25.0" width="10" height="10" rx="2.5" style="--i:6"/><rect x="37.5" y="12.5" width="10" height="10" rx="2.5" style="--i:7"/><rect x="50.0" y="0.0" width="10" height="10" rx="2.5" style="--i:8"/><rect x="50.0" y="12.5" width="10" height="10" rx="2.5" style="--i:9"/><rect x="50.0" y="25.0" width="10" height="10" rx="2.5" style="--i:10"/><rect x="50.0" y="37.5" width="10" height="10" rx="2.5" style="--i:11"/><rect x="50.0" y="50.0" width="10" height="10" rx="2.5" style="--i:12"/></svg></div>
+    <div class="gate__lede">
+      <p class="kicker">House identity</p>
+      <h1>Register a passkey</h1>
+      <p>Enroll this device's authenticator so it can approve operations. You will be asked to touch it.</p>
+    </div>
+  </aside>
+  <main class="gate__act">
+    <div class="gate__body">
+      <button id="go">Register with passkey</button>
+      <div id="out"></div>
+    </div>
+    <p class="gate__foot"><span>relying party: <code>{$rp}</code></span></p>
+  </main>
+</div>
 <script>
 const b64uToBuf = s => Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0));
 const bufToB64u = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -362,40 +424,93 @@ HTML;
 <title>Sign in · Milpa</title>
 <link rel="stylesheet" href="/webauthn/milpa-tokens.css">
 <style>
-  /* La ceremonia se ve de la casa: todo sale de los tokens, ni un color propio
-     (greenhouse decisions/0243). Un valor escrito a mano aquí es una cuarta copia. */
-  html { background: var(--bg); color-scheme: dark light; }
-  body { font-family: var(--font-body); font-size: var(--text-base, 1rem); line-height: var(--leading-normal, 1.5);
-         color: var(--text); background: var(--bg); max-width: 34rem; margin: 0 auto;
-         padding: var(--space-16, 4rem) var(--space-4, 1rem); }
-  .brand { font-family: var(--font-heading); font-weight: var(--weight-semibold, 600);
-           letter-spacing: var(--tracking-tight); color: var(--text-secondary);
-           margin: 0 0 var(--space-6, 1.5rem); }
-  h1 { font-family: var(--font-heading); font-size: var(--text-2xl, 1.5rem); line-height: var(--leading-tight);
-       letter-spacing: var(--tracking-tight); font-weight: var(--weight-bold, 700);
-       margin: var(--space-3, .75rem) 0 var(--space-2, .5rem); }
-  p { color: var(--text-secondary); }
+  /* LA PANTALLA DE ANTES DEL PANEL (greenhouse decisions/0243).
+     Todo sale de los tokens: un valor escrito a mano aquí es una cuarta copia
+     del sistema de diseño, que es exactamente como empezó el drift. */
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; font-family: var(--font-body); font-size: var(--text-base, 1rem);
+         line-height: var(--leading-normal, 1.5); color: var(--text); background: var(--bg); }
+
+  .gate { min-height: 100%; display: grid; grid-template-columns: 1fr; }
+  @media (min-width: 56rem) { .gate { grid-template-columns: 1fr minmax(24rem, 27rem); } }
+
+  /* ── la mitad de la marca ─────────────────────────────────────────────── */
+  /* La marca y el texto son UN grupo, anclado abajo — no dos cosas pegadas a esquinas
+     opuestas. El vacío va arriba, que es donde no estorba. */
+  .gate__brand { background: var(--bg); padding: var(--space-8, 2rem);
+                 display: flex; flex-direction: column; justify-content: flex-end;
+                 gap: var(--space-8, 2rem); min-width: 0; }
+  .gate__mark { display: flex; align-items: flex-end; }
+  /* El símbolo es MARCA, no UI: mono-oro constante en ambos temas, nunca var(--accent)
+     (logo/README.txt). Por eso el fill va literal y no por token. */
+  .grano { width: clamp(5rem, 13vw, 9rem); height: auto; display: block; overflow: visible; }
+  .grano rect { fill: #E8B14C; }
+  .gate__lede { max-width: 34ch; }
+  .kicker { font-family: var(--font-mono); font-size: var(--text-xs, .75rem);
+            letter-spacing: var(--tracking-wide, .08em); text-transform: uppercase;
+            color: var(--olivo-300, var(--text-muted)); margin: 0 0 var(--space-3, .75rem); }
+  h1 { font-family: var(--font-heading); font-size: var(--text-4xl, 2.25rem);
+       line-height: var(--leading-tight, 1.1); letter-spacing: var(--tracking-tight, -.02em);
+       font-weight: var(--weight-bold, 700); color: var(--text); margin: 0 0 var(--space-3, .75rem);
+       text-wrap: balance; }
+  .gate__lede p { color: var(--text-secondary); margin: 0; text-wrap: pretty; }
+
+  /* ── la mitad del acto ────────────────────────────────────────────────── */
+  /* El acto se centra: pegado arriba dejaba la columna entera vacía debajo del botón. */
+  .gate__act { background: var(--surface); border-left: 1px solid var(--border-subtle);
+               padding: var(--space-8, 2rem); display: grid;
+               grid-template-rows: 1fr auto; gap: var(--space-6, 1.5rem); min-width: 0; }
+  .gate__body { align-self: center; }
+  @media (max-width: 55.99rem) { .gate__act { border-left: 0; border-top: 1px solid var(--border-subtle); } }
+  .gate__body { display: flex; flex-direction: column; gap: var(--space-4, 1rem); }
+  .gate__foot { align-self: end; }
+  .gate__foot { font-family: var(--font-mono); font-size: var(--text-2xs, .6875rem);
+                color: var(--text-muted); margin: 0; display: flex; flex-wrap: wrap;
+                gap: var(--space-1, .25rem) var(--space-3, .75rem); }
+
   button { font: inherit; font-family: var(--font-heading); font-weight: var(--weight-medium, 500);
-           padding: var(--space-3, .75rem) var(--space-5, 1.25rem);
+           width: 100%; padding: var(--space-3, .75rem) var(--space-5, 1.25rem);
            border: var(--border-width, 1px) var(--border-style, solid) transparent;
-           border-radius: var(--radius-md, 6px); background: var(--accent); color: var(--text-on-accent);
-           cursor: pointer; }
+           border-radius: var(--radius-md, 6px); background: var(--accent);
+           color: var(--text-on-accent); cursor: pointer; }
   button:hover:not(:disabled) { background: var(--accent-hover); }
   button:focus-visible { outline: var(--focus-width, 2px) solid var(--accent); outline-offset: 2px; }
   button:disabled { opacity: .5; cursor: default; }
-  .scope { color: var(--text-muted); font-size: var(--text-sm, .875rem); }
-  code, .r { font-family: var(--font-mono); }
-  code { background: var(--surface); border: 1px solid var(--border-subtle);
-         border-radius: var(--radius-sm, 4px); padding: 0 var(--space-1, .25rem); }
-  .r { margin-top: var(--space-4, 1rem); padding: var(--space-3, .75rem) var(--space-4, 1rem);
-       border-radius: var(--radius-md, 6px); word-break: break-all; font-size: var(--text-sm, .875rem);
-       border: 1px solid var(--border); background: var(--surface); color: var(--text); }
-  .ok { border-color: var(--success); background: var(--success-subtle, var(--surface)); }
-  .no { border-color: var(--danger); background: var(--danger-subtle, var(--surface)); }
+  .scope { color: var(--text-muted); font-size: var(--text-sm, .875rem); margin: 0; }
+  code { font-family: var(--font-mono); background: var(--surface-raised, var(--bg));
+         border: 1px solid var(--border-subtle); border-radius: var(--radius-sm, 4px);
+         padding: 0 var(--space-1, .25rem); }
+  .r { padding: var(--space-3, .75rem) var(--space-4, 1rem); border-radius: var(--radius-md, 6px);
+       word-break: break-all; font-family: var(--font-mono); font-size: var(--text-sm, .875rem);
+       border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  .ok { border-color: var(--success); } .no { border-color: var(--danger); }
+
+  /* ── LA SIEMBRA ───────────────────────────────────────────────────────────
+     Una milpa se siembra: los granos caen en el orden en que se plantan —la
+     columna izquierda, la diagonal, la derecha— y se asientan. No es un
+     fade-in genérico; es lo que hace la marca. */
+  @keyframes sembrar {
+    from { opacity: 0; transform: translateY(-.6rem) scale(.85); }
+    to   { opacity: 1; transform: none; }
+  }
+  .grano rect { opacity: 0; transform-box: fill-box; transform-origin: center;
+                animation: sembrar var(--dur-slow, 420ms) var(--ease-standard, cubic-bezier(.4,0,.2,1)) forwards;
+                animation-delay: calc(var(--i) * var(--stagger-tight, 40ms)); }
+  @media (prefers-reduced-motion: reduce) {
+    .grano rect { animation: none; opacity: 1; transform: none; }
+  }
 </style>
-<p class="brand">Milpa</p>
-<h1>Sign in to open the panel</h1>
-<p>The gate is configured to accept a passkey. One scope covers the whole panel.</p>
+<div class="gate">
+  <aside class="gate__brand">
+    <div class="gate__mark"><svg class="grano" viewBox="0 0 60 60" role="img" aria-label="Milpa"><rect x="0.0" y="0.0" width="10" height="10" rx="2.5" style="--i:0"/><rect x="0.0" y="12.5" width="10" height="10" rx="2.5" style="--i:1"/><rect x="0.0" y="25.0" width="10" height="10" rx="2.5" style="--i:2"/><rect x="0.0" y="37.5" width="10" height="10" rx="2.5" style="--i:3"/><rect x="0.0" y="50.0" width="10" height="10" rx="2.5" style="--i:4"/><rect x="12.5" y="12.5" width="10" height="10" rx="2.5" style="--i:5"/><rect x="25.0" y="25.0" width="10" height="10" rx="2.5" style="--i:6"/><rect x="37.5" y="12.5" width="10" height="10" rx="2.5" style="--i:7"/><rect x="50.0" y="0.0" width="10" height="10" rx="2.5" style="--i:8"/><rect x="50.0" y="12.5" width="10" height="10" rx="2.5" style="--i:9"/><rect x="50.0" y="25.0" width="10" height="10" rx="2.5" style="--i:10"/><rect x="50.0" y="37.5" width="10" height="10" rx="2.5" style="--i:11"/><rect x="50.0" y="50.0" width="10" height="10" rx="2.5" style="--i:12"/></svg></div>
+    <div class="gate__lede">
+      <p class="kicker">House identity</p>
+      <h1>Sign in</h1>
+      <p>The gate is configured to accept a passkey. One scope covers the whole panel.</p>
+    </div>
+  </aside>
+  <main class="gate__act">
 HTML;
 
         $script = <<<'HTML'
@@ -462,9 +577,13 @@ document.getElementById('go').addEventListener('click', signin);
 HTML;
 
         return $head
-            . '<p><button id="go">Continue with a passkey</button></p>' . "\n"
-            . '<p class="scope">Scope requested: <code>' . $scope . '</code></p>' . "\n"
+            . '<div class="gate__body">' . "\n"
+            . '<button id="go">Continue with a passkey</button>' . "\n"
             . '<div id="out"></div>' . "\n"
+            . '</div>' . "\n"
+            . '<p class="gate__foot"><span>scope: <code>' . $scope . '</code></span>'
+            . '<span>relying party: <code>' . htmlspecialchars($this->rpId, \ENT_QUOTES | \ENT_SUBSTITUTE, 'UTF-8') . '</code></span></p>' . "\n"
+            . '</main></div>' . "\n"
             . '<script>const NEXT = ' . $nextLiteral . ';</script>' . "\n"
             . $script;
     }

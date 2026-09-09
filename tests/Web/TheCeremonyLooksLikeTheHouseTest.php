@@ -76,7 +76,13 @@ final class TheCeremonyLooksLikeTheHouseTest extends TestCase
     {
         $source = (string) file_get_contents(\dirname(__DIR__, 2) . '/src/Web/Controllers/PasskeyController.php');
 
-        self::assertSame(0, preg_match_all('/#[0-9a-fA-F]{3,6}\b/', $source), 'a hex literal is a token that was not asked for');
+        preg_match_all('/#[0-9a-fA-F]{3,6}\b/', $source, $hexes);
+        // ONE hex is allowed, and only one: the mark's gold. The logo kit says it in as many words —
+        // «grano = oro-300 (#E8B14C) CONSTANTE en ambos temas; el logo es marca, no UI, y no se
+        // adapta al tema (WCAG exime logotipos). No usar var(--accent) para el grano». So the rule is
+        // not «no hex»: it is «no hex the design system would have answered», and the mark is the one
+        // thing it deliberately does not.
+        self::assertSame(['#E8B14C'], array_values(array_unique($hexes[0])), 'the only literal colour is the mark\'s gold');
         self::assertStringNotContainsString('system-ui', $source, 'the house has its own faces');
     }
 
