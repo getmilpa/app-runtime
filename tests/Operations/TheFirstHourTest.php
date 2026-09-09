@@ -111,7 +111,11 @@ final class TheFirstHourTest extends TestCase
         // answer does not even mention them.
         $bare = array_column($operations->houseStart($this->vendorWith([]))['next'], 'command');
         self::assertSame('coa capabilities:refresh', $bare[0], 'a house that never looked cannot propose what it has not seen');
-        self::assertSame('coa capabilities:enable milpa/devtools --sign', $bare[1], 'then the generators');
+        // THE PANEL, IN THE FIRST MINUTE. It is station 2 of the ideal path, and this branch always
+        // meant to propose it — it was unreachable in a newborn house only because `milpa/admin` was
+        // missing from the offline floor (greenhouse decisions/0247).
+        self::assertSame('coa capabilities:enable milpa/admin --sign', $bare[1], 'the panel is where a human meets the house');
+        self::assertSame('coa capabilities:enable milpa/devtools --sign', $bare[2], 'then the generators');
         self::assertContains('coa capabilities:enable milpa/auth --sign', $bare);
         // EVERY TAUGHT COMMAND RUNS. A privileged one printed without `--sign` is refused the moment
         // somebody types it, which is worse than not offering it (greenhouse decisions/0241).

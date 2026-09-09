@@ -191,6 +191,13 @@ final class Capabilities
      * por el prefijo `milpa/`, lo que dejaba fuera a cualquier tercero, que es justo a quien un
      * sistema acoplable tiene que dejar entrar.
      *
+     * ── LO QUE NO ENTRA, Y POR QUÉ ES PARTE DE LA REGLA ────────────────────────────────────────
+     *
+     * Un paquete que declara `abandoned` en su `composer.json` se queda fuera aunque se declare
+     * capacidad. `milpa/desktop-app` es el caso: dice `abandoned: milpa/agent-workspace`, y ponerlo
+     * aquí sería mandar a alguien a un callejón con la autoridad de una invitación de la casa.
+     * Contando paquetes que se declaran capacidad, entra; leyendo lo que dicen de sí mismos, no.
+     *
      * Esta lista sobrevive como el piso OFFLINE —un agente que no puede alcanzar la red igual tiene
      * que poder decir qué existe— y ese papel sí es legítimo. Lo que ya no debe hacer es ser la única
      * respuesta: cuando exista el índice derivado, ésta pasa a ser su caché con fecha declarada.
@@ -200,12 +207,19 @@ final class Capabilities
     public static function knownOptIns(): array
     {
         return [
+            // EL PANEL VA PRIMERO porque es la estación 2 del camino de un humano: instala el
+            // framework, le pone el panel, y desde el navegador ya tiene interfaz. Faltaba, y la
+            // ausencia no rompía nada — quien leía esta lista no tenía forma de saber que la casa
+            // tenía un panel (greenhouse decisions/0247).
+            'milpa/admin' => 'The admin panel: the house gets a web interface a human can use',
             'milpa/agent' => 'Sessions that outlive the process: plan, todos and permissions',
+            'milpa/agent-workspace' => 'The room where a human meets the agent, inside the panel',
             'milpa/ai-gateway' => 'Let the agent RUN: a model on the other side',
             'milpa/auth' => 'Identity: turns a Bearer into an actor with scopes',
             'milpa/data' => 'Persistence with four backends',
             'milpa/devtools' => 'Scaffolding and diagnosis: make, validate, doctor',
             'milpa/mcp-server' => 'The operations, exposed to an MCP client',
+            'milpa/web-search' => 'Search the web through a LAN SearXNG, governed as a tool',
         ];
     }
 

@@ -962,12 +962,14 @@ class AgentOperations implements CommandProvider
         // the capability a person is most likely to want. Growing it comes first, and it is exactly
         // the step nobody was told to run (greenhouse decisions/0241).
         if ($state['complete'] === false && \in_array('capabilities:refresh', $offered, true)) {
-            $next[] = ['step' => 'see what exists', 'command' => (string) ($state['grow'] ?? 'coa capabilities:refresh'), 'why' => 'this catalogue is the offline floor — a handful of packages this runtime knows by name. Deriving the registry index is what puts the rest, the admin panel among them, on the list below'];
+            $next[] = ['step' => 'see what exists', 'command' => (string) ($state['grow'] ?? 'coa capabilities:refresh'), 'why' => 'this catalogue is the offline floor — the packages this runtime knows by name, without reaching the network. Deriving the registry index is what puts everything else the family publishes on the list below'];
         }
-        // THE PANEL COMES FIRST once it can be seen, because it is where a human meets this house (greenhouse
-        // decisions/0241, station 2 of the ideal path). It used to be absent from the next steps
-        // entirely: the capability a person is most likely to want was listed among the others and
-        // proposed by nobody.
+        // THE PANEL COMES FIRST, because it is where a human meets this house (greenhouse
+        // decisions/0241, station 2 of the ideal path). This step used to be unreachable in a newborn
+        // house for a reason that had nothing to do with it: `milpa/admin` was not on the offline
+        // floor, so the condition below was false until somebody ran a refresh nothing had told them
+        // they needed. The floor knows the panel now (decisions/0247), so the first minute proposes
+        // it — which is what this branch always meant to do.
         if (\in_array('milpa/admin', $availablePackages, true) && \in_array('capabilities:enable', $offered, true)) {
             $next[] = ['step' => 'open the panel', 'command' => Capabilities::ENABLE_COMMAND . 'milpa/admin --sign', 'why' => 'the admin panel: where a human equips the house, sees its routes and plugins, and gives the agent a place to work — served in the browser, no build step'];
         }
