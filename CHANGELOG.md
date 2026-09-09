@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.144.2](https://github.com/getmilpa/app-runtime/compare/v0.144.1...v0.144.2) (2026-09-09)
+
+
+### Bug Fixes
+
+* installing a capability does not pin the house out of its next minor ([#371](https://github.com/getmilpa/app-runtime/issues/371)) ([7af030a](https://github.com/getmilpa/app-runtime/commit/7af030a8a6aae89886b1206aedf350fe8959c431))
+
 ## [0.144.1](https://github.com/getmilpa/app-runtime/compare/v0.144.0...v0.144.1) (2026-09-09)
 
 
