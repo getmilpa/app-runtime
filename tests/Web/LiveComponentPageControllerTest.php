@@ -130,6 +130,59 @@ final class LiveComponentPageControllerTest extends TestCase
         self::assertStringContainsString('"data-table.selected":"selected"', $english, 'undeclared stays English');
     }
 
+    /**
+     * F4 END TO END — the page changes because somebody authorized it, and only then.
+     *
+     * The two halves have to be asserted together. A page that never changes proves nothing about
+     * governance, and a page that changes proves nothing about it either unless the SAME page, from
+     * the SAME installed packages, was unchanged a moment before the grant. That gap is where the
+     * defect would live: a package that could restyle another's component by declaring it would
+     * already have done so by the time anybody was asked (greenhouse decisions/0246 §2).
+     */
+    public function testTheLiveseamHonoursAnOverrideOnlyAfterItIsGranted(): void
+    {
+        $root = sys_get_temp_dir() . '/milpa-live-override-' . bin2hex(random_bytes(6));
+        mkdir($root . '/resources', 0o775, true);
+        file_put_contents($root . '/resources/words.php', "<?php\n\nreturn ['en' => ['selected' => 'picked']];\n");
+
+        $container = $this->containerRootedAt($root);
+        (new LivePlugin($container))->boot();
+        $request = (new ServerRequest('GET', '/live/page'))->withQueryParams(['component' => 'data-table']);
+
+        $before = (string) $container->get(LiveComponentPageController::class)->show($request)->getBody();
+        self::assertStringContainsString('"data-table.selected":"selected"', $before, 'nothing is overridden before anybody said so');
+
+        \Milpa\AppRuntime\Live\PresentationOverrideStore::fromConfig([], $root)
+            ->grant('data-table', null, $root . '/resources/words.php', 'acme/theme', 'passkey:rod');
+
+        $afterContainer = $this->containerRootedAt($root);
+        (new LivePlugin($afterContainer))->boot();
+        $after = (string) $afterContainer->get(LiveComponentPageController::class)->show($request)->getBody();
+
+        self::assertStringContainsString('"data-table.selected":"picked"', $after, 'the authorized override never reached the page');
+        self::assertStringNotContainsString('"data-table.selected":"selected"', $after);
+
+        array_map('unlink', (array) glob($root . '/{,*/}*.{php,json}', \GLOB_BRACE));
+        array_map('rmdir', [$root . '/resources', $root . '/var', $root]);
+    }
+
+    private function containerRootedAt(string $root): DIContainer
+    {
+        $c = new DIContainer();
+        $c->registerService(Config::class, new Config(['live' => ['secret' => str_repeat('k', 32)]]));
+        $c->registerService(LivePageProvider::class, $this->dataTableProvider());
+
+        $kernel = (new \ReflectionClass(\Milpa\Runtime\Kernel::class))->newInstanceWithoutConstructor();
+        foreach (['root' => $root, 'commands' => []] as $name => $value) {
+            $property = new \ReflectionProperty(\Milpa\Runtime\Kernel::class, $name);
+            $property->setAccessible(true);
+            $property->setValue($kernel, $value);
+        }
+        $c->registerService(\Milpa\Runtime\Kernel::class, $kernel);
+
+        return $c;
+    }
+
     public function testAnUnknownComponentIs404(): void
     {
         $req = (new ServerRequest('GET', '/live/page'))->withQueryParams(['component' => 'nope']);
