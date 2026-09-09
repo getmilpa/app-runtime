@@ -67,6 +67,12 @@ final class PasskeyControllerTest extends TestCase
         self::assertStringContainsString("userVerification: 'required'", $body);
         // An extension that replaced the WebAuthn API is named before the ceremony waits on it (greenhouse evidence/0519).
         self::assertStringContainsString('has replaced navigator.credentials.create', $body);
+        // THE LINE THAT HAS TO SURVIVE THIS SCREEN (greenhouse decisions/0260). Rod, cutting the lede
+        // down: «eso último es la única doctrina que necesita sobrevivir en esta pantalla». Somebody
+        // arriving here is about to touch a key; what changes their expectations is that touching it
+        // identifies them and grants nothing.
+        self::assertStringContainsString('Registering identifies you. It grants no permissions.', $body);
+        self::assertStringNotContainsString('Milpa is a PHP framework where an effect', $body, 'la pantalla no da clase de framework');
     }
 
     public function testOptionsIssuesAChallengeAndNamesEveryRegisteredCredential(): void
@@ -120,7 +126,12 @@ final class PasskeyControllerTest extends TestCase
         self::assertStringContainsString('<h1>Sign in</h1>', $body);
         // El copy dejó de prometer «the whole panel»: estas pantallas tienen que servir en una casa
         // sin panel instalado, que es el falsificador F3 de decisions/0243.
-        self::assertStringContainsString('This gate takes a passkey and nothing', $body);
+        // THE LINE THAT HAS TO SURVIVE THIS SCREEN (greenhouse decisions/0260), not any sentence of the
+        // lede: the gate mints a session from a checked SIGNATURE, and that is what a reader must take
+        // away. The lede used to open by explaining what kind of framework this is, to somebody who came
+        // here to act.
+        self::assertStringContainsString('The house checks the signature before it mints a session.', $body);
+        self::assertStringNotContainsString('Milpa is a PHP framework where an effect', $body, 'la pantalla no da clase de framework');
         // Sobre lo que el humano LEE, no sobre el archivo entero: la primera versión de esta
         // aserción prohibía la palabra hasta en el comentario que explica por qué no se usa, y
         // grepear prosa no puede fallar por la razón correcta.

@@ -364,6 +364,11 @@ final class PasskeyController
        font-weight: var(--weight-bold, 700); color: var(--text); margin: 0 0 var(--space-3, .75rem);
        text-wrap: balance; }
   .gate__lede p { color: var(--text-secondary); margin: 0; text-wrap: pretty; }
+  .gate__lede p + p { margin-top: var(--space-3, .75rem); }
+  /* THE ONE LINE THAT HAS TO SURVIVE THIS SCREEN (greenhouse decisions/0260). The lede used to open by
+     explaining what kind of framework this is, to somebody who came here to act — and buried the only
+     sentence that changes what they should expect. It carries the page's weight, so it looks like it. */
+  .gate__doctrine { color: var(--text); font-weight: var(--weight-medium, 500); }
 
   /* ── the act's half ───────────────────────────────────────────────────── */
   /* The act is centred: pinned to the top it left the whole column empty below the button. */
@@ -412,11 +417,9 @@ final class PasskeyController
     <div class="gate__lede">
       <p class="kicker">House identity · step 1 of 2</p>
       <h1>Register a passkey</h1>
-      <p>Milpa is a PHP framework where an effect records who authorized it and who executed it — they
-      are not always the same. This is where the house learns your key. Use whatever you already have:
-      the fingerprint or face on this device, your password manager, or a security key. You will be
-      asked to confirm it. Registering is not permission — what this key may do is granted in step 2,
-      by a governed operation, not by a button.</p>
+      <p>Give this house a verifiable identity for you.</p>
+      <p>Use your device, password manager, or security key.</p>
+      <p class="gate__doctrine">Registering identifies you. It grants no permissions.</p>
     </div>
   </aside>
   <main class="gate__act">
@@ -596,6 +599,11 @@ HTML;
        font-weight: var(--weight-bold, 700); color: var(--text); margin: 0 0 var(--space-3, .75rem);
        text-wrap: balance; }
   .gate__lede p { color: var(--text-secondary); margin: 0; text-wrap: pretty; }
+  .gate__lede p + p { margin-top: var(--space-3, .75rem); }
+  /* THE ONE LINE THAT HAS TO SURVIVE THIS SCREEN (greenhouse decisions/0260). The lede used to open by
+     explaining what kind of framework this is, to somebody who came here to act — and buried the only
+     sentence that changes what they should expect. It carries the page's weight, so it looks like it. */
+  .gate__doctrine { color: var(--text); font-weight: var(--weight-medium, 500); }
 
   /* ── the act's half ───────────────────────────────────────────────────── */
   /* The act is centred: pinned to the top it left the whole column empty below the button. */
@@ -644,10 +652,8 @@ HTML;
     <div class="gate__lede">
       <p class="kicker">House identity · the gate</p>
       <h1>Sign in</h1>
-      <p>Milpa is a PHP framework where an effect records who authorized it and who executed it;
-      without a session the house answers <em>unknown</em>. This gate takes a passkey and nothing
-      else: confirm the key this house already recognizes, and it checks the signature before it mints
-      a session.</p>
+      <p>Confirm the key this house already recognizes.</p>
+      <p class="gate__doctrine">The house checks the signature before it mints a session.</p>
     </div>
   </aside>
   <main class="gate__act">
