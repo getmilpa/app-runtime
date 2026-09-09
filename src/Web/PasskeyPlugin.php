@@ -218,6 +218,11 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
             // these pages are how somebody gets a session, so a stylesheet they cannot fetch would
             // leave the way IN looking like nothing else in the house.
             new Route(path: '/webauthn/milpa-tokens.css', methods: HttpMethod::GET, name: 'passkey.tokens', handler: new HandlerReference(PasskeyController::class, 'tokens')),
+            new Route(path: '/webauthn/milpa-fonts.css', methods: HttpMethod::GET, name: 'passkey.fonts', handler: new HandlerReference(PasskeyController::class, 'tokens')),
+            // Las caras, en el segmento `fonts/` que la hoja nombra: aplanarlo serviría una hoja
+            // cuyos `src` son todos 404, y un @font-face roto falla EN SILENCIO — la página se ve
+            // estilizada sin estarlo, que es justo el defecto que este arco termina.
+            new Route(path: '/webauthn/fonts/{face}', methods: HttpMethod::GET, name: 'passkey.face', handler: new HandlerReference(PasskeyController::class, 'tokens')),
             new Route(path: '/webauthn/intent/options', methods: HttpMethod::POST, name: 'passkey.intent.options', handler: new HandlerReference(PasskeyIntentController::class, 'intentOptions')),
             new Route(path: '/webauthn/intent/admit', methods: HttpMethod::POST, name: 'passkey.intent.admit', handler: new HandlerReference(PasskeyIntentController::class, 'intentAdmit')),
             new Route(path: '/webauthn/intent', methods: HttpMethod::GET, name: 'passkey.intent.page', handler: new HandlerReference(PasskeyIntentController::class, 'page')),

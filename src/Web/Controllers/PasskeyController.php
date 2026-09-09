@@ -180,7 +180,14 @@ final class PasskeyController
      */
     public function tokens(ServerRequestInterface $request): ResponseInterface
     {
-        $file = DesignTokens::path(DesignTokens::TOKENS);
+        // El nombre sale de la RUTA, y `DesignTokens::path()` decide si es suyo: esta clase no
+        // valida el path, porque validar en dos lados es tener dos reglas que pueden discrepar.
+        // Un nombre que el paquete no embarca vuelve `null` y sale 404 — nunca una lectura de disco.
+        $name = basename(parse_url((string) $request->getUri()->getPath(), \PHP_URL_PATH) ?: '');
+        $file = DesignTokens::path($name === '' ? DesignTokens::TOKENS : $name);
+        if ($file === null && $name !== '' && $name !== DesignTokens::TOKENS) {
+            return new Response(404, ['Content-Type' => 'text/plain; charset=utf-8'], 'this package does not ship ' . $name);
+        }
         if ($file === null) {
             // Said, not guessed: a surface that silently serves an empty stylesheet looks styled and
             // is not, and the next person debugs CSS instead of an install.
@@ -189,7 +196,7 @@ final class PasskeyController
 
         return new Response(
             200,
-            ['Content-Type' => DesignTokens::contentType(), 'Cache-Control' => 'public, max-age=300'],
+            ['Content-Type' => DesignTokens::contentType($name), 'Cache-Control' => 'public, max-age=300'],
             (string) file_get_contents($file),
         );
     }
@@ -261,6 +268,7 @@ final class PasskeyController
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Register a passkey · Milpa</title>
+<link rel="stylesheet" href="/webauthn/milpa-fonts.css">
 <link rel="stylesheet" href="/webauthn/milpa-tokens.css">
 <style>
   /* LA PANTALLA DE ANTES DEL PANEL (greenhouse decisions/0243).
@@ -325,19 +333,56 @@ final class PasskeyController
        border: 1px solid var(--border); background: var(--bg); color: var(--text); }
   .ok { border-color: var(--success); } .no { border-color: var(--danger); }
 
-  /* ── LA SIEMBRA ───────────────────────────────────────────────────────────
-     Una milpa se siembra: los granos caen en el orden en que se plantan —la
-     columna izquierda, la diagonal, la derecha— y se asientan. No es un
-     fade-in genérico; es lo que hace la marca. */
+  /* ── LA MARCA TIENE TRES ESTADOS ──────────────────────────────────────────
+     Y los tres son la misma planta, no tres animaciones distintas pegadas:
+
+       sembrada   al llegar, los granos caen en ORDEN DE SIEMBRA —el tallo
+                  izquierdo de arriba abajo, la diagonal, el derecho— y se asientan.
+       creciendo  mientras se espera: una onda recorre ese mismo orden. Es el
+                  loader, y es la marca haciendo lo que hace, no un spinner
+                  prestado que podría ser de cualquier producto.
+       lista      la onda para y los granos se abren una vez, juntos, antes de
+                  que la página se vaya. Sin ese pulso el salto se siente a corte.
+
+     El estado lo pone el JS en el <body>, en los mismos puntos donde ya sabía:
+     al pedir la llave, al recibir el sí, al fallar. */
   @keyframes sembrar {
     from { opacity: 0; transform: translateY(-.6rem) scale(.85); }
     to   { opacity: 1; transform: none; }
   }
+  @keyframes creciendo {
+    0%, 100% { opacity: .35; transform: scale(.88); }
+    45%      { opacity: 1;   transform: scale(1.06); }
+  }
+  @keyframes listo {
+    0%   { transform: scale(1); }
+    45%  { transform: scale(1.18); }
+    100% { transform: scale(1); }
+  }
   .grano rect { opacity: 0; transform-box: fill-box; transform-origin: center;
                 animation: sembrar var(--dur-slow, 420ms) var(--ease-standard, cubic-bezier(.4,0,.2,1)) forwards;
                 animation-delay: calc(var(--i) * var(--stagger-tight, 40ms)); }
+
+  /* La onda usa el MISMO `--i` que la siembra, así que recorre el mismo camino:
+     una sola numeración gobierna las dos, y no pueden discrepar. */
+  body[data-mark="working"] .grano rect {
+    opacity: 1;
+    animation: creciendo 1.4s var(--ease-standard, cubic-bezier(.4,0,.2,1)) infinite;
+    animation-delay: calc(var(--i) * 90ms);
+  }
+  body[data-mark="done"] .grano rect {
+    opacity: 1;
+    animation: listo var(--dur-slow, 420ms) var(--ease-standard, cubic-bezier(.4,0,.2,1)) both;
+    animation-delay: calc(var(--i) * var(--stagger-tight, 40ms));
+  }
+
+  /* Quien pidió menos movimiento recibe el ESTADO, no la coreografía: la marca
+     baja de intensidad mientras se espera y vuelve al terminar. Un loader que
+     desaparece con reduced-motion deja a esa persona sin saber que algo corre. */
   @media (prefers-reduced-motion: reduce) {
     .grano rect { animation: none; opacity: 1; transform: none; }
+    body[data-mark="working"] .grano rect { animation: none; opacity: .5; }
+    body[data-mark="done"] .grano rect { animation: none; opacity: 1; }
   }
 </style>
 <div class="gate">
@@ -358,12 +403,16 @@ final class PasskeyController
   </main>
 </div>
 <script>
+// La marca dice en qué va la ceremonia: se siembra al llegar, crece mientras se espera —el
+// toque de la llave, la verificación, el panel cargando— y se abre una vez al terminar. Un
+// estado, no tres animaciones sueltas (greenhouse decisions/0243).
+const marca = e => document.body.setAttribute('data-mark', e);
 const b64uToBuf = s => Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0));
 const bufToB64u = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 
 async function register() {
   const btn = document.getElementById('go'); const out = document.getElementById('out');
-  btn.disabled = true; out.textContent = '';
+  btn.disabled = true; out.textContent = ''; marca('working');
   try {
     // Same lesson as the sign-in page (greenhouse evidence/0519): an extension that replaced
     // navigator.credentials.create can swallow the ceremony without a dialog or an error.
@@ -398,8 +447,9 @@ async function register() {
 
     out.className = 'r ' + (res.ok ? 'ok' : 'no');
     out.textContent = res.ok ? ('Registered credential: ' + res.credentialId) : ('Refused: ' + (res.error || 'unknown'));
+    marca(res.ok ? 'done' : 'idle');
   } catch (e) {
-    out.className = 'r no'; out.textContent = 'Registration failed: ' + e.message;
+    out.className = 'r no'; out.textContent = 'Registration failed: ' + e.message; marca('idle');
   } finally { btn.disabled = false; }
 }
 document.getElementById('go').addEventListener('click', register);
@@ -422,6 +472,7 @@ HTML;
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sign in · Milpa</title>
+<link rel="stylesheet" href="/webauthn/milpa-fonts.css">
 <link rel="stylesheet" href="/webauthn/milpa-tokens.css">
 <style>
   /* LA PANTALLA DE ANTES DEL PANEL (greenhouse decisions/0243).
@@ -486,19 +537,56 @@ HTML;
        border: 1px solid var(--border); background: var(--bg); color: var(--text); }
   .ok { border-color: var(--success); } .no { border-color: var(--danger); }
 
-  /* ── LA SIEMBRA ───────────────────────────────────────────────────────────
-     Una milpa se siembra: los granos caen en el orden en que se plantan —la
-     columna izquierda, la diagonal, la derecha— y se asientan. No es un
-     fade-in genérico; es lo que hace la marca. */
+  /* ── LA MARCA TIENE TRES ESTADOS ──────────────────────────────────────────
+     Y los tres son la misma planta, no tres animaciones distintas pegadas:
+
+       sembrada   al llegar, los granos caen en ORDEN DE SIEMBRA —el tallo
+                  izquierdo de arriba abajo, la diagonal, el derecho— y se asientan.
+       creciendo  mientras se espera: una onda recorre ese mismo orden. Es el
+                  loader, y es la marca haciendo lo que hace, no un spinner
+                  prestado que podría ser de cualquier producto.
+       lista      la onda para y los granos se abren una vez, juntos, antes de
+                  que la página se vaya. Sin ese pulso el salto se siente a corte.
+
+     El estado lo pone el JS en el <body>, en los mismos puntos donde ya sabía:
+     al pedir la llave, al recibir el sí, al fallar. */
   @keyframes sembrar {
     from { opacity: 0; transform: translateY(-.6rem) scale(.85); }
     to   { opacity: 1; transform: none; }
   }
+  @keyframes creciendo {
+    0%, 100% { opacity: .35; transform: scale(.88); }
+    45%      { opacity: 1;   transform: scale(1.06); }
+  }
+  @keyframes listo {
+    0%   { transform: scale(1); }
+    45%  { transform: scale(1.18); }
+    100% { transform: scale(1); }
+  }
   .grano rect { opacity: 0; transform-box: fill-box; transform-origin: center;
                 animation: sembrar var(--dur-slow, 420ms) var(--ease-standard, cubic-bezier(.4,0,.2,1)) forwards;
                 animation-delay: calc(var(--i) * var(--stagger-tight, 40ms)); }
+
+  /* La onda usa el MISMO `--i` que la siembra, así que recorre el mismo camino:
+     una sola numeración gobierna las dos, y no pueden discrepar. */
+  body[data-mark="working"] .grano rect {
+    opacity: 1;
+    animation: creciendo 1.4s var(--ease-standard, cubic-bezier(.4,0,.2,1)) infinite;
+    animation-delay: calc(var(--i) * 90ms);
+  }
+  body[data-mark="done"] .grano rect {
+    opacity: 1;
+    animation: listo var(--dur-slow, 420ms) var(--ease-standard, cubic-bezier(.4,0,.2,1)) both;
+    animation-delay: calc(var(--i) * var(--stagger-tight, 40ms));
+  }
+
+  /* Quien pidió menos movimiento recibe el ESTADO, no la coreografía: la marca
+     baja de intensidad mientras se espera y vuelve al terminar. Un loader que
+     desaparece con reduced-motion deja a esa persona sin saber que algo corre. */
   @media (prefers-reduced-motion: reduce) {
     .grano rect { animation: none; opacity: 1; transform: none; }
+    body[data-mark="working"] .grano rect { animation: none; opacity: .5; }
+    body[data-mark="done"] .grano rect { animation: none; opacity: 1; }
   }
 </style>
 <div class="gate">
@@ -515,12 +603,16 @@ HTML;
 
         $script = <<<'HTML'
 <script>
+// La marca dice en qué va la ceremonia: se siembra al llegar, crece mientras se espera —el
+// toque de la llave, la verificación, el panel cargando— y se abre una vez al terminar. Un
+// estado, no tres animaciones sueltas (greenhouse decisions/0243).
+const marca = e => document.body.setAttribute('data-mark', e);
 const b64uToBuf = s => Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0));
 const bufToB64u = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 
 async function signin() {
   const btn = document.getElementById('go'); const out = document.getElementById('out');
-  btn.disabled = true; out.className = ''; out.textContent = '';
+  btn.disabled = true; out.className = ''; out.textContent = ''; marca('working');
   try {
     // A browser extension (a password manager offering its own passkeys, usually) may have replaced
     // navigator.credentials.get; when it swallows the call, no dialog opens and no error ever comes
@@ -563,13 +655,19 @@ async function signin() {
     const body = await res.json().catch(() => ({}));
     if (res.ok && body.ok) {
       out.className = 'r ok'; out.textContent = 'Signed in as ' + body.actor + '. Opening the panel…';
-      location.replace(NEXT);
+      // La marca se abre ANTES del salto: sin ese pulso el cambio de página se siente a corte, y
+      // el humano no llega a ver que su llave sirvió. El plazo es el de la animación, no un número
+      // inventado — y si alguien pidió menos movimiento, no espera de más.
+      marca('done');
+      const espera = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 520;
+      setTimeout(() => location.replace(NEXT), espera);
+      return;
       return;
     }
     out.className = 'r no';
     out.textContent = 'Passkey rejected: the credential is not registered, not enrolled, or the assertion did not verify.';
   } catch (e) {
-    out.className = 'r no'; out.textContent = 'Sign-in failed: ' + e.message;
+    out.className = 'r no'; out.textContent = 'Sign-in failed: ' + e.message; marca('idle');
   } finally { btn.disabled = false; }
 }
 document.getElementById('go').addEventListener('click', signin);

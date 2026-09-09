@@ -120,7 +120,7 @@ final class PasskeyPluginTest extends TestCase
         $plugin = new PasskeyPlugin($container);
         $plugin->boot();
 
-        self::assertCount(10, $plugin->routes(), 'the routes mount without a host-registered store — nine for the ceremony, one for the stylesheet it wears (greenhouse decisions/0243)');
+        self::assertCount(12, $plugin->routes(), 'the routes mount without a host-registered store — nine for the ceremony, three for what it wears: tokens, faces stylesheet and the faces (greenhouse decisions/0243)');
         self::assertTrue($container->has(SessionStore::class));
         $store = $container->get(SessionStore::class);
         self::assertInstanceOf(FileSessionStore::class, $store);
@@ -195,11 +195,14 @@ final class PasskeyPluginTest extends TestCase
         $plugin->boot();
 
         $routes = $plugin->routes();
-        self::assertCount(10, $routes);
+        self::assertCount(12, $routes);
         $paths = array_map(static fn (Route $r): string => $r->path, $routes);
         // The house's vocabulary, on the same prefix and not behind the gate: these pages are how
         // somebody GETS a session (greenhouse decisions/0243).
         self::assertContains('/webauthn/milpa-tokens.css', $paths);
+        self::assertContains('/webauthn/milpa-fonts.css', $paths);
+        // El segmento `fonts/` es el que la hoja nombra: aplanarlo sirve 404 en silencio.
+        self::assertContains('/webauthn/fonts/{face}', $paths);
         // Login + sign-in page + enrollment ceremony.
         self::assertContains('/webauthn/authenticate/options', $paths);
         self::assertContains('/webauthn/authenticate', $paths);
