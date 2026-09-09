@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Tests\Web;
 use Milpa\AppRuntime\Web\Controllers\PasskeyController;
 use Milpa\AppRuntime\Web\PasskeyPlugin;
 use Milpa\Container\DIContainer;
+use Milpa\Live\Support\DesignTokens;
 use Milpa\Runtime\Config;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
@@ -77,11 +78,11 @@ final class TheCeremonyLooksLikeTheHouseTest extends TestCase
         $source = (string) file_get_contents(\dirname(__DIR__, 2) . '/src/Web/Controllers/PasskeyController.php');
 
         preg_match_all('/#[0-9a-fA-F]{3,6}\b/', $source, $hexes);
-        // ONE hex is allowed, and only one: the mark's gold. The logo kit says it in as many words —
-        // «grano = oro-300 (#E8B14C) CONSTANTE en ambos temas; el logo es marca, no UI, y no se
-        // adapta al tema (WCAG exime logotipos). No usar var(--accent) para el grano». So the rule is
-        // not «no hex»: it is «no hex the design system would have answered», and the mark is the one
-        // thing it deliberately does not.
+        // ONE hex is allowed, and only one: the mark's gold. The logo kit mandates it — the grain is
+        // oro-300 (#E8B14C) CONSTANT in both themes, because the logo is brand and not UI, so it does
+        // not adapt to the theme (WCAG exempts logotypes) and var(--accent) is forbidden for it. So
+        // the rule is not "no hex": it is "no hex the design system would have answered", and the
+        // mark is the one thing it deliberately does not answer.
         self::assertSame(['#E8B14C'], array_values(array_unique($hexes[0])), 'the only literal colour is the mark\'s gold');
         self::assertStringNotContainsString('system-ui', $source, 'the house has its own faces');
     }
@@ -92,6 +93,45 @@ final class TheCeremonyLooksLikeTheHouseTest extends TestCase
         $source = (string) file_get_contents(\dirname(__DIR__, 2) . '/src/Web/Controllers/PasskeyController.php');
 
         self::assertSame(2, substr_count($source, '/webauthn/milpa-tokens.css'), 'enroll and signin — one styled and one bare would be worse than neither');
+    }
+
+    /**
+     * Every asset route the door DECLARES actually SERVES — 200, its own content type, real bytes.
+     *
+     * The routes were asserted to exist and nothing asserted they answered, so a path pointing at a
+     * file the package does not ship passed both: the wordmark route was a 404 for as long as
+     * `milpa/live-web` was pinned below the version that carries it, and every test stayed green.
+     * Driven from the plugin's own routes rather than a list written here, so a route added later
+     * cannot quietly skip this.
+     */
+    public function testEveryAssetRouteTheDoorDeclaresActuallyServes(): void
+    {
+        $plugin = new PasskeyPlugin($this->container());
+        $plugin->boot();
+
+        $controller = (new \ReflectionClass(PasskeyController::class))->newInstanceWithoutConstructor();
+        $faces = array_filter(array_keys(DesignTokens::defaultUrls()), static fn (string $n): bool => str_ends_with($n, '.woff2'));
+        $served = 0;
+
+        foreach ($plugin->routes() as $route) {
+            if (!preg_match('#\.(css|svg)$#', $route->path) && !str_contains($route->path, '{face}')) {
+                continue;
+            }
+
+            $path = str_replace('{face}', (string) reset($faces), $route->path);
+            $response = $controller->tokens(new ServerRequest('GET', $path));
+
+            self::assertSame(200, $response->getStatusCode(), $path . ' is declared and does not serve');
+            self::assertNotSame('', (string) $response->getBody(), $path . ' serves nothing');
+            self::assertSame(
+                DesignTokens::contentType(basename($path)),
+                $response->getHeaderLine('Content-Type'),
+                $path . ' is served as somebody else\'s kind',
+            );
+            ++$served;
+        }
+
+        self::assertSame(4, $served, 'the four things the door wears: tokens, the faces stylesheet, a face, and the wordmark');
     }
 
     private function tokensResponse(): \Psr\Http\Message\ResponseInterface

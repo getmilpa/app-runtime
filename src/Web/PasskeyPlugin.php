@@ -90,7 +90,7 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
 
     public const DEFAULT_GATE_SCOPE = 'milpa.admin';
 
-    /** Lo que WebAuthn conoce como attachment. Omitirlo —el default— admite los dos. */
+    /** The attachments WebAuthn knows. Omitting it — the default — admits both. */
     private const ATTACHMENTS = ['platform', 'cross-platform'];
 
     private ?string $rpId = null;
@@ -165,21 +165,21 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
 
         $cookie = \is_string($config['cookie'] ?? null) && $config['cookie'] !== '' ? $config['cookie'] : self::DEFAULT_COOKIE;
 
-        // QUÉ AUTENTICADORES ADMITE ESTA CASA — ausente admite los que la persona tenga.
+        // WHICH AUTHENTICATORS THIS HOUSE ADMITS — absent admits whatever the person already has.
         //
-        // Estaba escrito en el código como `'cross-platform'`, que excluye el autenticador de
-        // plataforma y los gestores de contraseñas: los dos sitios donde vive un passkey en la
-        // máquina que casi cualquiera ya tiene (greenhouse decisions/0244). Se declara y no se asume.
+        // This was written into the code as `'cross-platform'`, which EXCLUDES the platform
+        // authenticator and the password managers — the two places a passkey lives on the machine
+        // almost everyone already owns (greenhouse decisions/0244). It is declared, not assumed.
         //
-        // Un valor que WebAuthn no conoce REHÚSA AQUÍ, con la lista de lo que sí admite: dejarlo
-        // pasar lo descubriría el primer humano frente a un diálogo que no abre, y ése es el peor
-        // lugar para enterarse.
+        // A value WebAuthn does not know REFUSES HERE, naming what is admitted. Letting it through
+        // means the first person to arrive discovers it facing a dialog that will not open, which is
+        // the worst possible place to find out.
         $attachment = $config['authenticator'] ?? null;
         if ($attachment !== null && !\in_array($attachment, self::ATTACHMENTS, true)) {
             throw new \InvalidArgumentException(\sprintf(
                 'passkey.authenticator must be one of %s, or absent to accept whatever the person has; got %s',
                 implode(' | ', self::ATTACHMENTS),
-                get_debug_type($attachment) === 'string' ? '«' . (string) $attachment . '»' : get_debug_type($attachment),
+                get_debug_type($attachment) === 'string' ? '"' . (string) $attachment . '"' : get_debug_type($attachment),
             ));
         }
         $gate = \is_array($config['gate'] ?? null) ? $config['gate'] : [];
@@ -240,12 +240,13 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
             // leave the way IN looking like nothing else in the house.
             new Route(path: '/webauthn/milpa-tokens.css', methods: HttpMethod::GET, name: 'passkey.tokens', handler: new HandlerReference(PasskeyController::class, 'tokens')),
             new Route(path: '/webauthn/milpa-fonts.css', methods: HttpMethod::GET, name: 'passkey.fonts', handler: new HandlerReference(PasskeyController::class, 'tokens')),
-            // Las caras, en el segmento `fonts/` que la hoja nombra: aplanarlo serviría una hoja
-            // cuyos `src` son todos 404, y un @font-face roto falla EN SILENCIO — la página se ve
-            // estilizada sin estarlo, que es justo el defecto que este arco termina.
+            // The faces, under the `fonts/` segment the stylesheet names. Flattening it would serve
+            // a stylesheet whose every `src` is a 404, and a broken @font-face fails SILENTLY — the
+            // page looks styled without being styled, which is the defect this arc closes.
             new Route(path: '/webauthn/fonts/{face}', methods: HttpMethod::GET, name: 'passkey.face', handler: new HandlerReference(PasskeyController::class, 'tokens')),
-            // El wordmark, en vector y desde live-web: el kit prohíbe armarlo con tipografía y
-            // trucos CSS, y pegarlo en el heredoc sería la cuarta copia que decisions/0243 rechazó.
+            // The wordmark, as vector art and from live-web: the kit forbids assembling it from
+            // type plus CSS tricks, and pasting it into the heredoc would be the fourth copy that
+            // decisions/0243 refused.
             new Route(path: '/webauthn/milpa-wordmark.svg', methods: HttpMethod::GET, name: 'passkey.wordmark', handler: new HandlerReference(PasskeyController::class, 'tokens')),
             new Route(path: '/webauthn/intent/options', methods: HttpMethod::POST, name: 'passkey.intent.options', handler: new HandlerReference(PasskeyIntentController::class, 'intentOptions')),
             new Route(path: '/webauthn/intent/admit', methods: HttpMethod::POST, name: 'passkey.intent.admit', handler: new HandlerReference(PasskeyIntentController::class, 'intentAdmit')),

@@ -201,7 +201,7 @@ final class PasskeyPluginTest extends TestCase
         // somebody GETS a session (greenhouse decisions/0243).
         self::assertContains('/webauthn/milpa-tokens.css', $paths);
         self::assertContains('/webauthn/milpa-fonts.css', $paths);
-        // El segmento `fonts/` es el que la hoja nombra: aplanarlo sirve 404 en silencio.
+        // The `fonts/` segment is the one the stylesheet names: flattening it serves 404s in silence.
         self::assertContains('/webauthn/fonts/{face}', $paths);
         self::assertContains('/webauthn/milpa-wordmark.svg', $paths);
         // Login + sign-in page + enrollment ceremony.

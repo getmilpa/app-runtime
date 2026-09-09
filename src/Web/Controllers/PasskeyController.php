@@ -61,19 +61,19 @@ final class PasskeyController
         private readonly string $cookieName,
         private readonly string $gateScope = 'milpa.admin',
         /**
-         * Qué autenticadores admite esta casa, o `null` para admitir los que la persona tenga.
+         * Which authenticators this house admits, or `null` to admit whatever the person has.
          *
-         * Estaba escrito en el código como `'cross-platform'`, que **excluye** el autenticador de
-         * plataforma —Touch ID, Windows Hello, la huella del teléfono— y también a los gestores de
-         * contraseñas que guardan passkeys. Es decir, los dos sitios donde vive un passkey en la
-         * máquina que ya trae cualquiera (greenhouse decisions/0244).
+         * This was written into the code as `'cross-platform'`, which **excludes** the platform
+         * authenticator — Touch ID, Windows Hello, a phone's fingerprint — and the password managers
+         * that hold passkeys too. That is, both of the places a passkey lives on the machine anyone
+         * already owns (greenhouse decisions/0244).
          *
-         * `evidence/0486` lo cableó a pedido, y se llamó «el enroll PREFIERE la YubiKey». La grieta
-         * está en el verbo: WebAuthn no sabe preferir un attachment — o lo nombras y descartas el
-         * resto, o lo omites. Se escribió el nombre queriendo decir la preferencia.
+         * `evidence/0486` wired it on request, under the name "the enroll PREFERS the YubiKey". The
+         * crack is in the verb: WebAuthn cannot prefer an attachment — either you name one and
+         * discard the rest, or you omit it. The name was written meaning the preference.
          *
-         * Ausente por default a propósito. Una casa que quiera sólo hardware lo declara y recupera
-         * exactamente el comportamiento anterior. Lo que era ley pasa a ser decisión de cada casa.
+         * Absent by default, deliberately. A house that wants hardware only declares it and gets
+         * exactly the previous behaviour back. What was law becomes each house's decision.
          */
         private readonly ?string $authenticatorAttachment = null,
     ) {
@@ -196,9 +196,10 @@ final class PasskeyController
      */
     public function tokens(ServerRequestInterface $request): ResponseInterface
     {
-        // El nombre sale de la RUTA, y `DesignTokens::path()` decide si es suyo: esta clase no
-        // valida el path, porque validar en dos lados es tener dos reglas que pueden discrepar.
-        // Un nombre que el paquete no embarca vuelve `null` y sale 404 — nunca una lectura de disco.
+        // The name comes from the ROUTE, and `DesignTokens::path()` decides whether it owns it:
+        // this class does not validate the path, because validating in two places is having two
+        // rules that can disagree. A name the package does not ship comes back `null` and leaves as
+        // a 404 — never as a read from disk.
         $name = basename(parse_url((string) $request->getUri()->getPath(), \PHP_URL_PATH) ?: '');
         $file = DesignTokens::path($name === '' ? DesignTokens::TOKENS : $name);
         if ($file === null && $name !== '' && $name !== DesignTokens::TOKENS) {
@@ -274,16 +275,17 @@ final class PasskeyController
         // navigator.credentials.create against the real authenticator (the human's device), and posts
         // the attestation back to /webauthn/register. The base64url helpers are the standard WebAuthn
         // marshalling; the server verifies and stores the credential (registered, then enrolled).
-        // El relying party se PINTA porque es el hecho que decide si esta credencial servirá: una
-        // llave enrolada contra otro rpId no abre esta casa, y descubrirlo al firmar es tarde.
+        // The relying party is SHOWN because it is the fact that decides whether this credential
+        // will work: a key enrolled against another rpId does not open this house, and finding that
+        // out at signing time is too late.
         $rp = htmlspecialchars($this->rpId, \ENT_QUOTES | \ENT_SUBSTITUTE, 'UTF-8');
-        // El scope REAL de esta casa, porque el comando del paso 2 lo lleva como argumento. Imprimir
-        // un «milpa.admin» inventado cuando la app declaró otra cosa sería un valor puesto por
-        // conveniencia, que es justo lo que la casa se niega a hacer en todas sus superficies.
+        // This house's REAL scope, because step 2's command carries it as an argument. Printing an
+        // invented "milpa.admin" when the app declared something else would be a value placed for
+        // convenience, which is precisely what the house refuses to do on every surface.
         $scope = htmlspecialchars($this->gateScope, \ENT_QUOTES | \ENT_SUBSTITUTE, 'UTF-8');
-        // Armado aquí y no en la plantilla: cuando la casa no declara nada, la propiedad no se emite
-        // en absoluto — un `authenticatorAttachment: null` NO es lo mismo que omitirlo, y el
-        // navegador trata el primero como una restricción que nada satisface.
+        // Built here rather than in the template: when the house declares nothing, the property is
+        // not emitted at all — an `authenticatorAttachment: null` is NOT the same as omitting it,
+        // and the browser reads the first as a constraint nothing can satisfy.
         $attachment = $this->authenticatorAttachment === null
             ? ''
             : \sprintf("authenticatorAttachment: '%s', ", $this->authenticatorAttachment);
@@ -297,9 +299,9 @@ final class PasskeyController
 <link rel="stylesheet" href="/webauthn/milpa-fonts.css">
 <link rel="stylesheet" href="/webauthn/milpa-tokens.css">
 <style>
-  /* LA PANTALLA DE ANTES DEL PANEL (greenhouse decisions/0243).
-     Todo sale de los tokens: un valor escrito a mano aquí es una cuarta copia
-     del sistema de diseño, que es exactamente como empezó el drift. */
+  /* THE SCREEN BEFORE THE PANEL (greenhouse decisions/0243).
+     Everything comes from the tokens: a value written by hand here is a fourth copy of the
+     design system, which is exactly how the drift started. */
   *, *::before, *::after { box-sizing: border-box; }
   html, body { height: 100%; }
   body { margin: 0; font-family: var(--font-body); font-size: var(--text-base, 1rem);
@@ -308,21 +310,21 @@ final class PasskeyController
   .gate { min-height: 100%; display: grid; grid-template-columns: 1fr; }
   @media (min-width: 56rem) { .gate { grid-template-columns: 1fr minmax(24rem, 27rem); } }
 
-  /* ── la mitad de la marca ─────────────────────────────────────────────── */
-  /* La marca y el texto son UN grupo, anclado abajo — no dos cosas pegadas a esquinas
-     opuestas. El vacío va arriba, que es donde no estorba. */
+  /* ── the brand's half ─────────────────────────────────────────────────── */
+  /* The mark and the text are ONE group, anchored to the bottom — not two things pinned to
+     opposite corners. The empty space goes above, where it is not in the way. */
   .gate__brand { background: var(--bg); padding: var(--space-8, 2rem);
                  display: grid; grid-template-rows: auto 1fr auto; align-content: stretch;
                  gap: var(--space-8, 2rem); min-width: 0; }
   .gate__brand .gate__mark { align-self: end; }
   .gate__mark { display: flex; align-items: flex-end; }
-  /* El wordmark IDENTIFICA —arriba, chico, quieto—; el símbolo REPORTA estado abajo. Se
-     mantienen aparte y no como lockup porque uno se mueve y el lockup del kit no. */
+  /* The wordmark IDENTIFIES — top, small, still; the symbol REPORTS state below. They stay
+     apart rather than as a lockup because one of them moves and the kit's lockup does not. */
   .gate__wordmark { display: inline-flex; align-self: flex-start; border-radius: var(--radius-sm, 4px); }
   .gate__wordmark img { height: var(--space-8, 2rem); width: auto; display: block; }
   .gate__wordmark:focus-visible { outline: var(--focus-width, 2px) solid var(--accent); outline-offset: 4px; }
-  /* El símbolo es MARCA, no UI: mono-oro constante en ambos temas, nunca var(--accent)
-     (logo/README.txt). Por eso el fill va literal y no por token. */
+  /* The symbol is BRAND, not UI: constant mono-gold in both themes, never var(--accent)
+     (logo/README.txt). That is why the fill is a literal and not a token. */
   .grano { width: clamp(5rem, 13vw, 9rem); height: auto; display: block; overflow: visible; }
   .grano rect { fill: #E8B14C; }
   .gate__lede { max-width: 34ch; }
@@ -335,8 +337,8 @@ final class PasskeyController
        text-wrap: balance; }
   .gate__lede p { color: var(--text-secondary); margin: 0; text-wrap: pretty; }
 
-  /* ── la mitad del acto ────────────────────────────────────────────────── */
-  /* El acto se centra: pegado arriba dejaba la columna entera vacía debajo del botón. */
+  /* ── the act's half ───────────────────────────────────────────────────── */
+  /* The act is centred: pinned to the top it left the whole column empty below the button. */
   .gate__act { background: var(--surface); border-left: 1px solid var(--border-subtle);
                padding: var(--space-8, 2rem); display: grid;
                grid-template-rows: 1fr auto; gap: var(--space-6, 1.5rem); min-width: 0; }
@@ -349,7 +351,7 @@ final class PasskeyController
                 gap: var(--space-2, .5rem); }
   .gate__foot p { margin: 0; display: flex; flex-wrap: wrap;
                   gap: var(--space-1, .25rem) var(--space-3, .75rem); color: inherit; }
-  /* La frase que enseña el término va en la cara del texto, no en la de datos: es prosa. */
+  /* The sentence that teaches the term takes the text face, not the data face: it is prose. */
   .gate__foot .gate__teach { font-family: var(--font-body); font-size: var(--text-xs, .75rem);
                              max-width: 44ch; display: block; }
   .gate__foot a { color: var(--accent-text, var(--accent)); text-decoration: none; }
@@ -374,19 +376,19 @@ final class PasskeyController
        border: 1px solid var(--border); background: var(--bg); color: var(--text); }
   .ok { border-color: var(--success); } .no { border-color: var(--danger); }
 
-  /* ── LA MARCA TIENE TRES ESTADOS ──────────────────────────────────────────
-     Y los tres son la misma planta, no tres animaciones distintas pegadas:
+  /* ── THE MARK HAS THREE STATES ─────────────────────────────────────────────
+     And all three are the same plant, not three separate animations pasted together:
 
-       sembrada   al llegar, los granos caen en ORDEN DE SIEMBRA —el tallo
-                  izquierdo de arriba abajo, la diagonal, el derecho— y se asientan.
-       creciendo  mientras se espera: una onda recorre ese mismo orden. Es el
-                  loader, y es la marca haciendo lo que hace, no un spinner
-                  prestado que podría ser de cualquier producto.
-       lista      la onda para y los granos se abren una vez, juntos, antes de
-                  que la página se vaya. Sin ese pulso el salto se siente a corte.
+       sown       on arrival the grains fall in SOWING ORDER — the left stem top to
+                  bottom, the diagonal, the right one — and settle.
+       growing    while it waits: a wave travels that same order. It is the loader,
+                  and it is the mark doing what the mark does, not a borrowed spinner
+                  that could belong to any product.
+       ready      the wave stops and the grains open once, together, before the page
+                  leaves. Without that beat the jump feels like a cut.
 
-     El estado lo pone el JS en el <body>, en los mismos puntos donde ya sabía:
-     al pedir la llave, al recibir el sí, al fallar. */
+     The JS sets the state on the <body>, at the same points it already knew: asking for
+     the key, receiving the yes, failing. */
   @keyframes sembrar {
     from { opacity: 0; transform: translateY(-.6rem) scale(.85); }
     to   { opacity: 1; transform: none; }
@@ -404,8 +406,8 @@ final class PasskeyController
                 animation: sembrar var(--dur-slow, 420ms) var(--ease-standard, cubic-bezier(.4,0,.2,1)) forwards;
                 animation-delay: calc(var(--i) * var(--stagger-tight, 40ms)); }
 
-  /* La onda usa el MISMO `--i` que la siembra, así que recorre el mismo camino:
-     una sola numeración gobierna las dos, y no pueden discrepar. */
+  /* The wave uses the SAME `--i` as the sowing, so it travels the same path: one numbering
+     governs both, and they cannot disagree. */
   body[data-mark="working"] .grano rect {
     opacity: 1;
     animation: creciendo 1.4s var(--ease-standard, cubic-bezier(.4,0,.2,1)) infinite;
@@ -417,9 +419,9 @@ final class PasskeyController
     animation-delay: calc(var(--i) * var(--stagger-tight, 40ms));
   }
 
-  /* Quien pidió menos movimiento recibe el ESTADO, no la coreografía: la marca
-     baja de intensidad mientras se espera y vuelve al terminar. Un loader que
-     desaparece con reduced-motion deja a esa persona sin saber que algo corre. */
+  /* Whoever asked for less motion gets the STATE, not the choreography: the mark dims while
+     it waits and returns when it is done. A loader that vanishes under reduced-motion leaves
+     that person with no way to know something is running. */
   @media (prefers-reduced-motion: reduce) {
     .grano rect { animation: none; opacity: 1; transform: none; }
     body[data-mark="working"] .grano rect { animation: none; opacity: .5; }
@@ -453,8 +455,8 @@ final class PasskeyController
   </main>
 </div>
 <script>
-// El nombre al que responde esta casa, puesto por el servidor: el cliente no lo puede adivinar, y
-// pedirlo por red sería una vuelta de más por un dato que ya está aquí.
+// The name this house answers to, placed by the server: the client cannot guess it, and asking
+// for it over the network would be a round trip for a fact that is already here.
 const RP_ID = "{$rp}";
 const SCOPE = "{$scope}";
 // The mark reports where the ceremony is: sown on arrival, growing while it waits — the touch,
@@ -467,7 +469,7 @@ const mark = state => document.body.setAttribute('data-mark', state);
 // WebAuthn requires the relying party id to be a registrable suffix of the page's own host, and it
 // requires a secure context. Neither is knowable to the server — it cannot see the URL the human
 // typed — but both are knowable HERE, at load, before anybody presses anything. Without this the
-// ceremony fails with the browser's own words: «This is an invalid domain.» True, and useless: it
+// ceremony fails with the browser's own words: "This is an invalid domain." True, and useless: it
 // names neither what was expected nor how to get there.
 //
 // Measured: a page served on 127.0.0.1 with rpId `localhost` refuses every ceremony this way. Same
@@ -485,7 +487,7 @@ function houseIsReachable() {
   }
   if (!suffix) {
     out.className = 'r no';
-    out.textContent = 'This house answers to «' + RP_ID + '» and you opened it as «' + host + '», so no key can be registered here — a passkey is bound to the name in the address bar. Open ' + location.protocol + '//' + RP_ID + (location.port ? ':' + location.port : '') + location.pathname + ' instead, or declare passkey.rpId to match the name you use.';
+    out.textContent = 'This house answers to \u201c' + RP_ID + '\u201d and you opened it as \u201c' + host + '\u201d, so no key can be registered here — a passkey is bound to the name in the address bar. Open ' + location.protocol + '//' + RP_ID + (location.port ? ':' + location.port : '') + location.pathname + ' instead, or declare passkey.rpId to match the name you use.';
     btn.disabled = true;
     return false;
   }
@@ -539,9 +541,10 @@ async function register() {
       })
     })).json();
 
-    // EL ÉXITO DICE QUÉ FALTA. Registrar no es permiso: el servidor lo viene diciendo en `note`
-    // desde siempre y esta página lo tiraba, así que alguien leía «Registered credential: T05…» y
-    // concluía, razonablemente, que ya estaba dentro. No lo estaba (greenhouse decisions/0244).
+    // SUCCESS SAYS WHAT IS STILL MISSING. Registering is not permission: the server has been
+    // saying so in `note` all along and this page threw it away, so somebody read "Registered
+    // credential: T05…" and concluded, reasonably, that they were in. They were not
+    // (greenhouse decisions/0244).
     out.className = 'r ' + (res.ok ? 'ok' : 'no');
     out.textContent = res.ok
       ? 'Registered. This house now holds the public key of credential ' + res.credentialId
@@ -579,9 +582,9 @@ HTML;
 <link rel="stylesheet" href="/webauthn/milpa-fonts.css">
 <link rel="stylesheet" href="/webauthn/milpa-tokens.css">
 <style>
-  /* LA PANTALLA DE ANTES DEL PANEL (greenhouse decisions/0243).
-     Todo sale de los tokens: un valor escrito a mano aquí es una cuarta copia
-     del sistema de diseño, que es exactamente como empezó el drift. */
+  /* THE SCREEN BEFORE THE PANEL (greenhouse decisions/0243).
+     Everything comes from the tokens: a value written by hand here is a fourth copy of the
+     design system, which is exactly how the drift started. */
   *, *::before, *::after { box-sizing: border-box; }
   html, body { height: 100%; }
   body { margin: 0; font-family: var(--font-body); font-size: var(--text-base, 1rem);
@@ -590,21 +593,21 @@ HTML;
   .gate { min-height: 100%; display: grid; grid-template-columns: 1fr; }
   @media (min-width: 56rem) { .gate { grid-template-columns: 1fr minmax(24rem, 27rem); } }
 
-  /* ── la mitad de la marca ─────────────────────────────────────────────── */
-  /* La marca y el texto son UN grupo, anclado abajo — no dos cosas pegadas a esquinas
-     opuestas. El vacío va arriba, que es donde no estorba. */
+  /* ── the brand's half ─────────────────────────────────────────────────── */
+  /* The mark and the text are ONE group, anchored to the bottom — not two things pinned to
+     opposite corners. The empty space goes above, where it is not in the way. */
   .gate__brand { background: var(--bg); padding: var(--space-8, 2rem);
                  display: grid; grid-template-rows: auto 1fr auto; align-content: stretch;
                  gap: var(--space-8, 2rem); min-width: 0; }
   .gate__brand .gate__mark { align-self: end; }
   .gate__mark { display: flex; align-items: flex-end; }
-  /* El wordmark IDENTIFICA —arriba, chico, quieto—; el símbolo REPORTA estado abajo. Se
-     mantienen aparte y no como lockup porque uno se mueve y el lockup del kit no. */
+  /* The wordmark IDENTIFIES — top, small, still; the symbol REPORTS state below. They stay
+     apart rather than as a lockup because one of them moves and the kit's lockup does not. */
   .gate__wordmark { display: inline-flex; align-self: flex-start; border-radius: var(--radius-sm, 4px); }
   .gate__wordmark img { height: var(--space-8, 2rem); width: auto; display: block; }
   .gate__wordmark:focus-visible { outline: var(--focus-width, 2px) solid var(--accent); outline-offset: 4px; }
-  /* El símbolo es MARCA, no UI: mono-oro constante en ambos temas, nunca var(--accent)
-     (logo/README.txt). Por eso el fill va literal y no por token. */
+  /* The symbol is BRAND, not UI: constant mono-gold in both themes, never var(--accent)
+     (logo/README.txt). That is why the fill is a literal and not a token. */
   .grano { width: clamp(5rem, 13vw, 9rem); height: auto; display: block; overflow: visible; }
   .grano rect { fill: #E8B14C; }
   .gate__lede { max-width: 34ch; }
@@ -617,8 +620,8 @@ HTML;
        text-wrap: balance; }
   .gate__lede p { color: var(--text-secondary); margin: 0; text-wrap: pretty; }
 
-  /* ── la mitad del acto ────────────────────────────────────────────────── */
-  /* El acto se centra: pegado arriba dejaba la columna entera vacía debajo del botón. */
+  /* ── the act's half ───────────────────────────────────────────────────── */
+  /* The act is centred: pinned to the top it left the whole column empty below the button. */
   .gate__act { background: var(--surface); border-left: 1px solid var(--border-subtle);
                padding: var(--space-8, 2rem); display: grid;
                grid-template-rows: 1fr auto; gap: var(--space-6, 1.5rem); min-width: 0; }
@@ -631,7 +634,7 @@ HTML;
                 gap: var(--space-2, .5rem); }
   .gate__foot p { margin: 0; display: flex; flex-wrap: wrap;
                   gap: var(--space-1, .25rem) var(--space-3, .75rem); color: inherit; }
-  /* La frase que enseña el término va en la cara del texto, no en la de datos: es prosa. */
+  /* The sentence that teaches the term takes the text face, not the data face: it is prose. */
   .gate__foot .gate__teach { font-family: var(--font-body); font-size: var(--text-xs, .75rem);
                              max-width: 44ch; display: block; }
   .gate__foot a { color: var(--accent-text, var(--accent)); text-decoration: none; }
@@ -656,19 +659,19 @@ HTML;
        border: 1px solid var(--border); background: var(--bg); color: var(--text); }
   .ok { border-color: var(--success); } .no { border-color: var(--danger); }
 
-  /* ── LA MARCA TIENE TRES ESTADOS ──────────────────────────────────────────
-     Y los tres son la misma planta, no tres animaciones distintas pegadas:
+  /* ── THE MARK HAS THREE STATES ─────────────────────────────────────────────
+     And all three are the same plant, not three separate animations pasted together:
 
-       sembrada   al llegar, los granos caen en ORDEN DE SIEMBRA —el tallo
-                  izquierdo de arriba abajo, la diagonal, el derecho— y se asientan.
-       creciendo  mientras se espera: una onda recorre ese mismo orden. Es el
-                  loader, y es la marca haciendo lo que hace, no un spinner
-                  prestado que podría ser de cualquier producto.
-       lista      la onda para y los granos se abren una vez, juntos, antes de
-                  que la página se vaya. Sin ese pulso el salto se siente a corte.
+       sown       on arrival the grains fall in SOWING ORDER — the left stem top to
+                  bottom, the diagonal, the right one — and settle.
+       growing    while it waits: a wave travels that same order. It is the loader,
+                  and it is the mark doing what the mark does, not a borrowed spinner
+                  that could belong to any product.
+       ready      the wave stops and the grains open once, together, before the page
+                  leaves. Without that beat the jump feels like a cut.
 
-     El estado lo pone el JS en el <body>, en los mismos puntos donde ya sabía:
-     al pedir la llave, al recibir el sí, al fallar. */
+     The JS sets the state on the <body>, at the same points it already knew: asking for
+     the key, receiving the yes, failing. */
   @keyframes sembrar {
     from { opacity: 0; transform: translateY(-.6rem) scale(.85); }
     to   { opacity: 1; transform: none; }
@@ -686,8 +689,8 @@ HTML;
                 animation: sembrar var(--dur-slow, 420ms) var(--ease-standard, cubic-bezier(.4,0,.2,1)) forwards;
                 animation-delay: calc(var(--i) * var(--stagger-tight, 40ms)); }
 
-  /* La onda usa el MISMO `--i` que la siembra, así que recorre el mismo camino:
-     una sola numeración gobierna las dos, y no pueden discrepar. */
+  /* The wave uses the SAME `--i` as the sowing, so it travels the same path: one numbering
+     governs both, and they cannot disagree. */
   body[data-mark="working"] .grano rect {
     opacity: 1;
     animation: creciendo 1.4s var(--ease-standard, cubic-bezier(.4,0,.2,1)) infinite;
@@ -699,9 +702,9 @@ HTML;
     animation-delay: calc(var(--i) * var(--stagger-tight, 40ms));
   }
 
-  /* Quien pidió menos movimiento recibe el ESTADO, no la coreografía: la marca
-     baja de intensidad mientras se espera y vuelve al terminar. Un loader que
-     desaparece con reduced-motion deja a esa persona sin saber que algo corre. */
+  /* Whoever asked for less motion gets the STATE, not the choreography: the mark dims while
+     it waits and returns when it is done. A loader that vanishes under reduced-motion leaves
+     that person with no way to know something is running. */
   @media (prefers-reduced-motion: reduce) {
     .grano rect { animation: none; opacity: 1; transform: none; }
     body[data-mark="working"] .grano rect { animation: none; opacity: .5; }
@@ -736,7 +739,7 @@ const mark = state => document.body.setAttribute('data-mark', state);
 // WebAuthn requires the relying party id to be a registrable suffix of the page's own host, and it
 // requires a secure context. Neither is knowable to the server — it cannot see the URL the human
 // typed — but both are knowable HERE, at load, before anybody presses anything. Without this the
-// ceremony fails with the browser's own words: «This is an invalid domain.» True, and useless: it
+// ceremony fails with the browser's own words: "This is an invalid domain." True, and useless: it
 // names neither what was expected nor how to get there.
 //
 // Measured: a page served on 127.0.0.1 with rpId `localhost` refuses every ceremony this way. Same
@@ -754,7 +757,7 @@ function houseIsReachable() {
   }
   if (!suffix) {
     out.className = 'r no';
-    out.textContent = 'This house answers to «' + RP_ID + '» and you opened it as «' + host + '», so no key can be registered here — a passkey is bound to the name in the address bar. Open ' + location.protocol + '//' + RP_ID + (location.port ? ':' + location.port : '') + location.pathname + ' instead, or declare passkey.rpId to match the name you use.';
+    out.textContent = 'This house answers to \u201c' + RP_ID + '\u201d and you opened it as \u201c' + host + '\u201d, so no key can be registered here — a passkey is bound to the name in the address bar. Open ' + location.protocol + '//' + RP_ID + (location.port ? ':' + location.port : '') + location.pathname + ' instead, or declare passkey.rpId to match the name you use.';
     btn.disabled = true;
     return false;
   }
