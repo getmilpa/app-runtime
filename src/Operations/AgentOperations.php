@@ -39,6 +39,7 @@ use Milpa\AppRuntime\Identity\IdentityConfig;
 use Milpa\AppRuntime\Policy\PolicyConfig;
 use Milpa\ToolRuntime\Identity\GnupgSignatureVerifier;
 use Milpa\AppRuntime\Config\AgentEndpoint;
+use Milpa\AppRuntime\Config\ContextWindow;
 use Milpa\Attributes\PluginMetadata;
 use Milpa\Plugin\Runtime\MetadataGraphResolver;
 use Milpa\Resolver\Report\ResolutionReport;
@@ -2043,6 +2044,7 @@ class AgentOperations implements CommandProvider
         // the budget is hardest to explain. Asking costs nothing extra here — `AgentEndpoint` memoises
         // the question, and this run already asked it when it built the orchestrator.
         $configuracion = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        /** @var ContextWindow $ventana */
         $ventana = AgentEndpoint::contextWindow($configuracion instanceof Config ? $configuracion : null);
         $resultado['contextWindow'] = $ventana->tokens;
         $resultado['contextWindowSource'] = $ventana->source->value;
