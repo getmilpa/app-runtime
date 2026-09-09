@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.145.0](https://github.com/getmilpa/app-runtime/compare/v0.144.2...v0.145.0) (2026-09-09)
+
+
+### Features
+
+* **agent:** a paused turn carries its question, not only a CLI hint ([#373](https://github.com/getmilpa/app-runtime/issues/373)) ([95faf43](https://github.com/getmilpa/app-runtime/commit/95faf43a182df5ac923e89be041755008e5d67e3))
+
 ## [0.144.2](https://github.com/getmilpa/app-runtime/compare/v0.144.1...v0.144.2) (2026-09-09)
 
 
