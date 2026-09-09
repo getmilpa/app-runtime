@@ -67,6 +67,19 @@ final class PasskeyControllerTest extends TestCase
         self::assertStringContainsString("userVerification: 'required'", $body);
         // An extension that replaced the WebAuthn API is named before the ceremony waits on it (greenhouse evidence/0519).
         self::assertStringContainsString('has replaced navigator.credentials.create', $body);
+        // THE LINE THAT HAS TO SURVIVE THIS SCREEN (greenhouse decisions/0260). Rod, cutting the lede
+        // down: «eso último es la única doctrina que necesita sobrevivir en esta pantalla». Somebody
+        // arriving here is about to touch a key; what changes their expectations is that touching it
+        // identifies them and grants nothing.
+        self::assertStringContainsString('Registering identifies you. It grants no permissions.', $body);
+        // AND THE HALF THAT FINISHES IT. Rod: «step 2 debe terminar la oración que step 1 comenzó» —
+        // the two together teach identity ≠ authority without one line of architecture.
+        self::assertStringContainsString('Step 1 · Who are you?', $body);
+        self::assertStringContainsString('Step 2 · What may you do?', $body);
+        self::assertStringContainsString('Choose what this identity may do.', $body);
+        // The house's own facts are true and secondary: behind a disclosure, not in the main hierarchy.
+        self::assertStringContainsString('<summary>Technical details</summary>', $body);
+        self::assertStringNotContainsString('Milpa is a PHP framework where an effect', $body, 'la pantalla no da clase de framework');
     }
 
     public function testOptionsIssuesAChallengeAndNamesEveryRegisteredCredential(): void
@@ -120,7 +133,12 @@ final class PasskeyControllerTest extends TestCase
         self::assertStringContainsString('<h1>Sign in</h1>', $body);
         // El copy dejó de prometer «the whole panel»: estas pantallas tienen que servir en una casa
         // sin panel instalado, que es el falsificador F3 de decisions/0243.
-        self::assertStringContainsString('This gate takes a passkey and nothing', $body);
+        // THE LINE THAT HAS TO SURVIVE THIS SCREEN (greenhouse decisions/0260), not any sentence of the
+        // lede: the gate mints a session from a checked SIGNATURE, and that is what a reader must take
+        // away. The lede used to open by explaining what kind of framework this is, to somebody who came
+        // here to act.
+        self::assertStringContainsString('The house checks the signature before it mints a session.', $body);
+        self::assertStringNotContainsString('Milpa is a PHP framework where an effect', $body, 'la pantalla no da clase de framework');
         // Sobre lo que el humano LEE, no sobre el archivo entero: la primera versión de esta
         // aserción prohibía la palabra hasta en el comentario que explica por qué no se usa, y
         // grepear prosa no puede fallar por la razón correcta.
@@ -390,7 +408,19 @@ final class PasskeyControllerTest extends TestCase
             'origin' => 'https://' . self::RP_ID,
         ]);
         $d = openssl_pkey_get_details($key);
-        $cose = self::cborCoseMap([1 => 2, 3 => -7, -1 => 1, -2 => $d['ec']['x'], -3 => $d['ec']['y']]);
+        // 🚨 A COORDINATE IS 32 BYTES, ALWAYS — and `openssl_pkey_get_details()` does not pad it.
+        //
+        // COSE EC2 over P-256 fixes both coordinates at 32 bytes, left-padded with zeros, so a real
+        // authenticator never sends fewer. OpenSSL returns the raw big-endian integer, which is one byte
+        // short whenever the top byte happens to be zero: measured over 4 000 generated keys, **0.78 %**
+        // — 2/256, exactly as the arithmetic predicts.
+        //
+        // Unpadded, this helper built a key no authenticator could produce, the controller correctly
+        // refused it with a 401, and the test failed about once in every sixty runs. The 401 was RIGHT;
+        // the fixture was wrong. Found because CI failed once and the same test passed five times
+        // locally — the temptation there is to re-run until green, which is how a suite starts lying.
+        $coord = static fn (string $raw): string => str_pad($raw, 32, "\x00", \STR_PAD_LEFT);
+        $cose = self::cborCoseMap([1 => 2, 3 => -7, -1 => 1, -2 => $coord($d['ec']['x']), -3 => $coord($d['ec']['y'])]);
         $authData = hash('sha256', self::RP_ID, true) . "\x41" . pack('N', 0)
             . str_repeat("\x00", 16) . pack('n', \strlen($credId)) . $credId . $cose;
         $att = self::cborHead(5, 3)
