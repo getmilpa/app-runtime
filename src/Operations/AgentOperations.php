@@ -955,8 +955,15 @@ class AgentOperations implements CommandProvider
         $foundation = Foundation::answer($root);
 
         $next = [];
+        // THE PANEL COMES FIRST, because it is where a human meets this house (greenhouse
+        // decisions/0241, station 2 of the ideal path). It used to be absent from the next steps
+        // entirely: the capability a person is most likely to want was listed among the others and
+        // proposed by nobody.
+        if (\in_array('milpa/admin', $availablePackages, true) && \in_array('capabilities:enable', $offered, true)) {
+            $next[] = ['step' => 'open the panel', 'command' => Capabilities::ENABLE_COMMAND . 'milpa/admin --sign', 'why' => 'the admin panel: where a human equips the house, sees its routes and plugins, and gives the agent a place to work — served in the browser, no build step'];
+        }
         if (\in_array('milpa/devtools', $availablePackages, true) && \in_array('capabilities:enable', $offered, true)) {
-            $next[] = ['step' => 'switch on the generators', 'command' => 'coa capabilities:enable milpa/devtools', 'why' => 'make, validate and doctor: scaffold plugins, entities, controllers and tools, and let the house check them'];
+            $next[] = ['step' => 'switch on the generators', 'command' => Capabilities::ENABLE_COMMAND . 'milpa/devtools --sign', 'why' => 'make, validate and doctor: scaffold plugins, entities, controllers and tools, and let the house check them'];
         }
         $recipes = array_map(static fn (string $f): string => basename($f, '.json'), glob($root . '/recipes/*.json') ?: []);
         // A RECIPE RUNS THROUGH THE GOVERNED RUNTIME — the session store (milpa/agent) that records its pauses.
@@ -966,7 +973,7 @@ class AgentOperations implements CommandProvider
         $missingForRecipes = array_values(array_intersect($governed, $availablePackages));
         if ($recipes !== [] && \in_array('recipe:apply', $offered, true) && $missingForRecipes !== [] && \in_array('capabilities:enable', $offered, true)) {
             foreach ($missingForRecipes as $package) {
-                $next[] = ['step' => 'switch on the governed runtime', 'command' => 'coa capabilities:enable ' . $package, 'why' => 'sessions that pause and are recorded: recipe:apply and sequence:run run through them'];
+                $next[] = ['step' => 'switch on the governed runtime', 'command' => Capabilities::ENABLE_COMMAND . $package . ' --sign', 'why' => 'sessions that pause and are recorded: recipe:apply and sequence:run run through them'];
             }
         } elseif ($recipes !== [] && \in_array('recipe:apply', $offered, true)) {
             $next[] = ['step' => 'become a domain', 'command' => 'coa recipe:apply --recipe=' . $recipes[0], 'why' => 'a recipe originates governed work: the foundation, the capabilities it needs and the scaffolds, each through the gate — it pauses for your consent; answer with agent:answer and call it again'];

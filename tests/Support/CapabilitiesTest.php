@@ -177,7 +177,10 @@ final class CapabilitiesTest extends TestCase
         self::assertContains('milpa/auth', $faltan);
         self::assertNotContains('milpa/agent', $faltan);
         foreach ($estado['available'] as $fila) {
-            self::assertSame('composer require ' . $fila['package'], $fila['command']);
+            // THE GOVERNED DOOR, in the catalogue (greenhouse decisions/0241). This used to assert
+            // `composer require <package>` — the house offering the way past its own gate as if it
+            // were the way in. What the operation RUNS is still composer; what it TEACHES is this.
+            self::assertSame('coa capabilities:enable ' . $fila['package'] . ' --sign', $fila['command']);
         }
     }
 
