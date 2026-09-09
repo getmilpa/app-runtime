@@ -40,6 +40,29 @@ namespace Milpa\AppRuntime\Support;
  * verifies that the installed package DELIVERED what the registry promised, this artifact is the
  * promise it compares against — the chain-of-supply risk gets a record, not a mitigation (that
  * decision has no evidence yet, and it is deferred SAID).
+ *
+ * ── AND WHAT AN ANSWER PROVES, WHICH IS NOT THE SAME AS ARRIVING ─────────────────────────────────
+ *
+ * A registry that ANSWERS is not a registry (greenhouse decisions/0239). Measured: milpahq.com serves
+ * `200` with a 22 KB HTML page on every path, `/index.json` included — and this class used to read
+ * that page, decode it to `null`, list zero names, and return an index with no error at all. The
+ * refresh then wrote it: a good dated artifact replaced by an empty one carrying a FRESH date, after
+ * which every «unknown capability» was caused by the blanking rather than by the registry.
+ *
+ * So the derivation now names three states that used to be one, and only the third is an index:
+ *
+ *   `registry_unreachable`  nothing came back.
+ *   `not_an_index`          something came back and it is not the registry's listing.
+ *   `registry_unreadable`   the listing is real and named packages, and NOT ONE could be read —
+ *                           a network that half-answers, told apart from a registry that is empty.
+ *
+ * The refusal carries a `reason` beside its sentence, because a caller that has to string-match an
+ * English phrase to decide what to do is a caller that breaks when the phrase improves. And the two
+ * causes that `undeclared` used to collapse are split: {@see $unreadable} is «I could not read it»,
+ * `undeclared` stays «I read it and it declares no contract».
+ *
+ * An EMPTY registry is not an error: zero names, zero capabilities, no reason. A house whose registry
+ * legitimately lists nothing must be able to say so, or this class would refuse the truth.
  */
 final class CapabilityIndex
 {
@@ -52,7 +75,7 @@ final class CapabilityIndex
      * @param null|callable(string): ?string $fetch the network seam — a test that needs the live
      *                                              registry is a test nobody runs offline
      *
-     * @return array{capabilities: array<string, array<string, mixed>>, undeclared: list<string>, error?: string}
+     * @return array{capabilities: array<string, array<string, mixed>>, undeclared: list<string>, unreadable: list<string>, error?: string, reason?: string}
      */
     public static function derive(?callable $fetch = null): array
     {
@@ -60,14 +83,22 @@ final class CapabilityIndex
 
         $listing = $fetch(self::LIST_URL);
         if ($listing === null) {
-            return ['capabilities' => [], 'undeclared' => [], 'error' => 'the registry was unreachable — nothing derived, nothing invented'];
+            return self::refusal('registry_unreachable', 'the registry was unreachable — nothing derived, nothing invented');
         }
 
         $json = json_decode($listing, true);
-        $names = \is_array($json) && \is_array($json['packageNames'] ?? null) ? $json['packageNames'] : [];
+        if (!\is_array($json) || !\is_array($json['packageNames'] ?? null)) {
+            // ANSWERING IS NOT BEING A REGISTRY. A host that serves its landing page on every path
+            // — milpahq.com does exactly this today — reaches here with 22 KB of HTML, and the old
+            // code read it as «the registry lists nothing». Deriving zero from that and letting the
+            // refresh stamp a fresh date on it is how a good catalogue disappears without a word.
+            return self::refusal('not_an_index', 'the registry answered with something that is not its listing — nothing derived, and what was there was left alone');
+        }
+        $names = $json['packageNames'];
 
         $capabilities = [];
         $withoutContract = [];
+        $unreadable = [];
         foreach ($names as $name) {
             // Each segment starts AND ends alphanumeric — «../evil» matched the loose class and
             // walked the p2 URL up a directory. Found by the test that existed to cover this line.
@@ -80,8 +111,17 @@ final class CapabilityIndex
             $doc = $p2 === null ? null : json_decode($p2, true);
             $versions = \is_array($doc) ? ($doc['packages'][$name] ?? null) : null;
             $newest = \is_array($versions) ? ($versions[0] ?? null) : null;
-            $cap = \is_array($newest) ? ($newest['extra']['milpa']['capability'] ?? null) : null;
 
+            if (!\is_array($newest)) {
+                // COULD NOT READ IT — the fetch failed, or what came back is not a p2 document. That
+                // is a different fact from «it declares no contract», and collapsing the two made a
+                // half-answering network look like a registry full of packages that announce nothing.
+                $unreadable[] = $name;
+
+                continue;
+            }
+
+            $cap = $newest['extra']['milpa']['capability'] ?? null;
             if (!\is_array($cap) || !\is_string($cap['id'] ?? null)) {
                 // Declares the type but not the contract: left out AND said. Silence here would read
                 // as «covered» when it is not.
@@ -101,8 +141,44 @@ final class CapabilityIndex
 
         ksort($capabilities);
         sort($withoutContract);
+        sort($unreadable);
 
-        return ['capabilities' => $capabilities, 'undeclared' => $withoutContract];
+        if ($unreadable !== [] && $capabilities === [] && $withoutContract === []) {
+            // The listing was real and named packages, and not one of them could be read. That is a
+            // network that half-answers, and writing its zero over a good index would be the same
+            // blanking by a slower road. An EMPTY registry —zero names— is not this, and is not an
+            // error: it reaches the return below with three empty lists and no reason.
+            return self::refusal(
+                'registry_unreadable',
+                'the registry listed ' . \count($unreadable) . ' package(s) and none could be read — nothing derived, and what was there was left alone',
+                $unreadable,
+            );
+        }
+
+        return ['capabilities' => $capabilities, 'undeclared' => $withoutContract, 'unreadable' => $unreadable];
+    }
+
+    /**
+     * A refusal, shaped like an index so no caller has to branch on the shape to read the reason.
+     *
+     * The `reason` travels beside the sentence because a caller that string-matches English to decide
+     * what to do breaks the day the sentence improves — and this one names three different worlds:
+     * nobody answered, somebody answered something else, or the answer named packages it could not
+     * deliver. The sentence is for a human; the reason is for the code.
+     *
+     * @param list<string> $unreadable
+     *
+     * @return array{capabilities: array<string, array<string, mixed>>, undeclared: list<string>, unreadable: list<string>, error: string, reason: string}
+     */
+    private static function refusal(string $reason, string $sentence, array $unreadable = []): array
+    {
+        return [
+            'capabilities' => [],
+            'undeclared' => [],
+            'unreadable' => $unreadable,
+            'error' => $sentence,
+            'reason' => $reason,
+        ];
     }
 
     /**
@@ -111,10 +187,17 @@ final class CapabilityIndex
      * The date arrives as an argument instead of being minted here: whoever runs the derivation
      * owns the moment, and a class that stamps its own clock cannot be replayed in a test.
      *
-     * @param array{capabilities: array<string, array<string, mixed>>, undeclared: list<string>, error?: string} $index
+     * @param array{capabilities: array<string, array<string, mixed>>, undeclared: list<string>, unreadable?: list<string>, error?: string} $index
      */
     public static function write(array $index, string $derivedAt, ?string $root = null): void
     {
+        if (($index['error'] ?? null) !== null) {
+            // A refusal is not an index, and this is the last door before a good catalogue is lost.
+            // `refresh()` already declines to call this, but the class is public: the guarantee has
+            // to live where the write happens, not only where today's caller happens to check.
+            throw new \InvalidArgumentException('a refused derivation is not an index and is never written: ' . (string) $index['error']);
+        }
+
         $root ??= Capabilities::raizDeLaApp();
         $dir = $root . '/var';
         if (!is_dir($dir) && !mkdir($dir, 0o775, true) && !is_dir($dir)) {
@@ -163,7 +246,19 @@ final class CapabilityIndex
     {
         $index = self::derive($fetch);
         if (($index['error'] ?? null) !== null) {
-            return ['ok' => false, 'error' => (string) $index['error']];
+            // The artifact is NOT touched on a refusal — that half was already right, and it is what
+            // makes the three states above worth naming. What it did not do is SAY it: a caller that
+            // reads «error» has no way to know whether yesterday's catalogue survived, and the answer
+            // decides whether a human should worry now or at leisure.
+            $kept = self::read($root);
+
+            return [
+                'ok' => false,
+                'error' => (string) $index['error'],
+                'reason' => (string) ($index['reason'] ?? 'unknown'),
+                'unreadable' => $index['unreadable'],
+                'kept' => $kept === null ? null : (string) ($kept['derived_at'] ?? ''),
+            ];
         }
 
         $derivedAt ??= date(\DATE_ATOM);
@@ -177,6 +272,8 @@ final class CapabilityIndex
             // Said, never silent: a package that declares the type but not the contract would
             // otherwise look covered without being listable.
             'undeclared' => $index['undeclared'],
+            // And the ones that could not be READ, which is a different fact with a different fix.
+            'unreadable' => $index['unreadable'],
         ];
     }
 

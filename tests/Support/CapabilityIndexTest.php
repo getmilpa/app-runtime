@@ -157,6 +157,123 @@ final class CapabilityIndexTest extends TestCase
         CapabilityIndex::write(['capabilities' => [], 'undeclared' => []], '2026-08-06T10:00:00+00:00', $file);
     }
 
+    /**
+     * F1 — A HOST THAT ANSWERS ITS LANDING PAGE IS NOT A REGISTRY (greenhouse decisions/0239).
+     *
+     * milpahq.com serves `200` with a 22 KB HTML page on every path, `/index.json` included. Read as
+     * a listing it decodes to `null`, names zero packages, and used to come back as a perfectly
+     * healthy empty index — which the refresh then stamped with a fresh date over a good one.
+     */
+    public function testAnAnswerThatIsNotAListingIsRefusedByName(): void
+    {
+        $page = "<!doctype html>\n<html lang=\"en\"><head><title>milpahq</title></head><body>hi</body></html>";
+
+        $index = CapabilityIndex::derive(static fn (string $u): ?string => $page);
+
+        self::assertSame('not_an_index', $index['reason'] ?? null);
+        self::assertStringContainsString('not its listing', (string) ($index['error'] ?? ''));
+        self::assertSame([], $index['capabilities']);
+    }
+
+    /**
+     * F1's CONTROL, and it is the one that matters: a registry that legitimately lists NOTHING is
+     * not an error. A reader that refused the truth would be worse than one that swallowed a page.
+     */
+    public function testAnEmptyRegistryIsAnAnswerAndNotARefusal(): void
+    {
+        $index = CapabilityIndex::derive(static fn (string $u): ?string => json_encode(['packageNames' => []]));
+
+        self::assertArrayNotHasKey('error', $index);
+        self::assertArrayNotHasKey('reason', $index);
+        self::assertSame([], $index['capabilities']);
+        self::assertSame([], $index['unreadable']);
+    }
+
+    /**
+     * F1 — and the good catalogue SURVIVES, which is the whole point of refusing.
+     *
+     * The refusal also says what survived: a caller reading only `error` cannot tell whether
+     * yesterday's catalogue is still there, and that decides whether a human worries now or later.
+     */
+    public function testARefusedRefreshKeepsTheIndexThatWasThereAndSaysSo(): void
+    {
+        $good = CapabilityIndex::derive($this->fetcher());
+        CapabilityIndex::write($good, '2026-09-01T00:00:00+00:00', $this->root);
+
+        $page = '<!doctype html><html><body>milpahq</body></html>';
+        $r = CapabilityIndex::refresh(static fn (string $u): ?string => $page, '2026-09-09T00:00:00+00:00', $this->root);
+
+        self::assertFalse($r['ok']);
+        self::assertSame('not_an_index', $r['reason'] ?? null);
+        self::assertSame('2026-09-01T00:00:00+00:00', $r['kept'] ?? null, 'the refusal names the date that survived');
+
+        $still = CapabilityIndex::read($this->root);
+        self::assertNotNull($still);
+        self::assertSame('2026-09-01T00:00:00+00:00', $still['derived_at'], 'the good artifact was not touched');
+        self::assertNotSame([], $still['capabilities']);
+    }
+
+    /**
+     * F2 — a network that HALF answers is told apart from a registry that is empty.
+     *
+     * The listing is real and names packages; not one p2 document comes back. Deriving zero from
+     * that and writing it is the same blanking by a slower road.
+     */
+    public function testAListingWhosePackagesCannotBeReadIsRefusedByName(): void
+    {
+        $index = CapabilityIndex::derive(static function (string $url): ?string {
+            return str_contains($url, 'list.json')
+                ? json_encode(['packageNames' => ['milpa/agent', 'milpa/data']])
+                : null;
+        });
+
+        self::assertSame('registry_unreadable', $index['reason'] ?? null);
+        self::assertSame(['milpa/agent', 'milpa/data'], $index['unreadable']);
+        self::assertStringContainsString('none could be read', (string) ($index['error'] ?? ''));
+    }
+
+    /**
+     * F2's CONTROL — «could not read it» and «declares no contract» stop being the same word.
+     *
+     * One package answers with a contract, one answers without one, one does not answer at all. The
+     * derivation keeps the first, and the other two land in DIFFERENT lists.
+     */
+    public function testUnreadableAndUndeclaredAreDifferentFacts(): void
+    {
+        $index = CapabilityIndex::derive(static function (string $url): ?string {
+            if (str_contains($url, 'list.json')) {
+                return json_encode(['packageNames' => ['milpa/good', 'milpa/plain', 'milpa/silent']]);
+            }
+            if (str_contains($url, 'milpa/good')) {
+                return json_encode(['packages' => ['milpa/good' => [['version' => 'v1.0.0', 'extra' => ['milpa' => ['capability' => ['id' => 'good']]]]]]]);
+            }
+            if (str_contains($url, 'milpa/plain')) {
+                return json_encode(['packages' => ['milpa/plain' => [['version' => 'v1.0.0']]]]);
+            }
+
+            return null;
+        });
+
+        self::assertArrayNotHasKey('error', $index, 'one readable capability is a derivation, not a refusal');
+        self::assertSame(['milpa/good'], array_keys($index['capabilities']));
+        self::assertSame(['milpa/plain'], $index['undeclared'], 'read it, and it declares no contract');
+        self::assertSame(['milpa/silent'], $index['unreadable'], 'could not read it at all');
+    }
+
+    /**
+     * F4, THE ONE THAT CAN SAY NO: the guarantee lives where the write happens.
+     *
+     * `refresh()` declines to write a refusal, but the class is public and the next caller is not
+     * bound by today's control flow. A refusal handed to `write()` must be refused there too.
+     */
+    public function testARefusalIsNeverWrittenAsAnIndex(): void
+    {
+        $refusal = CapabilityIndex::derive(static fn (string $u): ?string => null);
+
+        $this->expectException(\InvalidArgumentException::class);
+        CapabilityIndex::write($refusal, '2026-09-09T00:00:00+00:00', $this->root);
+    }
+
     /** An unreachable registry refuses the refresh and writes NOTHING — no artifact born empty. */
     public function testAFailedRefreshWritesNothing(): void
     {
