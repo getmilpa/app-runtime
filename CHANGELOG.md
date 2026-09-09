@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.137.0](https://github.com/getmilpa/app-runtime/compare/v0.136.1...v0.137.0) (2026-09-09)
+
+
+### Features
+
+* report both numbers behind the context window, not just the winner ([#351](https://github.com/getmilpa/app-runtime/issues/351)) ([da772ed](https://github.com/getmilpa/app-runtime/commit/da772edcfb0c995fe2dc1538e846ed901093b075))
+
 ## [0.136.1](https://github.com/getmilpa/app-runtime/compare/v0.136.0...v0.136.1) (2026-09-09)
 
 
