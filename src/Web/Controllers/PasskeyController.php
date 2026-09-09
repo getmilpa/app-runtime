@@ -23,6 +23,11 @@ use Milpa\Auth\WebAuthn\PasskeyAuthenticator;
 use Milpa\Auth\WebAuthn\PasskeyCredentialStore;
 use Milpa\Auth\WebAuthn\PasskeyLogin;
 use Milpa\Auth\WebAuthn\WebAuthnRegistrationVerifier;
+use Milpa\Live\Assets\ComponentAssetOrchestrator;
+use Milpa\Live\Components\BrandMarkComponent;
+use Milpa\Live\Rendering\BrandMarkHtmlRenderer;
+use Milpa\Live\ValueObjects\ComponentContext;
+use Milpa\Live\ValueObjects\RenderRequest;
 use Nyholm\Psr7\Response;
 use Milpa\Live\Support\DesignTokens;
 use Psr\Http\Message\ResponseInterface;
@@ -176,6 +181,28 @@ final class PasskeyController
             ->withHeader('Set-Cookie', SessionCookie::set($this->cookieName, $session->id, $request));
     }
 
+    /**
+     * The house's mark and the stylesheet it declares, both from `milpa/live-web`.
+     *
+     * The ceremony writes NO rules for it. That is the whole point of greenhouse `decisions/0246`:
+     * a component carries its own look, so the page embeds what the component asked for and never
+     * needs to know what the mark is made of. Before this, the mark's sixty-odd lines of CSS lived
+     * in this file — twice, once per page — which is how a design ends up with two versions of
+     * itself in one class.
+     *
+     * @return array{0: string, 1: string} The mark's markup, then the `<style>` its contract asked for.
+     */
+    private function houseMark(): array
+    {
+        $component = new BrandMarkComponent();
+        $markup = (new BrandMarkHtmlRenderer())->render($component, new RenderRequest(
+            context: new ComponentContext('gate-mark', route: '/webauthn'),
+            props: ['state' => 'sown', 'label' => 'Milpa'],
+        ))->output;
+
+        return [$markup, (new ComponentAssetOrchestrator())->collect([BrandMarkComponent::contract()])->styleTag()];
+    }
+
     /** The self-contained enrollment page: registers a passkey with `navigator.credentials.create`. */
     public function enrollPage(ServerRequestInterface $request): ResponseInterface
     {
@@ -290,6 +317,8 @@ final class PasskeyController
             ? ''
             : \sprintf("authenticatorAttachment: '%s', ", $this->authenticatorAttachment);
 
+        [$mark, $markStyles] = $this->houseMark();
+
         return <<<HTML
 <!doctype html>
 <html lang="en" data-theme="dark">
@@ -298,6 +327,7 @@ final class PasskeyController
 <title>Register a passkey · Milpa</title>
 <link rel="stylesheet" href="/webauthn/milpa-fonts.css">
 <link rel="stylesheet" href="/webauthn/milpa-tokens.css">
+{$markStyles}
 <style>
   /* THE SCREEN BEFORE THE PANEL (greenhouse decisions/0243).
      Everything comes from the tokens: a value written by hand here is a fourth copy of the
@@ -325,8 +355,6 @@ final class PasskeyController
   .gate__wordmark:focus-visible { outline: var(--focus-width, 2px) solid var(--accent); outline-offset: 4px; }
   /* The symbol is BRAND, not UI: constant mono-gold in both themes, never var(--accent)
      (logo/README.txt). That is why the fill is a literal and not a token. */
-  .grano { width: clamp(5rem, 13vw, 9rem); height: auto; display: block; overflow: visible; }
-  .grano rect { fill: #E8B14C; }
   .gate__lede { max-width: 34ch; }
   .kicker { font-family: var(--font-mono); font-size: var(--text-xs, .75rem);
             letter-spacing: var(--tracking-wide, .08em); text-transform: uppercase;
@@ -376,62 +404,11 @@ final class PasskeyController
        border: 1px solid var(--border); background: var(--bg); color: var(--text); }
   .ok { border-color: var(--success); } .no { border-color: var(--danger); }
 
-  /* ── THE MARK HAS THREE STATES ─────────────────────────────────────────────
-     And all three are the same plant, not three separate animations pasted together:
-
-       sown       on arrival the grains fall in SOWING ORDER — the left stem top to
-                  bottom, the diagonal, the right one — and settle.
-       growing    while it waits: a wave travels that same order. It is the loader,
-                  and it is the mark doing what the mark does, not a borrowed spinner
-                  that could belong to any product.
-       ready      the wave stops and the grains open once, together, before the page
-                  leaves. Without that beat the jump feels like a cut.
-
-     The JS sets the state on the <body>, at the same points it already knew: asking for
-     the key, receiving the yes, failing. */
-  @keyframes sembrar {
-    from { opacity: 0; transform: translateY(-.6rem) scale(.85); }
-    to   { opacity: 1; transform: none; }
-  }
-  @keyframes creciendo {
-    0%, 100% { opacity: .35; transform: scale(.88); }
-    45%      { opacity: 1;   transform: scale(1.06); }
-  }
-  @keyframes listo {
-    0%   { transform: scale(1); }
-    45%  { transform: scale(1.18); }
-    100% { transform: scale(1); }
-  }
-  .grano rect { opacity: 0; transform-box: fill-box; transform-origin: center;
-                animation: sembrar var(--dur-slow, 420ms) var(--ease-standard, cubic-bezier(.4,0,.2,1)) forwards;
-                animation-delay: calc(var(--i) * var(--stagger-tight, 40ms)); }
-
-  /* The wave uses the SAME `--i` as the sowing, so it travels the same path: one numbering
-     governs both, and they cannot disagree. */
-  body[data-mark="working"] .grano rect {
-    opacity: 1;
-    animation: creciendo 1.4s var(--ease-standard, cubic-bezier(.4,0,.2,1)) infinite;
-    animation-delay: calc(var(--i) * 90ms);
-  }
-  body[data-mark="done"] .grano rect {
-    opacity: 1;
-    animation: listo var(--dur-slow, 420ms) var(--ease-standard, cubic-bezier(.4,0,.2,1)) both;
-    animation-delay: calc(var(--i) * var(--stagger-tight, 40ms));
-  }
-
-  /* Whoever asked for less motion gets the STATE, not the choreography: the mark dims while
-     it waits and returns when it is done. A loader that vanishes under reduced-motion leaves
-     that person with no way to know something is running. */
-  @media (prefers-reduced-motion: reduce) {
-    .grano rect { animation: none; opacity: 1; transform: none; }
-    body[data-mark="working"] .grano rect { animation: none; opacity: .5; }
-    body[data-mark="done"] .grano rect { animation: none; opacity: 1; }
-  }
 </style>
 <div class="gate">
   <aside class="gate__brand">
     <a class="gate__wordmark" href="https://getmilpa.com" target="_blank" rel="noopener noreferrer"><img src="/webauthn/milpa-wordmark.svg" alt="Milpa" width="2407" height="900"></a>
-    <div class="gate__mark"><svg class="grano" viewBox="0 0 60 60" role="img" aria-label="Milpa"><rect x="0.0" y="0.0" width="10" height="10" rx="2.5" style="--i:0"/><rect x="0.0" y="12.5" width="10" height="10" rx="2.5" style="--i:1"/><rect x="0.0" y="25.0" width="10" height="10" rx="2.5" style="--i:2"/><rect x="0.0" y="37.5" width="10" height="10" rx="2.5" style="--i:3"/><rect x="0.0" y="50.0" width="10" height="10" rx="2.5" style="--i:4"/><rect x="12.5" y="12.5" width="10" height="10" rx="2.5" style="--i:5"/><rect x="25.0" y="25.0" width="10" height="10" rx="2.5" style="--i:6"/><rect x="37.5" y="12.5" width="10" height="10" rx="2.5" style="--i:7"/><rect x="50.0" y="0.0" width="10" height="10" rx="2.5" style="--i:8"/><rect x="50.0" y="12.5" width="10" height="10" rx="2.5" style="--i:9"/><rect x="50.0" y="25.0" width="10" height="10" rx="2.5" style="--i:10"/><rect x="50.0" y="37.5" width="10" height="10" rx="2.5" style="--i:11"/><rect x="50.0" y="50.0" width="10" height="10" rx="2.5" style="--i:12"/></svg></div>
+    <div class="gate__mark">{$mark}</div>
     <div class="gate__lede">
       <p class="kicker">House identity · step 1 of 2</p>
       <h1>Register a passkey</h1>
@@ -462,7 +439,8 @@ const SCOPE = "{$scope}";
 // The mark reports where the ceremony is: sown on arrival, growing while it waits — the touch,
 // the verification, whatever comes next loading — and opening once when it lands. One state,
 // not three animations stuck together (greenhouse decisions/0243).
-const mark = state => document.body.setAttribute('data-mark', state);
+const markEl = document.querySelector('[data-milpa-component="brand-mark"]');
+const mark = state => markEl && markEl.setAttribute('data-state', state);
 
 // THE PAGE CHECKS ITSELF BEFORE IT OFFERS THE BUTTON (greenhouse decisions/0244).
 //
@@ -501,7 +479,7 @@ const bufToB64u = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/
 async function register() {
   const btn = document.getElementById('go'); const out = document.getElementById('out');
   if (!houseIsReachable()) { return; }
-  btn.disabled = true; out.textContent = ''; mark('working');
+  btn.disabled = true; out.textContent = ''; mark('growing');
   try {
     // Same lesson as the sign-in page (greenhouse evidence/0519): an extension that replaced
     // navigator.credentials.create can swallow the ceremony without a dialog or an error.
@@ -552,11 +530,11 @@ async function register() {
         + 'php bin/coa identity:enroll --fingerprint=' + res.credentialId + ' --scopes=' + SCOPE + ' --sign\n\n'
         + 'That command needs a principal this house already recognizes. Then sign in at /webauthn/signin.'
       : 'Refused: the challenge was already spent, or the attestation did not verify. Nothing was stored — press again for a fresh challenge.';
-    mark(res.ok ? 'done' : 'idle');
+    mark(res.ok ? 'ready' : 'sown');
   } catch (e) {
     out.className = 'r no';
     out.textContent = 'The key did not answer: ' + e.message + '. Nothing was stored.';
-    mark('idle');
+    mark('sown');
   } finally { btn.disabled = false; }
 }
 document.getElementById('go').addEventListener('click', register);
@@ -581,6 +559,7 @@ HTML;
 <title>Sign in · Milpa</title>
 <link rel="stylesheet" href="/webauthn/milpa-fonts.css">
 <link rel="stylesheet" href="/webauthn/milpa-tokens.css">
+{$markStyles}
 <style>
   /* THE SCREEN BEFORE THE PANEL (greenhouse decisions/0243).
      Everything comes from the tokens: a value written by hand here is a fourth copy of the
@@ -608,8 +587,6 @@ HTML;
   .gate__wordmark:focus-visible { outline: var(--focus-width, 2px) solid var(--accent); outline-offset: 4px; }
   /* The symbol is BRAND, not UI: constant mono-gold in both themes, never var(--accent)
      (logo/README.txt). That is why the fill is a literal and not a token. */
-  .grano { width: clamp(5rem, 13vw, 9rem); height: auto; display: block; overflow: visible; }
-  .grano rect { fill: #E8B14C; }
   .gate__lede { max-width: 34ch; }
   .kicker { font-family: var(--font-mono); font-size: var(--text-xs, .75rem);
             letter-spacing: var(--tracking-wide, .08em); text-transform: uppercase;
@@ -659,62 +636,11 @@ HTML;
        border: 1px solid var(--border); background: var(--bg); color: var(--text); }
   .ok { border-color: var(--success); } .no { border-color: var(--danger); }
 
-  /* ── THE MARK HAS THREE STATES ─────────────────────────────────────────────
-     And all three are the same plant, not three separate animations pasted together:
-
-       sown       on arrival the grains fall in SOWING ORDER — the left stem top to
-                  bottom, the diagonal, the right one — and settle.
-       growing    while it waits: a wave travels that same order. It is the loader,
-                  and it is the mark doing what the mark does, not a borrowed spinner
-                  that could belong to any product.
-       ready      the wave stops and the grains open once, together, before the page
-                  leaves. Without that beat the jump feels like a cut.
-
-     The JS sets the state on the <body>, at the same points it already knew: asking for
-     the key, receiving the yes, failing. */
-  @keyframes sembrar {
-    from { opacity: 0; transform: translateY(-.6rem) scale(.85); }
-    to   { opacity: 1; transform: none; }
-  }
-  @keyframes creciendo {
-    0%, 100% { opacity: .35; transform: scale(.88); }
-    45%      { opacity: 1;   transform: scale(1.06); }
-  }
-  @keyframes listo {
-    0%   { transform: scale(1); }
-    45%  { transform: scale(1.18); }
-    100% { transform: scale(1); }
-  }
-  .grano rect { opacity: 0; transform-box: fill-box; transform-origin: center;
-                animation: sembrar var(--dur-slow, 420ms) var(--ease-standard, cubic-bezier(.4,0,.2,1)) forwards;
-                animation-delay: calc(var(--i) * var(--stagger-tight, 40ms)); }
-
-  /* The wave uses the SAME `--i` as the sowing, so it travels the same path: one numbering
-     governs both, and they cannot disagree. */
-  body[data-mark="working"] .grano rect {
-    opacity: 1;
-    animation: creciendo 1.4s var(--ease-standard, cubic-bezier(.4,0,.2,1)) infinite;
-    animation-delay: calc(var(--i) * 90ms);
-  }
-  body[data-mark="done"] .grano rect {
-    opacity: 1;
-    animation: listo var(--dur-slow, 420ms) var(--ease-standard, cubic-bezier(.4,0,.2,1)) both;
-    animation-delay: calc(var(--i) * var(--stagger-tight, 40ms));
-  }
-
-  /* Whoever asked for less motion gets the STATE, not the choreography: the mark dims while
-     it waits and returns when it is done. A loader that vanishes under reduced-motion leaves
-     that person with no way to know something is running. */
-  @media (prefers-reduced-motion: reduce) {
-    .grano rect { animation: none; opacity: 1; transform: none; }
-    body[data-mark="working"] .grano rect { animation: none; opacity: .5; }
-    body[data-mark="done"] .grano rect { animation: none; opacity: 1; }
-  }
 </style>
 <div class="gate">
   <aside class="gate__brand">
     <a class="gate__wordmark" href="https://getmilpa.com" target="_blank" rel="noopener noreferrer"><img src="/webauthn/milpa-wordmark.svg" alt="Milpa" width="2407" height="900"></a>
-    <div class="gate__mark"><svg class="grano" viewBox="0 0 60 60" role="img" aria-label="Milpa"><rect x="0.0" y="0.0" width="10" height="10" rx="2.5" style="--i:0"/><rect x="0.0" y="12.5" width="10" height="10" rx="2.5" style="--i:1"/><rect x="0.0" y="25.0" width="10" height="10" rx="2.5" style="--i:2"/><rect x="0.0" y="37.5" width="10" height="10" rx="2.5" style="--i:3"/><rect x="0.0" y="50.0" width="10" height="10" rx="2.5" style="--i:4"/><rect x="12.5" y="12.5" width="10" height="10" rx="2.5" style="--i:5"/><rect x="25.0" y="25.0" width="10" height="10" rx="2.5" style="--i:6"/><rect x="37.5" y="12.5" width="10" height="10" rx="2.5" style="--i:7"/><rect x="50.0" y="0.0" width="10" height="10" rx="2.5" style="--i:8"/><rect x="50.0" y="12.5" width="10" height="10" rx="2.5" style="--i:9"/><rect x="50.0" y="25.0" width="10" height="10" rx="2.5" style="--i:10"/><rect x="50.0" y="37.5" width="10" height="10" rx="2.5" style="--i:11"/><rect x="50.0" y="50.0" width="10" height="10" rx="2.5" style="--i:12"/></svg></div>
+    <div class="gate__mark">{$mark}</div>
     <div class="gate__lede">
       <p class="kicker">House identity · the gate</p>
       <h1>Sign in</h1>
@@ -732,7 +658,8 @@ HTML;
 // The mark reports where the ceremony is: sown on arrival, growing while it waits — the touch,
 // the verification, whatever comes next loading — and opening once when it lands. One state,
 // not three animations stuck together (greenhouse decisions/0243).
-const mark = state => document.body.setAttribute('data-mark', state);
+const markEl = document.querySelector('[data-milpa-component="brand-mark"]');
+const mark = state => markEl && markEl.setAttribute('data-state', state);
 
 // THE PAGE CHECKS ITSELF BEFORE IT OFFERS THE BUTTON (greenhouse decisions/0244).
 //
@@ -771,7 +698,7 @@ const bufToB64u = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/
 async function signin() {
   const btn = document.getElementById('go'); const out = document.getElementById('out');
   if (!houseIsReachable()) { return; }
-  btn.disabled = true; out.className = ''; out.textContent = ''; mark('working');
+  btn.disabled = true; out.className = ''; out.textContent = ''; mark('growing');
   try {
     // A browser extension (a password manager offering its own passkeys, usually) may have replaced
     // navigator.credentials.get; when it swallows the call, no dialog opens and no error ever comes
@@ -819,7 +746,7 @@ async function signin() {
       // The mark opens BEFORE the jump: without that pulse the page change reads as a cut and
       // nobody sees their key worked. The wait is the animation's, not an invented number — and
       // whoever asked for less motion does not sit through it.
-      mark('done');
+      mark('ready');
       const wait = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 520;
       setTimeout(() => location.replace(NEXT), wait);
       return;
@@ -827,12 +754,18 @@ async function signin() {
     out.className = 'r no';
     out.textContent = 'Passkey rejected: the credential is not registered, not enrolled, or the assertion did not verify.';
   } catch (e) {
-    out.className = 'r no'; out.textContent = 'Sign-in failed: ' + e.message; mark('idle');
+    out.className = 'r no'; out.textContent = 'Sign-in failed: ' + e.message; mark('sown');
   } finally { btn.disabled = false; }
 }
 document.getElementById('go').addEventListener('click', signin);
 </script>
 HTML;
+
+        // The head stays a NOWDOC — nothing in it interpolates, which is why the page's only
+        // server-chosen values are the ones placed deliberately. The mark and its stylesheet are
+        // substituted here, by name, rather than by turning the whole block into a heredoc.
+        [$mark, $markStyles] = $this->houseMark();
+        $head = strtr($head, ['{$markStyles}' => $markStyles, '{$mark}' => $mark]);
 
         return $head
             . '<div class="gate__body">' . "\n"

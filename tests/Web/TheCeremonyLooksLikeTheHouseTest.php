@@ -68,23 +68,31 @@ final class TheCeremonyLooksLikeTheHouseTest extends TestCase
     }
 
     /**
-     * THE ONE THAT CAN SAY NO: neither page carries a colour of its own any more.
+     * THE ONE THAT CAN SAY NO: neither page carries a colour of its own — not even the mark's gold.
      *
-     * A single hand-written hex in these pages is a fourth copy of the design system with extra
-     * steps, and it is exactly how the drift started.
+     * A hand-written hex in these pages is a fourth copy of the design system with extra steps, and
+     * it is exactly how the drift started. This used to allow exactly one — the mark's gold, which
+     * the logo kit mandates as constant in both themes because a logo is brand and not UI. It no
+     * longer allows even that: the mark became a component and took its gold with it, so the count
+     * that was one is now zero.
+     *
+     * The pair matters. Source with no colour and a page that renders none would just be a page
+     * without a mark, so the second half asks the RENDERED page whether the gold arrived — from the
+     * component, not from here.
      */
     public function testNeitherPageCarriesAColourOfItsOwn(): void
     {
         $source = (string) file_get_contents(\dirname(__DIR__, 2) . '/src/Web/Controllers/PasskeyController.php');
 
         preg_match_all('/#[0-9a-fA-F]{3,6}\b/', $source, $hexes);
-        // ONE hex is allowed, and only one: the mark's gold. The logo kit mandates it — the grain is
-        // oro-300 (#E8B14C) CONSTANT in both themes, because the logo is brand and not UI, so it does
-        // not adapt to the theme (WCAG exempts logotypes) and var(--accent) is forbidden for it. So
-        // the rule is not "no hex": it is "no hex the design system would have answered", and the
-        // mark is the one thing it deliberately does not answer.
-        self::assertSame(['#E8B14C'], array_values(array_unique($hexes[0])), 'the only literal colour is the mark\'s gold');
+
+        self::assertSame([], array_values(array_unique($hexes[0])), 'the ceremony states no colour at all now');
         self::assertStringNotContainsString('system-ui', $source, 'the house has its own faces');
+        self::assertStringContainsString(
+            DesignTokens::MARK_GOLD,
+            (string) $this->page('enrollPage')->getBody(),
+            'the gold must still reach the page — carried by the component, not written here',
+        );
     }
 
     /** Both pages link the stylesheet — one styled and one bare would be worse than neither. */
@@ -132,6 +140,56 @@ final class TheCeremonyLooksLikeTheHouseTest extends TestCase
         }
 
         self::assertSame(4, $served, 'the four things the door wears: tokens, the faces stylesheet, a face, and the wordmark');
+    }
+
+    /**
+     * F5 of greenhouse `decisions/0246` — the falsifier that can say no.
+     *
+     * The claim is that a component travels WHOLE: if the ceremony had to write rules of its own to
+     * make the mark look right, the component would be a template with extra steps and the
+     * architecture would be wrong. So this asks two things that must both hold at once — the
+     * ceremony's source states nothing about the mark, and the rendered page has everything the
+     * mark needs. Either half alone is satisfiable by a page with no mark on it.
+     */
+    public function testTheCeremonyWritesNoRuleForTheMarkAndTheMarkStillArrivesComplete(): void
+    {
+        $source = (string) file_get_contents(\dirname(__DIR__, 2) . '/src/Web/Controllers/PasskeyController.php');
+
+        self::assertStringNotContainsString('@keyframes', $source, 'the mark took its animations with it');
+        self::assertStringNotContainsString('.grano', $source, 'the mark took its selectors with it');
+        // The CSS AT-RULE, not the bare phrase: the ceremony still consults reduced motion in JS to
+        // decide how long to wait before it navigates, and that is its own concern, not the mark's.
+        self::assertStringNotContainsString('@media (prefers-reduced-motion', $source, 'the mark took its reduced-motion rules with it');
+
+        foreach (['enrollPage', 'signinPage'] as $handler) {
+            $html = (string) $this->page($handler)->getBody();
+
+            self::assertStringContainsString('data-milpa-component="brand-mark"', $html, $handler . ' renders the mark');
+            self::assertSame(3, substr_count($html, '@keyframes milpa-mark-'), $handler . ' carries the mark\'s three states');
+            self::assertStringContainsString('[data-milpa-component="brand-mark"][data-state="growing"]', $html, $handler . ' carries the scoped state rules');
+            self::assertStringContainsString('@media (prefers-reduced-motion: reduce)', $html, $handler . ' still answers reduced motion, from the component');
+            self::assertStringContainsString(DesignTokens::MARK_GOLD, $html, $handler . ' carries the brand gold');
+        }
+    }
+
+    /**
+     * Either ceremony page, rendered. It needs no store and no session — which is the point, since
+     * it is served to somebody who does not have one yet.
+     */
+    private function page(string $handler): \Psr\Http\Message\ResponseInterface
+    {
+        $class = new \ReflectionClass(PasskeyController::class);
+        $controller = $class->newInstanceWithoutConstructor();
+
+        foreach (['rpId' => 'localhost', 'gateScope' => 'milpa.admin', 'authenticatorAttachment' => null] as $property => $value) {
+            if ($class->hasProperty($property)) {
+                $reflected = $class->getProperty($property);
+                $reflected->setAccessible(true);
+                $reflected->setValue($controller, $value);
+            }
+        }
+
+        return $controller->{$handler}(new ServerRequest('GET', '/webauthn/enroll'));
     }
 
     private function tokensResponse(): \Psr\Http\Message\ResponseInterface
