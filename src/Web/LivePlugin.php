@@ -42,6 +42,9 @@ use Milpa\Live\Contracts\Component\ComponentRegistryInterface;
 use Milpa\Live\Contracts\Security\CsrfGuardInterface;
 use Milpa\Live\Contracts\Transport\StateTransferCodecInterface;
 use Milpa\Live\Http\LiveBoot;
+use Milpa\AppRuntime\Live\PresentationOverrideStore;
+use Milpa\AppRuntime\Operations\PresentationOverrideOperations;
+use Milpa\Live\Assets\ComponentAssetOrchestrator;
 use Milpa\Live\Assets\ComponentMessages;
 use Milpa\Live\Http\LiveEndpoint;
 use Milpa\Live\Rendering\AutocompleteHtmlRenderer;
@@ -250,6 +253,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 // request: a house serves the language it chose, and a component that has not been
                 // translated into it falls back per key rather than per page.
                 \is_string($this->config()['locale'] ?? null) ? (string) $this->config()['locale'] : ComponentMessages::DEFAULT_LOCALE,
+                new ComponentAssetOrchestrator(overrides: $this->overrideStore()),
             ),
         );
         $this->route = $route;
@@ -332,7 +336,22 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
      */
     public function operations(): array
     {
-        return (new ScreenOperations($this->screenStore(), array_keys(self::DECLARABLE_TYPES), $this->layoutStateStore()))->operations();
+        return [
+            ...(new ScreenOperations($this->screenStore(), array_keys(self::DECLARABLE_TYPES), $this->layoutStateStore()))->operations(),
+            ...(new PresentationOverrideOperations($this->overrideStore()))->operations(),
+        ];
+    }
+
+    /**
+     * The record of who was allowed to change what somebody else's component looks like.
+     *
+     * Wired into the orchestrator, so the transport asks the LEDGER and never a declaration: a
+     * package that could restyle another's component by declaring it would have done the effect
+     * before anybody was asked (greenhouse decisions/0246 §2).
+     */
+    private function overrideStore(): PresentationOverrideStore
+    {
+        return PresentationOverrideStore::fromConfig($this->config(), $this->root());
     }
 
     private function screenStore(): ScreenStore
