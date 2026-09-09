@@ -213,6 +213,11 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
             new Route(path: '/webauthn/register/options', methods: HttpMethod::POST, name: 'passkey.register.options', handler: new HandlerReference(PasskeyController::class, 'registerOptions')),
             new Route(path: '/webauthn/register', methods: HttpMethod::POST, name: 'passkey.register', handler: new HandlerReference(PasskeyController::class, 'register')),
             new Route(path: '/webauthn/enroll', methods: HttpMethod::GET, name: 'passkey.enroll.page', handler: new HandlerReference(PasskeyController::class, 'enrollPage')),
+            // THE HOUSE'S VOCABULARY, served beside the ceremony that needs it (greenhouse
+            // decisions/0243). It sits on the passkey routes and not behind the gate on purpose:
+            // these pages are how somebody gets a session, so a stylesheet they cannot fetch would
+            // leave the way IN looking like nothing else in the house.
+            new Route(path: '/webauthn/milpa-tokens.css', methods: HttpMethod::GET, name: 'passkey.tokens', handler: new HandlerReference(PasskeyController::class, 'tokens')),
             new Route(path: '/webauthn/intent/options', methods: HttpMethod::POST, name: 'passkey.intent.options', handler: new HandlerReference(PasskeyIntentController::class, 'intentOptions')),
             new Route(path: '/webauthn/intent/admit', methods: HttpMethod::POST, name: 'passkey.intent.admit', handler: new HandlerReference(PasskeyIntentController::class, 'intentAdmit')),
             new Route(path: '/webauthn/intent', methods: HttpMethod::GET, name: 'passkey.intent.page', handler: new HandlerReference(PasskeyIntentController::class, 'page')),

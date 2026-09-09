@@ -24,6 +24,7 @@ use Milpa\Auth\WebAuthn\PasskeyCredentialStore;
 use Milpa\Auth\WebAuthn\PasskeyLogin;
 use Milpa\Auth\WebAuthn\WebAuthnRegistrationVerifier;
 use Nyholm\Psr7\Response;
+use Milpa\Live\Support\DesignTokens;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -170,6 +171,30 @@ final class PasskeyController
     }
 
     /**
+     * The house's design tokens, served beside the ceremony that needs them.
+     *
+     * Read from `milpa/live-web`, which ships them so a surface can look like the house WITHOUT
+     * copying them — three packages already carry drifting copies (greenhouse decisions/0243). This
+     * route is not behind the gate on purpose: these pages are how somebody GETS a session, so a
+     * stylesheet they cannot fetch would leave the way in looking like nothing else in the house.
+     */
+    public function tokens(ServerRequestInterface $request): ResponseInterface
+    {
+        $file = DesignTokens::path(DesignTokens::TOKENS);
+        if ($file === null) {
+            // Said, not guessed: a surface that silently serves an empty stylesheet looks styled and
+            // is not, and the next person debugs CSS instead of an install.
+            return new Response(500, ['Content-Type' => 'text/plain; charset=utf-8'], 'the design tokens are not installed: milpa/live-web ships them');
+        }
+
+        return new Response(
+            200,
+            ['Content-Type' => DesignTokens::contentType(), 'Cache-Control' => 'public, max-age=300'],
+            (string) file_get_contents($file),
+        );
+    }
+
+    /**
      * The sign-in page (greenhouse decisions/0206, wireframe 2j): runs the authentication ceremony and,
      * on success, returns the browser to `next`.
      *
@@ -228,16 +253,44 @@ final class PasskeyController
         // marshalling; the server verifies and stores the credential (registered, then enrolled).
         return <<<'HTML'
 <!doctype html>
+<html lang="en" data-theme="dark">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Register a passkey</title>
+<title>Register a passkey · Milpa</title>
+<link rel="stylesheet" href="/webauthn/milpa-tokens.css">
 <style>
-  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 4rem auto; padding: 0 1rem; color: #1a1a1a; }
-  button { font: inherit; padding: .7rem 1.2rem; border: 0; border-radius: 8px; background: #111; color: #fff; cursor: pointer; }
+  /* La ceremonia se ve de la casa: todo sale de los tokens, ni un color propio
+     (greenhouse decisions/0243). Un valor escrito a mano aquí es una cuarta copia. */
+  html { background: var(--bg); color-scheme: dark light; }
+  body { font-family: var(--font-body); font-size: var(--text-base, 1rem); line-height: var(--leading-normal, 1.5);
+         color: var(--text); background: var(--bg); max-width: 34rem; margin: 0 auto;
+         padding: var(--space-16, 4rem) var(--space-4, 1rem); }
+  .brand { font-family: var(--font-heading); font-weight: var(--weight-semibold, 600);
+           letter-spacing: var(--tracking-tight); color: var(--text-secondary);
+           margin: 0 0 var(--space-6, 1.5rem); }
+  h1 { font-family: var(--font-heading); font-size: var(--text-2xl, 1.5rem); line-height: var(--leading-tight);
+       letter-spacing: var(--tracking-tight); font-weight: var(--weight-bold, 700);
+       margin: var(--space-3, .75rem) 0 var(--space-2, .5rem); }
+  p { color: var(--text-secondary); }
+  button { font: inherit; font-family: var(--font-heading); font-weight: var(--weight-medium, 500);
+           padding: var(--space-3, .75rem) var(--space-5, 1.25rem);
+           border: var(--border-width, 1px) var(--border-style, solid) transparent;
+           border-radius: var(--radius-md, 6px); background: var(--accent); color: var(--text-on-accent);
+           cursor: pointer; }
+  button:hover:not(:disabled) { background: var(--accent-hover); }
+  button:focus-visible { outline: var(--focus-width, 2px) solid var(--accent); outline-offset: 2px; }
   button:disabled { opacity: .5; cursor: default; }
-  .r { margin-top: 1rem; padding: .8rem 1rem; border-radius: 8px; word-break: break-all; }
-  .ok { background: #dcfce7; } .no { background: #fee2e2; }
+  .scope { color: var(--text-muted); font-size: var(--text-sm, .875rem); }
+  code, .r { font-family: var(--font-mono); }
+  code { background: var(--surface); border: 1px solid var(--border-subtle);
+         border-radius: var(--radius-sm, 4px); padding: 0 var(--space-1, .25rem); }
+  .r { margin-top: var(--space-4, 1rem); padding: var(--space-3, .75rem) var(--space-4, 1rem);
+       border-radius: var(--radius-md, 6px); word-break: break-all; font-size: var(--text-sm, .875rem);
+       border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+  .ok { border-color: var(--success); background: var(--success-subtle, var(--surface)); }
+  .no { border-color: var(--danger); background: var(--danger-subtle, var(--surface)); }
 </style>
+<p class="brand">Milpa</p>
 <h1>Register a passkey</h1>
 <p>Enroll this device's authenticator so it can approve operations. You will be asked to touch it.</p>
 <p><button id="go">Register with passkey</button></p>
@@ -303,21 +356,44 @@ HTML;
 
         $head = <<<'HTML'
 <!doctype html>
+<html lang="en" data-theme="dark">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in to open the panel</title>
+<title>Sign in · Milpa</title>
+<link rel="stylesheet" href="/webauthn/milpa-tokens.css">
 <style>
-  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 4rem auto; padding: 0 1rem; color: #1a1a1a; }
-  .brand { font-weight: 600; letter-spacing: .02em; margin: 0 0 1.5rem; }
-  h1 { font-size: 1.25rem; margin: .75rem 0 .5rem; }
-  button { font: inherit; padding: .7rem 1.2rem; border: 0; border-radius: 8px; background: #111; color: #fff; cursor: pointer; }
+  /* La ceremonia se ve de la casa: todo sale de los tokens, ni un color propio
+     (greenhouse decisions/0243). Un valor escrito a mano aquí es una cuarta copia. */
+  html { background: var(--bg); color-scheme: dark light; }
+  body { font-family: var(--font-body); font-size: var(--text-base, 1rem); line-height: var(--leading-normal, 1.5);
+         color: var(--text); background: var(--bg); max-width: 34rem; margin: 0 auto;
+         padding: var(--space-16, 4rem) var(--space-4, 1rem); }
+  .brand { font-family: var(--font-heading); font-weight: var(--weight-semibold, 600);
+           letter-spacing: var(--tracking-tight); color: var(--text-secondary);
+           margin: 0 0 var(--space-6, 1.5rem); }
+  h1 { font-family: var(--font-heading); font-size: var(--text-2xl, 1.5rem); line-height: var(--leading-tight);
+       letter-spacing: var(--tracking-tight); font-weight: var(--weight-bold, 700);
+       margin: var(--space-3, .75rem) 0 var(--space-2, .5rem); }
+  p { color: var(--text-secondary); }
+  button { font: inherit; font-family: var(--font-heading); font-weight: var(--weight-medium, 500);
+           padding: var(--space-3, .75rem) var(--space-5, 1.25rem);
+           border: var(--border-width, 1px) var(--border-style, solid) transparent;
+           border-radius: var(--radius-md, 6px); background: var(--accent); color: var(--text-on-accent);
+           cursor: pointer; }
+  button:hover:not(:disabled) { background: var(--accent-hover); }
+  button:focus-visible { outline: var(--focus-width, 2px) solid var(--accent); outline-offset: 2px; }
   button:disabled { opacity: .5; cursor: default; }
-  .scope { color: #4b5563; font-size: .9rem; }
-  code { background: #f3f4f6; border-radius: 4px; padding: .1rem .3rem; }
-  .r { margin-top: 1rem; padding: .8rem 1rem; border-radius: 8px; }
-  .ok { background: #dcfce7; } .no { background: #fee2e2; }
+  .scope { color: var(--text-muted); font-size: var(--text-sm, .875rem); }
+  code, .r { font-family: var(--font-mono); }
+  code { background: var(--surface); border: 1px solid var(--border-subtle);
+         border-radius: var(--radius-sm, 4px); padding: 0 var(--space-1, .25rem); }
+  .r { margin-top: var(--space-4, 1rem); padding: var(--space-3, .75rem) var(--space-4, 1rem);
+       border-radius: var(--radius-md, 6px); word-break: break-all; font-size: var(--text-sm, .875rem);
+       border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+  .ok { border-color: var(--success); background: var(--success-subtle, var(--surface)); }
+  .no { border-color: var(--danger); background: var(--danger-subtle, var(--surface)); }
 </style>
-<p class="brand">Milpa Admin</p>
+<p class="brand">Milpa</p>
 <h1>Sign in to open the panel</h1>
 <p>The gate is configured to accept a passkey. One scope covers the whole panel.</p>
 HTML;
