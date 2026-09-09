@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.139.0](https://github.com/getmilpa/app-runtime/compare/v0.138.0...v0.139.0) (2026-09-09)
+
+
+### Features
+
+* a capability declares its plugin, and the catalogue teaches the governed door ([#355](https://github.com/getmilpa/app-runtime/issues/355)) ([cb6bb7a](https://github.com/getmilpa/app-runtime/commit/cb6bb7a0aa8782afecf6f8fbd563c9c2ec5f4f58))
+
 ## [0.138.0](https://github.com/getmilpa/app-runtime/compare/v0.137.0...v0.138.0) (2026-09-09)
 
 
