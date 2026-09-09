@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.145.2](https://github.com/getmilpa/app-runtime/compare/v0.145.1...v0.145.2) (2026-09-09)
+
+
+### Bug Fixes
+
+* **passkey:** the enroll script never parsed, so the button did nothing ([#377](https://github.com/getmilpa/app-runtime/issues/377)) ([3f568e0](https://github.com/getmilpa/app-runtime/commit/3f568e033e784c2197e8e1e1f6c4cfda005ebe46))
+
 ## [0.145.1](https://github.com/getmilpa/app-runtime/compare/v0.145.0...v0.145.1) (2026-09-09)
 
 
