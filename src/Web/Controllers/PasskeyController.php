@@ -369,6 +369,18 @@ final class PasskeyController
      explaining what kind of framework this is, to somebody who came here to act — and buried the only
      sentence that changes what they should expect. It carries the page's weight, so it looks like it. */
   .gate__doctrine { color: var(--text); font-weight: var(--weight-medium, 500); }
+  /* STEP 2 FINISHES THE SENTENCE STEP 1 STARTED (greenhouse decisions/0260). «Registering identifies
+     you; it grants no permissions» is half a thought until the other half says where permission DOES
+     come from. Together the two teach identity ≠ authority with no architecture lecture at all — which
+     is why step 2 is on this page although it does not happen here. It reads as what comes next, not
+     as an equal: its own kicker, quieter than the doctrine above it. */
+  .gate__next { margin-top: var(--space-5, 1.5rem); color: var(--text-muted); }
+  .gate__next .kicker { display: block; margin-bottom: var(--space-1, .25rem); }
+  /* The house's own facts are true and SECONDARY: behind a disclosure, so the main hierarchy stays the
+     ceremony. Whoever needs the relying party knows to look; nobody else pays for it. */
+  .gate__tech > summary { cursor: pointer; color: var(--text-muted); }
+  .gate__tech > summary:focus-visible { outline: var(--focus-width, 2px) solid var(--accent); outline-offset: 3px; }
+  .gate__tech[open] > summary { margin-bottom: var(--space-2, .5rem); }
 
   /* ── the act's half ───────────────────────────────────────────────────── */
   /* The act is centred: pinned to the top it left the whole column empty below the button. */
@@ -415,11 +427,12 @@ final class PasskeyController
     <a class="gate__wordmark" href="https://getmilpa.com" target="_blank" rel="noopener noreferrer"><img src="/webauthn/milpa-wordmark.svg" alt="Milpa" width="2407" height="900"></a>
     <div class="gate__mark">{$mark}</div>
     <div class="gate__lede">
-      <p class="kicker">House identity · step 1 of 2</p>
+      <p class="kicker">Step 1 · Who are you?</p>
       <h1>Register a passkey</h1>
       <p>Give this house a verifiable identity for you.</p>
       <p>Use your device, password manager, or security key.</p>
       <p class="gate__doctrine">Registering identifies you. It grants no permissions.</p>
+      <p class="gate__next"><span class="kicker">Step 2 · What may you do?</span>Choose what this identity may do.</p>
     </div>
   </aside>
   <main class="gate__act">
@@ -428,8 +441,11 @@ final class PasskeyController
       <div id="out"></div>
     </div>
     <div class="gate__foot">
-      <p><span>house: <code>{$rp}</code></span><span>this gate requires: <code>{$scope}</code></span></p>
-      <p class="gate__teach">The house is the WebAuthn relying party — a key registered against another name does not open this one.</p>
+      <details class="gate__tech">
+        <summary>Technical details</summary>
+        <p><span>Relying party: <code>{$rp}</code></span><span>Required scope: <code>{$scope}</code></span></p>
+        <p class="gate__teach">Credentials from another house are not accepted.</p>
+      </details>
       <p><a href="/webauthn/signin">Already enrolled? Sign in →</a></p>
     </div>
   </main>
@@ -604,6 +620,18 @@ HTML;
      explaining what kind of framework this is, to somebody who came here to act — and buried the only
      sentence that changes what they should expect. It carries the page's weight, so it looks like it. */
   .gate__doctrine { color: var(--text); font-weight: var(--weight-medium, 500); }
+  /* STEP 2 FINISHES THE SENTENCE STEP 1 STARTED (greenhouse decisions/0260). «Registering identifies
+     you; it grants no permissions» is half a thought until the other half says where permission DOES
+     come from. Together the two teach identity ≠ authority with no architecture lecture at all — which
+     is why step 2 is on this page although it does not happen here. It reads as what comes next, not
+     as an equal: its own kicker, quieter than the doctrine above it. */
+  .gate__next { margin-top: var(--space-5, 1.5rem); color: var(--text-muted); }
+  .gate__next .kicker { display: block; margin-bottom: var(--space-1, .25rem); }
+  /* The house's own facts are true and SECONDARY: behind a disclosure, so the main hierarchy stays the
+     ceremony. Whoever needs the relying party knows to look; nobody else pays for it. */
+  .gate__tech > summary { cursor: pointer; color: var(--text-muted); }
+  .gate__tech > summary:focus-visible { outline: var(--focus-width, 2px) solid var(--accent); outline-offset: 3px; }
+  .gate__tech[open] > summary { margin-bottom: var(--space-2, .5rem); }
 
   /* ── the act's half ───────────────────────────────────────────────────── */
   /* The act is centred: pinned to the top it left the whole column empty below the button. */
@@ -779,9 +807,10 @@ HTML;
             . '<div id="out"></div>' . "\n"
             . '</div>' . "\n"
             . '<div class="gate__foot">'
-            . '<p><span>house: <code>' . htmlspecialchars($this->rpId, \ENT_QUOTES | \ENT_SUBSTITUTE, 'UTF-8') . '</code></span>'
-            . '<span>scope: <code>' . $scope . '</code></span></p>'
-            . '<p class="gate__teach">The house is the WebAuthn relying party — a key registered against another name does not open this one.</p>'
+            . '<details class="gate__tech"><summary>Technical details</summary>'
+            . '<p><span>Relying party: <code>' . htmlspecialchars($this->rpId, \ENT_QUOTES | \ENT_SUBSTITUTE, 'UTF-8') . '</code></span>'
+            . '<span>Required scope: <code>' . $scope . '</code></span></p>'
+            . '<p class="gate__teach">Credentials from another house are not accepted.</p></details>'
             . '<p><a href="/webauthn/enroll">No key on this house yet? Register one →</a></p>'
             . '</div>' . "\n"
             . '</main></div>' . "\n"

@@ -72,6 +72,13 @@ final class PasskeyControllerTest extends TestCase
         // arriving here is about to touch a key; what changes their expectations is that touching it
         // identifies them and grants nothing.
         self::assertStringContainsString('Registering identifies you. It grants no permissions.', $body);
+        // AND THE HALF THAT FINISHES IT. Rod: «step 2 debe terminar la oración que step 1 comenzó» —
+        // the two together teach identity ≠ authority without one line of architecture.
+        self::assertStringContainsString('Step 1 · Who are you?', $body);
+        self::assertStringContainsString('Step 2 · What may you do?', $body);
+        self::assertStringContainsString('Choose what this identity may do.', $body);
+        // The house's own facts are true and secondary: behind a disclosure, not in the main hierarchy.
+        self::assertStringContainsString('<summary>Technical details</summary>', $body);
         self::assertStringNotContainsString('Milpa is a PHP framework where an effect', $body, 'la pantalla no da clase de framework');
     }
 
@@ -401,7 +408,19 @@ final class PasskeyControllerTest extends TestCase
             'origin' => 'https://' . self::RP_ID,
         ]);
         $d = openssl_pkey_get_details($key);
-        $cose = self::cborCoseMap([1 => 2, 3 => -7, -1 => 1, -2 => $d['ec']['x'], -3 => $d['ec']['y']]);
+        // 🚨 A COORDINATE IS 32 BYTES, ALWAYS — and `openssl_pkey_get_details()` does not pad it.
+        //
+        // COSE EC2 over P-256 fixes both coordinates at 32 bytes, left-padded with zeros, so a real
+        // authenticator never sends fewer. OpenSSL returns the raw big-endian integer, which is one byte
+        // short whenever the top byte happens to be zero: measured over 4 000 generated keys, **0.78 %**
+        // — 2/256, exactly as the arithmetic predicts.
+        //
+        // Unpadded, this helper built a key no authenticator could produce, the controller correctly
+        // refused it with a 401, and the test failed about once in every sixty runs. The 401 was RIGHT;
+        // the fixture was wrong. Found because CI failed once and the same test passed five times
+        // locally — the temptation there is to re-run until green, which is how a suite starts lying.
+        $coord = static fn (string $raw): string => str_pad($raw, 32, "\x00", \STR_PAD_LEFT);
+        $cose = self::cborCoseMap([1 => 2, 3 => -7, -1 => 1, -2 => $coord($d['ec']['x']), -3 => $coord($d['ec']['y'])]);
         $authData = hash('sha256', self::RP_ID, true) . "\x41" . pack('N', 0)
             . str_repeat("\x00", 16) . pack('n', \strlen($credId)) . $credId . $cose;
         $att = self::cborHead(5, 3)
