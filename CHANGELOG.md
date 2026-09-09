@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.141.0](https://github.com/getmilpa/app-runtime/compare/v0.140.0...v0.141.0) (2026-09-09)
+
+
+### Features
+
+* the ceremony composes the mark instead of drawing it ([#361](https://github.com/getmilpa/app-runtime/issues/361)) ([5328139](https://github.com/getmilpa/app-runtime/commit/5328139b029ff3a703c812de64e8ff728e2da845))
+
 ## [0.140.0](https://github.com/getmilpa/app-runtime/compare/v0.139.1...v0.140.0) (2026-09-09)
 
 
