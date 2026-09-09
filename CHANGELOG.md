@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.144.1](https://github.com/getmilpa/app-runtime/compare/v0.144.0...v0.144.1) (2026-09-09)
+
+
+### Bug Fixes
+
+* the floor can name what it invites ([#369](https://github.com/getmilpa/app-runtime/issues/369)) ([d54b0bf](https://github.com/getmilpa/app-runtime/commit/d54b0bf38d7d92beaaac385454ea6953ad2c8203))
+
 ## [0.144.0](https://github.com/getmilpa/app-runtime/compare/v0.143.0...v0.144.0) (2026-09-09)
 
 
