@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Support;
 
 use Milpa\AppRuntime\Web\PasskeyPlugin;
+use Milpa\Interfaces\Plugin\PluginInterface;
 
 /**
  * Lo que esta app puede hacer, lo que le falta, y quién lo aporta.
@@ -70,6 +71,15 @@ use Milpa\AppRuntime\Web\PasskeyPlugin;
 final class Capabilities
 {
     /**
+     * The governed door, written ONCE so every surface says the same thing.
+     *
+     * A house that offers `composer require` beside `capabilities:enable` has taught two ways to do
+     * one thing and only governed one of them (greenhouse decisions/0241). Callers append the package
+     * and the authorisation the surface needs.
+     */
+    public const ENABLE_COMMAND = 'coa capabilities:enable ';
+
+    /**
      * The capability id each known opt-in declares once installed — so `capabilities:enable identity`
      * resolves to `milpa/auth` BEFORE the package is there to say so itself. Read from each package's own
      * manifest (`extra.milpa.capability.id`) and pinned here; a mismatch on arrival is reported as a
@@ -100,10 +110,59 @@ final class Capabilities
      */
     public static function pluginsUnlockedBy(string $id): array
     {
+        // THE HOST'S OWN PLUGINS, and this is the whole list on purpose.
+        //
+        // `identity` is delivered by `milpa/auth`, and the plugin that mounts its ceremony lives HERE,
+        // in app-runtime — so no manifest of the delivering package could ever announce it. That is
+        // what this arm is for and all it is for. Everything a package brings ITSELF is declared by
+        // that package and read from its manifest ({@see pluginsDeclaredBy()}); this used to be the
+        // only path, a hand-written list with one arm, which is exactly the acoplador defect ADR-0041
+        // names and that this very class exists to end (greenhouse decisions/0241).
         return match ($id) {
             'identity' => [PasskeyPlugin::class],
             default => [],
         };
+    }
+
+    /**
+     * The plugin classes a capability DECLARES in its own manifest — `extra.milpa.capability.plugins`.
+     *
+     * The sibling of `operations`, which this class already reads generically: a package that brings a
+     * plugin announces it the same way it announces the operations it contributes, and no list here
+     * has to grow for a third party to be able to mount a door.
+     *
+     * Only what the package declared, and only if it is real: a name that does not resolve, or resolves
+     * to something that is not a plugin, is REFUSED and named. Installing a capability is not
+     * authorising whatever it happens to ship (greenhouse decisions/0240, invariant 1: building grants
+     * no authority), so this reads a declaration and verifies it — it never scans for candidates.
+     *
+     * @param array<string, mixed> $contract the delivered capability contract, from installed.json
+     *
+     * @return array{plugins: list<string>, refused: array<string, string>}
+     */
+    public static function pluginsDeclaredBy(array $contract): array
+    {
+        $plugins = [];
+        $refused = [];
+        foreach ((array) ($contract['plugins'] ?? []) as $class) {
+            if (!\is_string($class) || trim($class, " \\") === '') {
+                continue;
+            }
+            $class = trim($class, " \\");
+            if (!class_exists($class)) {
+                $refused[$class] = 'the class the manifest declares does not exist in what was installed';
+
+                continue;
+            }
+            if (!is_a($class, PluginInterface::class, true)) {
+                $refused[$class] = 'the class the manifest declares is not a plugin';
+
+                continue;
+            }
+            $plugins[] = $class;
+        }
+
+        return ['plugins' => $plugins, 'refused' => $refused];
     }
 
     /**
@@ -484,7 +543,15 @@ final class Capabilities
                 // FILLED from what was published: the registry already declared what this version unlocks.
                 'unlocks' => \is_array($cap['unlocks'] ?? null) ? array_values($cap['unlocks']) : [],
                 'version' => \is_string($cap['version'] ?? null) ? $cap['version'] : '',
-                'command' => 'composer require ' . $package,
+                // THE GOVERNED DOOR, and the same one everywhere (greenhouse decisions/0241).
+                //
+                // This used to read `composer require <package>` — the door that walks past the gate,
+                // the consent and the effect profile, offered by the house's own catalogue as if it
+                // were the way. `capabilities:enable` is the way; `composer require` still works for
+                // whoever types it, but the house stops TEACHING it. And `--sign` is part of the
+                // command because without it the call is refused, so a command printed without it is
+                // a command that does not run.
+                'command' => self::ENABLE_COMMAND . $package . ' --sign',
             ];
         }
 
@@ -501,7 +568,7 @@ final class Capabilities
                 'unlocks' => [],
                 // EL COMANDO ARMADO, no descrito. Un agente que tiene que componerlo tiene una
                 // decisión más que tomar, y ya sabemos lo que cuesta cada una que se le agrega.
-                'command' => 'composer require ' . $paquete,
+                'command' => self::ENABLE_COMMAND . $paquete . ' --sign',
             ];
         }
 
@@ -514,6 +581,12 @@ final class Capabilities
             'source' => $date !== null
                 ? "registry index derived {$date}, offline floor beneath"
                 : 'offline floor — no derived index; run `capabilities:refresh` to build one',
+            // AND SAID AS A FACT, not only inside a sentence a surface may or may not print. A house
+            // that has never derived its index is showing a FLOOR — a handful of packages this
+            // runtime happens to know by name — and presenting it as the world is how a human
+            // concludes the panel does not exist (greenhouse decisions/0241).
+            'complete' => $date !== null,
+            ...($date === null ? ['grow' => 'coa capabilities:refresh'] : []),
         ];
     }
 
@@ -609,7 +682,14 @@ final class Capabilities
             ];
         }
 
-        $comando = (string) $objetivo['command'];
+        // DOS COMANDOS, PORQUE SON DOS COSAS (greenhouse decisions/0241).
+        //
+        // El catálogo ofrece lo que un HUMANO O UN AGENTE debe teclear: la puerta gobernada. Lo que
+        // esta operación EJECUTA es el `composer require` que trae el paquete. Eran la misma cadena, y
+        // al volver gobernada la del catálogo esta línea se volvió recursiva —`capabilities:enable`
+        // ejecutándose a sí misma— hasta que la suite lo cazó. Se arma aquí, del nombre del paquete
+        // que ya se resolvió, en vez de heredarse de una entrada que existe para mostrarse.
+        $comando = 'composer require ' . (string) $objetivo['package'];
 
         // DRY-RUN SALE AQUÍ y no en la operación, para que la línea que se enseña sea LA MISMA que se
         // ejecutaría. Armarla aparte permitiría que el texto dijera una cosa y el código hiciera otra,
@@ -695,7 +775,11 @@ final class Capabilities
         // config/plugins.php, and identity gets its relying party declared — the enable that leaves the
         // human three hand edits away from the door has not enabled anything (decisions/0216, F6).
         $deliveredId = \is_string($delivered0['id'] ?? null) ? $delivered0['id'] : '';
-        $pluginsDeclared = self::registerPlugins($root, self::pluginsUnlockedBy($deliveredId));
+        $announced = self::pluginsDeclaredBy($delivered0);
+        $pluginsDeclared = self::registerPlugins($root, [
+            ...self::pluginsUnlockedBy($deliveredId),
+            ...$announced['plugins'],
+        ]);
         $relyingParty = $deliveredId === 'identity' ? self::declareRelyingParty($root) : null;
 
         $okOut = [
@@ -704,6 +788,9 @@ final class Capabilities
             'command' => $comando,
             'registered' => $registered,
             'plugins_declared' => $pluginsDeclared,
+            // A plugin the manifest declared and the house REFUSED to wire, with why. Silence here
+            // would read as «nothing to declare» on a package that declared something wrong.
+            'plugins_refused' => $announced['refused'],
             // WHAT IT UNLOCKED, read AFTER installing — the package could not declare anything
             // before it was on disk, so reading `$objetivo` here would always return an empty list:
             // a field that is always empty is the same defect this repo keeps finding, something

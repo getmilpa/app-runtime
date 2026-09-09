@@ -109,13 +109,13 @@ final class TheFirstHourTest extends TestCase
         // THE STEPS FOLLOW THE HOUSE, read from a vendor this test writes: nothing switched on → the generators
         // first, then the door; both switched on → neither step, and the answer does not even mention them.
         $bare = array_column($operations->houseStart($this->vendorWith([]))['next'], 'command');
-        self::assertSame('coa capabilities:enable milpa/devtools', $bare[0], 'the generators come first in a bare house');
+        self::assertSame('coa capabilities:enable milpa/devtools --sign', $bare[0], 'the generators come first in a bare house');
         self::assertContains('coa capabilities:enable milpa/auth', $bare);
         $grown = array_column($operations->houseStart($this->vendorWith([
             $this->package('milpa/devtools', 'devtools'),
             $this->package('milpa/auth', 'identity'),
         ]))['next'], 'command');
-        self::assertNotContains('coa capabilities:enable milpa/devtools', $grown);
+        self::assertNotContains('coa capabilities:enable milpa/devtools --sign', $grown);
         self::assertNotContains('coa capabilities:enable milpa/auth', $grown);
     }
 
@@ -142,7 +142,7 @@ final class TheFirstHourTest extends TestCase
         // the model gateway is NOT asked for — a door a human opens needs no model on the other side.
         $bare = array_column($this->booted()->houseStart($this->vendorWith([]))['next'], 'command');
         self::assertNotContains('coa recipe:apply --recipe=notes', $bare);
-        self::assertContains('coa capabilities:enable milpa/agent', $bare);
+        self::assertContains('coa capabilities:enable milpa/agent --sign', $bare);
         self::assertNotContains('coa capabilities:enable milpa/ai-gateway', $bare, 'the door does not need the model gateway');
     }
 
