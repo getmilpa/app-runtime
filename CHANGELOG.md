@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.142.0](https://github.com/getmilpa/app-runtime/compare/v0.141.0...v0.142.0) (2026-09-09)
+
+
+### Features
+
+* a live page carries what its component declared ([#363](https://github.com/getmilpa/app-runtime/issues/363)) ([1fe1585](https://github.com/getmilpa/app-runtime/commit/1fe1585b16d0986672cb43e65f96fbe972882f62))
+
 ## [0.141.0](https://github.com/getmilpa/app-runtime/compare/v0.140.0...v0.141.0) (2026-09-09)
 
 
