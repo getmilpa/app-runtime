@@ -419,14 +419,16 @@ final class CapabilitiesTest extends TestCase
         self::assertNotEmpty($r['available']);
         self::assertArrayHasKey('hint', $r, 'si falta algo, se dice cómo conseguirlo');
 
-        $conTodo = Capabilities::answer($this->vendorCon([
-            $this->paquete('milpa/agent', 'agent', 'agent.sessions'),
-            $this->paquete('milpa/ai-gateway', 'agent-runs', 'agent.model'),
-            $this->paquete('milpa/auth', 'identity', 'auth.verifier'),
-            $this->paquete('milpa/data', 'persistence', 'data.repository'),
-            $this->paquete('milpa/devtools', 'devtools', 'dev.doctor'),
-            $this->paquete('milpa/mcp-server', 'mcp', 'surface.mcp'),
-        ]));
+        // DERIVADO DEL PISO, no enumerado: esta lista escrita a mano se quedó atrás el día que el
+        // piso creció, y la prueba que la sostenía se cayó por eso. Preguntarle al piso es lo que
+        // impide que la próxima vez la prueba mienta en vez de romperse (greenhouse decisions/0247).
+        $instalados = [];
+
+        foreach (array_keys(Capabilities::knownOptIns()) as $indice => $paquete) {
+            $instalados[] = $this->paquete($paquete, 'cap-' . $indice, 'puerto.' . $indice);
+        }
+
+        $conTodo = Capabilities::answer($this->vendorCon($instalados));
 
         self::assertArrayNotHasKey('hint', $conTodo, 'y si no falta nada, no se pide trabajo');
     }
@@ -607,5 +609,49 @@ final class CapabilitiesTest extends TestCase
         $r = Capabilities::install('milpa/teleport', $v);
         self::assertFalse($r['ok']);
         self::assertContains('milpa/agent', $r['available']);
+    }
+
+    /**
+     * The panel is on the floor, because it is station 2 of what a human actually does.
+     *
+     * A newborn house that cannot reach the network still has to be able to say the panel exists.
+     * It could not: the floor listed six names and `milpa/admin` was not one of them, so a person
+     * read nine capabilities with no reason to suspect the thing they came for was among the
+     * missing (greenhouse decisions/0247).
+     */
+    public function testTheFloorKnowsThePanelAndTheAgentsRoom(): void
+    {
+        $floor = Capabilities::knownOptIns();
+
+        self::assertArrayHasKey('milpa/admin', $floor);
+        self::assertArrayHasKey('milpa/agent-workspace', $floor);
+        self::assertArrayHasKey('milpa/web-search', $floor);
+    }
+
+    /**
+     * An abandoned package stays off the floor: an invitation into a dead end is worse than silence.
+     *
+     * `milpa/desktop-app` declares itself a capability AND declares `abandoned: milpa/agent-workspace`.
+     * Counting packages that declare a capability, it belongs; reading what they say about
+     * themselves, it does not — and the second reading is the one the floor owes a stranger.
+     */
+    public function testAnAbandonedPackageIsNotInvited(): void
+    {
+        self::assertArrayNotHasKey('milpa/desktop-app', Capabilities::knownOptIns());
+    }
+
+    /**
+     * The floor still only says name and what-for. It invites; it does not authorize.
+     *
+     * Growing this list must never become a way to widen what an app may do without the gate:
+     * `capabilities:enable --sign` is still the only way in.
+     */
+    public function testTheFloorInvitesAndDoesNotAuthorize(): void
+    {
+        foreach (Capabilities::knownOptIns() as $package => $whatFor) {
+            self::assertMatchesRegularExpression('#^milpa/[a-z-]+$#', $package);
+            self::assertIsString($whatFor);
+            self::assertNotSame('', trim($whatFor), $package . ' is invited with no reason given');
+        }
     }
 }
