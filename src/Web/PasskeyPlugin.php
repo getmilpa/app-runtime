@@ -90,6 +90,9 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
 
     public const DEFAULT_GATE_SCOPE = 'milpa.admin';
 
+    /** Lo que WebAuthn conoce como attachment. Omitirlo —el default— admite los dos. */
+    private const ATTACHMENTS = ['platform', 'cross-platform'];
+
     private ?string $rpId = null;
 
     /**
@@ -161,12 +164,30 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
         );
 
         $cookie = \is_string($config['cookie'] ?? null) && $config['cookie'] !== '' ? $config['cookie'] : self::DEFAULT_COOKIE;
+
+        // QUÉ AUTENTICADORES ADMITE ESTA CASA — ausente admite los que la persona tenga.
+        //
+        // Estaba escrito en el código como `'cross-platform'`, que excluye el autenticador de
+        // plataforma y los gestores de contraseñas: los dos sitios donde vive un passkey en la
+        // máquina que casi cualquiera ya tiene (greenhouse decisions/0244). Se declara y no se asume.
+        //
+        // Un valor que WebAuthn no conoce REHÚSA AQUÍ, con la lista de lo que sí admite: dejarlo
+        // pasar lo descubriría el primer humano frente a un diálogo que no abre, y ése es el peor
+        // lugar para enterarse.
+        $attachment = $config['authenticator'] ?? null;
+        if ($attachment !== null && !\in_array($attachment, self::ATTACHMENTS, true)) {
+            throw new \InvalidArgumentException(\sprintf(
+                'passkey.authenticator must be one of %s, or absent to accept whatever the person has; got %s',
+                implode(' | ', self::ATTACHMENTS),
+                get_debug_type($attachment) === 'string' ? '«' . (string) $attachment . '»' : get_debug_type($attachment),
+            ));
+        }
         $gate = \is_array($config['gate'] ?? null) ? $config['gate'] : [];
         $scope = \is_string($gate['scope'] ?? null) && $gate['scope'] !== '' ? $gate['scope'] : self::DEFAULT_GATE_SCOPE;
         $this->rpId = $rpId;
         $this->container->registerService(
             PasskeyController::class,
-            new PasskeyController($authenticator, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $registered, $enrollments, $rpId, $cookie, $scope),
+            new PasskeyController($authenticator, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $registered, $enrollments, $rpId, $cookie, $scope, $attachment),
         );
 
         // THE GATE (decisions/0206): registered under its own class name so a panel can NAME it in
@@ -223,6 +244,9 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
             // cuyos `src` son todos 404, y un @font-face roto falla EN SILENCIO — la página se ve
             // estilizada sin estarlo, que es justo el defecto que este arco termina.
             new Route(path: '/webauthn/fonts/{face}', methods: HttpMethod::GET, name: 'passkey.face', handler: new HandlerReference(PasskeyController::class, 'tokens')),
+            // El wordmark, en vector y desde live-web: el kit prohíbe armarlo con tipografía y
+            // trucos CSS, y pegarlo en el heredoc sería la cuarta copia que decisions/0243 rechazó.
+            new Route(path: '/webauthn/milpa-wordmark.svg', methods: HttpMethod::GET, name: 'passkey.wordmark', handler: new HandlerReference(PasskeyController::class, 'tokens')),
             new Route(path: '/webauthn/intent/options', methods: HttpMethod::POST, name: 'passkey.intent.options', handler: new HandlerReference(PasskeyIntentController::class, 'intentOptions')),
             new Route(path: '/webauthn/intent/admit', methods: HttpMethod::POST, name: 'passkey.intent.admit', handler: new HandlerReference(PasskeyIntentController::class, 'intentAdmit')),
             new Route(path: '/webauthn/intent', methods: HttpMethod::GET, name: 'passkey.intent.page', handler: new HandlerReference(PasskeyIntentController::class, 'page')),

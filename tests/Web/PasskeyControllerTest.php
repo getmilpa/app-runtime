@@ -118,7 +118,14 @@ final class PasskeyControllerTest extends TestCase
         // It also stopped naming the panel: this page gates whatever the app put behind it, and the
         // panel is only the most common one.
         self::assertStringContainsString('<h1>Sign in</h1>', $body);
-        self::assertStringContainsString('The gate is configured to accept a passkey', $body);
+        // El copy dejó de prometer «the whole panel»: estas pantallas tienen que servir en una casa
+        // sin panel instalado, que es el falsificador F3 de decisions/0243.
+        self::assertStringContainsString('This gate takes a passkey and nothing', $body);
+        // Sobre lo que el humano LEE, no sobre el archivo entero: la primera versión de esta
+        // aserción prohibía la palabra hasta en el comentario que explica por qué no se usa, y
+        // grepear prosa no puede fallar por la razón correcta.
+        $visible = (string) preg_replace('#<script\b.*?</script>#s', '', $body);
+        self::assertStringNotContainsString('panel', $visible, 'the gate guards whatever the app put behind it');
         self::assertStringContainsString('Continue with a passkey', $body);
         self::assertStringContainsString('scope: <code>milpa.admin</code>', $body);
         self::assertStringContainsString('const NEXT = "/milpa/admin?tab=routes";', $body);
