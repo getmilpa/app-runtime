@@ -91,6 +91,45 @@ final class LiveComponentPageControllerTest extends TestCase
         self::assertNull($state['meta']['principal'] ?? null, 'no verified actor → ownerless state');
     }
 
+    /**
+     * The page carries what its component declared, so it never has to know what one is made of.
+     *
+     * `data-table` declares a message catalogue and no stylesheet, which is the shape that matters:
+     * the page must emit the words WITHOUT emitting an empty `<style>` for a component that has no
+     * look of its own (greenhouse decisions/0246).
+     */
+    public function testThePageCarriesTheWordsItsComponentDeclared(): void
+    {
+        $req = (new ServerRequest('GET', '/live/page'))->withQueryParams(['component' => 'data-table']);
+        $html = (string) $this->bootedController($this->dataTableProvider())->show($req)->getBody();
+
+        self::assertStringContainsString('id="milpa-messages"', $html, 'the declared words never reached the page');
+        self::assertStringContainsString('data-table.selected', $html, 'the words are namespaced by component');
+        self::assertStringContainsString('"data-table.selected":"selected"', $html, 'English is the default');
+        self::assertStringNotContainsString('data-milpa-assets="components"', $html, 'data-table declares no stylesheet and must not get an empty one');
+    }
+
+    /**
+     * Control — the same page under `live.locale = es` carries Spanish, so the locale is read.
+     *
+     * Declared in config rather than sniffed from the request: a house serves the language it chose,
+     * and a component untranslated into it falls back per key rather than leaving the page half-dead.
+     */
+    public function testTheSamePageUnderASpanishLocaleCarriesSpanish(): void
+    {
+        $c = new DIContainer();
+        $c->registerService(Config::class, new Config(['live' => ['secret' => str_repeat('k', 32), 'locale' => 'es']]));
+        $c->registerService(LivePageProvider::class, $this->dataTableProvider());
+        (new LivePlugin($c))->boot();
+
+        $req = (new ServerRequest('GET', '/live/page'))->withQueryParams(['component' => 'data-table']);
+        $spanish = (string) $c->get(LiveComponentPageController::class)->show($req)->getBody();
+        $english = (string) $this->bootedController($this->dataTableProvider())->show($req)->getBody();
+
+        self::assertStringContainsString('"data-table.selected":"seleccionados"', $spanish);
+        self::assertStringContainsString('"data-table.selected":"selected"', $english, 'undeclared stays English');
+    }
+
     public function testAnUnknownComponentIs404(): void
     {
         $req = (new ServerRequest('GET', '/live/page'))->withQueryParams(['component' => 'nope']);

@@ -21,6 +21,8 @@ use Milpa\Live\Contracts\Component\ComponentRegistryInterface;
 use Milpa\Live\Contracts\Security\CsrfGuardInterface;
 use Milpa\Live\Http\LiveBoot;
 use Milpa\Live\Contracts\Rendering\ComponentRendererInterface;
+use Milpa\Live\Assets\ComponentAssetOrchestrator;
+use Milpa\Live\Assets\ComponentMessages;
 use Milpa\Live\ValueObjects\RenderRequest;
 use Milpa\Live\ValueObjects\RenderTarget;
 use Nyholm\Psr7\Response;
@@ -47,6 +49,8 @@ final class LiveComponentPageController
         private readonly string $route,
         private readonly ?LivePageProvider $provider = null,
         private readonly ?LayoutStateStore $layoutState = null,
+        private readonly string $locale = ComponentMessages::DEFAULT_LOCALE,
+        private readonly ComponentAssetOrchestrator $assets = new ComponentAssetOrchestrator(),
     ) {
     }
 
@@ -83,18 +87,25 @@ final class LiveComponentPageController
         // `actor:<id>` the endpoint verifies on the action — never a hand-written string (decisions/0091, the trap).
         $context = LiveRender::contextForRequest($request, componentId: $name, route: $this->route);
 
+        $component = $this->registry->get($name);
         $rendered = $this->renderer->render(
-            $this->registry->get($name),
+            $component,
             new RenderRequest(context: $context, props: $props, target: RenderTarget::HTML),
         );
 
         $authorization = $request->getHeaderLine('Authorization');
         $boot = LiveBoot::issue($this->csrf, $this->route, $authorization !== '' ? $authorization : null);
 
+        // Whatever the component declared it needs — its stylesheet, its words — travels with it, so
+        // this page does not have to know what any component is made of to serve one correctly. The
+        // styles go before the markup so nothing paints unstyled; the words go after it, beside the
+        // boot payload the client already reads (greenhouse decisions/0246).
+        $declared = $this->assets->collect([$component::contract()], $this->locale);
+
         return new Response(
             200,
             ['Content-Type' => 'text/html; charset=utf-8', 'Cache-Control' => 'no-store'],
-            $rendered->output . "\n" . $boot->scriptTag(),
+            $declared->styleTag() . $rendered->output . "\n" . $declared->messagesTag() . $boot->scriptTag(),
         );
     }
 
