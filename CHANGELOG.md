@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.144.0](https://github.com/getmilpa/app-runtime/compare/v0.143.0...v0.144.0) (2026-09-09)
+
+
+### Features
+
+* the offline floor knows the panel ([#367](https://github.com/getmilpa/app-runtime/issues/367)) ([1612511](https://github.com/getmilpa/app-runtime/commit/1612511d7bad6901dd101d5fd87f3aa014d0fa27))
+
 ## [0.143.0](https://github.com/getmilpa/app-runtime/compare/v0.142.0...v0.143.0) (2026-09-09)
 
 
