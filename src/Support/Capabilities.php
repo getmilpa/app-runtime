@@ -234,6 +234,59 @@ final class Capabilities
     }
 
     /**
+     * Widens the caret Composer just wrote for a FIRST-PARTY package into the family's own form.
+     *
+     * `^0.3.1` becomes `>=0.3.1 <1.0` — the same shape `milpa/framework` uses for every dependency it
+     * declares, and the shape `audit-stale-pins` audits between siblings. The floor of the range is
+     * the version that just installed, so the record says what was actually verified.
+     *
+     * ── ONLY FIRST PARTY, AND THAT IS THE POINT ─────────────────────────────────────────────────
+     *
+     * Widening a range is an assertion — «I still work with every minor above this one» — and this
+     * house can make it about its own family because it publishes it and audits it. Making it about
+     * somebody else's package would be asserting a compatibility nobody verified, which is exactly
+     * what the pin gate refuses to automate.
+     *
+     * The lock is untouched: the installed version satisfies the wider range, so nothing re-resolves.
+     *
+     * @param string|null $root the app whose manifest to correct; this app's own when not given
+     *
+     * @return string|null the constraint now recorded, or null when nothing was changed
+     */
+    private static function widenFirstPartyPin(string $package, ?string $root = null): ?string
+    {
+        if (!str_starts_with($package, 'milpa/')) {
+            return null;
+        }
+
+        $path = ($root ?? self::raizDeLaApp()) . '/composer.json';
+        $raw = is_file($path) ? (string) file_get_contents($path) : '';
+        $manifest = json_decode($raw, true);
+
+        if (!\is_array($manifest) || !\is_array($manifest['require'] ?? null)) {
+            return null;
+        }
+
+        $current = $manifest['require'][$package] ?? null;
+
+        // ONLY A CARET ON A 0.x, which is the one Composer writes and the only one that is a minor
+        // ceiling. A range somebody chose on purpose is left exactly as they chose it.
+        if (!\is_string($current) || preg_match('/^\^0\.(\d+(?:\.\d+)*)$/', $current, $m) !== 1) {
+            return null;
+        }
+
+        $widened = '>=' . substr($current, 1) . ' <1.0';
+        $manifest['require'][$package] = $widened;
+        $encoded = json_encode($manifest, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE);
+
+        if ($encoded === false || file_put_contents($path, $encoded . "\n") === false) {
+            return null;
+        }
+
+        return $widened;
+    }
+
+    /**
      * La raíz de la APP en la que este paquete está instalado — pública porque todo el paquete la necesita.
      *
      * ── POR QUÉ NO SE DEDUCE DE `__DIR__` A SECAS ───────────────────────────────────────────────
@@ -764,6 +817,15 @@ final class Capabilities
         // siempre puede venir vacío es la clase de defecto que este repositorio lleva una semana
         // cazando: algo declarado que nunca aterriza. La capacidad se comprueba donde existe —el
         // disco— releyendo lo que el paquete declara de sí mismo.
+        // LO QUE COMPOSER ESCRIBIÓ CLAVA LA CASA, y hay que corregirlo aquí porque aquí se causó.
+        //
+        // `composer require milpa/data` graba `^0.3.1`, que en un paquete 0.x significa
+        // `>=0.3.1 <0.4.0`: un techo de MINOR. Esta familia corta minors constantemente —`live-web`
+        // pasó de 0.19 a 0.23 en un día— así que instalar una capacidad dejaba a la casa fuera de
+        // todos sus minors siguientes, en silencio y sin que nada fallara: composer simplemente ya no
+        // ofrece la combinación (greenhouse decisions/0252).
+        $ensanchado = self::widenFirstPartyPin((string) $objetivo['package']);
+
         $llego = self::unlocksOf((string) $objetivo['package'], $vendorAfter);
         $delivered0 = self::declaredBy($vendorAfter)[(string) $objetivo['package']] ?? null;
         if ($delivered0 === null) {
@@ -819,6 +881,9 @@ final class Capabilities
             // before it was on disk, so reading `$objetivo` here would always return an empty list:
             // a field that is always empty is the same defect this repo keeps finding, something
             // declared that never lands.
+            // SAID, NOT DONE QUIETLY. The install changed a line in composer.json beyond what
+            // `composer require` writes, so the result names the constraint it left behind.
+            'pinned' => $ensanchado,
             'unlocked' => $llego,
             'hint' => $deliveredId === 'identity'
                 ? 'the passkey door is declared: run `coa serve`, open http://localhost:8000/webauthn/enroll and enroll the first key'

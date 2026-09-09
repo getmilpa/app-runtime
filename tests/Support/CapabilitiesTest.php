@@ -668,4 +668,47 @@ final class CapabilitiesTest extends TestCase
 
         self::assertSame([], array_values($withoutAnId), 'an invitation nobody can accept by name is worse than none');
     }
+
+    /**
+     * Installing must not pin the house out of the next minor of what it just installed.
+     *
+     * `composer require milpa/data` writes `^0.3.1`, which on a 0.x package means `>=0.3.1 <0.4.0` —
+     * a MINOR ceiling. This family cuts minors constantly, so a house that installed a capability
+     * stopped receiving every one that followed, silently: nothing fails, composer simply never
+     * offers the combination (greenhouse decisions/0252).
+     */
+    public function testInstallingWidensTheCaretComposerWroteForAFamilyPackage(): void
+    {
+        $root = sys_get_temp_dir() . '/milpa-widen-' . bin2hex(random_bytes(6));
+        mkdir($root, 0o775, true);
+        file_put_contents($root . '/composer.json', (string) json_encode([
+            'require' => [
+                'php' => '>=8.3',
+                'milpa/data' => '^0.3.1',
+                // A CARET ON A 0.x, from a stranger. This is the only shape where the first-party
+                // guard is what protects it — with `^2.1.0` the version pattern already refuses, so
+                // the assertion would pass while proving nothing.
+                'acme/thing' => '^0.4.2',
+                'milpa/agent' => '>=0.4 <1.0',
+            ],
+        ], \JSON_PRETTY_PRINT));
+
+        $widen = new \ReflectionMethod(Capabilities::class, 'widenFirstPartyPin');
+        $widen->setAccessible(true);
+        self::assertSame('>=0.3.1 <1.0', $widen->invoke(null, 'milpa/data', $root));
+
+        /** @var array{require: array<string, string>} $after */
+        $after = json_decode((string) file_get_contents($root . '/composer.json'), true);
+
+        self::assertSame('>=0.3.1 <1.0', $after['require']['milpa/data'], 'the family package is reachable again');
+        // A THIRD PARTY IS LEFT ALONE. Widening is an assertion — «I still work with every minor
+        // above this» — and this house may make it about its own family, not about somebody else's.
+        self::assertSame('^0.4.2', $after['require']['acme/thing'], "a stranger's range is not this house's to widen");
+        // A RANGE SOMEBODY CHOSE ON PURPOSE is left exactly as they chose it.
+        self::assertSame('>=0.4 <1.0', $after['require']['milpa/agent']);
+        self::assertNull($widen->invoke(null, 'acme/thing', $root));
+
+        array_map('unlink', (array) glob($root . '/*'));
+        rmdir($root);
+    }
 }
