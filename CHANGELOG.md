@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.139.1](https://github.com/getmilpa/app-runtime/compare/v0.139.0...v0.139.1) (2026-09-09)
+
+
+### Bug Fixes
+
+* every command the house teaches actually runs, and a blind house says so first ([#357](https://github.com/getmilpa/app-runtime/issues/357)) ([f0e3db0](https://github.com/getmilpa/app-runtime/commit/f0e3db0f8d433261efe3e0c7513a558cd72e2d5f))
+
 ## [0.139.0](https://github.com/getmilpa/app-runtime/compare/v0.138.0...v0.139.0) (2026-09-09)
 
 
