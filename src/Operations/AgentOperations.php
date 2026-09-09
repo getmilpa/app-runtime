@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Operations;
 use Milpa\AppRuntime\Agent\TrialRunner;
 use Milpa\AppRuntime\Agent\TrialRouter;
 use Milpa\AppRuntime\Agent\TrialAwareRegistry;
+use Milpa\Agent\PendingQuestion;
 use Milpa\Agent\ProgressReceipt;
 use Milpa\AiGateway\AgentOrchestrator;
 use Milpa\AiGateway\PlanBoard;
@@ -1266,6 +1267,31 @@ class AgentOperations implements CommandProvider
     }
 
     /**
+     * La pregunta parqueada, como la lee una SUPERFICIE (greenhouse decisions/0254).
+     *
+     * Tiene nombre propio porque es lo único que una superficie con botones necesita, y porque el `hint`
+     * de junto es de la CLI: dice cómo contestar *donde no hay dónde teclear*. Una sala que sí tiene
+     * dónde estaba mostrando esa línea de terminal, por no existir esto.
+     *
+     * Las `options` las propone el agente —es quien sabe qué bifurcaciones tiene enfrente— y `reason` es
+     * el código ESTABLE (`permission`, `signature`, `target_not_named`), no la prosa: una proyección que
+     * quiera contar pausas por motivo no debería tener que parsear un texto que se traduce.
+     *
+     * @return array{id: string, text: string, options: list<string>, why: string|null, reason: string|null, expires_at: string|null}
+     */
+    private static function preguntaPausada(PendingQuestion $pregunta): array
+    {
+        return [
+            'id' => $pregunta->id,
+            'text' => $pregunta->question,
+            'options' => $pregunta->options,
+            'why' => $pregunta->why,
+            'reason' => $pregunta->reason,
+            'expires_at' => $pregunta->expiresAt,
+        ];
+    }
+
+    /**
      * Add only the effect declarations carried by the channel that produced these tools.
      *
      * The registry's flat definition cannot distinguish an omitted boolean from `false`: both are
@@ -1374,7 +1400,7 @@ class AgentOperations implements CommandProvider
      *
      * @param array<string, mixed> $input
      *
-     * @return array{ok: bool, answer?: string, steps?: int, tools?: int, error?: string, hint?: string, paused?: bool, exhausted?: bool, stalled?: bool, receipt?: array<string, mixed>, houseDebt?: bool, interrupted?: bool, closure?: array{verified: bool, reasons: list<string>}}
+     * @return array{ok: bool, answer?: string, steps?: int, tools?: int, error?: string, hint?: string, question?: array{id: string, text: string, options: list<string>, why: string|null, reason: string|null, expires_at: string|null}, paused?: bool, exhausted?: bool, stalled?: bool, receipt?: array<string, mixed>, houseDebt?: bool, interrupted?: bool, closure?: array{verified: bool, reasons: list<string>}}
      */
     private function run(array $input, ?InvocationContext $context = null): array
     {
@@ -2089,11 +2115,17 @@ class AgentOperations implements CommandProvider
         //
         // El `hint` es de la CLI: dice cómo contestar donde no hay dónde teclear la respuesta. El TUI
         // lo ignora porque ahí sí lo hay. Antes esa línea viajaba dentro del texto y salía en las dos.
+        //
+        // Y LA PREGUNTA VIAJA ESTRUCTURADA, no sólo el `hint` (greenhouse decisions/0254). Una superficie
+        // con botones necesita las OPCIONES —que propone el agente, porque es quien sabe qué bifurcaciones
+        // tiene enfrente— y el porqué. Sin esto sólo quedaba el `hint`, así que el Desktop pintaba la línea
+        // de la CLI en una pantalla donde sí hay dónde contestar: la instrucción equivocada para su medio.
         $pausada = $sessionId !== '' && $store !== null ? $store->load($sessionId) : null;
         if ($pausada?->question !== null) {
             $resultado['paused'] = true;
             $resultado['hint'] = 'contesta con: coa agent:answer --session=' . $sessionId
                 . ' --answer=<' . implode('|', $pausada->question->options ?: ['tu respuesta']) . '>';
+            $resultado['question'] = self::preguntaPausada($pausada->question);
         }
 
         // AGOTAR EL TECHO NO ES CONTESTAR. Se nombra para que la superficie no lo pinte como respuesta.
