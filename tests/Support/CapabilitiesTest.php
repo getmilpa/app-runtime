@@ -654,4 +654,18 @@ final class CapabilitiesTest extends TestCase
             self::assertNotSame('', trim($whatFor), $package . ' is invited with no reason given');
         }
     }
+
+    /**
+     * Every invitation can be accepted by the name the catalogue prints.
+     *
+     * The floor and its ids are one fact in two lists, and they drifted apart the day the floor
+     * grew: three capabilities were invited by name with no id, so the house offered the panel and
+     * could not resolve `capabilities:enable admin` for it (greenhouse decisions/0247).
+     */
+    public function testEveryInvitationOnTheFloorCanBeNamed(): void
+    {
+        $withoutAnId = array_diff(array_keys(Capabilities::knownOptIns()), array_keys(Capabilities::knownIds()));
+
+        self::assertSame([], array_values($withoutAnId), 'an invitation nobody can accept by name is worse than none');
+    }
 }

@@ -85,17 +85,27 @@ final class Capabilities
      * manifest (`extra.milpa.capability.id`) and pinned here; a mismatch on arrival is reported as a
      * promise mismatch, never hidden.
      *
+     * THIS LIST AND {@see knownOptIns()} ARE ONE FACT IN TWO PLACES, and they drifted apart the day
+     * the floor grew: three capabilities were invited by name and had no id, so the house offered the
+     * panel and could not resolve `capabilities:enable admin` for it. A floor entry without an id is
+     * an invitation nobody can accept by the name the catalogue prints, which is why the gate in the
+     * greenhouse now checks both halves and the id against what the package declares
+     * (greenhouse decisions/0247).
+     *
      * @return array<string, string> package => id
      */
     public static function knownIds(): array
     {
         return [
+            'milpa/admin' => 'admin',
             'milpa/agent' => 'agent',
+            'milpa/agent-workspace' => 'agent-workspace',
             'milpa/ai-gateway' => 'agent-runs',
             'milpa/auth' => 'identity',
             'milpa/data' => 'persistence',
             'milpa/devtools' => 'devtools',
             'milpa/mcp-server' => 'mcp',
+            'milpa/web-search' => 'web-search',
         ];
     }
 
