@@ -180,6 +180,24 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
                 // A falsifier now holds the two in agreement for every operation this package
                 // declares, because a fact with two sources is a fact that will disagree.
                 mutating: true,
+                // 🚨 THE SCOPE, AND ITS ABSENCE WAS A HOLE I SHIPPED. Measured on cattle: exposed over
+                // HTTP, two same-origin POSTs with NO SESSION, no identity and no signature wrote a
+                // provider credential — a `428` handed out a confirm token, the token came back, `201
+                // Created`, the key on disk. The framework's boot guard refuses to expose an operation
+                // that «demands identity» without a policy to judge it, and it reads exactly two
+                // things: `scopes` and `permission`. This one declared neither, so the guard walked
+                // past it and the HTTP surface downgraded «needs your signature» to «needs a token I
+                // will hand you» (greenhouse decisions/0274).
+                //
+                // The reasoning was already written in this house, on `identity:enroll`: «the gate
+                // enforces this on a permission-aware surface … WITHOUT IT THE DOOR WOULD BE OPEN ON
+                // HTTP». Same shape, same fix — the scope is the operation's own name, as that one's
+                // is.
+                //
+                // `requiresConfirmation` below is NOT a substitute and never was: it is what the CLI
+                // reads to demand a signature. A gate that is right on one surface and absent on the
+                // other is a gate at the height of the lower one.
+                scopes: ['provider:declare'],
                 // 🚨 `requiresConfirmation`, AND THE AXES ARE WHY — not in spite of them.
                 //
                 // Rule S2 demands consent when subject >= Executable AND authority >= Privileged.
