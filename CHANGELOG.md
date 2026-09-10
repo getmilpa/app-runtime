@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.147.0](https://github.com/getmilpa/app-runtime/compare/v0.146.0...v0.147.0) (2026-09-10)
+
+
+### Features
+
+* **config:** the authority says where the endpoint came from, and whether a model answers ([#382](https://github.com/getmilpa/app-runtime/issues/382)) ([aa3be55](https://github.com/getmilpa/app-runtime/commit/aa3be5592956baf851fa92d043ad4c379aa76343))
+
 ## [0.146.0](https://github.com/getmilpa/app-runtime/compare/v0.145.2...v0.146.0) (2026-09-10)
 
 
