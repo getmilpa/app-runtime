@@ -107,11 +107,11 @@ final class FrameworkRelease
      *
      * @return array<string, string>|null null when the release could not be fetched
      */
-    public static function ships(string $version, string $root): ?array
+    public static function ships(string $version, string $root, bool $cache = true): ?array
     {
-        $cache = $root . '/storage/framework-releases/' . $version . '.json';
-        if (is_file($cache)) {
-            $read = json_decode((string) file_get_contents($cache), true);
+        $cacheFile = $root . '/storage/framework-releases/' . $version . '.json';
+        if (is_file($cacheFile)) {
+            $read = json_decode((string) file_get_contents($cacheFile), true);
             if (\is_array($read)) {
                 /** @var array<string, string> $hashes */
                 $hashes = array_filter($read, '\\is_string');
@@ -131,8 +131,14 @@ final class FrameworkRelease
             return null;
         }
 
-        @mkdir(\dirname($cache), 0o775, true);
-        file_put_contents($cache, json_encode($hashes, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES) . "\n");
+        // A READ MUST NOT LEAVE THIS BEHIND. `Mutation::None` means «nothing a later run could
+        // observe», and this file is read by the panel on every render — so `framework:diff` asks with
+        // `cache: false` and the panel's own verb, which declares what it writes, asks with true
+        // (greenhouse decisions/0296).
+        if ($cache) {
+            @mkdir(\dirname($cacheFile), 0o775, true);
+            file_put_contents($cacheFile, json_encode($hashes, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES) . "\n");
+        }
 
         return $hashes;
     }

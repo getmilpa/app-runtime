@@ -93,6 +93,18 @@ final readonly class FrameworkOperations implements CommandProvider
             new Operation(
                 name: 'framework:diff',
                 effects: new EffectProfile(
+                    // 🚨 `None` IS TRUE ONLY BECAUSE THIS READ WAS MADE NOT TO PERSIST, and it took two
+                    // wrong answers to get here. It first declared `None` while caching a release's
+                    // hashes — and `None` means «leaves nothing behind that a LATER RUN could observe»,
+                    // which a file under `storage/` plainly is. Then it declared `Ephemeral`, whose own
+                    // words are «dies with the process». It was neither: it was `Persistent`.
+                    //
+                    // And `Persistent` has a consequence the house enforces — the flag must agree with
+                    // the ceiling, and the flag is what the signature gate reads, so checking for an
+                    // update would have demanded `--sign`. Rather than declare a comfortable falsehood
+                    // or charge a signature for a question, the READ stopped writing: it asks
+                    // `ships(..., cache: false)`. Persisting belongs to the panel's verb, which lives
+                    // behind the panel's own door and does declare it (greenhouse decisions/0296).
                     Mutation::None,
                     // IT ASKS A REGISTRY AND FETCHES A RELEASE. Nothing of this house leaves, but a
                     // third party is asked and its bytes arrive — measured at 567 ms to ask and 1.0 s
@@ -101,10 +113,6 @@ final readonly class FrameworkOperations implements CommandProvider
                     Externality::ThirdParty,
                     Reversibility::NotApplicable,
                     Authority::Read,
-                    // NO SUBJECT, because `EffectProfile` refuses one here and is right to: «an
-                    // operation that changes nothing cannot declare a subject — Mutation::None and
-                    // «data» disagree about whether anything happens». The contract taught me its own
-                    // rule when I gave it `Subject::Data` out of habit.
                     subject: Subject::None,
                 ),
                 description: 'What a newer milpa/framework would do to this house, file by file — asks the registry, writes nothing',
