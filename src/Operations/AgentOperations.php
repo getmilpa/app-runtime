@@ -224,6 +224,38 @@ class AgentOperations implements CommandProvider
                 effects: EffectProfile::readOnly(),
             ),
             new Operation(
+                name: 'agent:model',
+                description: 'Which model this app can actually talk to: what it declared, WHERE that came from, whether the provider answers, and whether it serves the declared model',
+                handler: fn (array $input): array => $this->modelReport((bool) ($input['ask'] ?? true)),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ask' => [
+                            'type' => 'boolean',
+                            'description' => 'Go out on the wire (default). Pass false to read only what was declared, with no request at all',
+                        ],
+                    ],
+                    'required' => [],
+                ],
+                // 🚨 IT READS, AND IT IS NOT `readOnly()`. Reading `readOnly()` here would have been
+                // the honest-looking lie: this operation makes an HTTP request to whatever host the
+                // app declared, so `externality` is `third_party` and not `none`. Every other axis
+                // is a read — nothing mutates, nothing needs undoing — but a house that classified
+                // provider egress as «no externality» would let an agent probe an arbitrary host
+                // under a ceiling that says it touches nobody.
+                //
+                // `--ask=false` is the branch that IS read-only, and it exists because a caller who
+                // only wants «what did this house declare» should not have to pay for a round trip
+                // (greenhouse decisions/0266).
+                effects: new EffectProfile(
+                    mutation: Mutation::None,
+                    externality: Externality::ThirdParty,
+                    reversibility: Reversibility::NotApplicable,
+                    authority: Authority::Read,
+                    subject: Subject::None,
+                ),
+            ),
+            new Operation(
                 name: 'operation:contract',
                 description: 'One operation\'s declared contract, uniform: inputs, effects, preconditions, postconditions, artifacts and what proves a run — read from the declaration, never invented',
                 handler: fn (array $input): array => $this->contractFor($input),
@@ -748,6 +780,70 @@ class AgentOperations implements CommandProvider
      *
      * @return array{ok: bool, reads: bool, total: int, tools: list<array<string, mixed>>, error?: string}
      */
+    /**
+     * WHICH MODEL THIS APP CAN ACTUALLY TALK TO — declared, sourced, and asked.
+     *
+     * Nothing in this framework could answer «is there a reachable model». Every surface READ the
+     * configured name and printed it, so a house whose provider was down looked identical to one
+     * talking happily — and the Desktop's footer resolved its endpoint through a fallback naming a
+     * host that had stopped resolving (greenhouse decisions/0266).
+     *
+     * THE PROVENANCE IS THE HALF NOBODY ASKS FOR AND EVERYBODY NEEDS. «unreachable:
+     * http://llama.local:11438» reads as «start that machine» when the value was never the reader's:
+     * it was a package's fallback, or a stray variable in a shell they forgot. `endpoint_from` turns
+     * the same red into an instruction — declare it, unset the variable that is winning, or start
+     * the host you actually named.
+     *
+     * AND `serves_declared` IS THE ARM NOTHING WAS CHECKING. A provider that answers with a catalogue
+     * lacking the configured model fails every turn AT the provider, and the failure looks like a bug
+     * in the turn. `null` there means the question was never answerable — nothing declared, or
+     * nothing reached — never «answered badly».
+     *
+     * `ask: false` skips the wire entirely. A caller that only wants what the house declared should
+     * not pay for a round trip, and this operation's own profile says why the default does:
+     * `externality: third_party`.
+     *
+     * @return array<string, mixed>
+     */
+    private function modelReport(bool $ask): array
+    {
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $config = $config instanceof Config ? $config : null;
+
+        $out = [
+            'ok' => true,
+            'model' => AgentEndpoint::model($config),
+            'endpoint' => AgentEndpoint::baseUrl($config),
+            'model_from' => AgentEndpoint::modelSource($config),
+            'endpoint_from' => AgentEndpoint::baseUrlSource($config),
+        ];
+
+        if (!$ask) {
+            // Said, not implied: a reader who sees no `reached` must know whether that means
+            // «nothing answered» or «nobody asked».
+            $out['asked'] = false;
+
+            return $out;
+        }
+
+        $out['asked'] = true;
+        $reach = AgentEndpoint::providerReach($config);
+        if ($reach === null) {
+            // Two guards produce the same silence, so it says WHICH it hit: no endpoint to knock on,
+            // or no reader installed to knock with.
+            $out['reached'] = null;
+            $out['models'] = [];
+            $out['serves_declared'] = null;
+            $out['cannot_say'] = $out['endpoint'] === null
+                ? 'no endpoint is declared, so there was nothing to ask'
+                : 'milpa/ai-gateway does not ship a provider reader, so nothing was asked';
+
+            return $out;
+        }
+
+        return $out + $reach;
+    }
+
     /**
      * El catálogo que un agente recibe — y de CUÁL mundo, dicho en voz alta.
      *
