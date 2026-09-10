@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Console;
 
 use Milpa\AppRuntime\Config\MachineOverlay;
+use Milpa\AppRuntime\Config\SecretOverlay;
 use Milpa\AppRuntime\Agent\SurfaceBroadcaster;
 use Milpa\AppRuntime\Agent\SurfaceComposition;
 use Milpa\AppRuntime\Support\Capabilities;
@@ -1262,6 +1263,13 @@ final class Application
         // abre. `.milpa/` es de la máquina — ya guarda la constitución, que un rito escribe y nadie
         // edita a mano. La configuración que cambió por una operación gobernada aterriza ahí al lado.
         $config = MachineOverlay::sobre($config, $this->root);
+        // And the machine's secrets on top of that — LAST, because a credential is the most specific
+        // thing anybody declared and the only one that could not have been declared anywhere else.
+        //
+        // Without this line `provider:declare` writes a key nothing reads: the file lands, the
+        // operation answers «declared», and the turn that needs it still finds no credential. The
+        // web half is the front controller's, one line after its sibling (greenhouse decisions/0267).
+        $config = SecretOverlay::sobre($config, $this->root);
 
         $kernel = Kernel::boot([
             'root' => $this->root,

@@ -108,7 +108,7 @@ final class ConfigOperationsTest extends TestCase
             $proveedor->operations(),
         );
 
-        self::assertSame(['config', 'config:set'], $nombres);
+        self::assertSame(['config', 'provider:declare', 'config:set'], $nombres);
     }
 
     /** Writing one key does not evaporate the sibling nobody mentioned. */
