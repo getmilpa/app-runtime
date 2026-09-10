@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.149.1](https://github.com/getmilpa/app-runtime/compare/v0.149.0...v0.149.1) (2026-09-10)
+
+
+### Bug Fixes
+
+* **security:** provider:declare demands identity, not just a confirm token ([#390](https://github.com/getmilpa/app-runtime/issues/390)) ([0ee20e2](https://github.com/getmilpa/app-runtime/commit/0ee20e23fe62a33309c316d69ca55a9edd316711))
+
 ## [0.149.0](https://github.com/getmilpa/app-runtime/compare/v0.148.0...v0.149.0) (2026-09-10)
 
 
