@@ -80,6 +80,7 @@ final class GateCeremonyComponent implements ComponentDefinitionInterface
     /** Dispatched with the same subject after, its `html` filled — so a plugin can extend without touching this. */
     public const AFTER_RENDER = 'gate.ceremony.after_render';
 
+    /** The ceremony's contract: what a host must hand it, what it holds, and that it takes no live action. */
     public static function contract(): ComponentContract
     {
         return new ComponentContract(
@@ -109,6 +110,14 @@ final class GateCeremonyComponent implements ComponentDefinitionInterface
         );
     }
 
+    /**
+     * The state one act is painted from — an unknown act falls to SIGNING IN, and an empty return
+     * path to the root.
+     *
+     * Signing in is the safe default of the two: it asks for a key the house already recognises and
+     * mints nothing new. Falling to ENROLL would offer to create an identity to somebody whose
+     * request never asked for one. An absent relying party or scope stays empty rather than invented.
+     */
     public function mount(array $props, ComponentContext $context): StateSnapshot
     {
         $kind = \is_string($props['kind'] ?? null) && \in_array($props['kind'], [self::ENROLL, self::SIGNIN], true)
@@ -133,6 +142,13 @@ final class GateCeremonyComponent implements ComponentDefinitionInterface
         );
     }
 
+    /**
+     * Reports an action rather than running one — this component declares none.
+     *
+     * An action would need the live wire, and the wire is exactly what an unauthenticated page
+     * cannot have. Said and not thrown: an action reaching here is a misconfiguration to report,
+     * not an exception to raise inside somebody's request.
+     */
     public function handle(InteractionRequest $request): InteractionResult
     {
         // A component with no actions still implements this, and says so rather than throwing: the

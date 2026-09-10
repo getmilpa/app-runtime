@@ -43,6 +43,7 @@ final class GateCeremonyHtmlRenderer implements ComponentRendererInterface, Decl
     {
     }
 
+    /** HTML only: a ceremony is a page in a browser, never a terminal frame. */
     public function supportsTarget(RenderTarget $target): bool
     {
         return $target === RenderTarget::HTML;
@@ -64,6 +65,12 @@ final class GateCeremonyHtmlRenderer implements ComponentRendererInterface, Decl
         );
     }
 
+    /**
+     * Paints the act the state names, announcing before and after so a plugin can extend it.
+     *
+     * The subject the pair carries is MUTABLE on purpose: `dispatch` returns void, so writing to it
+     * is the only way a subscriber changes the copy or the markup.
+     */
     public function render(ComponentDefinitionInterface $component, RenderRequest $request): RenderResult
     {
         $state = $request->state->data ?? [];
