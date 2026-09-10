@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.150.0](https://github.com/getmilpa/app-runtime/compare/v0.149.2...v0.150.0) (2026-09-10)
+
+
+### Features
+
+* **stack:** a fresh app can see the services its own plugins declared, with no panel ([#394](https://github.com/getmilpa/app-runtime/issues/394)) ([7b87c57](https://github.com/getmilpa/app-runtime/commit/7b87c5714b2904e7198ee4706a46cc25387c7884))
+
 ## [0.149.2](https://github.com/getmilpa/app-runtime/compare/v0.149.1...v0.149.2) (2026-09-10)
 
 
