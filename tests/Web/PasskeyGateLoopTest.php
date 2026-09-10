@@ -80,7 +80,15 @@ final class PasskeyGateLoopTest extends TestCase
         $page = $http->handle($this->browserGet('/webauthn/signin?next=' . rawurlencode('/milpa/admin?tab=routes')));
         self::assertSame(200, $page->getStatusCode());
         self::assertStringContainsString('scope: <code>milpa.admin</code>', (string) $page->getBody());
-        self::assertStringContainsString('const NEXT = "/milpa/admin?tab=routes";', (string) $page->getBody());
+        // The validated `next` reaches the browser as DATA, not as JavaScript source the server wrote
+        // (greenhouse decisions/0263) — read back through the tag the ceremony's module reads.
+        self::assertSame(
+            '/milpa/admin?tab=routes',
+            json_decode(
+                (string) preg_replace('#.*<script type="application/json" id="milpa-gate-ceremony">(.*?)</script>.*#s', '$1', (string) $page->getBody()),
+                true,
+            )['next'],
+        );
 
         // (b) Register the key through the HTTP door.
         $opt = $this->json($http->handle(new ServerRequest('POST', '/webauthn/register/options')));

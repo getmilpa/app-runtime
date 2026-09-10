@@ -120,7 +120,7 @@ final class PasskeyPluginTest extends TestCase
         $plugin = new PasskeyPlugin($container);
         $plugin->boot();
 
-        self::assertCount(13, $plugin->routes(), 'the routes mount without a host-registered store — nine for the ceremony, four for what it wears: tokens, faces stylesheet, the faces and the wordmark (greenhouse decisions/0243)');
+        self::assertCount(14, $plugin->routes(), 'the routes mount without a host-registered store — nine for the ceremony, five for what it wears: tokens, faces stylesheet, the faces, the wordmark (greenhouse decisions/0243) and the ceremony component own two files under one route (decisions/0263)');
         self::assertTrue($container->has(SessionStore::class));
         $store = $container->get(SessionStore::class);
         self::assertInstanceOf(FileSessionStore::class, $store);
@@ -195,7 +195,7 @@ final class PasskeyPluginTest extends TestCase
         $plugin->boot();
 
         $routes = $plugin->routes();
-        self::assertCount(13, $routes);
+        self::assertCount(14, $routes);
         $paths = array_map(static fn (Route $r): string => $r->path, $routes);
         // The house's vocabulary, on the same prefix and not behind the gate: these pages are how
         // somebody GETS a session (greenhouse decisions/0243).

@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Web;
 
+use Milpa\Interfaces\Event\MilpaEventDispatcherInterface;
 use Milpa\AppRuntime\Agent\PasskeyIntentAdmission;
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
 use Milpa\AppRuntime\Web\Controllers\PasskeyController;
@@ -187,7 +188,7 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
         $this->rpId = $rpId;
         $this->container->registerService(
             PasskeyController::class,
-            new PasskeyController($authenticator, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $registered, $enrollments, $rpId, $cookie, $scope, $attachment),
+            new PasskeyController($authenticator, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $registered, $enrollments, $rpId, $cookie, $scope, $attachment, $this->dispatcher()),
         );
 
         // THE GATE (decisions/0206): registered under its own class name so a panel can NAME it in
@@ -220,6 +221,22 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
         );
     }
 
+    /**
+     * The house's dispatcher, or null.
+     *
+     * `instanceof` AFTER the get, never `has()` alone: this container's `has()` also answers true for
+     * anything it could auto-wire, so probing by name is a question that cannot say no. Same shape as
+     * {@see \Milpa\AppRuntime\Support\Events::catalogue()}.
+     */
+    private function dispatcher(): ?MilpaEventDispatcherInterface
+    {
+        $found = $this->container->has(MilpaEventDispatcherInterface::class)
+            ? $this->container->get(MilpaEventDispatcherInterface::class)
+            : null;
+
+        return $found instanceof MilpaEventDispatcherInterface ? $found : null;
+    }
+
     /** The login, sign-in, enrollment and intent routes, once booted — otherwise none. */
     public function routes(): array
     {
@@ -248,6 +265,10 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
             // type plus CSS tricks, and pasting it into the heredoc would be the fourth copy that
             // decisions/0243 refused.
             new Route(path: '/webauthn/milpa-wordmark.svg', methods: HttpMethod::GET, name: 'passkey.wordmark', handler: new HandlerReference(PasskeyController::class, 'tokens')),
+            // The ceremony component's own two files. Same admission as every asset above, and for
+            // the same reason: a `<link>` or a `<script>` answered with a 401 breaks a page in
+            // silence, and this is the page somebody uses to GET the session a gate would ask for.
+            new Route(path: '/webauthn/assets/{file}', methods: HttpMethod::GET, name: 'passkey.ceremony.asset', handler: new HandlerReference(PasskeyController::class, 'ceremonyAsset')),
             new Route(path: '/webauthn/intent/options', methods: HttpMethod::POST, name: 'passkey.intent.options', handler: new HandlerReference(PasskeyIntentController::class, 'intentOptions')),
             new Route(path: '/webauthn/intent/admit', methods: HttpMethod::POST, name: 'passkey.intent.admit', handler: new HandlerReference(PasskeyIntentController::class, 'intentAdmit')),
             new Route(path: '/webauthn/intent', methods: HttpMethod::GET, name: 'passkey.intent.page', handler: new HandlerReference(PasskeyIntentController::class, 'page')),

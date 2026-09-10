@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tests\Web;
 
+use Milpa\AppRuntime\Web\Live\GateCeremonyAssets;
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
 use Milpa\AppRuntime\Identity\IdentityEnrolled;
 use Milpa\AppRuntime\Web\Controllers\PasskeyController;
@@ -60,14 +61,29 @@ final class PasskeyControllerTest extends TestCase
         $body = (string) $res->getBody();
         self::assertSame(200, $res->getStatusCode());
         self::assertStringContainsString('text/html', $res->getHeaderLine('Content-Type'));
-        self::assertStringContainsString('navigator.credentials.create', $body);
-        self::assertStringContainsString('/webauthn/register', $body);
-        // The ceremony prefers a roaming security key (a YubiKey) with a real user-verification gesture
-        // (greenhouse evidence/0486): cross-platform attachment, user verification required.
-        self::assertStringContainsString("authenticatorAttachment: 'cross-platform'", $body);
-        self::assertStringContainsString("userVerification: 'required'", $body);
+        // WHERE THE CEREMONY LIVES NOW. The page declares the module and carries the server's choices
+        // as DATA; the ceremony itself is in the file the module route serves. Asserting it through
+        // `GateCeremonyAssets` proves the route serves what the page asked for, which the old
+        // in-page assertions could not (greenhouse decisions/0263).
+        self::assertStringContainsString('src="/webauthn/assets/gate-ceremony.js"', $body);
+        $module = self::ceremonyModule();
+        self::assertStringContainsString('navigator.credentials.create', $module);
+        self::assertStringContainsString('/webauthn/register', $module);
+        // 🚨 THIS ASSERTION USED TO CLAIM THE OPPOSITE, AND WAS GREEN. It read
+        // `assertStringContainsString("authenticatorAttachment: 'cross-platform'", $body)` under a
+        // comment saying the ceremony «prefers a roaming security key» — and it passed because that
+        // exact string appeared ONCE in the page: inside a JavaScript COMMENT explaining that the
+        // hardcoded value had been REMOVED (greenhouse decisions/0244 made it each house's
+        // declaration, absent by default). Grepping prose cannot fail for the right reason
+        // (decisions/0261), and here it asserted the reverse of what shipped (decisions/0263).
+        //
+        // What is true: the ceremony asks for a real user-verification gesture, and names NO
+        // authenticator unless the house declared one.
+        self::assertNull(self::ceremonyFacts($body)['attachment'], 'no house declaration, no attachment named');
+        self::assertStringContainsString("userVerification: 'required'", $module);
         // An extension that replaced the WebAuthn API is named before the ceremony waits on it (greenhouse evidence/0519).
-        self::assertStringContainsString('has replaced navigator.credentials.create', $body);
+        self::assertStringContainsString("warnIfReplaced(navigator.credentials.create, 'create')", $module);
+        self::assertStringContainsString('has replaced navigator.credentials.', $module);
         // THE LINE THAT HAS TO SURVIVE THIS SCREEN (greenhouse decisions/0260). Rod, cutting the lede
         // down: «eso último es la única doctrina que necesita sobrevivir en esta pantalla». Somebody
         // arriving here is about to touch a key; what changes their expectations is that touching it
@@ -105,6 +121,19 @@ final class PasskeyControllerTest extends TestCase
         $body = json_decode((string) $controller->options(new ServerRequest('POST', '/webauthn/authenticate/options'))->getBody(), true);
 
         self::assertSame([], $body['allowCredentials']);
+    }
+
+    public function testAHouseThatDeclaresAnAuthenticatorSendsItToTheCeremonyAsData(): void
+    {
+        // The half of `decisions/0244` the suite never covered: absent is the default AND a house
+        // that wants hardware only gets exactly the old behaviour back. It reaches the ceremony as a
+        // JSON value now — the shape it replaced spliced it into an object literal as raw source,
+        // which is only safe while somebody upstream validates it.
+        [$controller] = $this->controller(recognized: true, attachment: 'cross-platform');
+
+        $body = (string) $controller->enrollPage(new ServerRequest('GET', '/webauthn/enroll'))->getBody();
+
+        self::assertSame('cross-platform', self::ceremonyFacts($body)['attachment']);
     }
 
     /** `POST /webauthn/register` is open: a registered key nobody enrolled must not bloat the sign-in list. */
@@ -147,18 +176,25 @@ final class PasskeyControllerTest extends TestCase
         self::assertStringNotContainsString('panel', $visible, 'the gate guards whatever the app put behind it');
         self::assertStringContainsString('Continue with a passkey', $body);
         self::assertStringContainsString('scope: <code>milpa.admin</code>', $body);
-        self::assertStringContainsString('const NEXT = "/milpa/admin?tab=routes";', $body);
-        self::assertStringContainsString('/webauthn/authenticate/options', $body);
-        self::assertStringContainsString('allowCredentials: allow', $body);
-        self::assertStringContainsString("userVerification: 'required'", $body);
-        self::assertStringContainsString('navigator.credentials.get', $body);
-        self::assertStringContainsString("fetch('/webauthn/authenticate'", $body);
-        self::assertStringContainsString('location.replace(NEXT)', $body);
-        self::assertStringContainsString('Not enrolled', $body, 'an empty allowCredentials is said, not swallowed');
-        self::assertStringContainsString('Passkey rejected', $body);
+        self::assertSame('/milpa/admin?tab=routes', self::ceremonyFacts($body)['next']);
+        self::assertStringContainsString('src="/webauthn/assets/gate-ceremony.js"', $body);
+        self::assertSame('signin', self::ceremonyFacts($body)['kind'], 'and the module is told which act to run');
+        $module = self::ceremonyModule();
+        self::assertStringContainsString('/webauthn/authenticate/options', $module);
+        self::assertStringContainsString('allowCredentials: allow', $module);
+        self::assertStringContainsString("userVerification: 'required'", $module);
+        self::assertStringContainsString('navigator.credentials.get', $module);
+        self::assertStringContainsString("fetch('/webauthn/authenticate'", $module);
+        self::assertStringContainsString('location.replace(NEXT)', $module);
+        self::assertStringContainsString('Not enrolled', $module, 'an empty allowCredentials is said, not swallowed');
+        self::assertStringContainsString('Passkey rejected', $module);
         // A password-manager extension that replaced navigator.credentials.get swallowed a real ceremony
         // (greenhouse evidence/0519): the page says so before it waits on the call.
-        self::assertStringContainsString('has replaced navigator.credentials.get', $body);
+        // One parameterised sentence now serves both acts — `'navigator.credentials.' + name` — so the
+        // literal act name is no longer in the source. The property is unchanged and asserted where
+        // it lives: the warning exists, and the act that uses it is passed in.
+        self::assertStringContainsString("warnIfReplaced(navigator.credentials.get, 'get')", $module);
+        self::assertStringContainsString('has replaced navigator.credentials.', $module);
     }
 
     public function testTheSignInPageShowsTheScopeItWasConfiguredWith(): void
@@ -185,7 +221,7 @@ final class PasskeyControllerTest extends TestCase
 
         $body = (string) $controller->signinPage((new ServerRequest('GET', '/webauthn/signin'))->withQueryParams(['next' => $next]))->getBody();
 
-        self::assertStringContainsString('const NEXT = "/";', $body, 'the foreign target fell back to the root');
+        self::assertSame('/', self::ceremonyFacts($body)['next'], 'the foreign target fell back to the root');
         self::assertStringNotContainsString($next, $body);
     }
 
@@ -195,11 +231,11 @@ final class PasskeyControllerTest extends TestCase
 
         // A bare PSR-7 request carries the query only in its URI.
         $body = (string) $controller->signinPage(new ServerRequest('GET', '/webauthn/signin?next=%2Fmilpa%2Fadmin'))->getBody();
-        self::assertStringContainsString('const NEXT = "/milpa/admin";', $body);
+        self::assertSame('/milpa/admin', self::ceremonyFacts($body)['next']);
 
         // No next at all: the root.
         $body = (string) $controller->signinPage(new ServerRequest('GET', '/webauthn/signin'))->getBody();
-        self::assertStringContainsString('const NEXT = "/";', $body);
+        self::assertSame('/', self::ceremonyFacts($body)['next']);
     }
 
     public function testTheSignInPageEscapesNextAgainstScriptBreakout(): void
@@ -212,7 +248,11 @@ final class PasskeyControllerTest extends TestCase
         // The value survives (it IS a local path) but every angle bracket is a JSON escape, so the
         // literal can never close the script element it lives in.
         self::assertStringNotContainsString('</script><script>alert', $body);
-        self::assertStringContainsString('const NEXT = "/x\\u003C/script\\u003E\\u003Cscript\\u003Ealert(1)\\u003C/script\\u003E";', $body);
+        // It used to live inside a JS string literal the server built; it lives in a
+        // `type="application/json"` tag now, and the property is the same one — proven where the
+        // value actually is, not where it used to be (greenhouse decisions/0263).
+        self::assertStringContainsString('\\u003C/script\\u003E', $body, 'the angle brackets are escaped in the tag');
+        self::assertSame($next, self::ceremonyFacts($body)['next'], 'and it decodes back to exactly what came in');
     }
 
     public function testARecognizedAssertionMintsASessionCookie(): void
@@ -345,8 +385,8 @@ final class PasskeyControllerTest extends TestCase
             ? $controller->enrollPage(new ServerRequest('GET', '/webauthn/enroll'))
             : $controller->signinPage(new ServerRequest('GET', '/webauthn/signin')))->getBody();
 
-        $scripts = self::inlineScripts($body);
-        self::assertNotSame([], $scripts, "$page ships no inline script at all");
+        $scripts = self::everyScriptThePageRuns($body);
+        self::assertNotSame([], $scripts, "$page causes no script to run at all");
 
         // THE ANTI-BLIND-SPOT ASSERTION: the ceremony itself is what the browser runs when the human
         // touches the key, so the check has to have seen it. Without this, a page can grow a script
@@ -360,6 +400,46 @@ final class PasskeyControllerTest extends TestCase
         foreach ($scripts as $index => $script) {
             self::assertScriptParses($page . " script #$index", $script, $this->files);
         }
+    }
+
+    /**
+     * The ceremony's module, as the route serves it.
+     *
+     * Read through {@see GateCeremonyAssets} rather than from a path this test spells out: if the
+     * package stops shipping the file the declaration names, this returns nothing and every
+     * assertion over it fails — which is the failure a `<script src>` 404 would otherwise cause in
+     * a browser, in silence.
+     */
+    private static function ceremonyModule(): string
+    {
+        $file = GateCeremonyAssets::path(GateCeremonyAssets::MODULE);
+        self::assertNotNull($file, 'the package ships the module its pages declare');
+
+        return (string) file_get_contents($file);
+    }
+
+    /**
+     * What the server chose for this page, read back from the tag the ceremony's module reads.
+     *
+     * The values used to be interpolated into JavaScript source and the assertions pinned the source
+     * — `const NEXT = "…";`, byte for byte. They live in a `type="application/json"` tag now, so the
+     * assertions ask the same questions of the same values where they actually are. That is stricter,
+     * not looser: a JSON tag with HEX_TAG escaping cannot be closed by a value, and this decodes it
+     * rather than matching text that happens to look right.
+     *
+     * @return array<string, mixed>
+     */
+    private static function ceremonyFacts(string $html): array
+    {
+        self::assertSame(
+            1,
+            preg_match('#<script type="application/json" id="milpa-gate-ceremony">(.*?)</script>#s', $html, $m),
+            'the page ships exactly one ceremony facts tag',
+        );
+        $read = json_decode($m[1], true);
+        self::assertIsArray($read, 'the facts tag holds a JSON object');
+
+        return $read;
     }
 
     /**
@@ -429,11 +509,24 @@ final class PasskeyControllerTest extends TestCase
                 continue;
             }
             if ($c === "'" || $c === '"') {
-                // A quote inside a `// …` comment opens nothing; skip the rest of that line.
                 $quote = $c;
             } elseif ($c === '/' && ($script[$i + 1] ?? '') === '/') {
+                // A quote inside a `// …` comment opens nothing; skip the rest of that line.
                 $nl = strpos($script, "\n", $i);
                 $i = $nl === false ? $len : $nl - 1;
+            } elseif ($c === '/' && ($script[$i + 1] ?? '') === '*') {
+                // NOR INSIDE A BLOCK COMMENT, and this cost a red on a correct file: the module's
+                // own opening note says «THE CEREMONY'S OWN MODULE», and that apostrophe read as an
+                // unterminated string two lines in. `node --check` said the file was fine. Every
+                // blind spot this lexer has is a shape the code it reads had not taken yet — which
+                // is the argument for the real parser below, and why this one is only the fallback
+                // for a box without node (greenhouse decisions/0263).
+                $close = strpos($script, '*/', $i + 2);
+                if ($close === false) {
+                    self::fail("$what: a block comment is never closed");
+                }
+                $line += substr_count(substr($script, $i, $close - $i), "\n");
+                $i = $close + 1;
             }
         }
         self::assertNull($quote, "$what: the script ends inside an unterminated string");
@@ -470,7 +563,7 @@ final class PasskeyControllerTest extends TestCase
     // --- helpers ---
 
     /** @return array{0: PasskeyController, 1: PasskeyAuthenticator, 2: \OpenSSLAsymmetricKey, 3: InMemorySessionStore, 4: ChallengeStore, 5: FilePasskeyCredentialStore} */
-    private function controller(bool $recognized, bool $registerCred = true, string $gateScope = 'milpa.admin'): array
+    private function controller(bool $recognized, bool $registerCred = true, string $gateScope = 'milpa.admin', ?string $attachment = null): array
     {
         $dir = sys_get_temp_dir() . '/milpa-pkc-' . bin2hex(random_bytes(4));
         $this->files[] = $dir . '-ch.json';
@@ -497,7 +590,7 @@ final class PasskeyControllerTest extends TestCase
         if ($recognized && $registerCred) {
             $enrollments->record(new IdentityEnrolled(self::CRED, ['agent:read'], 'key:TEST'));
         }
-        $controller = new PasskeyController($auth, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $registered, $enrollments, self::RP_ID, self::COOKIE, $gateScope);
+        $controller = new PasskeyController($auth, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $registered, $enrollments, self::RP_ID, self::COOKIE, $gateScope, $attachment);
 
         return [$controller, $auth, $key, $sessions, $challenges, $credentials];
     }
@@ -617,5 +710,33 @@ final class PasskeyControllerTest extends TestCase
         }
 
         return \chr($mt | 25) . pack('n', $value);
+    }
+
+    /**
+     * EVERY script this page causes a browser to run: what it carries inline, and every file it
+     * points at that THIS PACKAGE serves.
+     *
+     * The ceremony moved out of the document and into `gate-ceremony.js` in this same slice, and a
+     * check that only reads inline blocks would have gone quietly green over an empty set — which is
+     * precisely how the sign-in ceremony went unchecked before (greenhouse decisions/0263). So the
+     * check follows the ceremony instead of pinning where it used to be. A `src` this package does
+     * not ship is somebody else's file and is not this suite's to parse.
+     *
+     * @return list<string>
+     */
+    private static function everyScriptThePageRuns(string $html): array
+    {
+        $scripts = self::inlineScripts($html);
+        if (preg_match_all('#<script\b[^>]*\bsrc\s*=\s*["\']([^"\']+)["\'][^>]*>#i', $html, $srcs) === false) {
+            return $scripts;
+        }
+        foreach ($srcs[1] as $url) {
+            $file = GateCeremonyAssets::path(basename((string) parse_url($url, \PHP_URL_PATH)));
+            if ($file !== null) {
+                $scripts[] = (string) file_get_contents($file);
+            }
+        }
+
+        return $scripts;
     }
 }
