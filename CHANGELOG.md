@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.149.2](https://github.com/getmilpa/app-runtime/compare/v0.149.1...v0.149.2) (2026-09-10)
+
+
+### Bug Fixes
+
+* **security:** four operations that demanded consent declared nothing a policy could judge ([#392](https://github.com/getmilpa/app-runtime/issues/392)) ([d5cabcc](https://github.com/getmilpa/app-runtime/commit/d5cabcc47cc75239c1498c358c6bd9e2eea2434b))
+
 ## [0.149.1](https://github.com/getmilpa/app-runtime/compare/v0.149.0...v0.149.1) (2026-09-10)
 
 
