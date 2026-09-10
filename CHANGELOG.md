@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [0.146.0](https://github.com/getmilpa/app-runtime/compare/v0.145.2...v0.146.0) (2026-09-10)
+
+
+### Features
+
+* **web:** the passkey ceremony is composed of Milpa Components ([#381](https://github.com/getmilpa/app-runtime/issues/381)) ([24837ae](https://github.com/getmilpa/app-runtime/commit/24837ae8edd307b2b01277f1be522cd5080842ff))
+
+
+### Bug Fixes
+
+* **tests:** parse EVERY inline script a ceremony page ships, not the first one ([#379](https://github.com/getmilpa/app-runtime/issues/379)) ([61ab710](https://github.com/getmilpa/app-runtime/commit/61ab7106e6c91b18fa115335b2833c256dad1222))
+
 ## [0.145.2](https://github.com/getmilpa/app-runtime/compare/v0.145.1...v0.145.2) (2026-09-09)
 
 
