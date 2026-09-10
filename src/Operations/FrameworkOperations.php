@@ -46,6 +46,12 @@ use Milpa\Command\Operation;
 final readonly class FrameworkOperations implements CommandProvider
 {
     /**
+     * The three framework operations this group contributes to the registry.
+     *
+     * Returned rather than self-registered, like every other group here: whoever assembles the registry
+     * decides which groups enter and with what authority, and a group that registered itself would take
+     * that decision away.
+     *
      * @return list<Operation>
      */
     public function operations(): array

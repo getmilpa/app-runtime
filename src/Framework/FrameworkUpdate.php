@@ -30,6 +30,12 @@ namespace Milpa\AppRuntime\Framework;
 final class FrameworkUpdate
 {
     /**
+     * What this house was born from and which of the files it received have changed since.
+     *
+     * Needs no network: the birth record is on disk and hashing the tree is local. Absent a record it
+     * still answers with zeros — next to the sentence that says they mean nothing, because «nothing
+     * changed» and «I cannot say» are different answers (greenhouse decisions/0293).
+     *
      * @return array<string, mixed>
      */
     public static function provenance(string $root): array
@@ -63,6 +69,11 @@ final class FrameworkUpdate
     }
 
     /**
+     * What a release would do to this house, file by file — and nothing about what it would take.
+     *
+     * `$version` omitted means «the newest published», which is the one branch here that reaches the
+     * registry. Given a version, the answer comes from the per-release cache alone.
+     *
      * @return array<string, mixed>
      */
     public static function diff(string $root, ?string $version): array
