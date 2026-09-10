@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Tests\Operations;
 
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Operation;
+use Milpa\Console\Consent;
 use Milpa\Container\DIContainer;
 use PHPUnit\Framework\TestCase;
 
@@ -98,7 +99,20 @@ final class ConsentDemandsIdentityTest extends TestCase
         }
 
         foreach ($built->operations() as $op) {
-            if (!$op instanceof Operation || !$op->requiresConfirmation) {
+            if (!$op instanceof Operation) {
+                continue;
+            }
+            // 🚨 ASKED OF `Consent`, NOT READ OFF THE FLAG — and that was this test's third defect.
+            //
+            // It read `requiresConfirmation`, so it never looked at `config:set`, whose consent is not
+            // declared but DERIVED: rule S2 over the ceiling it borrows from the catalogue. The CLI
+            // demanded `--sign` for it while this test said nothing, and two same-origin POSTs with no
+            // session redirected `agent.baseUrl` — where every prompt the agent sends goes
+            // (greenhouse decisions/0278).
+            //
+            // A check that re-derives a decision another component owns will drift from it. `Consent`
+            // is that owner; the CLI asks it, so this asks it.
+            if (!Consent::demanded($op)) {
                 continue;
             }
             if ($op->scopes !== [] || $op->permission !== null) {
@@ -125,7 +139,7 @@ final class ConsentDemandsIdentityTest extends TestCase
         $consenting = [];
         foreach (self::providers() as [$provider]) {
             foreach ($this->build($provider)?->operations() ?? [] as $op) {
-                if ($op instanceof Operation && $op->requiresConfirmation) {
+                if ($op instanceof Operation && Consent::demanded($op)) {
                     $consenting[] = $op->name;
                 }
             }

@@ -273,6 +273,23 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
                 // cannot carry `Mutation::None` no matter how gentle the catalogue is. Joining also
                 // keeps the loan monotone: it can only raise this ceiling, never excuse it, which is
                 // what makes borrowing safe at all (GOV-14).
+                // 🚨 THE SCOPE, AND ITS ABSENCE LET SOMEBODY REDIRECT WHERE THE AGENT TALKS. Measured
+                // on cattle WITH an `OperationHttpPolicy` registered: two same-origin POSTs with no
+                // session, no principal and no signature set `agent.baseUrl` — so every prompt and
+                // every piece of context the agent sends would go to the caller's server
+                // (greenhouse decisions/0278).
+                //
+                // A POLICY CAN ONLY JUDGE WHAT AN OPERATION DECLARES. This one declared nothing to
+                // judge: its consent is not a flag but a DERIVATION — rule S2 over the ceiling it
+                // borrows from the catalogue — so the CLI demanded `--sign` while the HTTP surface
+                // handed out a confirm token and the policy had no scope to match. An operation that
+                // demands consent and declares no scope is UNJUDGEABLE, and a policy being present
+                // does not change that.
+                //
+                // `config:write` and not `config:set`: the scope names the ACT, and the same authority
+                // should gate any operation that writes this app's configuration rather than one
+                // command's spelling.
+                scopes: ['config:write'],
                 effects: $ceilingOfSet,
             ),
         ];

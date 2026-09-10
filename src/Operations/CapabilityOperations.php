@@ -255,6 +255,17 @@ final readonly class CapabilityOperations implements CommandProvider
                 // HTTP joins the surfaces now that it carries the grant (greenhouse decisions/0193): the
                 // runner enforces the same verdict on every surface, and the confirm gate + same-origin
                 // passkey intent ceremony present the consent over HTTP — see the class docblock.
+                // 🚨 THE SCOPE, AND ITS ABSENCE IS WHAT THIS OPERATION'S OWN CLIENT MODULE WARNED
+                // ABOUT. `desktop-capabilities.js` says it in as many words: «the confirm token is the
+                // ONLY thing between a same-origin request and a `composer require` on the host — the
+                // door answers a 428 and then a 201 with no session at all. That is the runtime's to
+                // fix; this module cannot.» It was right, and it stayed right: the runtime closed that
+                // shape for operations that DECLARE a scope, and this one declared none
+                // (greenhouse decisions/0278).
+                //
+                // A policy can only judge what an operation declares. This one installs a package —
+                // it changes WHICH CODE WILL RUN — so what it declares had better be judgeable.
+                scopes: ['capabilities:enable'],
                 surfaces: ['cli', 'tui', 'mcp', 'http'],
 
                 // THE DECLARED CONTRACT (greenhouse decisions/0183): each condition below is one the
@@ -321,6 +332,11 @@ final readonly class CapabilityOperations implements CommandProvider
                 // conclusión propia. Si la petición no nombra el paquete, la llamada se detiene y
                 // escala.
                 namedTarget: 'package',
+                // The same scope as `capabilities:enable`: repair reinstalls what a capability
+                // needs, so it changes which code will run and its consent is derived from that
+                // ceiling. It opts into no http surface today; the scope is what keeps this judgeable
+                // if it ever does (greenhouse decisions/0278).
+                scopes: ['capabilities:enable'],
                 surfaces: ['cli', 'tui', 'mcp'],
             )] : []),
         ];
