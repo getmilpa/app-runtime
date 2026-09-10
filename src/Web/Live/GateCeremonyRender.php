@@ -28,11 +28,14 @@ namespace Milpa\AppRuntime\Web\Live;
 final class GateCeremonyRender
 {
     /**
+     * There is no `kind` field, deliberately: it would be a second copy of `facts['kind']`, which a
+     * subscriber already reads. A piece built and not wired is debt that looks like a capability
+     * (greenhouse decisions/0213), and the house's inventory gate caught this one the same day.
+     *
      * @param array<string, mixed> $copy  the act's words, as {@see GateCeremonyComponent::copy()} returns them
-     * @param array<string, mixed> $facts what the ceremony's module will be handed as JSON
+     * @param array<string, mixed> $facts what the ceremony's module will be handed as JSON, `kind` included
      */
     public function __construct(
-        public string $kind,
         public array $copy,
         public array $facts,
         public string $markHtml = '',

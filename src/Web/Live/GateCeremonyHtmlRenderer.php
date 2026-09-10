@@ -72,7 +72,6 @@ final class GateCeremonyHtmlRenderer implements ComponentRendererInterface, Decl
         $scope = \is_string($state['scope'] ?? null) ? (string) $state['scope'] : '';
 
         $subject = new GateCeremonyRender(
-            kind: $kind,
             copy: GateCeremonyComponent::copy($kind),
             facts: [
                 'kind' => $kind,
