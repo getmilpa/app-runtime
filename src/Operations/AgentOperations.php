@@ -829,14 +829,31 @@ class AgentOperations implements CommandProvider
         $out['asked'] = true;
         $reach = AgentEndpoint::providerReach($config);
         if ($reach === null) {
-            // Two guards produce the same silence, so it says WHICH it hit: no endpoint to knock on,
-            // or no reader installed to knock with.
+            // 🚨 THREE guards produce the same silence, and this said TWO — so one of them answered
+            // with the wrong cause and sent whoever read it to fix the wrong thing.
+            //
+            // It said «milpa/ai-gateway does not ship a provider reader», which blames the package's
+            // VERSION. The guard is `class_exists(ProviderReach::class)`, false both when the package
+            // is too old AND when it is simply NOT INSTALLED — and absent is the likelier of the two.
+            // Measured: an app with a reachable endpoint and no ai-gateway was told its ai-gateway was
+            // out of date; installing it made `agent:model --ask` return the models at once
+            // (greenhouse decisions/0281, closed in decisions/0286).
+            //
+            // A diagnostic that names the wrong cause is worse than one that says «I cannot say»: the
+            // second sends you looking, the first sends you somewhere.
+            //
+            // 🚨 AND THE FIRST INSTRUMENT I REACHED FOR WAS THE WRONG ONE. `Capabilities::installed()`
+            // looks up declared CAPABILITY ids, not composer packages: measured, it answers `false` for
+            // `milpa/ai-gateway` on an app where the package IS installed and `ProviderReach` DOES
+            // exist. `InstalledVersions` is what answers «is this package here».
             $out['reached'] = null;
             $out['models'] = [];
             $out['serves_declared'] = null;
-            $out['cannot_say'] = $out['endpoint'] === null
-                ? 'no endpoint is declared, so there was nothing to ask'
-                : 'milpa/ai-gateway does not ship a provider reader, so nothing was asked';
+            $out['cannot_say'] = match (true) {
+                $out['endpoint'] === null => 'no endpoint is declared, so there was nothing to ask',
+                !\Composer\InstalledVersions::isInstalled('milpa/ai-gateway') => 'milpa/ai-gateway is not installed, so nothing can ask the provider — `coa capabilities:enable milpa/ai-gateway --sign`',
+                default => 'milpa/ai-gateway is installed but ships no provider reader, so nothing was asked — it predates the one that does',
+            };
 
             return $out;
         }

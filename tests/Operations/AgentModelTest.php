@@ -180,4 +180,36 @@ final class AgentModelTest extends TestCase
 
         self::fail('agent:model is not declared');
     }
+
+    /**
+     * 🚨 THE THIRD SILENCE HAD THE WRONG NAME ON IT, and this is the test that would have caught it.
+     *
+     * `providerReach()` returns null on three different facts and `cannot_say` named two. The missing
+     * one answered with the OTHER one's sentence: an app with a reachable endpoint and no
+     * `milpa/ai-gateway` was told «milpa/ai-gateway does not ship a provider reader» — a claim about
+     * the package's VERSION, when the package was simply absent. Measured while building the model
+     * list: installing it made the models appear at once (greenhouse decisions/0281, decisions/0286).
+     *
+     * A diagnostic that names the wrong cause is worse than one that says «I cannot say»: the second
+     * sends you looking, the first sends you somewhere.
+     *
+     * This asserts the two sentences a running suite CAN reach — the endpoint-absent one, and that the
+     * absent-package one names installing rather than a version — because the suite runs with
+     * `milpa/ai-gateway` in `require-dev`, so the third branch is unreachable from here by
+     * construction. Saying which of the three a test cannot reach is the honest half of a census.
+     */
+    public function testEachSilenceNamesItsOwnCause(): void
+    {
+        $source = (string) file_get_contents(\dirname(__DIR__, 2) . '/src/Operations/AgentOperations.php');
+
+        self::assertStringContainsString("is not installed, so nothing can ask the provider", $source, 'the absent package names installing');
+        self::assertStringContainsString('capabilities:enable milpa/ai-gateway --sign', $source, 'and the way out is a command');
+        self::assertStringContainsString('is installed but ships no provider reader', $source, 'the old sentence survives for the case it was actually about');
+        self::assertStringNotContainsString("'milpa/ai-gateway does not ship a provider reader", $source, 'and never as the answer for an absent package');
+        // The instrument, asserted because I reached for the wrong one first: `Capabilities::installed()`
+        // looks up capability ids, not composer packages, and answers false for a package that IS here.
+        self::assertStringContainsString("InstalledVersions::isInstalled('milpa/ai-gateway')", $source);
+        self::assertFalse(\Milpa\AppRuntime\Support\Capabilities::installed('milpa/ai-gateway'), 'the wrong instrument, kept as the reason the right one is named');
+        self::assertTrue(\Composer\InstalledVersions::isInstalled('milpa/ai-gateway'), 'the right one');
+    }
 }
