@@ -14,11 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Operations;
 
-use Milpa\AppRuntime\Framework\FrameworkApply;
-use Milpa\AppRuntime\Framework\FrameworkDivergence;
-use Milpa\AppRuntime\Framework\FrameworkReconciliation;
-use Milpa\AppRuntime\Framework\FrameworkRelease;
-use Milpa\AppRuntime\Framework\FrameworkStamp;
+use Milpa\AppRuntime\Framework\FrameworkUpdate;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Effect\Authority;
@@ -36,6 +32,11 @@ use Milpa\Command\Operation;
  * «update the framework» is not a composer update. It needs three points — born, now, ships — and
  * `.milpa/framework.json` is what makes the first knowable at all (greenhouse decisions/0291, 0293,
  * 0294).
+ *
+ * This class DECLARES and delegates: everything that decides takes a `$root` and lives in
+ * {@see FrameworkUpdate}, because `CommandProvider` fixes this constructor to no arguments and
+ * `Capabilities::raizDeLaApp()` asks Composer — so a decider written here could never be pointed at a
+ * fixture house, and the coverage floor said so.
  *
  * These are OPERATIONS and not panel routes because applying one is a governed act: it writes source
  * files that will run inside this house. An operation is the trunk — the same declaration reaches the
@@ -67,7 +68,7 @@ final readonly class FrameworkOperations implements CommandProvider
                     subject: Subject::None,
                 ),
                 description: 'Which milpa/framework this house was born from, and which of the files it received have changed since',
-                handler: fn (array $input): array => $this->provenance(),
+                handler: static fn (array $input): array => FrameworkUpdate::provenance(Capabilities::raizDeLaApp()),
                 inputSchema: ['type' => 'object', 'properties' => [], 'additionalProperties' => false],
                 outputSchema: [
                     'type' => 'object',
@@ -101,7 +102,7 @@ final readonly class FrameworkOperations implements CommandProvider
                     subject: Subject::None,
                 ),
                 description: 'What a newer milpa/framework would do to this house, file by file — asks the registry, writes nothing',
-                handler: fn (array $input): array => $this->diff($input),
+                handler: static fn (array $input): array => FrameworkUpdate::diff(Capabilities::raizDeLaApp(), \is_string($input['version'] ?? null) ? $input['version'] : null),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
@@ -135,7 +136,7 @@ final readonly class FrameworkOperations implements CommandProvider
                     subject: Subject::Executable,
                 ),
                 description: 'Take the files a newer milpa/framework changed that this house did not — never the ones it customized',
-                handler: fn (array $input): array => $this->apply($input),
+                handler: static fn (array $input): array => FrameworkUpdate::apply(Capabilities::raizDeLaApp(), \is_string($input['version'] ?? null) ? $input['version'] : null),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
@@ -161,216 +162,4 @@ final readonly class FrameworkOperations implements CommandProvider
         ];
     }
 
-    /**
-     * @return array<string, mixed>
-     */
-    private function provenance(): array
-    {
-        $root = Capabilities::raizDeLaApp();
-        $summary = FrameworkDivergence::summary($root);
-        if ($summary === null) {
-            return [
-                'version' => FrameworkStamp::version($root),
-                'born' => null,
-                'untouched' => 0,
-                'customized' => 0,
-                'deleted' => 0,
-                'files' => [],
-                // «Nothing changed» and «I cannot say» are different answers, and zeros would print the
-                // first while meaning the second (greenhouse decisions/0293).
-                'cannot_say' => 'this house carries no birth record, so nothing can say what it has changed — houses created with milpa/framework 0.48 or later record it',
-            ];
-        }
-
-        return [
-            'version' => FrameworkStamp::version($root),
-            'born' => $summary['born'],
-            'untouched' => $summary['untouched'],
-            'customized' => $summary['customized'],
-            'deleted' => $summary['deleted'],
-            'files' => array_values(array_filter(
-                FrameworkDivergence::rows($root),
-                static fn (array $row): bool => $row['status'] !== FrameworkDivergence::UNTOUCHED,
-            )),
-        ];
-    }
-
-    /**
-     * @param array<string, mixed> $input
-     *
-     * @return array<string, mixed>
-     */
-    private function diff(array $input): array
-    {
-        $root = Capabilities::raizDeLaApp();
-        [$version, $ships, $refusal] = $this->against($input, $root);
-        if ($refusal !== null) {
-            return ['against' => $version, 'actionable' => 0, 'files' => [], 'cannot_say' => $refusal];
-        }
-
-        $rows = FrameworkReconciliation::rows($root, $ships);
-        $summary = FrameworkReconciliation::summary($root, $ships);
-        if ($rows === null || $summary === null) {
-            return [
-                'against' => $version,
-                'actionable' => 0,
-                'files' => [],
-                'cannot_say' => 'this house carries no birth record, so a newer release cannot be compared against anything',
-            ];
-        }
-
-        return [
-            'against' => $version,
-            'actionable' => $summary['actionable'],
-            'files' => array_values(array_filter(
-                $rows,
-                static fn (array $row): bool => !\in_array($row['status'], [FrameworkReconciliation::SETTLED, FrameworkReconciliation::KEPT], true),
-            )),
-        ];
-    }
-
-    /**
-     * Writes only what the reconciliation calls `offered` or `added`, and says what it left.
-     *
-     * ── WHY ONLY THOSE TWO ──────────────────────────────────────────────────────────────────────────
-     *
-     * `offered` is «the skeleton moved this file and the house did not» — the one case where taking the
-     * new bytes loses nothing, because the bytes being replaced are the ones the skeleton handed over.
-     * `added` is a file this house does not have. Everything else is left, by name:
-     *
-     *   · `conflicted` — both moved. Overwriting is losing the house's work; a person decides, with a diff.
-     *   · `kept`       — the house moved it and the skeleton did not. There is nothing to take.
-     *   · `unrecorded` — the house has it and its birth bytes were never recorded, so nothing can say
-     *                    whether it diverged. That is the `conflicted` risk without the evidence.
-     *   · `settled`    — already identical.
-     *
-     * ── AND WHY IT REFUSES WITHOUT GIT ──────────────────────────────────────────────────────────────
-     *
-     * 🚨 `Reversibility::ManualRecovery` above is a PROMISE that a person can get back. Git is how, and
-     * the panel's own copy says so in as many words — «you will see that file change in git». So this
-     * refuses when git cannot be that: not a repository, or the targets already carry uncommitted
-     * changes. Writing over an uncommitted edit is the one way this operation could destroy work that
-     * has no copy anywhere, and declaring recoverability while removing the means is worse than
-     * declaring the act irreversible.
-     *
-     * @param array<string, mixed> $input
-     *
-     * @return array<string, mixed>
-     */
-    private function apply(array $input): array
-    {
-        $root = Capabilities::raizDeLaApp();
-        [$version, $ships, $refusal] = $this->against($input, $root);
-        if ($refusal !== null) {
-            return ['applied' => [], 'left' => [], 'refused' => $refusal];
-        }
-
-        $rows = FrameworkReconciliation::rows($root, $ships);
-        if ($rows === null) {
-            return ['applied' => [], 'left' => [], 'refused' => 'this house carries no birth record, so nothing can be judged safe to take'];
-        }
-
-        $takeable = array_values(array_filter(
-            $rows,
-            static fn (array $row): bool => \in_array($row['status'], [FrameworkReconciliation::OFFERED, FrameworkReconciliation::ADDED], true),
-        ));
-        $left = array_values(array_map(
-            static fn (array $row): array => ['path' => $row['path'], 'why' => $row['status']],
-            array_filter(
-                $rows,
-                static fn (array $row): bool => \in_array($row['status'], [FrameworkReconciliation::CONFLICTED, FrameworkReconciliation::UNRECORDED], true),
-            ),
-        ));
-
-        if ($takeable === []) {
-            return ['applied' => [], 'left' => $left, 'refused' => 'nothing is safe to take: every file is either already the newest, one this house changed, or one whose original was never recorded'];
-        }
-
-        $blocked = $this->gitCannotBeTheWayBack($root, array_column($takeable, 'path'));
-        if ($blocked !== null) {
-            return ['applied' => [], 'left' => $left, 'refused' => $blocked];
-        }
-
-        // Fetched a second time, on purpose: the hashes came from a cache that could be days old, and
-        // the BYTES are what gets written. A cache is a fine answer to «what would change»; it is not
-        // one to «what shall I write into this house».
-        $tree = FrameworkRelease::fetch($version, $root);
-        if ($tree === null) {
-            return ['applied' => [], 'left' => $left, 'refused' => 'the release could not be fetched to take its bytes from'];
-        }
-
-        $applied = FrameworkApply::take($tree, $root, array_column($takeable, 'path'));
-        FrameworkRelease::discard($tree);
-
-        return ['applied' => $applied, 'left' => $left];
-    }
-
-    /**
-     * The release to judge against and its hashes, or the sentence saying why neither is available.
-     *
-     * @param array<string, mixed> $input
-     *
-     * @return array{0: string|null, 1: array<string, string>, 2: string|null}
-     */
-    private function against(array $input, string $root): array
-    {
-        $asked = \is_string($input['version'] ?? null) && $input['version'] !== '' ? $input['version'] : null;
-        $version = $asked ?? FrameworkRelease::latest();
-        if ($version === null) {
-            return [null, [], 'the package registry could not be reached, so there is nothing to compare against'];
-        }
-        $ships = FrameworkRelease::ships($version, $root);
-        if ($ships === null) {
-            return [$version, [], 'release ' . $version . ' could not be fetched'];
-        }
-
-        return [$version, $ships, null];
-    }
-
-    /**
-     * Why git cannot be the way back for these paths, or null when it can.
-     *
-     * @param list<string> $paths
-     */
-    private function gitCannotBeTheWayBack(string $root, array $paths): ?string
-    {
-        exec('git -C ' . escapeshellarg($root) . ' rev-parse --is-inside-work-tree 2>/dev/null', $out, $status);
-        if ($status !== 0) {
-            return 'this house is not a git repository, so there would be no way back from an overwrite — commit it to git first, or take the files by hand';
-        }
-
-        // 🚨 TRACKED FIRST, AND CLEAN SECOND. `git status --porcelain` answers EMPTY for a file git has
-        // never seen — an untracked or ignored one — which reads exactly like «clean». Measured in the
-        // real lab layout, where the app sits inside this house's own repository under a gitignored
-        // `var/lab/`: `rev-parse` said yes, `status` said clean, and git held no copy of a single file.
-        // The guard would have declared a way back that did not exist (greenhouse decisions/0295).
-        $untracked = [];
-        $dirty = [];
-        foreach ($paths as $path) {
-            $lines = [];
-            exec('git -C ' . escapeshellarg($root) . ' ls-files --error-unmatch -- ' . escapeshellarg($path) . ' 2>/dev/null', $lines, $tracked);
-            if ($tracked !== 0) {
-                // A file the release ADDS is not in this house yet, so of course git has never seen it:
-                // writing it destroys nothing and `git status` will show it as new.
-                if (is_file($root . '/' . $path)) {
-                    $untracked[] = $path;
-                }
-
-                continue;
-            }
-            $lines = [];
-            exec('git -C ' . escapeshellarg($root) . ' status --porcelain -- ' . escapeshellarg($path) . ' 2>/dev/null', $lines, $code);
-            if ($code === 0 && $lines !== []) {
-                $dirty[] = $path;
-            }
-        }
-        if ($untracked !== []) {
-            return 'git has never seen these files, so committing them is the only way back and it has not happened: ' . implode(', ', $untracked);
-        }
-        if ($dirty !== []) {
-            return 'these files carry uncommitted changes, and writing over them would destroy work with no copy anywhere: ' . implode(', ', $dirty);
-        }
-
-        return null;
-    }
 }

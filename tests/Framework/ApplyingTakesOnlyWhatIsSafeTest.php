@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Tests\Framework;
 use Milpa\AppRuntime\Framework\FrameworkApply;
 use Milpa\AppRuntime\Framework\FrameworkReconciliation;
 use Milpa\AppRuntime\Framework\FrameworkStamp;
+use Milpa\AppRuntime\Framework\FrameworkUpdate;
 use Milpa\AppRuntime\Operations\FrameworkOperations;
 use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\Mutation;
@@ -35,6 +36,7 @@ use PHPUnit\Framework\TestCase;
  * (greenhouse decisions/0294, 0295).
  */
 #[CoversClass(FrameworkApply::class)]
+#[CoversClass(FrameworkUpdate::class)]
 #[CoversClass(FrameworkOperations::class)]
 final class ApplyingTakesOnlyWhatIsSafeTest extends TestCase
 {
@@ -49,7 +51,8 @@ final class ApplyingTakesOnlyWhatIsSafeTest extends TestCase
                     unlink($f);
                 }
             }
-            foreach (['config', 'public', '.milpa', 'tools', 'bin'] as $d) {
+            exec('rm -rf ' . escapeshellarg($dir . '/.git'));
+            foreach (['config', 'public', '.milpa', 'tools', 'bin', 'storage/framework-releases', 'storage'] as $d) {
                 @rmdir($dir . '/' . $d);
             }
             @rmdir($dir);
@@ -190,43 +193,133 @@ final class ApplyingTakesOnlyWhatIsSafeTest extends TestCase
      * single file. The guard would have declared a way back that did not exist
      * (greenhouse decisions/0295, evidence/0621).
      *
-     * The refusals were measured by running the operation, not asserted from the code — this test pins
-     * the sentences so they cannot drift from what a person was told.
+     * Run here rather than read out of the source: these three refusals are what a person is told, and
+     * the earlier version of this test asserted them by grepping the file — which passes just as well
+     * when the sentence has moved somewhere it can no longer be reached.
      */
-    public function testTheRefusalsNameWhatIsMissingAboutTheWayBack(): void
+    public function testItRefusesWhenGitCannotBeTheWayBack(): void
     {
-        $sentences = [];
-        foreach ((new FrameworkOperations())->operations() as $operation) {
-            if ($operation->name === 'framework:apply') {
-                $sentences[] = (string) $operation->description;
-            }
+        $house = $this->houseWithAnOfferedFile();
+
+        $noRepo = FrameworkUpdate::apply($house, self::AGAINST);
+        self::assertSame([], $noRepo['applied']);
+        self::assertStringContainsString('not a git repository', (string) $noRepo['refused']);
+
+        exec('git -C ' . escapeshellarg($house) . ' init -q 2>/dev/null');
+        $untracked = FrameworkUpdate::apply($house, self::AGAINST);
+        self::assertSame([], $untracked['applied']);
+        self::assertStringContainsString('git has never seen these files', (string) $untracked['refused'], 'the refusal `git status` alone could never make');
+        self::assertStringContainsString('composer.json', (string) $untracked['refused'], 'and it names which');
+
+        // THE DIRTY ARM NEEDS A FILE THAT IS STILL `offered`. Editing the file to make git see a change
+        // also makes the HOUSE the one who moved it, which turns it `conflicted` — and «nothing is safe
+        // to take» then fires before the git guard is ever reached. So the commit carries OTHER bytes
+        // and the birth bytes are written back: born == now, and git still sees a modification. The two
+        // views are independent, which is the point of asking git at all.
+        $birth = (string) file_get_contents($house . '/composer.json');
+        file_put_contents($house . '/composer.json', "{\"name\":\"committed/other\"}\n");
+        exec('git -C ' . escapeshellarg($house) . ' add -A 2>/dev/null');
+        exec('git -C ' . escapeshellarg($house) . ' -c user.email=t@t -c user.name=t commit -qm other 2>/dev/null');
+        file_put_contents($house . '/composer.json', $birth);
+
+        $dirty = FrameworkUpdate::apply($house, self::AGAINST);
+        self::assertSame([], $dirty['applied']);
+        self::assertStringContainsString('uncommitted changes', (string) $dirty['refused'], 'an uncommitted edit is not overwritten, even where the reconciliation says the file is safe');
+
+        self::rmGit($house);
+    }
+
+    /** Without a birth record nothing can be judged safe, so nothing is written. */
+    public function testItRefusesWithoutABirthRecord(): void
+    {
+        $house = $this->houseWithAnOfferedFile(stamped: false);
+
+        $answer = FrameworkUpdate::apply($house, self::AGAINST);
+
+        self::assertSame([], $answer['applied']);
+        self::assertStringContainsString('no birth record', (string) $answer['refused']);
+    }
+
+    /** And it says so when every file is one of the ones it must leave. */
+    public function testItSaysSoWhenNothingIsSafeToTake(): void
+    {
+        $house = $this->houseWithAnOfferedFile(offered: false);
+
+        $answer = FrameworkUpdate::apply($house, self::AGAINST);
+
+        self::assertSame([], $answer['applied']);
+        self::assertStringContainsString('nothing is safe to take', (string) $answer['refused']);
+        self::assertNotSame([], $answer['left'], 'and the ones it left are named, with why');
+    }
+
+    /** `provenance` reads without a network, and says «cannot say» rather than zero. */
+    public function testProvenanceReadsTheRecordAndSaysWhenThereIsNone(): void
+    {
+        $with = FrameworkUpdate::provenance($this->houseWithAnOfferedFile());
+        self::assertSame('0.48.1', $with['born']);
+        self::assertArrayNotHasKey('cannot_say', $with);
+
+        $without = FrameworkUpdate::provenance($this->houseWithAnOfferedFile(stamped: false));
+        self::assertNull($without['born']);
+        self::assertStringContainsString('no birth record', (string) $without['cannot_say']);
+        self::assertSame(0, $without['customized'], 'zeros ARE returned, but next to the sentence that says they mean nothing');
+    }
+
+    /** `diff` answers from the cache alone — the version is given, so nothing is asked of the registry. */
+    public function testDiffReadsTheCachedReleaseAndNamesWhatWouldNeedADecision(): void
+    {
+        $house = $this->houseWithAnOfferedFile();
+
+        $answer = FrameworkUpdate::diff($house, self::AGAINST);
+
+        self::assertSame(self::AGAINST, $answer['against']);
+        self::assertSame(1, $answer['actionable']);
+        self::assertSame([['path' => 'composer.json', 'status' => FrameworkReconciliation::OFFERED]], $answer['files']);
+    }
+
+    /** The release this fixture compares against — cached, so no test reaches the network. */
+    private const string AGAINST = '9.9.9';
+
+    /**
+     * A house born from 0.48.1 whose `composer.json` the release moved and the house did not.
+     *
+     * The `ships` cache is SEEDED, which is what keeps every test above offline: `FrameworkRelease`
+     * reads a release's hashes from `storage/framework-releases/<version>.json` before fetching
+     * anything, so a seeded file is a release that was already asked about.
+     */
+    private function houseWithAnOfferedFile(bool $stamped = true, bool $offered = true): string
+    {
+        $house = $this->dir('house');
+        $birth = ['composer.json' => "{\"name\":\"milpa/framework\"}\n"];
+        file_put_contents($house . '/composer.json', $birth['composer.json']);
+        if (!$offered) {
+            // the house moved it too, so the same release makes it CONFLICTED and nothing is safe
+            file_put_contents($house . '/composer.json', "{\"name\":\"my/app\"}\n");
+        }
+        if ($stamped) {
+            file_put_contents($house . '/' . FrameworkStamp::PATH, (string) json_encode([
+                'version' => '0.48.1',
+                'born' => ['version' => '0.48.1', 'at' => 'now', 'files' => array_map(
+                    static fn (string $b): string => hash('sha256', $b),
+                    $birth,
+                )],
+            ]));
+        } else {
+            file_put_contents($house . '/' . FrameworkStamp::PATH, (string) json_encode(['version' => '0.48.1']));
         }
 
-        self::assertCount(1, $sentences);
+        mkdir($house . '/storage/framework-releases', 0o777, true);
+        file_put_contents(
+            $house . '/storage/framework-releases/' . self::AGAINST . '.json',
+            (string) json_encode(['composer.json' => hash('sha256', "{\"name\":\"milpa/framework\",\"newer\":true}\n")]),
+        );
 
-        // The guard's own words, as measured on cattle. Kept here because a refusal a person reads is
-        // copy, and copy that only exists inside a private method drifts with nobody noticing.
-        $source = (string) file_get_contents(\dirname(__DIR__, 2) . '/src/Operations/FrameworkOperations.php');
+        return $house;
+    }
 
-        self::assertStringContainsString(
-            'this house is not a git repository, so there would be no way back',
-            $source,
-            'the no-repository refusal',
-        );
-        self::assertStringContainsString(
-            'git has never seen these files, so committing them is the only way back',
-            $source,
-            'the untracked refusal — the one `git status` alone could never make',
-        );
-        self::assertStringContainsString(
-            'these files carry uncommitted changes',
-            $source,
-            'and the dirty refusal',
-        );
-        self::assertStringContainsString(
-            'ls-files --error-unmatch',
-            $source,
-            'tracked is asked FIRST, because an untracked file looks clean to `git status`',
-        );
+    /** `git init` leaves a tree phpunit's tearDown will not clear on its own. */
+    private static function rmGit(string $house): void
+    {
+        exec('rm -rf ' . escapeshellarg($house . '/.git'));
     }
 }

@@ -68,6 +68,10 @@ final class FrameworkRelease
      * Pre-releases are skipped: a house is not offered an alpha because it happens to be newest. Null
      * and not an exception, because «I could not ask» is an answer a screen can print, and one a person
      * reading a panel on a laptop with no network needs to see rather than a stack trace.
+     *
+     * @codeCoverageIgnore it reaches a package registry, so no unit test can run it. Measured on cattle
+     *                     instead: 567 ms against `repo.packagist.org`, answering `0.48.1` out of the 84
+     *                     versions it lists (greenhouse evidence/0620, 0621).
      */
     public static function latest(): ?string
     {
@@ -183,6 +187,10 @@ final class FrameworkRelease
      *
      * `--no-scripts` matters specifically: without it the fetched skeleton runs its own
      * `post-create-project-cmd` and stamps a birth record into this temporary directory.
+     *
+     * @codeCoverageIgnore it shells out to composer, which reaches the registry. Measured on cattle:
+     *                     2.1 s and 500 KB for one release, and the tree it leaves is what
+     *                     `framework:apply` copies from (greenhouse evidence/0620, 0621).
      */
     public static function fetch(string $version, string $root): ?string
     {
