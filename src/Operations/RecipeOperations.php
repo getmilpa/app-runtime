@@ -97,6 +97,12 @@ final class RecipeOperations implements CommandProvider
                 // recipe the request applies must be named in the request, not chosen for the operator.
                 mutating: true,
                 namedTarget: 'recipe',
+                // The scope, for the reason `capabilities:enable` carries one: applying a recipe writes
+                // code into the app, its consent is DERIVED from its ceiling rather than declared, and
+                // a policy can only judge what an operation declares. It opts into no http surface
+                // today — the scope is what keeps that true if it ever does
+                // (greenhouse decisions/0278).
+                scopes: ['recipe:apply'],
                 surfaces: ['cli', 'tui', 'mcp'],
             ),
         ];
