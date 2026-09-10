@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.151.0](https://github.com/getmilpa/app-runtime/compare/v0.150.1...v0.151.0) (2026-09-10)
+
+
+### Features
+
+* the framework's provenance becomes operations, and applying one is a governed act ([#398](https://github.com/getmilpa/app-runtime/issues/398)) ([83fd57b](https://github.com/getmilpa/app-runtime/commit/83fd57be7963944ebcee31a4081acfc8b44140e6))
+
 ## [0.150.1](https://github.com/getmilpa/app-runtime/compare/v0.150.0...v0.150.1) (2026-09-10)
 
 
