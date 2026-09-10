@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.147.1](https://github.com/getmilpa/app-runtime/compare/v0.147.0...v0.147.1) (2026-09-10)
+
+
+### Bug Fixes
+
+* **support:** the capability answer declares every key it gives ([#384](https://github.com/getmilpa/app-runtime/issues/384)) ([4ec1b0c](https://github.com/getmilpa/app-runtime/commit/4ec1b0cb5394cc688c9a0286d265b15a1289face))
+
 ## [0.147.0](https://github.com/getmilpa/app-runtime/compare/v0.146.0...v0.147.0) (2026-09-10)
 
 
