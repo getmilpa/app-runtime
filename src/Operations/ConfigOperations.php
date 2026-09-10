@@ -19,6 +19,7 @@ use Milpa\AppRuntime\Config\JudgeCeiling;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\CatalogueBorrower;
 use Milpa\AppRuntime\Config\MachineOverlay;
+use Milpa\AppRuntime\Config\SecretOverlay;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\EffectProfile;
@@ -155,6 +156,78 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
                 effects: EffectProfile::readOnly(),
             ),
             new Operation(
+                name: 'provider:declare',
+                description: 'Declare a provider credential where it can be read and never committed — the value is written, never echoed',
+                handler: fn (array $input): array => $this->declareSecret($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'key' => ['type' => 'string', 'description' => 'Dotted path the code already reads — e.g. agent.apiKey'],
+                        'value' => ['type' => 'string', 'description' => 'The credential. It is written and never returned, printed or logged'],
+                        'forget' => ['type' => 'boolean', 'description' => 'Remove the declaration instead of writing one'],
+                    ],
+                    'required' => ['key'],
+                ],
+                // 🚨 `mutating: true`, SAID TWICE BECAUSE TWO THINGS READ IT.
+                //
+                // The effects profile below says `mutation: persistent`, and this flag says the same
+                // fact again — because the signature gate reads THE FLAG, not the profile. Declared
+                // with the ceiling alone, this operation wrote a credential with no signature at all
+                // while `config:set`, whose ceiling is lighter, demanded one. Measured on cattle:
+                // `mutating: no` in its own contract, beside `mutation: persistent`
+                // (greenhouse decisions/0267).
+                //
+                // A falsifier now holds the two in agreement for every operation this package
+                // declares, because a fact with two sources is a fact that will disagree.
+                mutating: true,
+                // 🚨 `requiresConfirmation`, AND THE AXES ARE WHY — not in spite of them.
+                //
+                // Rule S2 demands consent when subject >= Executable AND authority >= Privileged.
+                // Declaring a credential is honestly `Configuration`: the same classes keep loading,
+                // they act differently — and the axis's own docblock says that level is «neither the
+                // kind of act a signature is for», naming founding an app as its neighbour.
+                // `capabilities:enable` is signed because it is `Executable`: it changes WHICH CODE
+                // WILL RUN. A key is not an install, and pretending its subject is executable to
+                // borrow the gate would put a lie in the ceiling to get the behaviour.
+                //
+                // THE EFFECT AXES MEASURE THE CHANGE TO THIS HOUSE, AND A CREDENTIAL'S DANGER IS ALL
+                // OUTSIDE IT. `externality: none` is correct — writing the file calls nobody — and
+                // that correctness is exactly why the axes cannot see what this act hands over: the
+                // power to act as somebody at another service, and to spend whatever it charges.
+                // Nothing measurable about the local change reflects that.
+                //
+                // So this is what the flag exists for. `Consent::demanded()` reads it FIRST, before
+                // S2, which is the declared way to say «this one asks, wherever the axes land»
+                // (greenhouse decisions/0267). Measured on cattle: with the ceiling alone it wrote a
+                // credential with no signature at all.
+                requiresConfirmation: true,
+                // TWO AXES DIFFER FROM `config:set`, AND BOTH ON PURPOSE.
+                //
+                // `authority: privileged` — declaring a credential is not writing a preference. It
+                // gives this app the ability to act as you at somebody else's service, and spend
+                // whatever that service charges. A house that classified it as `write_as_user`
+                // would let it through the same gate as a compaction setting.
+                //
+                // `reversibility: manual_recovery` — `config:set` is compensatable because the
+                // previous value can be written back. Here it CANNOT: nothing in this framework can
+                // read a secret out, by design, so overwriting one destroys the only copy. Getting
+                // it back means getting a new key from the provider, which is recovery by hand.
+                //
+                // `externality: none` is honest and worth saying out loud: writing this file reaches
+                // nobody. It ENABLES egress later — `agent:model` declares that egress when it goes
+                // out — and conflating «I stored a key» with «I called somebody» would put every
+                // provider's uptime inside this operation's ceiling (greenhouse decisions/0267).
+                effects: new EffectProfile(
+                    mutation: Mutation::Persistent,
+                    externality: Externality::None,
+                    reversibility: Reversibility::ManualRecovery,
+                    authority: Authority::Privileged,
+                    escalatesOn: ['id'],
+                    subject: Subject::Configuration,
+                    rollbackContract: 'declare a new credential from the provider; the previous one cannot be read back',
+                ),
+            ),
+            new Operation(
                 name: 'config:set',
                 description: 'Write one agent configuration key through the governed path, instead of editing config/app.php',
                 handler: fn (array $input): array => $this->set($input),
@@ -185,6 +258,150 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
                 effects: $ceilingOfSet,
             ),
         ];
+    }
+
+    /**
+     * DECLARE A PROVIDER CREDENTIAL — written where the code reads, never where git looks.
+     *
+     * A Milpa app had nowhere to put one. Measured on `milpa/framework`: it ships no `.env`, loads
+     * no `.env`, and does not ignore one; its two config homes are both committed. So this operation
+     * could not exist until {@see SecretOverlay} did, and building it first would have made the house
+     * say «declared» about a value that either went to git or that no request could read — both
+     * refutation conditions of the pin's own rung (greenhouse decisions/0267).
+     *
+     * IT REFUSES BEFORE IT LEAKS. If the app's `.gitignore` does not ignore the secrets file, this
+     * writes NOTHING and says which line is missing. A credential written into a repository that
+     * would commit it is not a mistake to warn about after the fact: the value is already in the
+     * working tree by then, and the honest moment to stop is before.
+     *
+     * AND IT NEVER ECHOES THE VALUE. The result names the path and says it was declared. An
+     * operation that returned what it wrote would put a key in a terminal's scrollback, an event
+     * ledger and whatever surface projected the result — which is the whole reason
+     * {@see SecretOverlay} has no reader that can print one.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function declareSecret(array $input): array
+    {
+        $key = \is_string($input['key'] ?? null) ? trim($input['key']) : '';
+        if ($key === '' || preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$/', $key) !== 1) {
+            return ['ok' => false, 'error' => '`key` must be a dotted configuration path, as Config::get asks for it — e.g. agent.apiKey'];
+        }
+
+        $root = $this->raiz();
+        $missing = self::gitignoreMissing($root);
+        if ($missing !== null) {
+            // Refused, and it says the exact line rather than «configure your gitignore».
+            return [
+                'ok' => false,
+                'error' => 'nothing was written: this app would commit its secrets file',
+                'add_to_gitignore' => $missing,
+            ];
+        }
+
+        $forget = ($input['forget'] ?? false) === true;
+        $value = $input['value'] ?? null;
+        if (!$forget && (!\is_string($value) || $value === '')) {
+            return ['ok' => false, 'error' => '`value` is required unless `forget` is true — a credential declared empty is a credential nobody can use'];
+        }
+
+        $file = $root . SecretOverlay::RUTA;
+        $held = \is_array($read = json_decode((string) @file_get_contents($file), true)) ? $read : [];
+        $held = $forget ? self::forget($held, explode('.', $key)) : self::put($held, explode('.', $key), (string) $value);
+
+        if (!is_dir(\dirname($file)) && !@mkdir(\dirname($file), 0o700, true)) {
+            return ['ok' => false, 'error' => 'nothing was written: ' . \dirname(SecretOverlay::RUTA) . ' could not be created'];
+        }
+        // 0600 BEFORE THE BYTES, not after. Writing world-readable and then narrowing leaves a window
+        // in which the key is readable by anything on the machine, and that window is exactly when a
+        // backup or a watcher would read it.
+        $handle = @fopen($file, 'w');
+        if ($handle === false) {
+            return ['ok' => false, 'error' => 'nothing was written: ' . ltrim(SecretOverlay::RUTA, '/') . ' could not be opened'];
+        }
+        @chmod($file, 0o600);
+        fwrite($handle, (string) json_encode($held, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES) . "\n");
+        fclose($handle);
+
+        return [
+            'ok' => true,
+            'key' => $key,
+            'declared' => !$forget,
+            'written_to' => ltrim(SecretOverlay::RUTA, '/'),
+            'holds' => SecretOverlay::declared($root),
+            'note' => $forget
+                ? 'the declaration is gone; the provider still knows the credential, so revoke it there too'
+                : 'the value was written and is not returned by anything — no surface of this framework can read it back',
+        ];
+    }
+
+    /**
+     * The `.gitignore` line this app is missing, or `null` when the secrets file is already ignored.
+     *
+     * Asked of `git` itself rather than by reading the file, because `.gitignore` composes — a global
+     * one, a parent directory's, `info/exclude` — and a reader that only parsed the local file would
+     * refuse an app that was already safe. Without git available the answer is «missing», which
+     * refuses: an app whose ignore rules cannot be verified is not an app to write a key into.
+     */
+    private static function gitignoreMissing(string $root): ?string
+    {
+        $probe = ltrim(SecretOverlay::RUTA, '/');
+        if (!is_dir($root . '/.git')) {
+            // Not a repository: nothing would commit it, so nothing is missing.
+            return null;
+        }
+        $status = 1;
+        @exec('git -C ' . escapeshellarg($root) . ' check-ignore -q ' . escapeshellarg($probe) . ' 2>/dev/null', $_, $status);
+
+        return $status === 0 ? null : SecretOverlay::IGNORE_LINE;
+    }
+
+    /**
+     * @param array<string, mixed> $tree
+     * @param list<string>         $path
+     *
+     * @return array<string, mixed>
+     */
+    private static function put(array $tree, array $path, string $value): array
+    {
+        $key = array_shift($path);
+        if ($path === []) {
+            $tree[$key] = $value;
+
+            return $tree;
+        }
+        $tree[$key] = self::put(\is_array($tree[$key] ?? null) ? $tree[$key] : [], $path, $value);
+
+        return $tree;
+    }
+
+    /**
+     * @param array<string, mixed> $tree
+     * @param list<string>         $path
+     *
+     * @return array<string, mixed>
+     */
+    private static function forget(array $tree, array $path): array
+    {
+        $key = array_shift($path);
+        if (!\array_key_exists($key, $tree)) {
+            return $tree;
+        }
+        if ($path === []) {
+            unset($tree[$key]);
+
+            return $tree;
+        }
+        if (\is_array($tree[$key])) {
+            $tree[$key] = self::forget($tree[$key], $path);
+            if ($tree[$key] === []) {
+                unset($tree[$key]);
+            }
+        }
+
+        return $tree;
     }
 
     /** @return array<string, mixed> */
