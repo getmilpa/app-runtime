@@ -198,6 +198,41 @@ final class ProviderDeclareTest extends TestCase
     }
 
     /**
+     * THE REPORT SAYS A CREDENTIAL IS THERE, and cannot say what it is.
+     *
+     * `config` was BLIND to this: measured on cattle with a key in place, «what is this app configured
+     * with» answered without one sign that a credential existed. A screen deciding whether to open a
+     * provider wizard needs exactly that fact, and it is the whole read surface `SecretOverlay` offers.
+     *
+     * The value's absence from the answer is asserted over the WHOLE encoded report rather than the one
+     * field somebody would think to check — a report is printed, logged and screenshotted, so a leak
+     * anywhere in it is a leak.
+     */
+    public function testTheConfigReportSaysThereIsAKeyAndNeverWhichOne(): void
+    {
+        $this->declare(['key' => 'agent.apiKey', 'value' => 'sk-not-in-any-report']);
+
+        $method = new \ReflectionMethod(ConfigOperations::class, 'show');
+        $method->setAccessible(true);
+        /** @var array<string, mixed> $report */
+        $report = $method->invoke(ConfigOperations::para($this->root));
+
+        self::assertSame(['agent.apiKey'], $report['holds_secrets'] ?? null, 'the path, so a screen can stop asking');
+        self::assertStringNotContainsString('sk-not-in-any-report', (string) json_encode($report), 'and never the value');
+    }
+
+    /** With nothing declared the report says so, which is what a first-run screen reads. */
+    public function testTheReportIsEmptyOnAnAppThatHoldsNoSecret(): void
+    {
+        $method = new \ReflectionMethod(ConfigOperations::class, 'show');
+        $method->setAccessible(true);
+        /** @var array<string, mixed> $report */
+        $report = $method->invoke(ConfigOperations::para($this->root));
+
+        self::assertSame([], $report['holds_secrets'] ?? null);
+    }
+
+    /**
      * @param array<string, mixed> $input
      *
      * 🚨 THROUGH `para()`, THE NAMED SEAM — and two wrong turns got here.

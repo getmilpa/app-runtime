@@ -415,6 +415,16 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
             'declared_twice' => MachineOverlay::divergencias($delHumano, $this->raiz()),
             'written_by_the_machine' => is_file($this->raiz() . MachineOverlay::RUTA),
 
+            // WHICH PATHS HOLD A CREDENTIAL — never what they hold.
+            //
+            // The report was BLIND to this: measured on cattle with a key in place, «what is this app
+            // configured with» answered without one sign that a credential existed. A screen deciding
+            // whether to open a provider wizard needs exactly this fact, and it is the whole read
+            // surface {@see SecretOverlay} offers — «there is a key» or «there is none». Nothing here
+            // can reach the value, which is why the answer is safe to print, log and screenshot
+            // (greenhouse decisions/0267).
+            'holds_secrets' => SecretOverlay::declared($this->raiz()),
+
             // WHICH KEYS EXIST, because an agent that cannot see the knobs is being asked to know
             // the architecture — the same thing scaffolding exists to remove. greenhouse
             // evidence/0155: the code reads seventeen, the template documents four, and a newborn
