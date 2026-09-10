@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.151.1](https://github.com/getmilpa/app-runtime/compare/v0.151.0...v0.151.1) (2026-09-10)
+
+
+### Bug Fixes
+
+* framework:diff declared None while writing, so the read stopped writing ([#400](https://github.com/getmilpa/app-runtime/issues/400)) ([71ec4ed](https://github.com/getmilpa/app-runtime/commit/71ec4ed9b9455bb1e7d4c7f7cea1aa8bcb51cabe))
+
 ## [0.151.0](https://github.com/getmilpa/app-runtime/compare/v0.150.1...v0.151.0) (2026-09-10)
 
 
