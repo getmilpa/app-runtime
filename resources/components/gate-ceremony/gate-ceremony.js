@@ -180,13 +180,23 @@
       // command it used to print here could only ever fail with `IdentityNotRooted` — measured
       // (greenhouse decisions/0263). Naming the declaration first is what makes step 2 finish the
       // sentence step 1 started (decisions/0260), one step further out.
+      //
+      // AND IT SAYS «ADD», WHICH THE FIRST VERSION OF THIS MESSAGE DID NOT. It printed a whole
+      // rooted-list assignment, which reads as a file to write — and Rod hit it on a house that
+      // ALREADY had a rooted credential, where following it literally un-roots the working key.
+      // Measured, including the bound: the un-rooted key keeps signing in, because the gate reads
+      // the ENROLLMENT ledger and not the root; what is lost is the ability to enroll it again. A
+      // first-run instruction that assumes a greenfield file is wrong the second time somebody uses
+      // it (greenhouse decisions/0263).
       say(
         'r ' + (res.ok ? 'ok' : 'no'),
         res.ok
           ? 'Registered. This house now holds the public key of credential ' + res.credentialId
             + '. It grants nothing yet.\n\n'
-            + '1 · Declare this credential in config/identity.php so the house is willing to recognise it:\n\n'
-            + "    return ['rooted' => ['" + res.credentialId + "']];\n\n"
+            + "1 · ADD this credential to the 'rooted' list in config/identity.php, so the house is\n"
+            + '    willing to recognise it. Add the line — a house can recognise more than one key,\n'
+            + '    and replacing the list un-roots whatever was already in it:\n\n'
+            + "        '" + res.credentialId + "',\n\n"
             + '2 · Say what it may do, authorised by a principal this house already recognises:\n\n'
             + '    php bin/coa identity:enroll --fingerprint=' + res.credentialId + ' --scopes=' + SCOPE + ' --sign\n\n'
             + 'Then sign in at /webauthn/signin.'

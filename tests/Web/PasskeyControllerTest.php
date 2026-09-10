@@ -136,6 +136,29 @@ final class PasskeyControllerTest extends TestCase
         self::assertSame('cross-platform', self::ceremonyFacts($body)['attachment']);
     }
 
+    public function testTheSuccessMessageSaysToADDTheCredentialAndNotToReplaceTheRoot(): void
+    {
+        // 🚨 THE FIRST VERSION OF THIS MESSAGE PRINTED A WHOLE `return ['rooted' => [ … ]];`, which
+        // reads as a file to write. Rod hit it on a house that already had one rooted credential:
+        // following it literally un-roots the working key. Measured, with the bound — the un-rooted
+        // key keeps signing in, because the gate reads the ENROLLMENT ledger and not the root, so
+        // what is lost is the ability to enroll it again (greenhouse decisions/0263).
+        //
+        // A first-run instruction that assumes a greenfield file is wrong the second time anybody
+        // uses it, and that is exactly the class of defect this whole arc keeps finding: the step
+        // that was missing from the sentence.
+        $module = self::ceremonyModule();
+
+        self::assertStringContainsString('ADD this credential', $module);
+        self::assertStringContainsString('replacing the list un-roots', $module, 'and it says what replacing costs');
+        // THE CONTROL, over what a human READS and not over the file: the note above explaining why
+        // the whole-file form was removed contains that form, so banning it file-wide fails for the
+        // wrong reason — the mirror of the `authenticatorAttachment` assertion that PASSED for the
+        // wrong reason, from a comment saying the value was gone. Fourth time this house pays for
+        // «grepping prose cannot fail for the right reason» (greenhouse decisions/0261, 0263).
+        self::assertStringNotContainsString("return ['rooted'", self::withoutComments($module), 'a printed `return [...]` reads as a file to write');
+    }
+
     /** `POST /webauthn/register` is open: a registered key nobody enrolled must not bloat the sign-in list. */
     public function testOptionsListNothingForARegisteredButUnenrolledCredential(): void
     {
@@ -400,6 +423,19 @@ final class PasskeyControllerTest extends TestCase
         foreach ($scripts as $index => $script) {
             self::assertScriptParses($page . " script #$index", $script, $this->files);
         }
+    }
+
+    /**
+     * A JavaScript file with its comments removed — what a human actually reads on the page.
+     *
+     * A ban over the whole file cannot distinguish the message from the note explaining what the
+     * message no longer says. Both directions of that mistake are on the record now: a comment
+     * naming a removed value made an assertion pass while the code did the opposite, and a comment
+     * naming a removed form made an assertion fail while the code was right.
+     */
+    private static function withoutComments(string $js): string
+    {
+        return (string) preg_replace(['#/\*.*?\*/#s', '#^\s*//.*$#m'], '', $js);
     }
 
     /**
