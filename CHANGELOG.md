@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.148.0](https://github.com/getmilpa/app-runtime/compare/v0.147.1...v0.148.0) (2026-09-10)
+
+
+### Features
+
+* **operations:** agent:model — which model this app can actually talk to ([#386](https://github.com/getmilpa/app-runtime/issues/386)) ([ed79c8e](https://github.com/getmilpa/app-runtime/commit/ed79c8e452c4410c67f740c206a0f11e830b5e34))
+
 ## [0.147.1](https://github.com/getmilpa/app-runtime/compare/v0.147.0...v0.147.1) (2026-09-10)
 
 
