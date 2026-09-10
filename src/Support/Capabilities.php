@@ -676,7 +676,14 @@ final class Capabilities
      * una rama que sólo corre cuando falta algo no se ejercitaría nunca en una app completa. Aquí sí,
      * y el proveedor queda como debe: una declaración de una línea.
      *
-     * @return array{ok: bool, installed: list<array<string, mixed>>, available: list<array<string, mixed>>, ports: array<string, list<string>>, hint?: string}
+     * 🚨 IT DECLARED FIVE KEYS AND RETURNED SEVEN. `source` — where the offer list was read from,
+     * with its date and whether an offline floor is showing through — and `complete` were both
+     * absent from this annotation, so a consumer that trusted it would never read the provenance
+     * this method goes to the trouble of computing, and one that read it anyway had to guard
+     * against a key static analysis swore did not exist. Measured by execution against a booted
+     * app (greenhouse decisions/0266).
+     *
+     * @return array{ok: bool, installed: list<array<string, mixed>>, available: list<array<string, mixed>>, ports: array<string, list<string>>, source: string, complete: bool, hint?: string}
      */
     public static function answer(?string $vendor = null): array
     {

@@ -711,4 +711,27 @@ final class CapabilitiesTest extends TestCase
         array_map('unlink', (array) glob($root . '/*'));
         rmdir($root);
     }
+
+    /**
+     * 🚨 THE ANSWER DECLARES EVERY KEY IT GIVES, and this is what keeps that true.
+     *
+     * The annotation named five keys and the method returned seven: `source` — the provenance of the
+     * offer list, with its date and whether an offline floor is showing through — and `complete` were
+     * both missing. A consumer that trusted the type never read the provenance this method goes to the
+     * trouble of computing; one that read it anyway had to guard against a key static analysis swore
+     * did not exist, and that guard silently turned it into '' (greenhouse decisions/0266).
+     *
+     * An under-declared contract is the mirror of the defects this house usually finds: not a surface
+     * claiming more than it knows, but an authority offering less than it has.
+     */
+    public function testTheAnswerReturnsEveryKeyItsTypeDeclares(): void
+    {
+        $answer = Capabilities::answer();
+
+        foreach (['ok', 'installed', 'available', 'ports', 'source', 'complete'] as $key) {
+            self::assertArrayHasKey($key, $answer, 'the declared key «' . $key . '» is actually returned');
+        }
+        self::assertIsString($answer['source']);
+        self::assertIsBool($answer['complete']);
+    }
 }
