@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Web;
 
 use Milpa\AppRuntime\Web\Controllers\PasskeyController;
+use Milpa\AppRuntime\Web\Live\GateCeremonyAssets;
 use Milpa\AppRuntime\Web\PasskeyPlugin;
 use Milpa\Container\DIContainer;
 use Milpa\Live\Support\DesignTokens;
@@ -95,12 +96,24 @@ final class TheCeremonyLooksLikeTheHouseTest extends TestCase
         );
     }
 
-    /** Both pages link the stylesheet — one styled and one bare would be worse than neither. */
+    /**
+     * Both pages link the stylesheets — one styled and one bare would be worse than neither.
+     *
+     * This used to count occurrences in the CONTROLLER'S SOURCE and expect exactly two, one per
+     * hand-written template. There is one composition now, so the source says it once and the count
+     * measured the shape rather than the property. Asked of the SERVED pages instead, which is what
+     * the sentence above actually claims — and it keeps holding whatever the pages are built from
+     * (greenhouse decisions/0263).
+     */
     public function testBothPagesLinkTheStylesheet(): void
     {
-        $source = (string) file_get_contents(\dirname(__DIR__, 2) . '/src/Web/Controllers/PasskeyController.php');
+        foreach (['enrollPage', 'signinPage'] as $handler) {
+            $body = (string) $this->page($handler)->getBody();
 
-        self::assertSame(2, substr_count($source, '/webauthn/milpa-tokens.css'), 'enroll and signin — one styled and one bare would be worse than neither');
+            self::assertStringContainsString('/webauthn/milpa-tokens.css', $body, "$handler links the house's tokens");
+            self::assertStringContainsString('/webauthn/milpa-fonts.css', $body, "$handler links the house's faces");
+            self::assertStringContainsString(GateCeremonyAssets::url(GateCeremonyAssets::STYLESHEET), $body, "$handler links the ceremony's own sheet");
+        }
     }
 
     /**
@@ -181,7 +194,9 @@ final class TheCeremonyLooksLikeTheHouseTest extends TestCase
         $class = new \ReflectionClass(PasskeyController::class);
         $controller = $class->newInstanceWithoutConstructor();
 
-        foreach (['rpId' => 'localhost', 'gateScope' => 'milpa.admin', 'authenticatorAttachment' => null] as $property => $value) {
+        // Every property the page path reads, seeded — a promoted readonly left uninitialised is a
+        // TypeError at first access, not a null (greenhouse decisions/0263).
+        foreach (['rpId' => 'localhost', 'gateScope' => 'milpa.admin', 'authenticatorAttachment' => null, 'events' => null] as $property => $value) {
             if ($class->hasProperty($property)) {
                 $reflected = $class->getProperty($property);
                 $reflected->setAccessible(true);

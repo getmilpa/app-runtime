@@ -14,7 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tests\Web;
 
-use Milpa\AppRuntime\Web\Controllers\PasskeyController;
+use Milpa\AppRuntime\Web\Live\GateCeremonyAssets;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -28,20 +28,40 @@ use PHPUnit\Framework\TestCase;
  */
 final class TheGateAcceptsTheKeyPeopleHaveTest extends TestCase
 {
-    /** La selección que la página emite, con la casa declarando `$attachment` o nada. */
-    private function selection(?string $attachment): string
+    /**
+     * La selección que la ceremonia CONSTRUYE, corriendo su módulo de verdad.
+     *
+     * Antes esto leía la plantilla: el servidor deletreaba el objeto como código y este helper
+     * grepeaba la cadena emitida. El objeto lo arma el módulo ahora, así que la propiedad se prueba
+     * EJECUTÁNDOLO — que es lo único que contesta si omitir una llave es distinto de mandarla en
+     * `null` (greenhouse decisions/0263). Sin `node` no se mide: se salta, porque medir menos es
+     * mejor que decir que se midió.
+     *
+     * @return array<string, mixed>
+     */
+    private function selection(?string $attachment): array
     {
-        $controller = (new \ReflectionClass(PasskeyController::class))->newInstanceWithoutConstructor();
-        foreach (['rpId' => 'localhost', 'gateScope' => 'milpa.admin', 'authenticatorAttachment' => $attachment] as $name => $value) {
-            $property = (new \ReflectionClass($controller))->getProperty($name);
-            $property->setAccessible(true);
-            $property->setValue($controller, $value);
+        $node = trim((string) @shell_exec('command -v node 2>/dev/null'));
+        if ($node === '') {
+            self::markTestSkipped('no node on this box: the module cannot be run, so nothing is claimed');
         }
-        $method = new \ReflectionMethod($controller, 'enrollHtml');
-        $method->setAccessible(true);
-        preg_match('/authenticatorSelection: \{[^}]*\}/', (string) $method->invoke($controller), $found);
+        $module = GateCeremonyAssets::path(GateCeremonyAssets::MODULE);
+        self::assertNotNull($module, 'the package ships the module its pages declare');
 
-        return $found[0] ?? '';
+        $harness = \sprintf(
+            // A DOM stub with nothing in it: the seam is set before the module looks for a page, so a
+            // harness with no ceremony on it can still ask this house what it admits.
+            'globalThis.document = { getElementById: () => null, querySelector: () => null, addEventListener: () => {} };'
+            . 'require(%s);'
+            . 'process.stdout.write(JSON.stringify(globalThis.MilpaGateCeremony.selectionFor(%s)));',
+            json_encode($module, \JSON_THROW_ON_ERROR),
+            json_encode($attachment, \JSON_THROW_ON_ERROR),
+        );
+        $said = (string) @shell_exec(escapeshellarg($node) . ' -e ' . escapeshellarg($harness) . ' 2>&1');
+        $read = json_decode($said, true);
+        self::assertIsArray($read, "the module did not answer with a selection:\n" . $said);
+
+        return $read;
     }
 
     /**
@@ -55,9 +75,8 @@ final class TheGateAcceptsTheKeyPeopleHaveTest extends TestCase
     {
         $selection = $this->selection(null);
 
-        self::assertStringNotContainsString('authenticatorAttachment', $selection);
-        self::assertStringNotContainsString('null', $selection);
-        self::assertSame("authenticatorSelection: { userVerification: 'required', residentKey: 'discouraged' }", $selection);
+        self::assertArrayNotHasKey('authenticatorAttachment', $selection, 'declaring nothing says nothing');
+        self::assertSame(['userVerification' => 'required', 'residentKey' => 'discouraged'], $selection);
     }
 
     /**
@@ -69,7 +88,7 @@ final class TheGateAcceptsTheKeyPeopleHaveTest extends TestCase
     public function testAHouseThatWantsHardwareOnlyDeclaresItAndGetsExactlyWhatItHadBefore(): void
     {
         self::assertSame(
-            "authenticatorSelection: { authenticatorAttachment: 'cross-platform', userVerification: 'required', residentKey: 'discouraged' }",
+            ['userVerification' => 'required', 'residentKey' => 'discouraged', 'authenticatorAttachment' => 'cross-platform'],
             $this->selection('cross-platform'),
         );
     }
@@ -77,7 +96,7 @@ final class TheGateAcceptsTheKeyPeopleHaveTest extends TestCase
     /** Y una casa puede pedir lo contrario: sólo el autenticador del propio dispositivo. */
     public function testAHouseCanAlsoAskForThePlatformAuthenticatorOnly(): void
     {
-        self::assertStringContainsString("authenticatorAttachment: 'platform'", $this->selection('platform'));
+        self::assertSame('platform', $this->selection('platform')['authenticatorAttachment']);
     }
 
     /**
@@ -90,9 +109,9 @@ final class TheGateAcceptsTheKeyPeopleHaveTest extends TestCase
     public function testUserVerificationStaysRequiredInEveryConfiguration(): void
     {
         foreach ([null, 'platform', 'cross-platform'] as $attachment) {
-            self::assertStringContainsString(
-                "userVerification: 'required'",
-                $this->selection($attachment),
+            self::assertSame(
+                'required',
+                $this->selection($attachment)['userVerification'] ?? null,
                 'widening the door must not lower it',
             );
         }

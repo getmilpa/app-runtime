@@ -1,0 +1,102 @@
+/*
+ * THE CEREMONY'S OWN STYLESHEET — ONE FILE, BOTH ACTS.
+ *
+ * This lived twice: ninety-four BYTE-IDENTICAL lines inside `enrollHtml()` and `signinHtml()`, each
+ * inside a PHP heredoc. Two copies of one look is the drift this very file warns about three lines
+ * down, committed by the file that warns about it (greenhouse decisions/0263).
+ *
+ * It is a COMPONENT's declared stylesheet now, so the page composes and never carries markup or CSS
+ * of its own (greenhouse decisions/0189: the UI is a composition of components, never hand-written
+ * HTML). `.scope` did not survive the move — measured: no markup and no script ever set it.
+ */
+
+/* THE SCREEN BEFORE THE PANEL (greenhouse decisions/0243).
+   Everything comes from the tokens: a value written by hand here is a fourth copy of the
+   design system, which is exactly how the drift started. */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; font-family: var(--font-body); font-size: var(--text-base, 1rem);
+       line-height: var(--leading-normal, 1.5); color: var(--text); background: var(--bg); }
+
+.gate { min-height: 100%; display: grid; grid-template-columns: 1fr; }
+@media (min-width: 56rem) { .gate { grid-template-columns: 1fr minmax(24rem, 27rem); } }
+
+/* ── the brand's half ─────────────────────────────────────────────────── */
+/* The mark and the text are ONE group, anchored to the bottom — not two things pinned to
+   opposite corners. The empty space goes above, where it is not in the way. */
+.gate__brand { background: var(--bg); padding: var(--space-8, 2rem);
+               display: grid; grid-template-rows: auto 1fr auto; align-content: stretch;
+               gap: var(--space-8, 2rem); min-width: 0; }
+.gate__brand .gate__mark { align-self: end; }
+.gate__mark { display: flex; align-items: flex-end; }
+/* The wordmark IDENTIFIES — top, small, still; the symbol REPORTS state below. They stay
+   apart rather than as a lockup because one of them moves and the kit's lockup does not. */
+.gate__wordmark { display: inline-flex; align-self: flex-start; border-radius: var(--radius-sm, 4px); }
+.gate__wordmark img { height: var(--space-8, 2rem); width: auto; display: block; }
+.gate__wordmark:focus-visible { outline: var(--focus-width, 2px) solid var(--accent); outline-offset: 4px; }
+/* The symbol is BRAND, not UI: constant mono-gold in both themes, never var(--accent)
+   (logo/README.txt). That is why the fill is a literal and not a token. */
+.gate__lede { max-width: 34ch; }
+.kicker { font-family: var(--font-mono); font-size: var(--text-xs, .75rem);
+          letter-spacing: var(--tracking-wide, .08em); text-transform: uppercase;
+          color: var(--olivo-300, var(--text-muted)); margin: 0 0 var(--space-3, .75rem); }
+h1 { font-family: var(--font-heading); font-size: var(--text-4xl, 2.25rem);
+     line-height: var(--leading-tight, 1.1); letter-spacing: var(--tracking-tight, -.02em);
+     font-weight: var(--weight-bold, 700); color: var(--text); margin: 0 0 var(--space-3, .75rem);
+     text-wrap: balance; }
+.gate__lede p { color: var(--text-secondary); margin: 0; text-wrap: pretty; }
+.gate__lede p + p { margin-top: var(--space-3, .75rem); }
+/* THE ONE LINE THAT HAS TO SURVIVE THIS SCREEN (greenhouse decisions/0260). The lede used to open by
+   explaining what kind of framework this is, to somebody who came here to act — and buried the only
+   sentence that changes what they should expect. It carries the page's weight, so it looks like it. */
+.gate__doctrine { color: var(--text); font-weight: var(--weight-medium, 500); }
+/* STEP 2 FINISHES THE SENTENCE STEP 1 STARTED (greenhouse decisions/0260). «Registering identifies
+   you; it grants no permissions» is half a thought until the other half says where permission DOES
+   come from. Together the two teach identity ≠ authority with no architecture lecture at all — which
+   is why step 2 is on this page although it does not happen here. It reads as what comes next, not
+   as an equal: its own kicker, quieter than the doctrine above it. */
+.gate__next { margin-top: var(--space-5, 1.5rem); color: var(--text-muted); }
+.gate__next .kicker { display: block; margin-bottom: var(--space-1, .25rem); }
+/* The house's own facts are true and SECONDARY: behind a disclosure, so the main hierarchy stays the
+   ceremony. Whoever needs the relying party knows to look; nobody else pays for it. */
+.gate__tech > summary { cursor: pointer; color: var(--text-muted); }
+.gate__tech > summary:focus-visible { outline: var(--focus-width, 2px) solid var(--accent); outline-offset: 3px; }
+.gate__tech[open] > summary { margin-bottom: var(--space-2, .5rem); }
+
+/* ── the act's half ───────────────────────────────────────────────────── */
+/* The act is centred: pinned to the top it left the whole column empty below the button. */
+.gate__act { background: var(--surface); border-left: 1px solid var(--border-subtle);
+             padding: var(--space-8, 2rem); display: grid;
+             grid-template-rows: 1fr auto; gap: var(--space-6, 1.5rem); min-width: 0; }
+.gate__body { align-self: center; }
+@media (max-width: 55.99rem) { .gate__act { border-left: 0; border-top: 1px solid var(--border-subtle); } }
+.gate__body { display: flex; flex-direction: column; gap: var(--space-4, 1rem); }
+.gate__foot { align-self: end; }
+.gate__foot { font-family: var(--font-mono); font-size: var(--text-2xs, .6875rem);
+              color: var(--text-muted); display: flex; flex-direction: column;
+              gap: var(--space-2, .5rem); }
+.gate__foot p { margin: 0; display: flex; flex-wrap: wrap;
+                gap: var(--space-1, .25rem) var(--space-3, .75rem); color: inherit; }
+/* The sentence that teaches the term takes the text face, not the data face: it is prose. */
+.gate__foot .gate__teach { font-family: var(--font-body); font-size: var(--text-xs, .75rem);
+                           max-width: 44ch; display: block; }
+.gate__foot a { color: var(--accent-text, var(--accent)); text-decoration: none; }
+.gate__foot a:hover { text-decoration: underline; }
+.gate__foot a:focus-visible { outline: var(--focus-width, 2px) solid var(--accent); outline-offset: 2px; }
+
+button { font: inherit; font-family: var(--font-heading); font-weight: var(--weight-medium, 500);
+         width: 100%; padding: var(--space-3, .75rem) var(--space-5, 1.25rem);
+         border: var(--border-width, 1px) var(--border-style, solid) transparent;
+         border-radius: var(--radius-md, 6px); background: var(--accent);
+         color: var(--text-on-accent); cursor: pointer; }
+button:hover:not(:disabled) { background: var(--accent-hover); }
+button:focus-visible { outline: var(--focus-width, 2px) solid var(--accent); outline-offset: 2px; }
+button:disabled { opacity: .5; cursor: default; }
+code { font-family: var(--font-mono); background: var(--surface-raised, var(--bg));
+       border: 1px solid var(--border-subtle); border-radius: var(--radius-sm, 4px);
+       padding: 0 var(--space-1, .25rem); }
+.r { padding: var(--space-3, .75rem) var(--space-4, 1rem); border-radius: var(--radius-md, 6px);
+     overflow-wrap: anywhere; white-space: pre-wrap; font-family: var(--font-mono);
+     font-size: var(--text-sm, .875rem); line-height: var(--leading-normal, 1.5);
+     border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+.ok { border-color: var(--success); } .no { border-color: var(--danger); }
