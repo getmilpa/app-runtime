@@ -188,7 +188,9 @@ final class FrameworkUpdate
         if ($version === null) {
             return [null, [], 'the package registry could not be reached, so there is nothing to compare against'];
         }
-        $ships = FrameworkRelease::ships($version, $root);
+        // `cache: false` for the READ. Persisting is what made `Mutation::None` a falsehood, and the
+        // fix was to stop writing rather than to declare something more comfortable (decisions/0296).
+        $ships = FrameworkRelease::ships($version, $root, cache: false);
         if ($ships === null) {
             return [$version, [], 'release ' . $version . ' could not be fetched'];
         }

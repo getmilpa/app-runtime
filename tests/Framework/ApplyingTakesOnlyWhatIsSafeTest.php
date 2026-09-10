@@ -175,8 +175,14 @@ final class ApplyingTakesOnlyWhatIsSafeTest extends TestCase
             $names[$operation->name] = $operation;
         }
 
-        self::assertSame(Mutation::None, $names['framework:provenance']->effects?->mutation);
+        self::assertSame(Mutation::None, $names['framework:provenance']->effects?->mutation, 'this one really does write nothing');
+        // 🚨 `None` IS TRUE ONLY BECAUSE THE READ WAS MADE NOT TO PERSIST. It first declared None while
+        // caching a release's hashes — and None means «leaves nothing a LATER RUN could observe», which
+        // a file under storage/ plainly is. Then Ephemeral, whose words are «dies with the process». It
+        // was neither. `Persistent` would have been true and would have demanded `--sign` to ask a
+        // question, so the read stopped writing instead (greenhouse decisions/0296).
         self::assertSame(Mutation::None, $names['framework:diff']->effects?->mutation);
+        self::assertFalse($names['framework:diff']->mutating, 'and the flag agrees, which is what the signature gate reads');
         self::assertSame([], $names['framework:diff']->scopes, 'reading a public registry needs no scope');
         self::assertFalse($names['framework:provenance']->mutating);
     }
