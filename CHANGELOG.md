@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.150.1](https://github.com/getmilpa/app-runtime/compare/v0.150.0...v0.150.1) (2026-09-10)
+
+
+### Bug Fixes
+
+* a silence about the model names the cause it actually had ([#396](https://github.com/getmilpa/app-runtime/issues/396)) ([7167151](https://github.com/getmilpa/app-runtime/commit/716715149ad5d373644d719eec529f5459ab31c1))
+
 ## [0.150.0](https://github.com/getmilpa/app-runtime/compare/v0.149.2...v0.150.0) (2026-09-10)
 
 
