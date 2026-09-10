@@ -42,6 +42,117 @@ final class AgentEndpointTest extends TestCase
         }
     }
 
+    /**
+     * 🚨 WHERE THE VALUE CAME FROM, because «unreachable» without it sends a person to the wrong fix.
+     *
+     * `unreachable: http://llama.local:11438` reads as «start that machine» when the value was never
+     * theirs — it was a package's fallback, or a stray variable in a shell they forgot. Saying WHICH
+     * of the three answered turns the same red into an instruction (greenhouse decisions/0266).
+     *
+     * It resolves in this class for the reason this class exists: a surface computing its own
+     * provenance would be a THIRD copy of a precedence that evidence/0165 already measured going
+     * wrong at two.
+     */
+    public function testItSaysWhereTheEndpointAndTheModelCameFrom(): void
+    {
+        $declared = new Config(['agent' => ['model' => 'declarado', 'baseUrl' => 'https://propio.local']]);
+        self::assertSame('config', AgentEndpoint::baseUrlSource($declared));
+        self::assertSame('config', AgentEndpoint::modelSource($declared));
+
+        putenv('MILPA_AGENT_BASE_URL=https://del-entorno.local');
+        putenv('MILPA_AGENT_MODEL=del-entorno');
+        self::assertSame('environment', AgentEndpoint::baseUrlSource(null));
+        self::assertSame('environment', AgentEndpoint::modelSource(null));
+        // And the same precedence the values follow: declared still wins, and SAYS it wins.
+        self::assertSame('config', AgentEndpoint::baseUrlSource($declared));
+        self::assertSame('config', AgentEndpoint::modelSource($declared));
+    }
+
+    /** Nothing anywhere is `none` — never a guess, and never a host this package invented. */
+    public function testWithNothingAnywhereTheSourceIsNone(): void
+    {
+        self::assertSame('none', AgentEndpoint::baseUrlSource(null));
+        self::assertSame('none', AgentEndpoint::modelSource(null));
+        self::assertSame('none', AgentEndpoint::baseUrlSource(new Config(['agent' => ['baseUrl' => '']])), 'empty is not declared');
+    }
+
+    /**
+     * NO BASE URL, NO QUESTION — the same first guard `measuredContextTokens()` established.
+     *
+     * An app that talks to a provider's default endpoint has not told this framework where its model
+     * lives, and interrogating an invented host is egress nobody asked for.
+     */
+    public function testWithNoEndpointThereIsNoReachQuestion(): void
+    {
+        $asked = [];
+        AgentEndpoint::useProviderFetcher(static function (string $url) use (&$asked): ?string {
+            $asked[] = $url;
+
+            return '{"data":[{"id":"whatever"}]}';
+        });
+
+        self::assertNull(AgentEndpoint::providerReach(null), 'nothing to ask');
+        self::assertSame([], $asked, 'and nothing was asked');
+
+        AgentEndpoint::useProviderFetcher(null);
+    }
+
+    /**
+     * WHETHER A MODEL ANSWERS, asked of the endpoint the turns actually use — including the arm
+     * nobody was checking.
+     *
+     * Skipped where `ProviderReach` is not installed, which is the «no reader, no question» guard
+     * this class already applies to the context window: the answer is absent and the run is
+     * byte-identical to the one before.
+     */
+    public function testItSaysWhetherAModelAnsweredAndWhetherItServesTheDeclaredOne(): void
+    {
+        if (!class_exists(\Milpa\AiGateway\ProviderReach::class)) {
+            self::markTestSkipped('milpa/ai-gateway does not ship ProviderReach yet: no reader, no question');
+        }
+
+        AgentEndpoint::useProviderFetcher(static fn (string $url): ?string => '{"data":[{"id":"qwen3.8-27b"}]}');
+
+        $good = new Config(['agent' => ['baseUrl' => 'https://propio.local', 'model' => 'qwen3.8-27b']]);
+        self::assertSame(
+            ['reached' => true, 'models' => ['qwen3.8-27b'], 'serves_declared' => true],
+            AgentEndpoint::providerReach($good),
+        );
+
+        // 🚨 THE ARM NOBODY CHECKED: it answered, and it does not serve what this house declared.
+        $wrong = new Config(['agent' => ['baseUrl' => 'https://propio.local', 'model' => 'gpt-4o']]);
+        self::assertFalse(AgentEndpoint::providerReach($wrong)['serves_declared']);
+        self::assertTrue(AgentEndpoint::providerReach($wrong)['reached'], 'reached is not the same fact');
+
+        AgentEndpoint::useProviderFetcher(null);
+    }
+
+    /** NEVER TWICE, and the memo is keyed by endpoint AND model — two questions, not one. */
+    public function testTheReachIsAskedOncePerEndpointAndModel(): void
+    {
+        if (!class_exists(\Milpa\AiGateway\ProviderReach::class)) {
+            self::markTestSkipped('milpa/ai-gateway does not ship ProviderReach yet');
+        }
+        $calls = 0;
+        AgentEndpoint::useProviderFetcher(static function () use (&$calls): ?string {
+            ++$calls;
+
+            return '{"data":[{"id":"a"}]}';
+        });
+
+        $one = new Config(['agent' => ['baseUrl' => 'https://propio.local', 'model' => 'a']]);
+        AgentEndpoint::providerReach($one);
+        AgentEndpoint::providerReach($one);
+        self::assertSame(1, $calls, 'one endpoint, one model, one question');
+
+        // A DIFFERENT declared model is a different question about the same endpoint: keying the memo
+        // by the URL alone would answer `serves_declared` for the model somebody asked about first.
+        AgentEndpoint::providerReach(new Config(['agent' => ['baseUrl' => 'https://propio.local', 'model' => 'b']]));
+        self::assertSame(2, $calls);
+
+        AgentEndpoint::useProviderFetcher(null);
+    }
+
     /** 1 · declared configuration is what the banner reports. */
     public function testTheDeclaredModelIsWhatGetsReported(): void
     {

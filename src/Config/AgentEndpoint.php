@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Config;
 
+use Milpa\AiGateway\ProviderReach;
 use Milpa\AiGateway\ProviderWindow;
 use Milpa\Runtime\Config;
 
@@ -62,6 +63,13 @@ final class AgentEndpoint
     private static array $medido = [];
 
     /**
+     * What the provider answered about its catalogue, memoised the same way — the silence included.
+     *
+     * @var array<string, null|array{reached: bool, models: list<string>, serves_declared: null|bool}>
+     */
+    private static array $alcance = [];
+
+    /**
      * The network seam, or `null` for the shipped default.
      *
      * @var null|callable(string): ?string
@@ -82,6 +90,7 @@ final class AgentEndpoint
     {
         self::$costura = $fetch;
         self::$medido = [];
+        self::$alcance = [];
     }
 
     /**
@@ -207,6 +216,88 @@ final class AgentEndpoint
         $entorno = getenv('MILPA_AGENT_MODEL');
 
         return \is_string($entorno) && $entorno !== '' ? $entorno : null;
+    }
+
+    /**
+     * WHERE THE ENDPOINT'S VALUE CAME FROM — the only honest thing to show beside an unreachable one.
+     *
+     * «unreachable: http://llama.local:11438» sends a person to fix a machine when the value was
+     * never theirs: it was a package's fallback, or a stray variable in a shell they forgot. Saying
+     * WHICH of the three answered turns the same red into an instruction — declare it, or unset the
+     * variable that is winning, or start the host you actually named.
+     *
+     * It resolves here rather than in whatever surface wants to paint it, for the reason this whole
+     * class exists: a second reader of one precedence is the defect that {@see evidence/0165}
+     * measured, and a THIRD copy is what a surface computing its own provenance would be.
+     *
+     * @return 'config'|'environment'|'none'
+     */
+    public static function baseUrlSource(?Config $config): string
+    {
+        $declarado = $config?->get('agent.baseUrl');
+        if (\is_string($declarado) && $declarado !== '') {
+            return 'config';
+        }
+        $entorno = getenv('MILPA_AGENT_BASE_URL');
+
+        return \is_string($entorno) && $entorno !== '' ? 'environment' : 'none';
+    }
+
+    /**
+     * The same question about the model's name, answered by the same precedence.
+     *
+     * @return 'config'|'environment'|'none'
+     */
+    public static function modelSource(?Config $config): string
+    {
+        $declarado = $config?->get('agent.model');
+        if (\is_string($declarado) && $declarado !== '') {
+            return 'config';
+        }
+        $entorno = getenv('MILPA_AGENT_MODEL');
+
+        return \is_string($entorno) && $entorno !== '' ? 'environment' : 'none';
+    }
+
+    /**
+     * WHETHER A MODEL ANSWERS, asked of the endpoint this app's turns actually use.
+     *
+     * Nothing could say «there is no reachable model»: every surface READ the configured name and
+     * printed it, so a house whose provider was down looked identical to one talking happily
+     * (greenhouse decisions/0266). The answer includes the arm nobody was checking — whether the
+     * provider serves the model this house DECLARES — because a catalogue that does not contain it
+     * fails every turn AT the provider, and the failure looks like a bug in the turn.
+     *
+     * `null` means the question was never asked, and the three guards are the ones
+     * {@see measuredContextTokens()} already established for the same door:
+     *
+     *  - **No base URL, no question.** Inventing a host to interrogate is egress nobody asked for.
+     *  - **No reader, no question.** `milpa/ai-gateway` older than the one that ships
+     *    {@see ProviderReach} answers nothing, and the run is byte-identical to the one before.
+     *  - **Never twice.** Memoised by endpoint, the silence included.
+     *
+     * Nothing here can raise: `ProviderReach` promises an unanswered question, never an exception.
+     *
+     * @return null|array{reached: bool, models: list<string>, serves_declared: null|bool}
+     */
+    public static function providerReach(?Config $config): ?array
+    {
+        $base = self::baseUrl($config);
+        if ($base === null || !class_exists(ProviderReach::class)) {
+            return null;
+        }
+        $model = self::model($config) ?? '';
+        $key = $base . "\0" . $model;
+        if (\array_key_exists($key, self::$alcance)) {
+            return self::$alcance[$key];
+        }
+        $reach = new ProviderReach($base, $model, self::$costura);
+
+        return self::$alcance[$key] = [
+            'reached' => $reach->reached(),
+            'models' => $reach->models(),
+            'serves_declared' => $reach->offersDeclared(),
+        ];
     }
 
     /**
