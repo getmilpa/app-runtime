@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.149.0](https://github.com/getmilpa/app-runtime/compare/v0.148.0...v0.149.0) (2026-09-10)
+
+
+### Features
+
+* **config:** a secret has somewhere to live, and a governed operation puts it there ([#388](https://github.com/getmilpa/app-runtime/issues/388)) ([8ff0540](https://github.com/getmilpa/app-runtime/commit/8ff0540d4cba4bc07865353999ff824b0ff9fc77))
+
 ## [0.148.0](https://github.com/getmilpa/app-runtime/compare/v0.147.1...v0.148.0) (2026-09-10)
 
 
