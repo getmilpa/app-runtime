@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [0.152.0](https://github.com/getmilpa/app-runtime/compare/v0.151.4...v0.152.0) (2026-09-11)
+
+
+### Features
+
+* **auth:** the scope judge gets someone to judge — a presented token bounds a governed call ([#409](https://github.com/getmilpa/app-runtime/issues/409)) ([0df6673](https://github.com/getmilpa/app-runtime/commit/0df667355369c39560102cc7f563aa84e70a3cc6))
+
+
+### Bug Fixes
+
+* **ceremony:** it derives its design-system URLs instead of typing them ([#408](https://github.com/getmilpa/app-runtime/issues/408)) ([9995fde](https://github.com/getmilpa/app-runtime/commit/9995fde8e6f615af8ee5eb0e683251486bc7a953))
+
 ## [0.151.4](https://github.com/getmilpa/app-runtime/compare/v0.151.3...v0.151.4) (2026-09-11)
 
 
