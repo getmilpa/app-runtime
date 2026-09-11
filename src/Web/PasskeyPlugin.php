@@ -31,6 +31,7 @@ use Milpa\Auth\WebAuthn\WebAuthnRegistrationVerifier;
 use Milpa\Http\HttpMethod;
 use Milpa\Http\Routing\HandlerReference;
 use Milpa\Http\Routing\Route;
+use Milpa\Live\Support\DesignTokens;
 use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\Interfaces\Plugin\PluginInterface;
 use Milpa\Runtime\Config;
@@ -237,9 +238,28 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
         return $found instanceof MilpaEventDispatcherInterface ? $found : null;
     }
 
+    /**
+     * Where this plugin mounts the design system — its OWN prefix, and the one thing it types.
+     *
+     * Not `/design/` and not the panel's: each host serves these from its own asset route with its
+     * own cache policy ({@see DesignTokens::iconLink()}), because a plugin whose pages work the moment
+     * it is installed cannot depend on another plugin's routes being mounted. The five URLs under it
+     * come from {@see DesignTokens::urls()} rather than from typing (greenhouse decisions/0308).
+     */
+    private const string DESIGN_PREFIX = '/webauthn';
+
+    /** This plugin's design-system mount point, for the pages it renders as well as the routes it declares. */
+    public static function designPrefix(): string
+    {
+        return self::DESIGN_PREFIX;
+    }
+
     /** The login, sign-in, enrollment and intent routes, once booted — otherwise none. */
     public function routes(): array
     {
+        // One prefix in, the whole set out — including the `fonts/` segment `milpa-fonts.css` asks for.
+        $design = DesignTokens::urls(self::DESIGN_PREFIX);
+
         if ($this->rpId === null) {
             return [];
         }
@@ -255,16 +275,26 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
             // decisions/0243). It sits on the passkey routes and not behind the gate on purpose:
             // these pages are how somebody gets a session, so a stylesheet they cannot fetch would
             // leave the way IN looking like nothing else in the house.
-            new Route(path: '/webauthn/milpa-tokens.css', methods: HttpMethod::GET, name: 'passkey.tokens', handler: new HandlerReference(PasskeyController::class, 'tokens')),
-            new Route(path: '/webauthn/milpa-fonts.css', methods: HttpMethod::GET, name: 'passkey.fonts', handler: new HandlerReference(PasskeyController::class, 'tokens')),
+            // 🚨 THE PATHS COME FROM THE CANON, not from typing. `DesignTokens::urls()` takes this
+            // plugin's own prefix and gives back the whole set, `fonts/` segment included — and that
+            // segment is the reason it matters: `milpa-fonts.css` names its faces RELATIVELY, so a
+            // host that flattens them serves a stylesheet whose every `src` is a 404, a defect that
+            // shows up as missing type rather than as an error.
+            //
+            // The prefix stays THIS plugin's. Each host serving these itself is a decision written in
+            // `DesignTokens::iconLink()` — «each serves this file from its own asset route, with its
+            // own cache policy» — and a plugin whose pages work the moment it is installed cannot
+            // depend on another plugin's routes being mounted (greenhouse decisions/0308).
+            new Route(path: $design[DesignTokens::TOKENS], methods: HttpMethod::GET, name: 'passkey.tokens', handler: new HandlerReference(PasskeyController::class, 'tokens')),
+            new Route(path: $design[DesignTokens::FONTS], methods: HttpMethod::GET, name: 'passkey.fonts', handler: new HandlerReference(PasskeyController::class, 'tokens')),
             // The faces, under the `fonts/` segment the stylesheet names. Flattening it would serve
             // a stylesheet whose every `src` is a 404, and a broken @font-face fails SILENTLY — the
             // page looks styled without being styled, which is the defect this arc closes.
-            new Route(path: '/webauthn/fonts/{face}', methods: HttpMethod::GET, name: 'passkey.face', handler: new HandlerReference(PasskeyController::class, 'tokens')),
+            new Route(path: self::DESIGN_PREFIX . '/fonts/{face}', methods: HttpMethod::GET, name: 'passkey.face', handler: new HandlerReference(PasskeyController::class, 'tokens')),
             // The wordmark, as vector art and from live-web: the kit forbids assembling it from
             // type plus CSS tricks, and pasting it into the heredoc would be the fourth copy that
             // decisions/0243 refused.
-            new Route(path: '/webauthn/milpa-wordmark.svg', methods: HttpMethod::GET, name: 'passkey.wordmark', handler: new HandlerReference(PasskeyController::class, 'tokens')),
+            new Route(path: $design[DesignTokens::WORDMARK], methods: HttpMethod::GET, name: 'passkey.wordmark', handler: new HandlerReference(PasskeyController::class, 'tokens')),
             // The ceremony component's own two files. Same admission as every asset above, and for
             // the same reason: a `<link>` or a `<script>` answered with a 401 breaks a page in
             // silence, and this is the page somebody uses to GET the session a gate would ask for.
