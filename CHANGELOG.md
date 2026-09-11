@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.151.3](https://github.com/getmilpa/app-runtime/compare/v0.151.2...v0.151.3) (2026-09-11)
+
+
+### Bug Fixes
+
+* **hints:** every hint can be typed too, and six of them stop speaking Spanish ([#404](https://github.com/getmilpa/app-runtime/issues/404)) ([8335ba6](https://github.com/getmilpa/app-runtime/commit/8335ba61bcae41f93854e7e0d3e8a381d4baefac))
+
 ## [0.151.2](https://github.com/getmilpa/app-runtime/compare/v0.151.1...v0.151.2) (2026-09-11)
 
 
