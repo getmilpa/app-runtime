@@ -18,6 +18,7 @@ use Milpa\AppRuntime\Operations\ComponentCatalogue;
 use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\Runtime\Kernel;
 use Milpa\Live\Components\Library;
+use Milpa\Live\Components\WebLibrary;
 use Milpa\Live\Contracts\Component\ComponentDefinitionInterface;
 use Milpa\Live\Contracts\Component\DeclaresComponents;
 
@@ -112,9 +113,20 @@ final class ComponentDeclarations
      */
     private function declarers(): array
     {
-        // This package's own primitives, through the same interface a plugin uses. Present
-        // unconditionally: milpa/live is a hard require, so Library always exists.
-        $declarers = [Library::class => (new Library())->declaredComponents()];
+        // The framework's own primitives, through the same interface a plugin uses. BOTH are present
+        // unconditionally: milpa/live and milpa/live-web are hard requires of this package, so there
+        // is nothing to guard — and a `class_exists` here would hide the coupling rather than state
+        // it (greenhouse decisions/0225).
+        //
+        // 🚨 THE SECOND LINE IS A FIX, NOT SYMMETRY. Only `Library` was read, so the components that
+        // ship in milpa/live-web were invisible: `brand-mark` had been on disk since it was written
+        // and no catalogue row ever said so. The catalogue exists to stop the agent inventing a
+        // component that already exists, which it cannot do for a component it cannot see
+        // (greenhouse decisions/0214, measured absent in 0299).
+        $declarers = [
+            Library::class => (new Library())->declaredComponents(),
+            WebLibrary::class => (new WebLibrary())->declaredComponents(),
+        ];
 
         $kernel = $this->container->getContainer()->has(Kernel::class)
             ? $this->container->get(Kernel::class)

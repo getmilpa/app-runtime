@@ -110,7 +110,7 @@ final class EnablingIdentityOpensTheDoorTest extends TestCase
         self::assertSame(['composer require milpa/auth'], $ran);
         self::assertSame([PasskeyPlugin::class], $answer['plugins_declared']);
         self::assertSame(['rpId' => 'localhost', 'written' => true, 'file' => 'config/app.php'], $answer['relying_party']);
-        self::assertStringContainsString('coa serve', $answer['hint']);
+        self::assertStringContainsString('php bin/coa serve', $answer['hint']);
 
         // VERIFIED BY LOADING, not by reading text: the declarations are what PHP returns from the files.
         $plugins = (fn (): mixed => include $this->root . '/config/plugins.php')();

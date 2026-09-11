@@ -123,7 +123,7 @@ final class ACapabilityDeclaresItsPluginTest extends TestCase
         }
 
         self::assertNotNull($row, 'a package the index names is offered');
-        self::assertSame('coa capabilities:enable acme/thing --sign', $row['command']);
+        self::assertSame('php bin/coa capabilities:enable acme/thing --sign', $row['command']);
         self::assertTrue($state['complete'], 'a derived index is not a floor');
 
         exec('rm -rf ' . escapeshellarg($vendor));
@@ -139,7 +139,7 @@ final class ACapabilityDeclaresItsPluginTest extends TestCase
         $state = Capabilities::state($vendor, null);
 
         self::assertFalse($state['complete'], 'nothing was derived, so this is not the world');
-        self::assertSame('coa capabilities:refresh', $state['grow'] ?? null);
+        self::assertSame('php bin/coa capabilities:refresh', $state['grow'] ?? null);
 
         exec('rm -rf ' . escapeshellarg($vendor));
     }

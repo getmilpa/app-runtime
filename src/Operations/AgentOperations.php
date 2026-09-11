@@ -1057,10 +1057,22 @@ class AgentOperations implements CommandProvider
         // two doors reading the state through two different sources would disagree the day the index exists.
         $state = Capabilities::state($vendor, CapabilityIndex::read());
         $installed = array_map(static fn (array $c): string => (string) $c['id'], $state['installed']);
+        // 🚨 THREE SCALARS PER ROW, AND `unlocks` IS NOT ONE OF THEM — measured at 70 lines → 35.
+        //
+        // `PlainTextCliRenderer::tabla()` gives up and falls back to key/value pairs the moment a cell
+        // is non-scalar, so this one array made the nine capabilities render as 45 of the first
+        // screen's 70 lines. And `unlocks` was empty for all nine on the fresh run anyway — it cannot
+        // be known without the network, so the screen the «Start here» sign points at printed a
+        // labelled blank nine times.
+        //
+        // Dropped rather than flattened: `implode()` would make a `list<string>` lossy to satisfy one
+        // text renderer's heuristic, and this payload is read raw over MCP. The data is not lost —
+        // `coa capabilities` owns the full catalogue and carries `unlocks`, `version`, `ports`,
+        // `source` and `complete` besides. This operation was duplicating it minus the version and
+        // plus an empty column (greenhouse decisions/0305).
         $available = array_map(static fn (array $c): array => [
             'package' => (string) $c['package'],
             'title' => (string) $c['title'],
-            'unlocks' => \is_array($c['unlocks'] ?? null) ? array_values($c['unlocks']) : [],
             'command' => (string) $c['command'],
         ], $state['available']);
         $availablePackages = array_column($available, 'package');
@@ -1076,7 +1088,7 @@ class AgentOperations implements CommandProvider
         // the capability a person is most likely to want. Growing it comes first, and it is exactly
         // the step nobody was told to run (greenhouse decisions/0241).
         if ($state['complete'] === false && \in_array('capabilities:refresh', $offered, true)) {
-            $next[] = ['step' => 'see what exists', 'command' => (string) ($state['grow'] ?? 'coa capabilities:refresh'), 'why' => 'this catalogue is the offline floor — the packages this runtime knows by name, without reaching the network. Deriving the registry index is what puts everything else the family publishes on the list below'];
+            $next[] = ['step' => 'see what exists', 'command' => (string) ($state['grow'] ?? Capabilities::CLI . 'capabilities:refresh'), 'why' => 'this catalogue is the offline floor — the packages this runtime knows by name, without reaching the network. Deriving the registry index is what puts everything else the family publishes on the list below'];
         }
         // THE PANEL COMES FIRST, because it is where a human meets this house (greenhouse
         // decisions/0241, station 2 of the ideal path). This step used to be unreachable in a newborn
@@ -1085,7 +1097,7 @@ class AgentOperations implements CommandProvider
         // they needed. The floor knows the panel now (decisions/0247), so the first minute proposes
         // it — which is what this branch always meant to do.
         if (\in_array('milpa/admin', $availablePackages, true) && \in_array('capabilities:enable', $offered, true)) {
-            $next[] = ['step' => 'open the panel', 'command' => Capabilities::ENABLE_COMMAND . 'milpa/admin --sign', 'why' => 'the admin panel: where a human equips the house, sees its routes and plugins, and gives the agent a place to work — served in the browser, no build step'];
+            $next[] = ['step' => 'open the panel', 'command' => Capabilities::ENABLE_COMMAND . 'milpa/admin --sign', 'why' => 'the admin panel: where a human equips the house, sees its routes and plugins, and gives the agent a place to work — served in the browser, no build step. `--sign` authorizes this exact call with your key; swap it for `--dry-run` to see what it would do without doing it'];
         }
         if (\in_array('milpa/devtools', $availablePackages, true) && \in_array('capabilities:enable', $offered, true)) {
             $next[] = ['step' => 'switch on the generators', 'command' => Capabilities::ENABLE_COMMAND . 'milpa/devtools --sign', 'why' => 'make, validate and doctor: scaffold plugins, entities, controllers and tools, and let the house check them'];
@@ -1100,16 +1112,22 @@ class AgentOperations implements CommandProvider
             foreach ($missingForRecipes as $package) {
                 $next[] = ['step' => 'switch on the governed runtime', 'command' => Capabilities::ENABLE_COMMAND . $package . ' --sign', 'why' => 'sessions that pause and are recorded: recipe:apply and sequence:run run through them'];
             }
-        } elseif ($recipes !== [] && \in_array('recipe:apply', $offered, true)) {
-            $next[] = ['step' => 'become a domain', 'command' => 'coa recipe:apply --recipe=' . $recipes[0], 'why' => 'a recipe originates governed work: the foundation, the capabilities it needs and the scaffolds, each through the gate — it pauses for your consent; answer with agent:answer and call it again'];
+            // 🚨 THE FOUNDATION TERM THE SIBLING BRANCH BELOW ALREADY HAD. Without it this rung
+            // survived the act it proposes: a founded house went on being told to found itself, and on
+            // three of the four verdicts the command it printed could not run at all — `RecipeExpander`
+            // refuses with «recipe 'notes' cannot proceed: foundation frontier is …» when the founded
+            // domain is not the recipe's, and on `invalid`/`indeterminate` too. The last rung of the
+            // ladder was the one that never resolved (greenhouse decisions/0305).
+        } elseif ($recipes !== [] && \in_array('recipe:apply', $offered, true) && ($foundation['verdict'] ?? '') === 'unfounded') {
+            $next[] = ['step' => 'become a domain', 'command' => Capabilities::CLI . 'recipe:apply --recipe=' . $recipes[0], 'why' => 'a recipe originates governed work: the foundation, the capabilities it needs and the scaffolds, each through the gate — it pauses for your consent; answer with agent:answer and call it again'];
         } elseif (($foundation['verdict'] ?? '') === 'unfounded' && \in_array('foundation:found', $offered, true)) {
-            $next[] = ['step' => 'found the house', 'command' => 'coa foundation:found', 'why' => 'until a domain and an objective are declared, the agent can only read'];
+            $next[] = ['step' => 'found the house', 'command' => Capabilities::CLI . 'foundation:found', 'why' => 'until a domain and an objective are declared, the agent can only read'];
         }
         if (\in_array('milpa/auth', $availablePackages, true) && \in_array('capabilities:enable', $offered, true)) {
             $next[] = ['step' => 'put a door on it', 'command' => Capabilities::ENABLE_COMMAND . 'milpa/auth --sign', 'why' => 'identity: a passkey session becomes the principal of every operation over HTTP'];
         }
         if (\in_array('serve', $offered, true)) {
-            $next[] = ['step' => 'see it', 'command' => 'coa serve', 'why' => 'the development server, and the URL to open'];
+            $next[] = ['step' => 'see it', 'command' => Capabilities::CLI . 'serve', 'why' => 'the development server, and the URL to open'];
         }
 
         return [

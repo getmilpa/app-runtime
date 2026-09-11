@@ -77,7 +77,31 @@ final class Capabilities
      * one thing and only governed one of them (greenhouse decisions/0241). Callers append the package
      * and the authorisation the surface needs.
      */
-    public const ENABLE_COMMAND = 'coa capabilities:enable ';
+    public const ENABLE_COMMAND = self::CLI . 'capabilities:enable ';
+
+    /**
+     * HOW THIS APP'S CLI IS INVOKED — `php bin/coa `, and never a bare `coa`.
+     *
+     * 🚨 IT IS A CONSTANT BECAUSE IT WAS WRONG IN SIXTEEN PLACES AT ONCE.
+     *
+     * `coa` is not on PATH after `composer create-project`: Composer does not link the ROOT package's
+     * `bin`, so `vendor/bin/` holds php-cs-fixer, phpstan and phpunit and no `coa`. Measured in a
+     * clean shell at an app root — `coa capabilities:refresh` answers
+     * «bash: coa: command not found», exit 127, while `php bin/coa list` exits 0.
+     *
+     * Every command this package handed a human to type began with that bare `coa`: fifteen of them
+     * on the first screen of a newborn app, which is the screen the framework's welcome page now
+     * points at with a heading that reads «Start here». The door opened onto a wall.
+     *
+     * The house already knew the right form and used it in two HTML renderers ({@see
+     * \Milpa\AppRuntime\Board\BoardHtmlRenderer}, {@see \Milpa\AppRuntime\Web\BoardPage}) — so it
+     * had two vocabularies for one act and shipped the one that does not run
+     * (greenhouse decisions/0305).
+     *
+     * NOT the program's NAME. `coa doctor · 3 plugin(s) declared` and the TUI's `coa · agent` title
+     * are labels, and they stay: a banner is not something anybody types.
+     */
+    public const string CLI = 'php bin/coa ';
 
     /**
      * The capability id each known opt-in declares once installed — so `capabilities:enable identity`
@@ -663,7 +687,7 @@ final class Capabilities
             // runtime happens to know by name — and presenting it as the world is how a human
             // concludes the panel does not exist (greenhouse decisions/0241).
             'complete' => $date !== null,
-            ...($date === null ? ['grow' => 'coa capabilities:refresh'] : []),
+            ...($date === null ? ['grow' => self::CLI . 'capabilities:refresh'] : []),
         ];
     }
 
@@ -893,8 +917,10 @@ final class Capabilities
             'pinned' => $ensanchado,
             'unlocked' => $llego,
             'hint' => $deliveredId === 'identity'
-                ? 'the passkey door is declared: run `coa serve`, open http://localhost:8000/webauthn/enroll and enroll the first key'
-                : 'run `coa list` to see the new operations',
+                // The invocation comes from the one authority here too: a hint is something a person is
+                // told to RUN, so it is held to the same rule as a `command` field.
+                ? 'the passkey door is declared: run `' . self::CLI . 'serve`, open http://localhost:8000/webauthn/enroll and enroll the first key'
+                : 'run `' . self::CLI . 'list` to see the new operations',
         ];
         if ($relyingParty !== null) {
             $okOut['relying_party'] = $relyingParty;
