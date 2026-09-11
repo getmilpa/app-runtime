@@ -316,7 +316,7 @@ final readonly class CapabilityOperations implements CommandProvider
                     'properties' => [
                         'package' => [
                             'type' => 'string',
-                            'description' => 'The package `coa doctor` recommends installing, exactly as it names it',
+                            'description' => 'The package `php bin/coa doctor` recommends installing, exactly as it names it',
                         ],
                         'dry_run' => [
                             'type' => 'boolean',

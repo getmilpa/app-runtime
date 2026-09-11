@@ -62,17 +62,36 @@ final class EveryCommandItPrintsCanBeTypedTest extends TestCase
      */
     public function testNoStringInTheSourceOffersABareCoaToType(): void
     {
+        // Named one by one rather than by pattern, because each is a different KIND of thing and a
+        // pattern would let a real command in behind it: two banners, a TUI panel title, a docblock
+        // example of an `unlocks` list, and the one place that names the operation `coa doctor` writes
+        // into its own `action` field.
         $allowed = [
             "'coa doctor · '",
             "'coa — the runtime of this app.",
             "'coa · agent'",
             '"coa chat"',
+            '`coa doctor` names in its `action`',
         ];
 
         $offenders = [];
         foreach (self::phpFiles(\dirname(__DIR__, 2) . '/src') as $file) {
             foreach (explode("\n", (string) file_get_contents($file)) as $n => $line) {
-                if (!preg_match('/[\'"]coa /', $line)) {
+                // COMMENTS AND DOCBLOCKS ARE NOT THIS GUARD'S SUBJECT. Prose discussing an operation
+                // by name — «whoever reads `coa list` counts it as available» — is the code-language
+                // ratchet's business, and a guard that flagged it would fail on 36 lines this slice
+                // never touched while saying nothing new about what a human is told to type.
+                $trimmed = ltrim($line);
+                if ($trimmed === '' || str_starts_with($trimmed, '*') || str_starts_with($trimmed, '//') || str_starts_with($trimmed, '/*')) {
+                    continue;
+                }
+                // 🚨 BACKTICKS TOO, AND THAT WAS THE HOLE. The first version of this guard matched only
+                // `'coa ` at the START of a literal, so it passed while fourteen more sites offered a
+                // bare `coa` INSIDE a sentence — «run `coa config`», «córrela con `coa agent …`», the
+                // remedy at the end of an error, a usage line, and a comment written into the reader's
+                // own `config/app.php`. A guard that only sees one shape of the defect certifies the
+                // others (greenhouse decisions/0306).
+                if (!preg_match('/[\'"`]coa /', $line)) {
                     continue;
                 }
                 foreach ($allowed as $exempt) {

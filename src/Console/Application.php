@@ -906,7 +906,7 @@ final class Application
         }
 
         if ($paquete === '') {
-            $this->line('uso: coa repair <paquete>   — el que `coa doctor` nombra en su `action`');
+            $this->line('usage: php bin/coa repair <package>   — the one `coa doctor` names in its `action`');
 
             return 1;
         }
@@ -1104,7 +1104,7 @@ final class Application
         $this->line('');
         $this->line('    ' . $comando);
         $this->line('');
-        $this->line('  `coa capabilities` lists everything this app can switch on.');
+        $this->line('  `php bin/coa capabilities` lists everything this app can switch on.');
 
         return 1;
     }
