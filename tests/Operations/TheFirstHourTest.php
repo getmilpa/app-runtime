@@ -100,27 +100,27 @@ final class TheFirstHourTest extends TestCase
         self::assertNotSame([], $answer['next'], 'a newborn app always has a next step');
         foreach ($answer['next'] as $step) {
             self::assertSame(['step', 'command', 'why'], array_keys($step));
-            self::assertMatchesRegularExpression('/^coa ([a-z:]+)/', $step['command']);
-            preg_match('/^coa ([a-z:]+)/', $step['command'], $m);
+            self::assertMatchesRegularExpression('#^php bin/coa ([a-z:]+)#', $step['command']);
+            preg_match('#^php bin/coa ([a-z:]+)#', $step['command'], $m);
             self::assertContains($m[1], $offered, sprintf('«%s» must be a command this app offers', $step['command']));
         }
-        self::assertSame('coa serve', end($answer['next'])['command'], 'seeing it is always the last step');
+        self::assertSame('php bin/coa serve', end($answer['next'])['command'], 'seeing it is always the last step');
 
         // THE STEPS FOLLOW THE HOUSE, read from a vendor this test writes: nothing switched on → see
         // what exists FIRST, then the generators, then the door; switched on → neither step, and the
         // answer does not even mention them.
         $bare = array_column($operations->houseStart($this->vendorWith([]))['next'], 'command');
-        self::assertSame('coa capabilities:refresh', $bare[0], 'a house that never looked cannot propose what it has not seen');
+        self::assertSame('php bin/coa capabilities:refresh', $bare[0], 'a house that never looked cannot propose what it has not seen');
         // THE PANEL, IN THE FIRST MINUTE. It is station 2 of the ideal path, and this branch always
         // meant to propose it — it was unreachable in a newborn house only because `milpa/admin` was
         // missing from the offline floor (greenhouse decisions/0247).
-        self::assertSame('coa capabilities:enable milpa/admin --sign', $bare[1], 'the panel is where a human meets the house');
-        self::assertSame('coa capabilities:enable milpa/devtools --sign', $bare[2], 'then the generators');
-        self::assertContains('coa capabilities:enable milpa/auth --sign', $bare);
+        self::assertSame('php bin/coa capabilities:enable milpa/admin --sign', $bare[1], 'the panel is where a human meets the house');
+        self::assertSame('php bin/coa capabilities:enable milpa/devtools --sign', $bare[2], 'then the generators');
+        self::assertContains('php bin/coa capabilities:enable milpa/auth --sign', $bare);
         // EVERY TAUGHT COMMAND RUNS. A privileged one printed without `--sign` is refused the moment
         // somebody types it, which is worse than not offering it (greenhouse decisions/0241).
         foreach ($bare as $command) {
-            if (str_starts_with($command, 'coa capabilities:enable ')) {
+            if (str_starts_with($command, 'php bin/coa capabilities:enable ')) {
                 self::assertStringEndsWith(' --sign', $command, sprintf('«%s» would be refused as printed', $command));
             }
         }
@@ -128,8 +128,8 @@ final class TheFirstHourTest extends TestCase
             $this->package('milpa/devtools', 'devtools'),
             $this->package('milpa/auth', 'identity'),
         ]))['next'], 'command');
-        self::assertNotContains('coa capabilities:enable milpa/devtools --sign', $grown);
-        self::assertNotContains('coa capabilities:enable milpa/auth --sign', $grown);
+        self::assertNotContains('php bin/coa capabilities:enable milpa/devtools --sign', $grown);
+        self::assertNotContains('php bin/coa capabilities:enable milpa/auth --sign', $grown);
     }
 
     #[Test]
@@ -139,37 +139,37 @@ final class TheFirstHourTest extends TestCase
         file_put_contents($this->root . '/recipes/notes.json', '{}');
 
         $commands = array_column($this->booted()->houseStart()['next'], 'command');
-        self::assertNotContains('coa recipe:apply --recipe=notes', $commands, 'a recipe on disk is not a step when recipe:apply is not offered');
-        self::assertContains('coa foundation:found', $commands, 'an unfounded app without a recipe to apply is told to found itself');
+        self::assertNotContains('php bin/coa recipe:apply --recipe=notes', $commands, 'a recipe on disk is not a step when recipe:apply is not offered');
+        self::assertContains('php bin/coa foundation:found', $commands, 'an unfounded app without a recipe to apply is told to found itself');
 
         // POSITIVE CONTROL: the same recipe, now with recipe:apply offered AND the governed runtime switched on —
         // the step appears and displaces the founding one.
         $this->declareOperations(['AgentOperations', 'CapabilityOperations', 'FoundationOperations', 'RecipeOperations']);
         $grown = $this->vendorWith([$this->package('milpa/agent', 'agent')]);
         $commands = array_column($this->booted()->houseStart($grown)['next'], 'command');
-        self::assertContains('coa recipe:apply --recipe=notes', $commands);
-        self::assertNotContains('coa foundation:found', $commands);
+        self::assertContains('php bin/coa recipe:apply --recipe=notes', $commands);
+        self::assertNotContains('php bin/coa foundation:found', $commands);
 
         // Without the session store the recipe would refuse (measured on cattle, evidence/0562), so the house
         // names milpa/agent first and the recipe not yet. The gate is milpa/tool-runtime's (decisions/0225):
         // the model gateway is NOT asked for — a door a human opens needs no model on the other side.
         $bare = array_column($this->booted()->houseStart($this->vendorWith([]))['next'], 'command');
-        self::assertNotContains('coa recipe:apply --recipe=notes', $bare);
-        self::assertContains('coa capabilities:enable milpa/agent --sign', $bare);
-        self::assertNotContains('coa capabilities:enable milpa/ai-gateway', $bare, 'the door does not need the model gateway');
+        self::assertNotContains('php bin/coa recipe:apply --recipe=notes', $bare);
+        self::assertContains('php bin/coa capabilities:enable milpa/agent --sign', $bare);
+        self::assertNotContains('php bin/coa capabilities:enable milpa/ai-gateway', $bare, 'the door does not need the model gateway');
     }
 
     #[Test]
     public function house_start_offers_serve_only_when_the_app_offers_it(): void
     {
         $commands = array_column($this->booted()->houseStart()['next'], 'command');
-        self::assertContains('coa serve', $commands);
+        self::assertContains('php bin/coa serve', $commands);
 
         // POSITIVE CONTROL: an app whose catalogue holds no `serve` (no AgentOperations) is not told to serve —
         // the steps are read from the catalogue, not written by hand.
         $this->declareOperations(['CapabilityOperations', 'FoundationOperations']);
         $commands = array_column($this->booted()->houseStart()['next'], 'command');
-        self::assertNotContains('coa serve', $commands);
+        self::assertNotContains('php bin/coa serve', $commands);
     }
 
     #[Test]

@@ -147,7 +147,11 @@ final class ComponentsCatalogueTest extends TestCase
 
         $catalogue = (new ComponentsCatalogue())->run(new ComponentDeclarations($container));
 
-        self::assertSame(['Milpa\Live\Components\Library'], $catalogue->sources);
+        // TWO framework declarers, not one: `milpa/live`'s render-target-agnostic primitives and
+        // `milpa/live-web`'s HTML-flavoured ones. The second was invisible to this catalogue until it
+        // was declared — `brand-mark` had been on disk since it was written with no row saying so
+        // (greenhouse decisions/0299).
+        self::assertSame(['Milpa\Live\Components\Library', 'Milpa\Live\Components\WebLibrary'], $catalogue->sources);
     }
 
     public function testEveryActionRowIsAMapSoNoAgentFacesAUnionType(): void
@@ -186,14 +190,22 @@ final class ComponentsCatalogueTest extends TestCase
         $catalogue = (new ComponentsCatalogue())->run(new ComponentDeclarations(new DIContainer()));
 
         self::assertTrue($catalogue->ok);
-        self::assertSame(['Milpa\Live\Components\Library'], $catalogue->sources);
+        // TWO framework declarers, not one: `milpa/live`'s render-target-agnostic primitives and
+        // `milpa/live-web`'s HTML-flavoured ones. The second was invisible to this catalogue until it
+        // was declared — `brand-mark` had been on disk since it was written with no row saying so
+        // (greenhouse decisions/0299).
+        self::assertSame(['Milpa\Live\Components\Library', 'Milpa\Live\Components\WebLibrary'], $catalogue->sources);
     }
 
     public function testAPluginThatDeclaresNoComponentsIsSkipped(): void
     {
         $catalogue = $this->catalogue([SilentPlugin::class]);
 
-        self::assertSame(['Milpa\Live\Components\Library'], $catalogue->sources);
+        // TWO framework declarers, not one: `milpa/live`'s render-target-agnostic primitives and
+        // `milpa/live-web`'s HTML-flavoured ones. The second was invisible to this catalogue until it
+        // was declared — `brand-mark` had been on disk since it was written with no row saying so
+        // (greenhouse decisions/0299).
+        self::assertSame(['Milpa\Live\Components\Library', 'Milpa\Live\Components\WebLibrary'], $catalogue->sources);
     }
 
     public function testAPluginWithoutMetadataCannotHaveBootedAndIsSkipped(): void
