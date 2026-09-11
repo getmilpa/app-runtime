@@ -18,6 +18,8 @@ use Milpa\Interfaces\Event\MilpaEventDispatcherInterface;
 use Milpa\Live\Contracts\Component\ComponentDefinitionInterface;
 use Milpa\Live\Contracts\Rendering\ComponentRendererInterface;
 use Milpa\Live\Contracts\Rendering\DeclaresClientAssets;
+use Milpa\AppRuntime\Web\PasskeyPlugin;
+use Milpa\Live\Support\DesignTokens;
 use Milpa\Live\ValueObjects\ClientAssets;
 use Milpa\Live\ValueObjects\RenderRequest;
 use Milpa\Live\ValueObjects\RenderResult;
@@ -122,7 +124,9 @@ final class GateCeremonyHtmlRenderer implements ComponentRendererInterface, Decl
         return '<div class="gate">' . "\n"
             . '  <aside class="gate__brand">' . "\n"
             . '    <a class="gate__wordmark" href="https://getmilpa.com" target="_blank" rel="noopener noreferrer">'
-            . '<img src="/webauthn/milpa-wordmark.svg" alt="Milpa" width="2407" height="900"></a>' . "\n"
+            // The wordmark's URL comes from the canon under this plugin's prefix, like every other
+            // design-system asset the ceremony links (greenhouse decisions/0308).
+            . '<img src="' . DesignTokens::urls(PasskeyPlugin::designPrefix())[DesignTokens::WORDMARK] . '" alt="Milpa" width="2407" height="900"></a>' . "\n"
             . '    <div class="gate__mark">' . $subject->markHtml . "</div>\n"
             . '    <div class="gate__lede">' . "\n"
             . '      <p class="kicker">' . $e($copy['kicker']) . "</p>\n"

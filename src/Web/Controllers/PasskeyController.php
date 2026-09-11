@@ -33,6 +33,7 @@ use Milpa\Live\Rendering\BrandMarkHtmlRenderer;
 use Milpa\Live\ValueObjects\ComponentContext;
 use Milpa\Live\ValueObjects\RenderRequest;
 use Nyholm\Psr7\Response;
+use Milpa\AppRuntime\Web\PasskeyPlugin;
 use Milpa\Live\Support\DesignTokens;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -297,6 +298,10 @@ final class PasskeyController
      */
     private function ceremonyHtml(string $kind, string $next = '/'): string
     {
+        // The canon, under this plugin's own prefix — the same call its routes are declared from,
+        // so a page can never link a URL this plugin does not serve (greenhouse decisions/0308).
+        $design = DesignTokens::urls(PasskeyPlugin::designPrefix());
+
         [$mark, $markStyles] = $this->houseMark();
 
         $component = new GateCeremonyComponent();
@@ -329,8 +334,10 @@ final class PasskeyController
             . '<meta charset="utf-8">' . "\n"
             . '<meta name="viewport" content="width=device-width, initial-scale=1">' . "\n"
             . '<title>' . self::attr($title) . '</title>' . "\n"
-            . '<link rel="stylesheet" href="/webauthn/milpa-fonts.css">' . "\n"
-            . '<link rel="stylesheet" href="/webauthn/milpa-tokens.css">' . "\n"
+            // The same canon the routes are declared from, so a page can never link a URL this
+            // plugin does not serve (greenhouse decisions/0308).
+            . '<link rel="stylesheet" href="' . self::attr($design[DesignTokens::FONTS]) . '">' . "\n"
+            . '<link rel="stylesheet" href="' . self::attr($design[DesignTokens::TOKENS]) . '">' . "\n"
             . $markStyles . "\n"
             . $head
             . '</head>' . "\n"

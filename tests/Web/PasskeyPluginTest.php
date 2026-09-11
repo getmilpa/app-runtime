@@ -19,6 +19,7 @@ use Milpa\AppRuntime\Identity\IdentityEnrolled;
 use Milpa\AppRuntime\Web\Controllers\PasskeyController;
 use Milpa\AppRuntime\Web\PasskeyGateMiddleware;
 use Milpa\AppRuntime\Web\PasskeyPlugin;
+use Milpa\Live\Support\DesignTokens;
 use Milpa\AppRuntime\Web\PasskeySessionMiddleware;
 use Milpa\Auth\ActorType;
 use Milpa\Auth\AuthContext;
@@ -121,6 +122,21 @@ final class PasskeyPluginTest extends TestCase
         $plugin->boot();
 
         self::assertCount(14, $plugin->routes(), 'the routes mount without a host-registered store — nine for the ceremony, five for what it wears: tokens, faces stylesheet, the faces, the wordmark (greenhouse decisions/0243) and the ceremony component own two files under one route (decisions/0263)');
+
+        // 🚨 AND THE FIVE IT WEARS ARE THE CANON'S URLS, not typed ones. `DesignTokens::urls()` takes
+        // this plugin's own prefix and gives back the whole set — the prefix stays ours, because each
+        // host serves these from its own asset route with its own cache policy, and only the typing
+        // moved. Eight sites in this package spelled them by hand while the canon written for exactly
+        // that was called by nothing in any `src/` (greenhouse decisions/0308).
+        $paths = array_map(static fn (Route $r): string => $r->path, $plugin->routes());
+        $canon = DesignTokens::urls(PasskeyPlugin::designPrefix());
+        foreach ([DesignTokens::TOKENS, DesignTokens::FONTS, DesignTokens::WORDMARK] as $asset) {
+            self::assertContains($canon[$asset], $paths, $asset . ' is not served at the URL the canon names');
+        }
+        // The face route is a PATTERN, so what must survive the prefix is the `fonts/` SEGMENT:
+        // `milpa-fonts.css` names its faces relatively, and a host that flattens them serves a
+        // stylesheet whose every `src` is a 404 — a defect that shows up as missing type.
+        self::assertContains(PasskeyPlugin::designPrefix() . '/fonts/{face}', $paths);
         self::assertTrue($container->has(SessionStore::class));
         $store = $container->get(SessionStore::class);
         self::assertInstanceOf(FileSessionStore::class, $store);
