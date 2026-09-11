@@ -18,6 +18,8 @@ use Milpa\Agent\Session;
 use Milpa\Agent\SessionStore;
 use Milpa\AppRuntime\Agent\AgentTable;
 use Milpa\AppRuntime\Agent\ConsentBridge;
+use Milpa\AppRuntime\Auth\PresentedToken;
+use Milpa\Auth\AuthContext;
 use Milpa\AppRuntime\Agent\ContractProducer;
 use Milpa\AppRuntime\Agent\ObservedExecutor;
 use Milpa\AppRuntime\Agent\SessionBookkeeping;
@@ -147,7 +149,32 @@ final class GovernedDoor
             executions: $gate,
             executor: self::observedExecutor($context),
             grown: $grown,
+            // THE SAME IDENTITY DERIVATION AS THE AGENT'S DOOR. Two doors deciding the caller's scopes
+            // differently is the shape of the regression this seam exists to avoid — one site kept the
+            // default and the other replaced it (greenhouse decisions/0311).
+            identity: self::presented($kernel),
         );
+    }
+
+
+    /**
+     * The identity this caller presented, or null when it presented none — and null when we cannot ask.
+     *
+     * 🚨 THE KERNEL ENTERS ITS CONTAINER AFTER THE BOOT, so `container()` on an unbooted kernel is an
+     * UNINITIALISED TYPED PROPERTY and throws, not an empty container that answers `has()` with false
+     * (greenhouse evidence/0294, measured again here by a test that builds this door without booting).
+     * A door asked who is calling must not be the thing that fails, and the answer when nobody can be
+     * asked is the same as the answer when nobody presented anything: the default scopes stand.
+     */
+    private static function presented(Kernel $kernel): ?AuthContext
+    {
+        try {
+            $container = $kernel->container();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return PresentedToken::identity($container);
     }
 
     /** Who materialises the steps — read from the invocation, the one derivation every door shares. */
