@@ -1032,6 +1032,30 @@ class AgentOperations implements CommandProvider
     }
 
     /**
+     * The sentence `Foundation::answer()` already computed for this verdict, or null when it computed none.
+     *
+     * One place chooses, because the three payload names are the authority's vocabulary and not this
+     * operation's: `teach.how` is the rite an unfounded app is missing, `repair` is what a document
+     * that contradicts its contract needs, and `hint` is what an unadjudicable one gets. A founded
+     * house gets null — there is nothing left to say, and saying so with an empty string would be the
+     * ninth blank `unlocks` again (greenhouse decisions/0307).
+     *
+     * @param array<string, mixed> $foundation the whole answer, not its verdict
+     */
+    private static function foundationSentence(array $foundation): ?string
+    {
+        $teach = \is_array($foundation['teach'] ?? null) ? $foundation['teach'] : [];
+
+        foreach ([$teach['how'] ?? null, $foundation['repair'] ?? null, $foundation['hint'] ?? null] as $candidate) {
+            if (\is_string($candidate) && trim($candidate) !== '') {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * `house:start` — the state of the house, said by the house, and the next real steps.
      *
      * Every step names a command THIS app offers today (an app that does not offer `serve` is not told to
@@ -1050,13 +1074,53 @@ class AgentOperations implements CommandProvider
             return ['ok' => false, 'error' => 'this app has no kernel, so there is no house to start from yet'];
         }
         $root = $kernel->root();
+
+        // 🚨 «I COULD NOT READ YOUR VENDOR TREE» IS NOT «YOU HAVE NOTHING», AND THE TWO HAVE OPPOSITE
+        // FIXES. `Capabilities::declaredBy()` answers `[]` for both — its own comment says so
+        // («Vacío significa "no lo pude saber"») — and an empty list read as a fact made this answer
+        // ship `ok: true` with a blank `installed:` and then propose installing capabilities.
+        //
+        // Measured by mutation: with `vendor/composer/installed.json` moved aside, exit 0,
+        // `installed:` blank, and `next` still offering four `capabilities:enable`. An interrupted
+        // `composer install`, a Docker COPY that skips the manifest, a partial rsync — and the first
+        // screen states as fact the opposite of what is true (greenhouse decisions/0307).
+        //
+        // Asked of the FILE rather than inferred from the answer's shape: an app with genuinely
+        // nothing installed cannot be running this code, so an empty list could only ever have meant
+        // the read failed.
+        //
+        // 🚨 AND RESOLVED THE WAY `declaredBy()` RESOLVES IT, not from `$root`. The first version of
+        // this guard read `$root . '/vendor'` and refused a house whose manifest was perfectly
+        // readable: `declaredBy()` does `$vendor ??= raizDeLaApp() . '/vendor'`, and `raizDeLaApp()`
+        // asks Composer's `InstalledVersions` — the autoloader that is actually running — because in
+        // a path monorepo this package has its OWN `vendor/` and walking up finds the wrong root.
+        // A guard that checks a different file than the one that was read certifies nothing and
+        // refuses the innocent; the suite caught it on the fixture house immediately.
+        $manifest = ($vendor ?? Capabilities::raizDeLaApp() . '/vendor') . '/composer/installed.json';
+        if (!is_file($manifest) || !\is_array(json_decode((string) @file_get_contents($manifest), true))) {
+            return [
+                'ok' => false,
+                'error' => 'vendor/composer/installed.json is missing or unreadable, so this app cannot say what is installed — run `composer install`',
+            ];
+        }
+
         $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
         $appName = $config instanceof Config ? $config->get('app.name') : null;
 
         // THE SAME ANSWER `capabilities` GIVES: the derived registry index on top of the offline floor —
         // two doors reading the state through two different sources would disagree the day the index exists.
         $state = Capabilities::state($vendor, CapabilityIndex::read());
-        $installed = array_map(static fn (array $c): string => (string) $c['id'], $state['installed']);
+        // 🚨 ONE VOCABULARY FOR BOTH LISTS. `installed` named a capability by `id` while `available`
+        // named it by `package`, so after running the step this screen recommends — `capabilities:enable
+        // milpa/admin` — the reader looked for `milpa/admin` in the answer and found a bare `admin` in a
+        // different list, with no way to confirm the two are the same thing. `state()` carries BOTH
+        // names on every entry; this projection dropped one of each (greenhouse decisions/0307).
+        //
+        // Two scalars per row, so the renderer still tables it — the property that halved this screen.
+        $installed = array_map(static fn (array $c): array => [
+            'capability' => (string) $c['id'],
+            'package' => (string) $c['package'],
+        ], $state['installed']);
         // 🚨 THREE SCALARS PER ROW, AND `unlocks` IS NOT ONE OF THEM — measured at 70 lines → 35.
         //
         // `PlainTextCliRenderer::tabla()` gives up and falls back to key/value pairs the moment a cell
@@ -1136,6 +1200,21 @@ class AgentOperations implements CommandProvider
                 'name' => \is_string($appName) && $appName !== '' ? $appName : basename($root),
                 'root' => $root,
                 'foundation' => $foundation['verdict'] ?? 'indeterminate',
+                // 🚨 THE VERDICT KEEPS THE SENTENCE THE AUTHORITY COMPUTED WITH IT.
+                //
+                // This handler calls `Foundation::answer()` and then consumed `verdict()`: one word.
+                // `answer()`'s own docblock says why it exists — «an unfounded app answering an empty
+                // object would leave the caller exactly where it started. The teaching IS the answer»
+                // — and `house:context` passes the whole payload through. This door, the one the
+                // welcome page signs, was the only one where the teaching disappeared.
+                //
+                // Measured: `unfounded` carries `teach.how` («Call `foundation:found` with the domain
+                // the HUMAN named…»), `invalid` carries `repair` («…repair the document; re-founding
+                // is refused»), `indeterminate` carries `hint`. A reader got `invalid` and nothing else.
+                //
+                // Absent on a founded house, because there is nothing to say then — and ABSENT rather
+                // than empty, which is the rule this screen already learned from nine blank `unlocks`.
+                ...(\is_string($says = self::foundationSentence($foundation)) ? ['foundation_says' => $says] : []),
             ],
             'capabilities' => ['installed' => $installed, 'available' => $available],
             'routes' => ['count' => \count($routes), 'paths' => array_values(array_unique(array_column($routes, 'path')))],
