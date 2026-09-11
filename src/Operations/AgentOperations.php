@@ -31,6 +31,7 @@ use Milpa\Http\Routing\Router;
 use Milpa\AppRuntime\Agent\ArchitectureSummaryProjector;
 use Milpa\AppRuntime\Agent\ClosureVerdict;
 use Milpa\AppRuntime\Agent\ConsentBridge;
+use Milpa\AppRuntime\Auth\PresentedToken;
 use Milpa\AppRuntime\Agent\DebtSignal;
 use Milpa\AppRuntime\Agent\LaunchGrants;
 use Milpa\AppRuntime\Agent\SessionGrants;
@@ -2715,6 +2716,10 @@ class AgentOperations implements CommandProvider
             // `authorized_by` that named the passkey); the terminal is the answer only when a terminal
             // called. Same derivation the sequence door makes (greenhouse evidence/0209, decisions/0037).
             executor: ObservedExecutor::fromContext($this->contextoDeLaVuelta),
+            // THE IDENTITY THE CALLER PRESENTED, so the scope judge on this path has someone to judge
+            // instead of the wildcard `ToolContext::cli()` hands out. None presented → the wildcard
+            // stays, and every tool that runs today still runs (greenhouse decisions/0311).
+            identity: PresentedToken::identity($this->container),
             // THE SAME SEAM THE GATE CARRIES (greenhouse decisions/0183): the bridge observes the
             // consent frontier, so its signals land in the session whose grants it holds. Without
             // a session there is no stream to observe into, and the seam stays silent by

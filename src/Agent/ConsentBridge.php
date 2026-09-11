@@ -18,6 +18,8 @@ use Milpa\Command\Consent\ConsentGrant;
 use Milpa\Command\Consent\OperationId;
 use Milpa\AiGateway\OptionTable;
 use Milpa\Console\McpProjector;
+use Milpa\AppRuntime\Auth\PresentedToken;
+use Milpa\Auth\AuthContext;
 use Milpa\ToolRuntime\Contracts\ToolContext;
 use Milpa\ToolRuntime\Gate\GatedToolCalls;
 use Milpa\ToolRuntime\Gate\ToolCallGate;
@@ -98,6 +100,9 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
         // nothing. An OBSERVATION channel only: it carries no authority and reshapes nothing this
         // bridge carries — with the seam absent every path behaves byte-identically.
         ?DebtSignal $debtSignals = null,
+        // THE IDENTITY THIS CALLER PRESENTED, or null when it presented none. Null keeps the wildcard
+        // the default already carried — see the comment in callTool() and {@see PresentedToken}.
+        private readonly ?AuthContext $identity = null,
         // THE APP MAY GROW MID-SEQUENCE (greenhouse decisions/0226): a step that switches a capability on adds
         // operations the registry and the gate were not born with. The door hands in what to do before a
         // call it does not know yet — re-fold the catalogue, project the new tools, tell the gate.
@@ -179,11 +184,19 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
         // *Poner un contexto donde no había uno no es agregar información: es reemplazar un default
         // que sí decía algo.* Lo que este puente tiene que hacer es AÑADIR el consentimiento, no
         // redefinir quién llama.
+        //
+        // 🚨 Y LOS SCOPES AHORA SÍ PUEDEN SER DE ALGUIEN. El juez nunca faltó: `ToolRegistry::call()`
+        // corre `PolicyGate::authorize()` en este mismo camino, y el «Missing required scope» de arriba
+        // es prueba de que refuta de verdad. Lo que faltaba era a quién juzgar. Si este llamador
+        // presentó un token acuñado, sus scopes son los del token; si no presentó nada, se queda el
+        // comodín del default — que es la decisión de Rod (2026-09-11) y lo único que impide repetir la
+        // regresión de v0.29.0 (greenhouse decisions/0311).
         $base = ToolContext::cli();
+        $actor = $this->identity?->actor;
         $this->setContext(new ToolContext(
-            principal: $this->grants[0]->principal ?? $base->principal,
+            principal: $actor->id ?? $this->grants[0]->principal ?? $base->principal,
             channel: $this->channel,
-            scopes: $base->scopes,
+            scopes: PresentedToken::scopes($this->identity, $base->scopes),
             extra: [
                 'consent.grants' => $this->grants,
                 'consent.arguments' => $args,
