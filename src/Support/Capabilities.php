@@ -507,7 +507,7 @@ final class Capabilities
             return ['rpId' => '', 'written' => false, 'file' => 'config/app.php', 'error' => 'config/app.php does not end with the returned array; declare passkey.rpId by hand'];
         }
         $block = "\n    // Declared by `capabilities:enable identity`: the relying-party id passkey assertions bind to.\n"
-            . "    // It must equal the host the browser uses (`coa serve` answers at http://localhost:…). Change it\n"
+            . "    // It must equal the host the browser uses (`php bin/coa serve` answers at http://localhost:…). Change it\n"
             . "    // to your domain before enrolling anyone there.\n"
             . "    'passkey' => ['rpId' => " . var_export($rpId, true) . "],\n";
         file_put_contents($file, substr($src, 0, $pos) . $block . substr($src, $pos));

@@ -1194,7 +1194,7 @@ final class SessionOperations implements CommandProvider
             return [
                 'ok' => false,
                 'error' => "la sesión «{$id}» no está esperando ninguna respuesta",
-                'hint' => 'córrela con `coa agent "…" --session=' . $id . '`',
+                'hint' => 'run it with `php bin/coa agent "…" --session=' . $id . '`',
             ];
         }
 
@@ -1234,7 +1234,7 @@ final class SessionOperations implements CommandProvider
                 'answered' => $pregunta->id,
                 'countered' => $contra,
                 'granted' => null,
-                'hint' => 'retoma con `coa agent "sigue" --session=' . $id . '`',
+                'hint' => 'pick it up with `php bin/coa agent "continue" --session=' . $id . '`',
             ];
         }
 
@@ -1266,7 +1266,7 @@ final class SessionOperations implements CommandProvider
             'session' => $id,
             'answered' => $pregunta->id,
             'granted' => $otorgado,
-            'hint' => 'retoma con `coa agent "sigue" --session=' . $id . '`',
+            'hint' => 'pick it up with `php bin/coa agent "continue" --session=' . $id . '`',
         ];
     }
 
@@ -1360,7 +1360,7 @@ final class SessionOperations implements CommandProvider
             'envelope' => $sobreEfectivo->toArray(),
             'base' => $base->toArray(),
             'tightened' => $apretadas,
-            'hint' => 'retoma con `coa agent "sigue" --session=' . $id . '`',
+            'hint' => 'pick it up with `php bin/coa agent "continue" --session=' . $id . '`',
         ];
     }
 

@@ -253,7 +253,7 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
                     'type' => 'object',
                     'properties' => [
                         'key' => ['type' => 'string', 'description' => 'Dotted path, as Config::get asks for it — e.g. agent.instructions'],
-                        'value' => ['description' => 'The value to write. Declared agent keys enforce the type shown by `coa config`.'],
+                        'value' => ['description' => 'The value to write. Declared agent keys enforce the type shown by `php bin/coa config`.'],
                     ],
                     'required' => ['key', 'value'],
                 ],
@@ -532,7 +532,7 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
             // (greenhouse evidence/0199).
             'written_to' => ltrim(MachineOverlay::RUTA, '/'),
             'governs_the_judge' => JudgeCeiling::esCriterioDelJuez($llave),
-            'hint' => 'run `coa config` to see it, and `coa doctor` if config/app.php declares it too',
+            'hint' => 'run `php bin/coa config` to see it, and `php bin/coa doctor` if config/app.php declares it too',
         ];
 
         // AN UNKNOWN KEY IS REPORTED AND STILL WRITTEN, and that is a decision rather than an
@@ -543,7 +543,7 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
         if (! AgentKeys::conocida($llave)) {
             $respuesta['unknown_key'] = true;
             $respuesta['hint'] = 'this runtime does not declare that key — it was written anyway, '
-                . 'since a plugin may. Run `coa config` for the ones it does declare.';
+                . 'since a plugin may. Run `php bin/coa config` for the ones it does declare.';
         }
 
         return $respuesta;

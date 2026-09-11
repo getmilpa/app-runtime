@@ -320,7 +320,7 @@ class AgentOperations implements CommandProvider
                 // publishes under `expose: ['*']` answers without a principal — the same reason house:context
                 // stays off that surface (decisions/0194: http is a per-op opt-in with its own measurement).
                 surfaces: ['cli', 'tui', 'mcp'],
-                observableEvidence: 'every command under `next` is offered by `coa list` of this very app, and following the first one literally changes what `house:start` answers next',
+                observableEvidence: 'every command under `next` is offered by `php bin/coa list` of this very app, and following the first one literally changes what `house:start` answers next',
             ),
             new Operation(
                 name: 'routes:list',
@@ -851,7 +851,7 @@ class AgentOperations implements CommandProvider
             $out['serves_declared'] = null;
             $out['cannot_say'] = match (true) {
                 $out['endpoint'] === null => 'no endpoint is declared, so there was nothing to ask',
-                !\Composer\InstalledVersions::isInstalled('milpa/ai-gateway') => 'milpa/ai-gateway is not installed, so nothing can ask the provider — `coa capabilities:enable milpa/ai-gateway --sign`',
+                !\Composer\InstalledVersions::isInstalled('milpa/ai-gateway') => 'milpa/ai-gateway is not installed, so nothing can ask the provider — `php bin/coa capabilities:enable milpa/ai-gateway --sign`',
                 default => 'milpa/ai-gateway is installed but ships no provider reader, so nothing was asked — it predates the one that does',
             };
 
@@ -896,7 +896,7 @@ class AgentOperations implements CommandProvider
                 'error' => $store === null
                     ? 'esta app no guarda sesiones, así que no hay ninguna que mostrar'
                     : "no existe la sesión «{$sessionId}»",
-                'hint' => 'córrela con `coa agent "…" --session=' . $sessionId . '`',
+                'hint' => 'run it with `php bin/coa agent "…" --session=' . $sessionId . '`',
             ];
         }
 
