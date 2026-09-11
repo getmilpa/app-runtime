@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.151.2](https://github.com/getmilpa/app-runtime/compare/v0.151.1...v0.151.2) (2026-09-11)
+
+
+### Bug Fixes
+
+* **house:start:** every command it prints can be typed, and the first screen halves ([#402](https://github.com/getmilpa/app-runtime/issues/402)) ([f1150ee](https://github.com/getmilpa/app-runtime/commit/f1150ee5718995d24d691b1dd83b8672ddea48d6))
+
 ## [0.151.1](https://github.com/getmilpa/app-runtime/compare/v0.151.0...v0.151.1) (2026-09-10)
 
 
