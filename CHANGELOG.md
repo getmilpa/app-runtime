@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.151.4](https://github.com/getmilpa/app-runtime/compare/v0.151.3...v0.151.4) (2026-09-11)
+
+
+### Bug Fixes
+
+* **house:start:** it says what it could not know, and its two lists speak one vocabulary ([#406](https://github.com/getmilpa/app-runtime/issues/406)) ([a5286aa](https://github.com/getmilpa/app-runtime/commit/a5286aaa373cadd84e2e59ca88c8ac5c812942b3))
+
 ## [0.151.3](https://github.com/getmilpa/app-runtime/compare/v0.151.2...v0.151.3) (2026-09-11)
 
 
