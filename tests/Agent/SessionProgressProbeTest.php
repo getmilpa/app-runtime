@@ -139,7 +139,7 @@ final class SessionProgressProbeTest extends TestCase
             true,
         );
         $store->recordEvidence('s', Evidence::artifact('e1', 'src/Plugins/Demo/Services/Receipt.php'));
-        self::assertNull($probe->afterStep(3), 'growth resets the count instead of stalling on old calls');
+        self::assertSame('recovered', $probe->afterStep(3)['recovery'], 'growth explicitly resets recovery');
 
         // Three MORE philosophize calls stay under the window — the count really did restart.
         for ($step = 4; $step < 7; ++$step) {
@@ -154,7 +154,7 @@ final class SessionProgressProbeTest extends TestCase
         self::assertSame(4, $answer['receipt']['calls'], 'the stalled window is the post-reset one');
     }
 
-    /** After speaking once, the probe demands a fresh window before speaking again — no notice spam. */
+    /** Pending preparation is observable without appending another stall fact. */
     public function testAFiredStallResetsTheWindowInsteadOfRefiringEveryStep(): void
     {
         $events = new InMemoryEventStore();
@@ -168,7 +168,8 @@ final class SessionProgressProbeTest extends TestCase
         }
 
         $this->philosophize($events, $store, 's');
-        self::assertNull($probe->afterStep(4), 'one call into the fresh window is not a stall');
+        self::assertSame('pending', $probe->afterStep(4)['recovery']);
+        self::assertCount(1, array_filter($store->stream('s'), static fn ($e) => $e->type === SessionProgressProbe::EVENT));
     }
 
     /** No reachable store: no measurement, no opinion — never an invented verdict. */

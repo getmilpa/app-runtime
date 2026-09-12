@@ -34,8 +34,10 @@ use Milpa\EventStore\EventStoreInterface;
  * `session.progress_stalled` fact on the session's own stream — through the same captured-store
  * seam {@see DebtSignal} uses, with the same doctrine: silence on a null or throwing store,
  * because an observation channel must never break the observed run — and then moves the
- * checkpoint, so speaking again requires a FRESH window of zero-growth calls instead of
- * re-flagging the same stale one every step.
+ * checkpoint. Recovery then permits one fresh window of the same size for preparation: pending
+ * observations keep it visible without appending another stall every step. Measured growth clears
+ * recovery; another zero-growth window exhausts it (greenhouse decisions/0343, evidence/0660).
+ * An unavailable store remains no opinion, never a fabricated recovery or expiry.
  *
  * ── WHAT THE NOTICE SAYS ────────────────────────────────────────────────────────────────────────
  *
@@ -65,6 +67,9 @@ final class SessionProgressProbe implements ProgressProbe
      */
     private ?int $checkpointSeq = null;
 
+    /** Whether a measured stall already opened this run's recovery window (0343/0660). */
+    private bool $recovering = false;
+
     /**
      * @param ?EventStoreInterface $events    the SAME captured event store the session writes
      *                                        through, or `null` when none is reachable — then the
@@ -83,7 +88,7 @@ final class SessionProgressProbe implements ProgressProbe
     /**
      * Measures the window since the checkpoint and speaks only on a proven stall.
      *
-     * @return array{stalled: bool, notice: string, receipt: array<string, mixed>}|null
+     * @return array{stalled: bool, notice: string, receipt: array<string, mixed>, recovery: 'pending'|'recovered'|'exhausted'}|null
      */
     public function afterStep(int $step): ?array
     {
@@ -106,24 +111,30 @@ final class SessionProgressProbe implements ProgressProbe
         if ($receipt->progress === ProgressReceipt::ADVANCING) {
             // Growth moves the checkpoint: the count of zero-growth calls resets by construction.
             $this->checkpointSeq = $last;
+            $this->recovering = false;
 
+            return ['stalled' => false, 'notice' => '', 'receipt' => $receipt->toArray(), 'recovery' => 'recovered'];
+        }
+
+        if ($receipt->calls < self::STALL_AFTER_CALLS && !$this->recovering) {
             return null;
         }
 
-        if ($receipt->calls < self::STALL_AFTER_CALLS) {
-            return null;
+        $exhausted = false;
+        if ($receipt->calls >= self::STALL_AFTER_CALLS) {
+            // Preparation may use the next existing window. A second zero-growth window ends
+            // recovery; individual notebook calls neither consume nor reset that window.
+            $exhausted = $this->recovering;
+            $this->recovering = true;
+            $this->recordStall($step, $receipt);
+            $this->checkpointSeq = $last;
         }
-
-        $this->recordStall($step, $receipt);
-        // Speaking consumes the window: flagging the SAME stale window on every later step would
-        // turn one measured stall into a drumbeat, and the next verdict must be earned by four
-        // fresh zero-growth calls.
-        $this->checkpointSeq = $last;
 
         return [
             'stalled' => true,
             'notice' => $this->notice($receipt),
             'receipt' => $receipt->toArray(),
+            'recovery' => $exhausted ? 'exhausted' : 'pending',
         ];
     }
 
@@ -138,6 +149,7 @@ final class SessionProgressProbe implements ProgressProbe
             . 'exactly with "HOUSE_DEBT: <one-line digest of the gap>"; (C) if a genuine human '
             . 'decision is missing, ask it through the session; (D) to drop the current hypothesis '
             . 'and keep working, reply starting exactly with "ABANDON: <the hypothesis you drop>". '
+            . 'Preparation does not clear recovery; another window without measured growth ends this leg. '
             . 'An answer that is none of these ends this leg as stalled.',
             $receipt->calls,
             $receipt->newFacts,
