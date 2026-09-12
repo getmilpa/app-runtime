@@ -258,6 +258,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 new ComponentAssetOrchestrator(overrides: $this->overrideStore()),
             ),
         );
+        ScreenDraftFeature::boot($this->container, $screens, $this->root(), $route, $secret);
         $this->route = $route;
     }
 
@@ -285,6 +286,8 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         $urls = ClientRuntime::defaultUrls();
 
         $routes = [
+            new Route(path: $this->route . '/review', methods: [HttpMethod::GET, HttpMethod::POST], name: 'live.review', handler: new HandlerReference(\Milpa\AppRuntime\Web\Controllers\ScreenReviewController::class, 'show')),
+            new Route(path: $this->route . '/preview', methods: [HttpMethod::GET, HttpMethod::POST], name: 'live.preview', handler: new HandlerReference(\Milpa\AppRuntime\Web\Controllers\ScreenPreviewController::class, 'handle')),
             new Route(path: $this->route, methods: HttpMethod::POST, name: 'live', handler: new HandlerReference(LiveController::class, 'handle')),
             new Route(path: $this->route . '/page', methods: HttpMethod::GET, name: 'live.page', handler: new HandlerReference(LiveComponentPageController::class, 'show')),
             new Route(path: $urls[ClientRuntime::LOCAL], methods: HttpMethod::GET, name: 'live.runtime.local', handler: new HandlerReference(LiveAssetsController::class, 'local')),
@@ -352,6 +355,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 $this->layoutStateStore(),
                 fn (): ?ScreenComponents => $this->container->has(ScreenComponents::class) ? $this->container->get(ScreenComponents::class) : null,
             ))->operations(),
+            ...($this->container->has(ScreenDrafts::class) ? (new ScreenDraftOperations($this->container->get(ScreenDrafts::class)))->operations() : []),
             ...(new PresentationOverrideOperations($this->overrideStore()))->operations(),
         ];
     }

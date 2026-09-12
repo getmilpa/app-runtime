@@ -525,3 +525,43 @@ Apache-2.0 · © Rodrigo Vicente — TeamX Agency
 ---
 
 Milpa is designed, built, and maintained by **[Rodrigo Vicente - TeamX Agency](https://teamx.agency/?utm_source=github&utm_medium=readme&utm_campaign=milpa&utm_content=app-runtime)**.
+
+### Review a screen before activation
+
+With `LivePlugin` enabled and `live.secret` configured, `/live/review` lets an
+identified reviewer create immutable screen revisions, compare their baseline and
+proposal, try the proposed screen, activate the exact revision, and restore its
+baseline. Reload an active page to load its new declaration. Existing open tabs
+keep their signed view until reloaded; activation does not replace application code.
+
+The operations `screen:draft` (`name`, `type`, `props`), `screen:review` (optional
+`revision`), `screen:promote` and `screen:rollback` (required `revision`) use the same
+revision service. They declare `milpa:component:screen-review:draft`, `:read`,
+`:promote` and `:rollback` respectively. The review page requires `:read`; its
+buttons enforce the corresponding action scopes. The component wildcard `:*`
+grants all four. A shareable review URL is `/live/review?revision=<id>` under the
+configured live route. Identity and scopes are still required.
+
+Apps explicitly opt component types into `ScreenPreviewRegistry` during plugin
+boot. A factory receives a `PreviewEnvironment` containing the immutable revision
+ID, an isolated codec, and empty component and renderer registries. It must build
+its complete component graph and HTML renderers with that codec and separate
+persistence/effect collaborators. No active registry or renderer is used as a
+fallback. See Greenhouse's complete ToDo example for an implementation with a
+separate SQLite file per revision and private records per principal.
+
+Preview is a trusted application factory boundary, not an operating-system sandbox
+for arbitrary PHP or external services. Preview actions still require the component's
+normal scopes. Test records are never copied to active storage. Revisions and their
+test stores remain under the app's ownership; this release does not delete them
+according to a retention policy.
+
+Revisions live under `var/screen-drafts`; each file is addressed and verified by its
+canonical content hash. Activation compares the reviewed baseline under a file lock,
+then atomically replaces only that screen's declaration. The app's `src`, `config`,
+`public` and `composer.lock` fingerprint must still match. Dependency selection is
+bound through the lock; edits made directly inside `vendor` are outside this guard.
+Changing app PHP, configuration, assets or dependencies requires creating a new
+revision. Malformed active declaration stores are refused instead of overwritten
+as empty stores. Promotion and restoration change screen declarations only, never
+PHP, migrations, or application records. Greenhouse decision 0329 defines this cut.

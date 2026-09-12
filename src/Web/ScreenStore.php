@@ -150,12 +150,17 @@ final class ScreenStore
     public function forget(string $name): array
     {
         $name = trim($name);
-        $screens = $this->all();
-        if ($name === '' || ! \array_key_exists($name, $screens)) {
-            return ['ok' => false, 'error' => 'no such declared screen', 'screen' => $name];
+        $lock = $this->lock();
+        try {
+            $screens = $this->all();
+            if ($name === '' || ! \array_key_exists($name, $screens)) {
+                return ['ok' => false, 'error' => 'no such declared screen', 'screen' => $name];
+            }
+            unset($screens[$name]);
+            $this->write($screens);
+        } finally {
+            fclose($lock);
         }
-        unset($screens[$name]);
-        $this->write($screens);
 
         return ['ok' => true, 'forgotten' => $name];
     }
@@ -189,9 +194,14 @@ final class ScreenStore
         }
         $props['name'] ??= $name;
 
-        $screens = $this->all();
-        $screens[$name] = ['type' => $type, 'props' => $props];
-        $this->write($screens);
+        $lock = $this->lock();
+        try {
+            $screens = $this->all();
+            $screens[$name] = ['type' => $type, 'props' => $props];
+            $this->write($screens);
+        } finally {
+            fclose($lock);
+        }
 
         return [
             'ok' => true,
@@ -202,24 +212,74 @@ final class ScreenStore
         ];
     }
 
+    /**
+     * Replace one declaration atomically against its reviewed base, preserving other screens.
+     *
+     * @param array{type:string,props:array<string,mixed>}|null $next
+     */
+    public function compareAndSwap(string $name, string $expected, ?array $next): bool
+    {
+        $lock = $this->lock();
+        try {
+            if (!hash_equals($expected, ScreenDrafts::hash($this->screen($name)))) {
+                return false;
+            }
+            $all = $this->all();
+            if ($next === null) {
+                unset($all[$name]);
+            } else {
+                $all[$name] = $next;
+            }
+            $this->write($all);
+            return true;
+        } finally {
+            fclose($lock);
+        }
+    }
+
+    /** @return resource */
+    private function lock()
+    {
+        if (!is_dir(dirname($this->path))) {
+            mkdir(dirname($this->path), 0755, true);
+        }
+        $lock = fopen($this->path . '.lock', 'c');
+        if ($lock === false || !flock($lock, LOCK_EX)) {
+            throw new \RuntimeException('Cannot lock screen declarations');
+        }
+        return $lock;
+    }
+
     /** @return array<string, mixed> */
     private function all(): array
     {
         if (! is_file($this->path)) {
             return [];
         }
-        $decoded = json_decode((string) file_get_contents($this->path), true);
-
-        return \is_array($decoded) ? $decoded : [];
+        $decoded = json_decode((string) file_get_contents($this->path), true, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($decoded)) {
+            throw new \RuntimeException('Invalid screen store');
+        }
+        return $decoded;
     }
 
     /** @param array<string, mixed> $screens */
     private function write(array $screens): void
     {
         @mkdir(\dirname($this->path), 0o755, true);
-        file_put_contents(
-            $this->path,
-            json_encode($screens, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-        );
+        $temporary = tempnam(dirname($this->path), '.screens-');
+        if ($temporary === false) {
+            throw new \RuntimeException('Cannot stage screen declaration');
+        }
+        try {
+            $json = json_encode($screens, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+            if (file_put_contents($temporary, $json) !== strlen($json) || !rename($temporary, $this->path)) {
+                throw new \RuntimeException('Cannot activate screen declaration');
+            }
+        } finally {
+            if (is_file($temporary)) {
+                unlink($temporary);
+            }
+        }
     }
 }
