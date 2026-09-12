@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.157.4](https://github.com/getmilpa/app-runtime/compare/v0.157.3...v0.157.4) (2026-09-12)
+
+
+### Bug Fixes
+
+* derive recovery from recorded semantic progress ([c0de88e](https://github.com/getmilpa/app-runtime/commit/c0de88e03e09cca3c9fe3f2688cb280db2e055ba))
+* derive recovery from recorded semantic progress ([7a62102](https://github.com/getmilpa/app-runtime/commit/7a62102f4a90a51979d83e91874e582f0a30fd19))
+
 ## [0.157.3](https://github.com/getmilpa/app-runtime/compare/v0.157.2...v0.157.3) (2026-09-12)
 
 
