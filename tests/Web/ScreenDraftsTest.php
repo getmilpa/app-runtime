@@ -86,6 +86,21 @@ final class ScreenDraftsTest extends TestCase
         self::assertNull($this->active->screen('tasks'));
         self::assertTrue($this->drafts->review($d['id'])['fresh']);
     }
+
+    public function testRestorationDoesNotRequireAPreviewFactoryForTheOlderActiveType(): void
+    {
+        $this->active->declare(['name' => 'tasks', 'type' => 'data-table', 'props' => ['rows' => []]]);
+        $before = $this->active->screen('tasks');
+        $drafts = new ScreenDrafts($this->active, $this->root . '/drafts', static function (string $name, string $type): void {
+            if ($type !== 'draft-counter') {
+                throw new \DomainException('preview_not_configured');
+            }
+        }, fn () => $this->build);
+        $d = $drafts->draft('tasks', 'draft-counter', []);
+        $drafts->promote($d['id']);
+        $drafts->rollback($d['id']);
+        self::assertSame($before, $this->active->screen('tasks'));
+    }
     public function testChangedBuildRefusesPromotionAndRollback(): void
     {
         $d = $this->drafts->draft('tasks', 'draft-counter', []);
