@@ -31,6 +31,17 @@ jobs:
 
       - name: Install dependencies
         run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Prepare required trial confinement
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --yes bubblewrap
+          # This disposable CI VM must permit the namespaces exercised by the integration tests.
+          if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          php -r 'require "vendor/autoload.php"; if (!(new Milpa\AppRuntime\Agent\TrialRunner())->available()) { fwrite(STDERR, "Required trial confinement is unavailable\n"); exit(1); }'
+
       - name: License gate (runtime deps must be MIT / BSD / Apache-2.0 / ISC)
         run: |
           composer licenses --no-dev --format=json | php -r '$d=json_decode(stream_get_contents(STDIN),true)?:[];$allow="~^(MIT|BSD-[0-9].*|Apache-2\\.0|ISC)$~";$bad=[];foreach(($d["dependencies"]??[]) as $n=>$i){$ls=(array)($i["license"]??[]);if($ls===[]){$bad[]="$n: (none declared)";continue;}$ok=false;foreach($ls as $l){if(preg_match($allow,(string)$l)){$ok=true;break;}}if(!$ok)$bad[]="$n: ".implode(" OR ",$ls);}if($bad){fwrite(STDERR,"Disallowed dependency licenses (only MIT/BSD/Apache-2.0/ISC allowed):\n- ".implode("\n- ",$bad)."\n");exit(1);}echo "license gate ok: ".count($d["dependencies"]??[])." runtime deps, each offered under MIT/BSD/Apache-2.0/ISC\n";'
