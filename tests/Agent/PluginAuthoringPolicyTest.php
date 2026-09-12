@@ -29,7 +29,7 @@ final class PluginAuthoringPolicyTest extends TestCase
         yield 'unscoped test' => ['test', []];
         yield 'test traversal' => ['test', ['path' => 'tests/Plugins/Owned/../Other']];
         yield 'absolute test' => ['test', ['path' => '/tests/Plugins/Owned']];
-        yield 'parts not persisted' => ['implement', ['plugin' => 'Owned', 'mode' => 'start']];
+        yield 'unsupported edit mode' => ['edit', ['plugin' => 'Owned', 'mode' => 'start']];
     }
 
     #[DataProvider('escapes')]
@@ -46,6 +46,9 @@ final class PluginAuthoringPolicyTest extends TestCase
         $owned = new ToolContext(scopes: ['plugins.Owned:write']);
         self::assertSame(['src/Plugins/Owned', 'tests/Plugins/Owned'], $policy->writePaths($owned, 'make', ['plugin' => 'Owned']));
         self::assertSame(['src/Plugins/Owned', 'tests/Plugins/Owned'], $policy->writePaths($owned, 'test', ['path' => 'tests/Plugins/Owned/Test.php']));
+        foreach (['start', 'append', 'finish'] as $mode) {
+            self::assertSame(['src/Plugins/Owned', 'tests/Plugins/Owned'], $policy->writePaths($owned, 'implement', ['plugin' => 'Owned', 'mode' => $mode]));
+        }
         $policy->authorizePaths($owned, ['src/Plugins/Owned/Service.php'], sys_get_temp_dir());
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage("Missing required permission 'plugins.Owned:write'");

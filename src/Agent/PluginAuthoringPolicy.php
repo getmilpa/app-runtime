@@ -99,9 +99,12 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             $this->regularPath($this->root, $path);
             $plugin = $match[1];
         }
-        if (($name === 'implement' || $name === 'edit') && isset($arguments['mode'])) {
+        if ($name === 'edit' && isset($arguments['mode'])) {
             throw new \RuntimeException('Scoped authoring currently requires a complete implementation in one call.');
         }
+        // implement's parts live beside the scaffold inside this same write set. Each part still
+        // runs in a confined trial and requires an authorized promotion; only finish publishes PHP
+        // after the existing verifier accepts the assembled source (greenhouse decisions/0332).
         $plugin = $this->requirePlugin($context, $plugin);
         $paths = ['src/Plugins/' . $plugin, 'tests/Plugins/' . $plugin];
         foreach ($paths as $path) {
