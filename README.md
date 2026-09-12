@@ -96,6 +96,14 @@ force. Full and lazy discovery use this current offer, including previously disc
 Offering a mutation does not authorize it: scopes and argument-dependent effects are still judged
 when it is called. Catalogue inspection does not execute that judgment or open consent questions.
 
+`SessionProgressProbe` opens recovery after four model calls without recorded growth. It allows
+one further window of the same size for preparation, then reports exhaustion if growth is still
+absent. A successful artifact-producing operation, recorded evidence or a completed todo resets
+the window, including on its last call. Plan edits, repeated todos, failures and confirmation
+requests do not. Observations explicitly distinguish pending, recovered and exhausted recovery;
+an unavailable store cannot claim any of them. The orchestrator enforces this contract without
+changing tool permissions or the total step budget. Windows belong to the current invocation.
+
 **The operations — what your app knows how to do**
 
 `AgentOperations`, `SessionOperations`, `CapabilityOperations` and `TokenOperations` are the operation
