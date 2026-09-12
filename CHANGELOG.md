@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.157.5](https://github.com/getmilpa/app-runtime/compare/v0.157.4...v0.157.5) (2026-09-12)
+
+
+### Bug Fixes
+
+* align tool offers with progress recovery ([bfe8624](https://github.com/getmilpa/app-runtime/commit/bfe862467f931916411c1f1351288a092c63ecee))
+* align tool offers with progress recovery (greenhouse 0340) ([68570d5](https://github.com/getmilpa/app-runtime/commit/68570d57e04306ec20dec7c21142b46a5d790c8b))
+
 ## [0.157.4](https://github.com/getmilpa/app-runtime/compare/v0.157.3...v0.157.4) (2026-09-12)
 
 
