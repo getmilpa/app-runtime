@@ -57,8 +57,11 @@ final class TrialRouterTest extends TestCase
     {
         $router = $this->router($this->root());
 
-        foreach (['agent:run', 'session:grant', 'capabilities:adopt', 'sandbox:promote', 'foundation:found'] as $name) {
+        foreach (['agent:run', 'session:grant', 'capabilities:adopt', 'sandbox:promote', 'foundation:found', 'screen:draft', 'screen:promote', 'screen:rollback'] as $name) {
             self::assertFalse($router->eligible($this->op($name)), $name);
+        }
+        foreach (['screen:declare', 'screen:draft-other', 'make', 'implement'] as $name) {
+            self::assertTrue($router->eligible($this->op($name)), $name);
         }
     }
 

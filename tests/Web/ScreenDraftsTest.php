@@ -167,18 +167,56 @@ final class ScreenDraftsTest extends TestCase
     public function testOperationsExposeTheSameRevisionServiceAndActionScopes(): void
     {
         $ops = [];
-        foreach ((new ScreenDraftOperations($this->drafts))->operations() as $op) {
+        foreach ((new ScreenDraftOperations($this->drafts, '/custom-ui'))->operations() as $op) {
             $ops[$op->name] = $op;
         }
         self::assertSame(['milpa:component:screen-review:promote'], $ops['screen:promote']->scopes);
         self::assertFalse($ops['screen:review']->mutating);
         self::assertTrue($ops['screen:draft']->mutating);
         $d = ($ops['screen:draft']->handler)(['name' => 'tasks','type' => 'draft-counter','props' => []])['result'];
+        self::assertSame('/custom-ui/review?revision=' . $d['id'], $d['reviewAt']);
+        self::assertSame('/custom-ui/preview?revision=' . $d['id'], $d['previewAt']);
+        self::assertArrayNotHasKey('reviewAt', $this->drafts->load($d['id']), 'navigation metadata must not alter the immutable record');
         self::assertCount(1, ($ops['screen:review']->handler)([])['result']['drafts']);
         self::assertSame($d['id'], ($ops['screen:review']->handler)(['revision' => $d['id']])['result']['id']);
         self::assertTrue(($ops['screen:promote']->handler)(['revision' => $d['id']])['ok']);
         self::assertTrue(($ops['screen:rollback']->handler)(['revision' => $d['id']])['ok']);
         self::assertFalse(($ops['screen:promote']->handler)([])['ok']);
+    }
+    public function testAgentDeliversAHostRevisionAndReadsItsGeneratedIdWithoutAnotherQuestion(): void
+    {
+        $this->seed();
+        $before = $this->active->screen('tasks');
+        $ops = (new ScreenDraftOperations($this->drafts))->operations();
+        $router = new \Milpa\AppRuntime\Agent\TrialRouter($this->root, new \Milpa\AppRuntime\Agent\TrialRunner(), __DIR__ . '/../../src/Agent/trial-run.php');
+        $registry = new \Milpa\ToolRuntime\ToolRegistry(new \Psr\Log\NullLogger());
+        (new \Milpa\Console\McpProjector())->projectAll($ops, $registry, new DIContainer());
+        $door = new \Milpa\AppRuntime\Agent\TrialAwareRegistry($registry, $router, $ops);
+        $author = new \Milpa\ToolRuntime\Contracts\ToolContext(principal:'author', channel:'cli', scopes:['milpa:component:screen-review:draft','milpa:component:screen-review:read']);
+        $args = ['name' => 'tasks','type' => 'draft-counter','props' => ['locale' => 'es']];
+        $result = $door->call('screen_draft', $args, $author);
+        self::assertTrue($result->success, (string)$result->error);
+        self::assertArrayNotHasKey('ran_in_trial', $result->data);
+        $id = $result->data['result']['id'];
+        self::assertSame($before, $this->drafts->load($id)['before']);
+        self::assertSame($before, $this->active->screen('tasks'));
+        self::assertSame([], \Milpa\AppRuntime\Agent\TrialWorkspace::ids($this->root));
+        $sessions = new \Milpa\Agent\SessionStore(new \Milpa\EventStore\InMemoryEventStore());
+        $sessions->start('author-session', 'Prepare a draft for tasks and review its revision.', \Milpa\Agent\AutonomyMode::Auto);
+        $gate = new \Milpa\AppRuntime\Agent\SessionToolGate($sessions, $sessions->load('author-session'), $ops, petition:'Prepare a draft for tasks and review its revision.', trialRouter:$router);
+        self::assertNull($gate->refuse('screen_review', ['revision' => $id]));
+        self::assertSame($id, $door->call('screen_review', ['revision' => $id], $author)->data['result']['id']);
+        self::assertSame('/live/review?revision=' . $id, $door->call('screen_review', ['revision' => $id], $author)->data['result']['reviewAt']);
+        self::assertFalse($door->call('screen_promote', ['revision' => $id], $author)->success);
+        self::assertSame($before, $this->active->screen('tasks'));
+        $reader = new \Milpa\ToolRuntime\Contracts\ToolContext(principal:'reader', channel:'cli', scopes:['milpa:component:screen-review:read']);
+        self::assertFalse($door->call('screen_draft', $args, $reader)->success);
+        self::assertCount(1, $this->drafts->catalogue()['drafts']);
+        $reviewer = new \Milpa\ToolRuntime\Contracts\ToolContext(principal:'reviewer', channel:'cli', scopes:['milpa:component:screen-review:promote','milpa:component:screen-review:rollback']);
+        self::assertTrue($door->call('screen_promote', ['revision' => $id], $reviewer)->success);
+        self::assertSame('es', $this->active->screen('tasks')['props']['locale']);
+        self::assertTrue($door->call('screen_rollback', ['revision' => $id], $reviewer)->success);
+        self::assertSame($before, $this->active->screen('tasks'));
     }
     private function feature(): DIContainer
     {

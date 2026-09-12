@@ -38,6 +38,11 @@ final class TrialRouter
 {
     private const HOUSE_PREFIXES = ['agent:', 'session:', 'capabilities:', 'sandbox:', 'foundation:'];
 
+    // Screen revisions own their draft/compare-and-swap lifecycle. Rehearsing these operations in a
+    // file copy loses the host baseline and leaves their var/ records outside the promotable diff
+    // (Greenhouse 0330). This changes routing only; both consent and scope gates still adjudicate.
+    private const HOUSE_OPERATIONS = ['screen:draft', 'screen:promote', 'screen:rollback'];
+
     // The most UNDECIDED trials kept on disk at once (decisions/0071). var/trials/ shares the disk the
     // session writes to, so it is bounded here — ~24 x 656 KB is a ~15 MB ceiling on trial copies,
     // far below anything that could starve the materialize confinedByTrial() depends on. Decided
@@ -119,7 +124,7 @@ final class TrialRouter
     /** Whether this operation may be rehearsed in a trial at all — see the class docblock. */
     public function eligible(Operation $operation): bool
     {
-        if (! $operation->mutating || $operation->requiresConfirmation) {
+        if (! $operation->mutating || $operation->requiresConfirmation || in_array($operation->name, self::HOUSE_OPERATIONS, true)) {
             return false;
         }
         if ($operation->effectCeiling()->externality !== Externality::None && !($this->confinedTesting && $operation->name === 'test')) {
