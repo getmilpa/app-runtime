@@ -37,6 +37,7 @@ use Milpa\Console\McpProjector;
 use Milpa\ToolRuntime\Identity\GnupgSignatureVerifier;
 use Milpa\Runtime\Kernel;
 use Milpa\ToolRuntime\ToolRegistry;
+use Milpa\ToolRuntime\Contracts\ToolContext;
 use Psr\Log\NullLogger;
 
 /**
@@ -64,6 +65,7 @@ final class GovernedDoor
         Session $session,
         string $petition,
         ?InvocationContext $context = null,
+        ?ToolContext $authority = null,
     ): ConsentBridge {
         $registry = new ToolRegistry(new NullLogger());
         $offered = array_values(array_filter(
@@ -152,7 +154,8 @@ final class GovernedDoor
             // THE SAME IDENTITY DERIVATION AS THE AGENT'S DOOR. Two doors deciding the caller's scopes
             // differently is the shape of the regression this seam exists to avoid — one site kept the
             // default and the other replaced it (greenhouse decisions/0311).
-            identity: self::presented($kernel),
+            identity: $authority === null ? self::presented($kernel) : null,
+            authority: $authority,
         );
     }
 

@@ -125,28 +125,28 @@ final class TrialWorkspace
      * What changed in the copy, as the HOST sees it — path → {status, sha256}.
      *
      * The copy's `var/` and the runner are the trial's machinery, never its result, so they are not
-     * changes. Everything else is compared against the host: a file the copy has and the host does
-     * not is `added`; one the host has and the copy does not is `deleted`; a differing one is
-     * `modified`.
+     * changes. Compare the copy against its original manifest, never the live host: an unrelated
+     * host edit is not a proposal made by the trial. stale() separately checks whether the actual
+     * destinations moved since this baseline (greenhouse decisions/0320).
      *
      * @return array<string, array{status: string, sha256: ?string}>
      */
     public function diff(): array
     {
+        $baseline = $this->manifest();
         $out = [];
         foreach (self::relFiles($this->copy) as $rel) {
             if ($rel === self::RUNNER || str_starts_with($rel, 'var/')) {
                 continue;
             }
             $copyHash = hash_file('sha256', $this->copy . '/' . $rel);
-            $hostFile = $this->root . '/' . $rel;
-            if (! is_file($hostFile)) {
+            if (!array_key_exists($rel, $baseline)) {
                 $out[$rel] = ['status' => 'added', 'sha256' => $copyHash ?: null];
-            } elseif (hash_file('sha256', $hostFile) !== $copyHash) {
+            } elseif ($baseline[$rel] !== $copyHash) {
                 $out[$rel] = ['status' => 'modified', 'sha256' => $copyHash ?: null];
             }
         }
-        foreach (self::relFiles($this->root) as $rel) {
+        foreach (array_keys($baseline) as $rel) {
             if (str_starts_with($rel, 'var/') || $rel === '.env') {
                 continue;
             }
@@ -190,11 +190,15 @@ final class TrialWorkspace
         $raw = @file_get_contents(self::baseDir($this->root, $this->id) . '/manifest.json');
         $decoded = \is_string($raw) ? json_decode($raw, true) : null;
 
+        if (!\is_array($decoded)) {
+            throw new \RuntimeException('The trial baseline cannot be read; its changes cannot be judged.');
+        }
         $out = [];
-        foreach (\is_array($decoded) ? $decoded : [] as $path => $hash) {
-            if (\is_string($path) && \is_string($hash)) {
-                $out[$path] = $hash;
+        foreach ($decoded as $path => $hash) {
+            if (!\is_string($path) || !\is_string($hash) || !preg_match('/^[a-f0-9]{64}$/D', $hash)) {
+                throw new \RuntimeException('The trial baseline is malformed; its changes cannot be judged.');
             }
+            $out[$path] = $hash;
         }
 
         return $out;

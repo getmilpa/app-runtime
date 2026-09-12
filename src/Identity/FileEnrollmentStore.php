@@ -140,6 +140,22 @@ final class FileEnrollmentStore implements EnrollmentStore
     }
 
     /**
+     * Whether this key has a recorded recognition, including revoked or malformed entries.
+     * An unreadable ledger cannot be mistaken for a key the house never recognized.
+     *
+     * @throws \RuntimeException when the ledger cannot be read
+     */
+    public function contains(string $fingerprint): bool
+    {
+        $map = $this->read();
+        if ($map === null) {
+            throw new \RuntimeException('The enrollment ledger cannot be read; signer authority cannot be determined.');
+        }
+
+        return \array_key_exists(IdentityKey::normalize($fingerprint), $map);
+    }
+
+    /**
      * The scopes recorded for this fingerprint, or null for one never enrolled — and null once revoked.
      *
      * @return list<string>|null

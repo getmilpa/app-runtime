@@ -90,6 +90,28 @@ final class TrialRouterTest extends TestCase
         self::assertSame([], TrialWorkspace::ids($root));
     }
 
+    public function testDiscardedAndCollapsedCopiesDoNotSurviveInThePlanCache(): void
+    {
+        $root = $this->root();
+        $router = $this->router($root);
+        $op = $this->op('implement');
+        $first = $router->planFor($op, ['class' => 'Example']);
+        $first->workspace->discard();
+        file_put_contents($root . '/src/A.php', '<?php // new host state');
+        $second = $router->planFor($op, ['class' => 'Example']);
+        self::assertNotSame($first, $second);
+        self::assertNotSame($first->workspace->id, $second->workspace->id);
+        self::assertSame('<?php // new host state', file_get_contents($second->workspace->copy . '/src/A.php'));
+        self::assertSame($second, $router->planFor($op, ['class' => 'Example']));
+        $second->workspace->collapse();
+        $retained = $second->workspace->baseDirectory() . '/retained-preimage';
+        file_put_contents($retained, 'promotion history');
+        $third = $router->planFor($op, ['class' => 'Example']);
+        self::assertNotSame($second, $third);
+        self::assertDirectoryExists($third->workspace->copy);
+        self::assertSame('promotion history', file_get_contents($retained));
+    }
+
     public function testPlanningBoundsUndecidedTrialsToTheCap(): void
     {
         $root = $this->root();

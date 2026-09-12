@@ -15,6 +15,9 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Operations;
 
 use Milpa\Agent\SessionStore;
+use Milpa\Command\InvocationContext;
+use Milpa\ToolRuntime\Contracts\ToolContext;
+use Milpa\AppRuntime\Agent\PluginAuthoringPolicy;
 use Milpa\AppRuntime\Agent\TrialWorkspace;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Effect\Authority;
@@ -67,7 +70,7 @@ final class TrialOperations implements CommandProvider
             new Operation(
                 name: 'sandbox:promote',
                 description: 'Adopt a trial\'s changes into the house — the only door in. Pauses for consent.',
-                handler: fn (array $input): array => $this->promote($root, $sessions, $input),
+                handler: fn (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array => $this->promote($root, $sessions, $input, $authority),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
@@ -121,7 +124,7 @@ final class TrialOperations implements CommandProvider
             new Operation(
                 name: 'sandbox:undo',
                 description: 'Reverse a promotion from the pre-image it kept, returning the house. Pauses for consent.',
-                handler: fn (array $input): array => $this->undo($root, $input),
+                handler: fn (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array => $this->undo($root, $input, $authority),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
@@ -147,7 +150,7 @@ final class TrialOperations implements CommandProvider
      *
      * @return array<string, mixed>
      */
-    private function promote(string $root, ?SessionStore $sessions, array $input): array
+    private function promote(string $root, ?SessionStore $sessions, array $input, ?ToolContext $authority = null): array
     {
         $id = \is_string($input['workspace'] ?? null) ? $input['workspace'] : '';
         $ws = $id === '' ? null : TrialWorkspace::open($root, $id);
@@ -165,6 +168,21 @@ final class TrialOperations implements CommandProvider
             return ['ok' => false, 'error' => 'nothing changed in this trial; there is nothing to promote'];
         }
 
+        (new PluginAuthoringPolicy($root))->authorizePaths($authority ?? ToolContext::cli(), array_keys($diff), $ws->copy);
+        // Read the judged payload in full before writing anything; a moved source is a new proposal.
+        $payload = [];
+        foreach ($diff as $path => $entry) {
+            if ($entry['status'] !== 'deleted') {
+                $bytes = file_get_contents($ws->copy . '/' . $path);
+                if ($bytes === false || hash('sha256', $bytes) !== $entry['sha256']) {
+                    return ['ok' => false, 'error' => 'the trial changed while preparing its promotion'];
+                }
+                $payload[$path] = $bytes;
+            }
+        }
+        if ($ws->stale() !== []) {
+            return ['ok' => false, 'error' => 'the target moved while preparing its promotion'];
+        }
         $preDir = $ws->baseDirectory() . '/pre';
         $paths = array_keys($diff);
         sort($paths);
@@ -182,7 +200,7 @@ final class TrialOperations implements CommandProvider
                 continue;
             }
             // WRITE-THEN-RENAME: the house never sees a half-written file.
-            $this->write($hostFile, (string) file_get_contents($ws->copy . '/' . $rel));
+            $this->write($hostFile, $payload[$rel]);
         }
 
         $this->recordPromotion($sessions, $input, $id, $paths, $diff);
@@ -242,13 +260,18 @@ final class TrialOperations implements CommandProvider
      *
      * @return array<string, mixed>
      */
-    private function undo(string $root, array $input): array
+    private function undo(string $root, array $input, ?ToolContext $authority = null): array
     {
         $id = \is_string($input['workspace'] ?? null) ? $input['workspace'] : '';
         if ($id === '') {
             return ['ok' => false, 'error' => 'no trial to undo'];
         }
 
+        $tool = new \Milpa\ToolRuntime\ToolDefinition('sandbox_undo', '', [], static fn (): null => null, mutating: true);
+        $verdict = (new PluginAuthoringPolicy($root))->authorize($authority ?? ToolContext::cli(), $tool, $input);
+        if (!$verdict->allowed) {
+            return ['ok' => false, 'error' => (string) $verdict->reason];
+        }
         return TrialWorkspace::undo($root, $id);
     }
 

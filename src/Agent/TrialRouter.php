@@ -51,6 +51,7 @@ final class TrialRouter
         private readonly string $root,
         private readonly TrialRunner $runner,
         private readonly string $runnerPath,
+        private readonly bool $confinedTesting = false,
     ) {
     }
 
@@ -121,7 +122,7 @@ final class TrialRouter
         if (! $operation->mutating || $operation->requiresConfirmation) {
             return false;
         }
-        if ($operation->effectCeiling()->externality !== Externality::None) {
+        if ($operation->effectCeiling()->externality !== Externality::None && !($this->confinedTesting && $operation->name === 'test')) {
             return false;
         }
         foreach (self::HOUSE_PREFIXES as $prefix) {
@@ -148,14 +149,22 @@ final class TrialRouter
         $digest = $this->digest($arguments);
         $key = $operation->name . '#' . $digest;
         if (\array_key_exists($key, $this->plans)) {
-            return $this->plans[$key];
+            $cached = $this->plans[$key];
+            if ($cached === null || is_dir($cached->workspace->copy)) {
+                return $cached;
+            }
+            // Discard, promotion and the retention cap may remove a copy during this turn.
+            // A confinement receipt cannot keep promising a workspace that no longer exists.
+            unset($this->plans[$key]);
         }
 
         if (! $this->runner->available()) {
             return $this->plans[$key] = null;
         }
 
-        $id = 'w' . substr(hash('sha256', $key), 0, 12);
+        // The digest identifies the arguments; each materialization has its own receipt identity.
+        // Reusing the digest as a directory would erase a previous promotion's retained pre-image.
+        $id = 'w' . bin2hex(random_bytes(8));
         $workspace = TrialWorkspace::materialize($this->root, $id, $this->runnerPath);
         // Bound the disk on every fresh trial — the newest KEEP undecided survive, the oldest go.
         TrialWorkspace::capUndecided($this->root, self::KEEP);

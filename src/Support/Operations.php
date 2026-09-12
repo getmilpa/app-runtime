@@ -62,6 +62,7 @@ final class Operations
      */
     public static function declared(DIContainerInterface $container, array $declared, string $root): array
     {
+        self::authoringBoundary($container, $root);
         $operaciones = [];
 
         foreach ($declared as $clase) {
@@ -289,6 +290,7 @@ final class Operations
      */
     public static function all(Kernel $kernel, string $root): array
     {
+        self::authoringBoundary($kernel->container(), $root);
         /** @var list<Operation> $operaciones */
         $operaciones = $kernel->commands();
 
@@ -324,4 +326,10 @@ final class Operations
 
         return self::withBorrowedCeilings($operaciones, $prestatarios);
     }
+    /** Install the host's policy once; projection and execution consume the same object. */
+    private static function authoringBoundary(DIContainerInterface $container, string $root): void
+    {
+        \Milpa\AppRuntime\Agent\PluginAuthoringPolicy::install($container, $root);
+    }
+
 }

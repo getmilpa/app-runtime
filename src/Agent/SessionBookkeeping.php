@@ -109,6 +109,7 @@ final readonly class SessionBookkeeping implements ContractProducer
         return [
             new Operation(
                 name: 'plan',
+                scopes: ['agent:run'],
                 description: 'Escribe o reemplaza el plan de trabajo de esta sesión. Hazlo ANTES de empezar algo largo',
                 handler: fn (array $input): array => $this->escribirPlan($input),
                 inputSchema: [
@@ -149,6 +150,7 @@ final readonly class SessionBookkeeping implements ContractProducer
             ),
             new Operation(
                 name: 'todo',
+                scopes: ['agent:run'],
                 // NO INVITATION TO ASSERT (greenhouse decisions/0183): this tool used to say «mark
                 // done as soon as you finish» — the invitation to claim without evidence, printed in
                 // the model's contract. Finishing is now a CLAIM, and it has its own door.
@@ -197,6 +199,7 @@ final readonly class SessionBookkeeping implements ContractProducer
             ),
             new Operation(
                 name: 'work:claim-verified',
+                scopes: ['agent:run'],
                 description: 'Claim a todo as verified done: name the todo, the kind of evidence (test-passed, operation-ok, artifact-created, screen-served) and the reference that backs it. The session judges the claim against its RECORDED facts — a claim nothing covers is refused and the todo stays open',
                 handler: fn (array $input): array => $this->claimVerified($input),
                 inputSchema: [

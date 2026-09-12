@@ -16,6 +16,11 @@ namespace Milpa\AppRuntime\Console;
 
 use Milpa\AppRuntime\Config\MachineOverlay;
 use Milpa\AppRuntime\Config\SecretOverlay;
+use Milpa\AppRuntime\Auth\PresentedToken;
+use Milpa\AppRuntime\Identity\FileEnrollmentStore;
+use Milpa\AppRuntime\Identity\SignerAuthority;
+use Milpa\AppRuntime\Policy\PolicyConfig;
+use Milpa\ToolRuntime\Identity\VerifiedSigner;
 use Milpa\AppRuntime\Agent\SurfaceBroadcaster;
 use Milpa\AppRuntime\Agent\SurfaceComposition;
 use Milpa\AppRuntime\Support\Capabilities;
@@ -25,6 +30,9 @@ use Milpa\Command\Operation;
 use Milpa\Command\RollbackContracts;
 use Milpa\Console\CliProjector;
 use Milpa\Console\CliRunner;
+use Milpa\Console\McpProjector;
+use Milpa\ToolRuntime\Contracts\ToolContext;
+use Milpa\ToolRuntime\PolicyGate;
 use Milpa\Console\Rendering\JsonCliRenderer;
 use Milpa\Console\Rendering\PlainTextCliRenderer;
 use Milpa\Interfaces\Di\DIContainerInterface;
@@ -495,9 +503,54 @@ final class Application
         }
 
         $resto = \array_slice($argv, 2);
+        $renderer = \in_array('--json', $resto, true) ? new JsonCliRenderer() : new PlainTextCliRenderer();
+
+        // The caller's declared scope is judged before this surface asks for a signature.
+        // Use the SAME scope verdict as the agent door; consent remains CliRunner's concern
+        // (greenhouse decisions/0314). An absent/unverifiable token keeps 0311's local default.
+        $identity = PresentedToken::identity($this->kernel()->container());
+        $base = ToolContext::cli();
+        $scope = (new PolicyGate())->authorizeScopes(
+            new ToolContext(
+                principal: $identity->actor->id ?? $base->principal,
+                channel: $base->channel,
+                scopes: PresentedToken::scopes($identity, $base->scopes),
+            ),
+            McpProjector::toolName($operacion->name),
+            $operacion->scopes,
+        );
+        if (!$scope->allowed) {
+            foreach ($renderer->presentError((string) $scope->reason) as $line) {
+                $this->line($line);
+            }
+
+            return 1;
+        }
 
         return (new CliRunner(
-            renderer: \in_array('--json', $resto, true) ? new JsonCliRenderer() : new PlainTextCliRenderer(),
+            renderer: $renderer,
+            callerAuthority: new ToolContext(
+                principal: $identity->actor->id ?? $base->principal,
+                channel: $base->channel,
+                scopes: PresentedToken::scopes($identity, $base->scopes),
+            ),
+            signerAuthority: function (VerifiedSigner $signer) use ($identity): ?ToolContext {
+                $root = $this->kernel()->root();
+                $signed = (new SignerAuthority(
+                    new FileEnrollmentStore($root . '/storage/identity/enrollments.json'),
+                    PolicyConfig::load($root),
+                ))->forSigner($signer);
+                // A second credential cannot widen a presented token for delegated tools.
+                $tokenScopes = PresentedToken::scopes($identity, ['*']);
+                if ($signed === null && $identity === null) {
+                    return null;
+                }
+                $signedScopes = $signed->scopes ?? ['*'];
+                $scopes = \in_array('*', $tokenScopes, true) ? $signedScopes
+                    : (\in_array('*', $signedScopes, true) ? $tokenScopes : array_values(array_intersect($tokenScopes, $signedScopes)));
+
+                return new ToolContext(principal: 'key:' . $signer->fingerprint, channel: 'cli', scopes: $scopes);
+            },
             // El despachador del kernel viaja al runner: sin él, un listener que audita operaciones
             // las vería por MCP y no por la terminal — que es el hueco que el runner vino a cerrar.
             dispatcher: $this->kernel()->dispatcher(),
@@ -1218,6 +1271,7 @@ final class Application
         }
 
         $kernel = $this->kernel();
+        \Milpa\AppRuntime\Agent\PluginAuthoringPolicy::install($kernel->container(), $this->root);
         /** @var list<Operation> $operaciones */
         $operaciones = $kernel->commands();
 

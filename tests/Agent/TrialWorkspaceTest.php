@@ -76,6 +76,33 @@ final class TrialWorkspaceTest extends TestCase
         self::assertFileExists($root . '/src/A.php');
     }
 
+    public function testHostOnlyChangesNeverBecomeTrialProposalsAndRealConflictsRemainStale(): void
+    {
+        $root = $this->root();
+        $workspace = TrialWorkspace::materialize($root, 'host-drift', $this->runner());
+        file_put_contents($workspace->copy . '/src/A.php', 'trial edit');
+        file_put_contents($root . '/config/x.php', 'new current authority');
+        file_put_contents($root . '/host-only.txt', 'new host file');
+        self::assertSame(['src/A.php'], array_keys($workspace->diff()));
+        self::assertSame([], $workspace->stale());
+        file_put_contents($root . '/src/A.php', 'conflicting host edit');
+        self::assertSame(['src/A.php'], $workspace->stale());
+    }
+
+    public function testMissingOrMalformedBaselineCannotInventAProposal(): void
+    {
+        $workspace = TrialWorkspace::materialize($this->root(), 'bad-baseline', $this->runner());
+        foreach (['{broken', '{"src/A.php": 3}'] as $bad) {
+            file_put_contents($workspace->baseDirectory() . '/manifest.json', $bad);
+            try {
+                $workspace->diff();
+                self::fail('An unreadable baseline cannot become an empty one.');
+            } catch (\RuntimeException $error) {
+                self::assertStringContainsString('baseline', $error->getMessage());
+            }
+        }
+    }
+
     public function testTheDiffIgnoresVendorEntirely(): void
     {
         // vendor is bound read-only into the trial and NEVER copied, so it can only differ as a

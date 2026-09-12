@@ -36,6 +36,7 @@ use Milpa\Command\InvocationContext;
 use Milpa\Command\Operation;
 use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\Runtime\Kernel;
+use Milpa\ToolRuntime\Contracts\ToolContext;
 
 /**
  * The `recipe:apply` capability: read a declared recipe from `recipes/<name>.json` and drive it
@@ -77,7 +78,7 @@ final class RecipeOperations implements CommandProvider
                     subject: Subject::Executable,
                 ),
                 description: 'Apply a declared recipe — found, enable and make in one governed sequence, pausing for consent',
-                handler: fn (array $input, ?InvocationContext $context = null): array => $this->apply($input, $context),
+                handler: fn (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array => $this->apply($input, $context, $authority),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
@@ -115,7 +116,7 @@ final class RecipeOperations implements CommandProvider
      *
      * @return array<string, mixed>
      */
-    private function apply(array $input, ?InvocationContext $context = null): array
+    private function apply(array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array
     {
         $name = \is_string($input['recipe'] ?? null) ? trim($input['recipe']) : '';
         if ($name === '') {
@@ -185,7 +186,7 @@ final class RecipeOperations implements CommandProvider
             return ['ok' => false, 'error' => 'could not open a session to govern the recipe'];
         }
 
-        $executor = GovernedDoor::open($kernel, $root, $store, $session, $petition, $context);
+        $executor = GovernedDoor::open($kernel, $root, $store, $session, $petition, $context, $authority);
         $driver = new RecipeDriver();
 
         if ($resuming) {

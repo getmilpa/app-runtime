@@ -107,6 +107,8 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
         // operations the registry and the gate were not born with. The door hands in what to do before a
         // call it does not know yet — re-fold the catalogue, project the new tools, tell the gate.
         private readonly ?\Closure $grown = null,
+        // A request's explicit authority wins over the local token fallback, including empty scopes.
+        private readonly ?ToolContext $authority = null,
     ) {
         // THE DOOR DOES NOT NEED THE MODEL GATEWAY (greenhouse decisions/0225): gate, registry and recorder
         // are milpa/tool-runtime's. The option table is the model loop's own concern and stays optional —
@@ -194,9 +196,11 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
         $base = ToolContext::cli();
         $actor = $this->identity?->actor;
         $this->setContext(new ToolContext(
-            principal: $actor->id ?? $this->grants[0]->principal ?? $base->principal,
+            principal: $this->authority !== null
+                ? $this->authority->principal
+                : ($actor->id ?? $this->grants[0]->principal ?? $base->principal),
             channel: $this->channel,
-            scopes: PresentedToken::scopes($this->identity, $base->scopes),
+            scopes: $this->authority->scopes ?? PresentedToken::scopes($this->identity, $base->scopes),
             extra: [
                 'consent.grants' => $this->grants,
                 'consent.arguments' => $args,

@@ -19,16 +19,18 @@ declare(strict_types=1);
  *
  * A trial runs an operation whose consent is the HOST's business: the host gate already decided the
  * call was confined and fit the trial ceiling (greenhouse decisions/0068). So this process must not
- * re-ask through the CLI's `--sign` gate — it resolves the operation through `Application::correr()`,
- * the same resolver the TUI uses, and invokes its handler directly. Output is JSON so the host can
+ * re-ask through the CLI's `--sign` gate — it resolves the declared operation through Application
+ * and uses OperationRunner, including container-resolved instance handlers. Output is JSON so the host can
  * read what happened; the host, not this process, computes what changed on disk.
  *
  * The CLI spells `plugins:disable`; the atom is named `plugins.disable` (a `_` or `.` in the atom is
- * written `:` in the terminal). `correr()` matches the atom name, so a trial resolves the terminal
- * spelling first and falls back to the atom spellings.
+ * written `:` in the terminal). Application's lookup uses that terminal spelling, so atom names
+ * are normalized before lookup.
  *
  * Usage (copied into the root of a trial copy):  php trial-run.php <operation> '<json input>'
  */
+// Relative paths returned by generators belong to the copy, just like absolute app paths.
+chdir(__DIR__);
 require __DIR__ . '/vendor/autoload.php';
 
 $op = $argv[1] ?? null;
@@ -44,15 +46,14 @@ if (! \is_array($input)) {
 }
 
 $app = new Milpa\AppRuntime\Console\Application(__DIR__);
-$correr = new ReflectionMethod($app, 'correr');
 try {
-    $r = $correr->invoke($app, $op, $input);
-    if ($r === null && str_contains($op, ':')) {
-        $r = $correr->invoke($app, str_replace(':', '.', $op), $input);
+    $operation = (new ReflectionMethod($app, 'find'))->invoke($app, str_replace(['.', '_'], ':', $op));
+    if ($operation === null) {
+        echo json_encode(['ok' => false, 'error' => "no operation «{$op}» in this app"], \JSON_UNESCAPED_UNICODE), "\n";
+        exit(1);
     }
-    if ($r === null && str_contains($op, ':')) {
-        $r = $correr->invoke($app, str_replace(':', '_', $op), $input);
-    }
+    $kernel = (new ReflectionMethod($app, 'kernel'))->invoke($app);
+    $r = (new Milpa\Console\OperationRunner($kernel->container()))->run($operation, $input, 'trial');
 } catch (Throwable $e) {
     echo json_encode(['ok' => false, 'error' => \get_class($e) . ': ' . $e->getMessage()], \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES), "\n";
     exit(1);

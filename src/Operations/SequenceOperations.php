@@ -32,6 +32,7 @@ use Milpa\Command\InvocationContext;
 use Milpa\Command\Operation;
 use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\Runtime\Kernel;
+use Milpa\ToolRuntime\Contracts\ToolContext;
 
 /**
  * `sequence:run` — a human starts a sequence THIS APP DECLARED, from the surface where they authorise
@@ -125,7 +126,7 @@ final class SequenceOperations implements CatalogueBorrower
                 // have lost its ceremony while still mutating (greenhouse decisions/0223, point 2).
                 effects: $ceiling,
                 description: 'Run a sequence this app declared, step by step through the gate, pausing for consent',
-                handler: fn (array $input, ?InvocationContext $context = null): array => $this->run($input, $context),
+                handler: fn (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array => $this->run($input, $context, $authority),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
@@ -228,7 +229,7 @@ final class SequenceOperations implements CatalogueBorrower
      *
      * @return array<string, mixed>
      */
-    private function run(array $input, ?InvocationContext $context = null): array
+    private function run(array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array
     {
         $name = \is_string($input['sequence'] ?? null) ? trim($input['sequence']) : '';
         if ($name === '') {
@@ -326,7 +327,7 @@ final class SequenceOperations implements CatalogueBorrower
             return ['ok' => false, 'error' => 'could not open a session to govern the sequence'];
         }
 
-        $executor = GovernedDoor::open($kernel, $root, $store, $session, $petition, $context);
+        $executor = GovernedDoor::open($kernel, $root, $store, $session, $petition, $context, $authority);
         $driver = new RecipeDriver();
 
         return $resuming
