@@ -31,9 +31,9 @@ use Milpa\Command\Operation;
  * `GET /live/page?component=<name>` with NO code deploy.
  *
  * The operation MUTATES and declares its effect profile, so it flows through the governed path the
- * runtime already owns: the gate pauses (a mutation needs the authority's signature), the agent runs
- * it in a disposable trial (the write is quarantined until the human commits), and the served screen
- * is bound to the component-type scope. The agent declares a datum; the framework projects; the human
+ * runtime already owns. The default store lives under var/ and is not a publishable trial diff;
+ * a host that needs promotion must explicitly choose a tracked path (Greenhouse 0325/0641).
+ * The served screen is bound to the component-type scope. The agent declares a datum; the framework projects; the human
  * governs. Contributed by LivePlugin (a booted `CommandProvider`), so enabling the live door enables
  * the author-material loop — no per-app wiring.
  */
@@ -198,6 +198,16 @@ final class ScreenOperations implements CommandProvider
         $type = trim((string) ($input['type'] ?? ScreenStore::DEFAULT_TYPE));
         if ($type !== '' && $this->types !== [] && ! \in_array($type, $this->types, true)) {
             return ['ok' => false, 'error' => 'unknown component type', 'type' => $type, 'known' => $this->types];
+        }
+
+        $props = $input['props'] ?? [];
+        if (! \is_array($props) || ($props !== [] && array_is_list($props))) {
+            return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'props', 'reason' => 'props must be an object'];
+        }
+        try {
+            ScreenTree::validate($type !== '' ? $type : ScreenStore::DEFAULT_TYPE, $props, $this->types);
+        } catch (InvalidScreenTree $error) {
+            return ['ok' => false, 'error' => 'invalid screen tree', 'path' => $error->path, 'reason' => $error->getMessage()];
         }
 
         $result = $this->store->declare($input);

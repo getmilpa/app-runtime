@@ -21,7 +21,7 @@ use PHPUnit\Framework\TestCase;
  * The composer that turns a declared container screen into a rendered LAYOUT (greenhouse decisions/0167):
  * it renders each declared child and assembles their HTML into the container's `childrenHtml`. What this
  * fixes: a container's children compose into one page, a leaf passes straight through, and an unknown child
- * type is skipped rather than fatal.
+ * type is refused instead of silently omitted.
  */
 final class CompositeHtmlRendererTest extends TestCase
 {
@@ -57,7 +57,6 @@ final class CompositeHtmlRendererTest extends TestCase
         $props = ['children' => [
             ['type' => 'leaf-a', 'props' => []],
             ['type' => 'leaf-b', 'props' => []],
-            ['type' => 'unknown', 'props' => []],   // skipped, not fatal
         ]];
         $out = $renderer->render($this->realComponent('dashboard-grid'), new RenderRequest($context, $props))->output;
 
@@ -131,6 +130,66 @@ final class CompositeHtmlRendererTest extends TestCase
         $out = $renderer->render($this->realComponent('metric-card'), new RenderRequest($context, ['value' => '42']))->output;
 
         self::assertSame('<metric-card></metric-card>', $out);
+    }
+
+    public function testAnUnknownNestedChildRefusesTheWholeRender(): void
+    {
+        $renderer = new CompositeHtmlRenderer($this->inner(), fn (string $type): ?ComponentDefinitionInterface => $type === 'dashboard-grid' ? $this->realComponent($type) : null);
+        $this->expectException(\Milpa\AppRuntime\Web\InvalidScreenTree::class);
+        $this->expectExceptionMessage('unknown component type: missing');
+        $renderer->render($this->realComponent('dashboard-grid'), new RenderRequest(new ComponentContext('screen'), ['children' => [
+            ['type' => 'dashboard-grid', 'props' => ['children' => [['type' => 'missing']]]],
+        ]]));
+    }
+
+    public function testNestedClientAssetsAndContractsSurviveComposition(): void
+    {
+        $inner = new class () implements ComponentRendererInterface {
+            public function supportsTarget(RenderTarget $target): bool
+            {
+                return true;
+            }
+            public function render(ComponentDefinitionInterface $component, RenderRequest $request): RenderResult
+            {
+                return new RenderResult(
+                    output: (string) ($request->props['childrenHtml'] ?? ''),
+                    assets: ['route' => $request->context->route],
+                    clientAssets: new \Milpa\Live\ValueObjects\ClientAssets(scripts: ['/shared.js', '/' . $component::contract()->name . '.js']),
+                );
+            }
+        };
+        $renderer = new CompositeHtmlRenderer($inner, fn (string $type): ComponentDefinitionInterface => $this->realComponent($type));
+        $result = $renderer->render($this->realComponent('dashboard-grid'), new RenderRequest(new ComponentContext('screen', route: '/ui'), ['children' => [
+            ['type' => 'dashboard-grid', 'props' => ['children' => [['type' => 'leaf-a'], ['type' => 'leaf-b']]]],
+        ]]));
+        self::assertSame(['/shared.js', '/dashboard-grid.js', '/leaf-a.js', '/leaf-b.js'], $result->clientAssets()->scripts);
+        self::assertSame(['dashboard-grid', 'dashboard-grid', 'leaf-a', 'leaf-b'], array_map(fn ($contract) => $contract->name, $result->assets['componentContracts']));
+        self::assertSame('/ui', $result->assets['route']);
+    }
+
+    public function testADeclaringRendererContributesItsFilesThroughTheDispatcher(): void
+    {
+        $declaring = new class () implements ComponentRendererInterface, \Milpa\Live\Contracts\Rendering\DeclaresClientAssets {
+            public function supportsTarget(RenderTarget $target): bool
+            {
+                return true;
+            }
+            public function clientAssets(): \Milpa\Live\ValueObjects\ClientAssets
+            {
+                return new \Milpa\Live\ValueObjects\ClientAssets(scripts: ['/leaf.js'], styles: ['/leaf.css']);
+            }
+            public function render(ComponentDefinitionInterface $component, RenderRequest $request): RenderResult
+            {
+                return new RenderResult(output: '<leaf></leaf>');
+            }
+        };
+        $dispatch = new \Milpa\AppRuntime\Web\DispatchingHtmlRenderer(['leaf-a' => $declaring], $this->inner());
+        foreach ([$dispatch, $declaring] as $inner) {
+            $renderer = new CompositeHtmlRenderer($inner, fn (string $type): ComponentDefinitionInterface => $this->realComponent($type));
+            $out = $renderer->render($this->realComponent('dashboard-grid'), new RenderRequest(new ComponentContext('screen'), ['children' => [['type' => 'leaf-a'], ['type' => 'leaf-a']]]));
+            self::assertSame(['/leaf.js'], $out->clientAssets()->scripts);
+            self::assertSame(['/leaf.css'], $out->clientAssets()->styles);
+        }
     }
 
     private function realComponent(string $contract): ComponentDefinitionInterface

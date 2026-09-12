@@ -75,7 +75,11 @@ final class LivePluginTest extends TestCase
         $plugin->boot();
 
         $paths = array_map(static fn ($r): string => $r->path, $plugin->routes());
-        self::assertSame(['/live', '/live/page', '/milpa-live.js', '/milpa-live-remote.js', '/vendor/alpine.min.js'], $paths);
+        self::assertSame([
+            '/live', '/live/page', '/milpa-live.js', '/milpa-live-remote.js', '/vendor/alpine.min.js',
+            ...array_values(\Milpa\Live\Support\DesignTokens::urls('/live/assets')),
+            '/live/assets/milpa-components.css',
+        ], $paths);
         self::assertTrue($container->has(LiveEndpoint::class));
         self::assertTrue($container->has(LiveController::class));
         self::assertTrue($container->has(LiveAssetsController::class));

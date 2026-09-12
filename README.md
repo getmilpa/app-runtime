@@ -14,6 +14,22 @@
 What an agent is allowed to do inside your app, what your app knows how to do, and the two surfaces
 you drive it from — the CLI and the agent screen. All of it arrives by version.
 
+## Declared screen pages
+
+With `LivePlugin` enabled and `live.secret` configured, `GET /live/page?component=<name>` returns a
+complete HTML document. It loads the local runtime, remote runtime and Alpine once, plus the shipped
+Milpa design styles, local fonts, and every rendered descendant's declared styles, scripts and messages.
+The document works on its own or inside the panel's preview iframe. `live.route` changes the page,
+endpoint and design-asset mount; runtime URLs retain their existing root mounts.
+
+`screen:declare` validates the entire `props.children` tree before writing. An unknown or malformed
+child returns `ok: false` with its path and preserves the previous screen; no served-evidence receipt
+is issued. Invalid trees already in the store return HTTP 422 instead of rendering a partial screen.
+The available types remain the nine types advertised in the operation's schema.
+
+This page shows the current declaration. It is not an isolated draft or a deployment boundary, and
+rendering a group of controls does not yet provide shared application state between them.
+
 ## Why this package exists
 
 Because it used to live inside the template, and that meant **it never reached anyone**.

@@ -18,7 +18,7 @@
         "milpa/http": ">=0.1.5 <1.0",
         "milpa/live": ">=0.25 <1.0",
         "milpa/live-tui": ">=0.7 <1.0",
-        "milpa/live-web": ">=0.27 <1.0",
+        "milpa/live-web": ">=0.28 <1.0",
         "milpa/plugin": ">=0.17 <1.0",
         "milpa/runtime": ">=0.15 <1.0",
         "milpa/tool-runtime": ">=0.17 <1.0",
