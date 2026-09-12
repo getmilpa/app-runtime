@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [0.157.1](https://github.com/getmilpa/app-runtime/compare/v0.157.0...v0.157.1) (2026-09-12)
+
+
+### Bug Fixes
+
+* **agent:** retain screen drafts in the host review lifecycle ([661a1d5](https://github.com/getmilpa/app-runtime/commit/661a1d564f853208e8e247b8debeb34225a90861))
+* **agent:** retain screen drafts in the host review lifecycle ([2456144](https://github.com/getmilpa/app-runtime/commit/2456144c6d6cfc26c24bd8123d318970b4984888))
+* **agent:** return the configured screen review links ([c0bd2b9](https://github.com/getmilpa/app-runtime/commit/c0bd2b9176e9255d8736944f44ef715456fe3076))
+
 ## [0.157.0](https://github.com/getmilpa/app-runtime/compare/v0.156.1...v0.157.0) (2026-09-12)
 
 
