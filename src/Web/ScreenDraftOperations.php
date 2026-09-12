@@ -6,7 +6,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Web;
 
 use Milpa\Command\{CommandProvider,Operation};
-use Milpa\Command\Effect\{EffectProfile,Mutation,Externality,Reversibility,Subject};
+use Milpa\Command\Effect\{EffectProfile,Mutation,Externality,Reversibility,Subject,Authority};
 
 /** CLI, MCP and the resident agent name the same immutable revisions as the review UI. */
 final readonly class ScreenDraftOperations implements CommandProvider
@@ -33,9 +33,9 @@ final readonly class ScreenDraftOperations implements CommandProvider
                 inputSchema:['type' => 'object','required' => $verb === 'draft' ? ['name','type','props'] : ($verb === 'review' ? [] : ['revision']),
                     'properties' => $verb === 'draft' ? ['name' => ['type' => 'string'],'type' => ['type' => 'string','x-milpa-source' => ['tool' => 'screen:types','path' => 'types','key' => 'name']],'props' => ['type' => 'object']] : ['revision' => ['type' => 'string','description' => 'Immutable revision id returned by screen:draft or screen:review.']]],
                 mutating:$write,
-                namedTarget:$verb === 'draft' ? 'name' : 'revision',
+                namedTarget:$verb === 'review' ? null : ($verb === 'draft' ? 'name' : 'revision'),
                 scopes:['milpa:component:screen-review:' . ($verb === 'review' ? 'read' : $verb)],
-                effects:$write ? new EffectProfile(Mutation::Persistent, Externality::None, Reversibility::Compensatable, subject:Subject::Data) : EffectProfile::readOnly()
+                effects:$write ? new EffectProfile(Mutation::Persistent, Externality::None, Reversibility::Compensatable, Authority::WriteAsUser, subject:Subject::Data) : EffectProfile::readOnly()
             );
         }
         return $out;

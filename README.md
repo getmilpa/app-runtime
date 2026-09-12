@@ -539,8 +539,17 @@ The operations `screen:draft` (`name`, `type`, `props`), `screen:review` (option
 revision service. They declare `milpa:component:screen-review:draft`, `:read`,
 `:promote` and `:rollback` respectively. The review page requires `:read`; its
 buttons enforce the corresponding action scopes. The component wildcard `:*`
-grants all four. A shareable review URL is `/live/review?revision=<id>` under the
+grants all four in the component UI; assign the explicit scopes above to operation
+callers. A shareable review URL is `/live/review?revision=<id>` under the
 configured live route. Identity and scopes are still required.
+
+The resident agent creates revisions in the host's review store. These three
+revision mutations use their own lifecycle instead of the generic file trial;
+scope and consent checks still apply. A scoped launch grant such as
+`--grant=screen_draft:name=todos` can consent to proposals for that screen without
+granting activation. Reading a generated revision does not require its hash to
+have appeared in the original request. Plugin authoring and `screen:declare`
+retain their existing trial routing (Greenhouse 0330).
 
 Apps explicitly opt component types into `ScreenPreviewRegistry` during plugin
 boot. A factory receives a `PreviewEnvironment` containing the immutable revision
