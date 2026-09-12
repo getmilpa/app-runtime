@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [0.157.0](https://github.com/getmilpa/app-runtime/compare/v0.156.1...v0.157.0) (2026-09-12)
+
+
+### Features
+
+* **web:** review isolated immutable screen drafts before activation ([0e029ce](https://github.com/getmilpa/app-runtime/commit/0e029ceb62ac3b6309fcf7c25eb018f9f6bfdc19))
+* **web:** review isolated immutable screen drafts before activation ([4d19c20](https://github.com/getmilpa/app-runtime/commit/4d19c20153d51a55945d6b791434d7c4def192ad))
+
+
+### Bug Fixes
+
+* **web:** restore baselines without requiring preview opt-in ([755677f](https://github.com/getmilpa/app-runtime/commit/755677f150896281bd4b1201fe840c382ede2776))
+* **web:** restore baselines without requiring preview opt-in ([e64b8f5](https://github.com/getmilpa/app-runtime/commit/e64b8f57cc5843dcc3db3293da73346888ab7295))
+
 ## [0.156.1](https://github.com/getmilpa/app-runtime/compare/v0.156.0...v0.156.1) (2026-09-12)
 
 
