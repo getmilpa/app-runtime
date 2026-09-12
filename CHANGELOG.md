@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.157.6](https://github.com/getmilpa/app-runtime/compare/v0.157.5...v0.157.6) (2026-09-12)
+
+
+### Bug Fixes
+
+* drain both trial output channels before waiting for exit (0341) ([aaefeb1](https://github.com/getmilpa/app-runtime/commit/aaefeb1799d9e44818833c14926978fdbc1d944f))
+* drain both trial output channels without deadlocking ([40708bd](https://github.com/getmilpa/app-runtime/commit/40708bde23c33e6d4f3f589242236e2e0a731372))
+
 ## [0.157.5](https://github.com/getmilpa/app-runtime/compare/v0.157.4...v0.157.5) (2026-09-12)
 
 
