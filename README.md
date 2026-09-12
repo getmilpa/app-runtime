@@ -89,6 +89,13 @@ trigger that painting. Half the improvement landed, half didn't, and nothing sai
 | `BroadcastingEventStore` · `SurfaceBroadcaster` · `MercureBroadcaster` | getting what happens to the live surfaces while it happens |
 | `SessionBookkeeping` · `SessionPlanBoard` | the session's plan and to-dos, bound to *its* id |
 
+During progress recovery, `ConsentBridge` removes declared reads from the offered catalogue using
+the session gate's current state. Successful material work, recorded evidence or a completed todo
+restores them; failed writes and pending confirmations do not. Durable option removals remain in
+force. Full and lazy discovery use this current offer, including previously discovered schemas.
+Offering a mutation does not authorize it: scopes and argument-dependent effects are still judged
+when it is called. Catalogue inspection does not execute that judgment or open consent questions.
+
 **The operations — what your app knows how to do**
 
 `AgentOperations`, `SessionOperations`, `CapabilityOperations` and `TokenOperations` are the operation

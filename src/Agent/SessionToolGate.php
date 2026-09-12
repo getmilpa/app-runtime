@@ -477,6 +477,32 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             && ProgressReceipt::of($stream, $stalled, $last)->progress === ProgressReceipt::STALLED;
     }
 
+    /**
+     * Reads certainly unavailable under the current recovery state (greenhouse decisions/0340).
+     *
+     * This is a pure catalogue projection, not a speculative call to refuse(): that path may ask
+     * a question or compose an argument-dependent rehearsal. A declared mutation stays offered;
+     * its actual arguments can still lower it to a read, which execution continues to refuse.
+     * Resolve producer contracts and self-log treatment through the same sources as admission.
+     * Unknown contracts retain their existing execution refusal; this only projects recovery.
+     *
+     * @param list<string> $tools names currently in the registry
+     *
+     * @return list<string>
+     */
+    public function recoveryHiddenTools(array $tools): array
+    {
+        if (! $this->enRecuperacion()) {
+            return [];
+        }
+
+        return array_values(array_filter($tools, function (string $tool): bool {
+            $operation = $this->operationFor($tool);
+
+            return $operation !== null && ! $operation->mutating && ! $this->esBitacoraPropia($operation);
+        }));
+    }
+
     private function contratoDeclaradoPor(object $operacion): ?string
     {
         return ContratoInstalado::cadena($operacion, 'namedTarget');

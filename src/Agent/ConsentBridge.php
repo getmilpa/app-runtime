@@ -90,7 +90,7 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
     public function __construct(
         ToolRegistry $registry,
         array $grants = [],
-        ?ToolCallGate $gate = null,
+        private readonly ?ToolCallGate $gate = null,
         ?ToolCallRecorder $recorder = null,
         ?OptionTable $table = null,
         string $channel = 'cli',
@@ -367,13 +367,19 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
     }
 
     /**
-     * What the model's option table took away leaves the catalogue — none when no table was handed in.
+     * Combine durable option removals with the session gate's current recovery projection.
+     * Recovery is derived on every read, never persisted as an irreversible option removal.
      *
      * @return list<string>
      */
     protected function hidden(): array
     {
-        return $this->table?->removed() ?? [];
+        $removed = $this->table?->removed() ?? [];
+        $recovering = $this->gate instanceof SessionToolGate
+            ? $this->gate->recoveryHiddenTools(array_column($this->catalogue->getToolSummaries(), 'name'))
+            : [];
+
+        return array_values(array_unique([...$removed, ...$recovering]));
     }
 
     /** A refusal of an option the table already removed is a different fact from one never offered. */
