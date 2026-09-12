@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.156.1](https://github.com/getmilpa/app-runtime/compare/v0.156.0...v0.156.1) (2026-09-12)
+
+
+### Bug Fixes
+
+* preserve resources composed inside app component renderers ([887cf74](https://github.com/getmilpa/app-runtime/commit/887cf7480c48d4b42ad12e8a9950af131ff3137d))
+* preserve resources composed inside app component renderers ([4d21b54](https://github.com/getmilpa/app-runtime/commit/4d21b54e2f472da0522af770aada966f4528afd8))
+
 ## [0.156.0](https://github.com/getmilpa/app-runtime/compare/v0.155.0...v0.156.0) (2026-09-12)
 
 
