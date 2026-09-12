@@ -15,6 +15,8 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Web\Controllers;
 
 use Milpa\Live\Support\ClientRuntime;
+use Milpa\Live\Support\DesignTokens;
+use Milpa\Live\Support\ComponentStyles;
 use Nyholm\Psr7\Response;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -45,6 +47,21 @@ final class LiveAssetsController
     public function alpine(ServerRequestInterface $request): ResponseInterface
     {
         return $this->file(ClientRuntime::ALPINE);
+    }
+
+    /** The host mounts the authoritative design URLs, including the relative font paths. */
+    public function design(ServerRequestInterface $request): ResponseInterface
+    {
+        $name = basename($request->getUri()->getPath());
+        $path = ComponentStyles::path($name) ?? DesignTokens::path($name);
+        if ($path === null) {
+            return new Response(404);
+        }
+
+        return new Response(200, [
+            'Content-Type' => DesignTokens::contentType($name),
+            'Cache-Control' => 'public, max-age=3600',
+        ], (string) file_get_contents($path));
     }
 
     private function file(string $name): ResponseInterface

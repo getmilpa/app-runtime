@@ -58,6 +58,8 @@ use Milpa\Live\Security\HmacCsrfGuard;
 use Milpa\Live\Security\HmacStateSigner;
 use Milpa\Live\Security\SignedXhtmlStateTransferCodec;
 use Milpa\Live\Support\ClientRuntime;
+use Milpa\Live\Support\DesignTokens;
+use Milpa\Live\Support\ComponentStyles;
 use Milpa\Live\Transport\XhtmlStateTransferCodec;
 use Milpa\Runtime\Config;
 use Milpa\Runtime\Http\RouteProviderInterface;
@@ -282,13 +284,20 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         }
         $urls = ClientRuntime::defaultUrls();
 
-        return [
+        $routes = [
             new Route(path: $this->route, methods: HttpMethod::POST, name: 'live', handler: new HandlerReference(LiveController::class, 'handle')),
             new Route(path: $this->route . '/page', methods: HttpMethod::GET, name: 'live.page', handler: new HandlerReference(LiveComponentPageController::class, 'show')),
             new Route(path: $urls[ClientRuntime::LOCAL], methods: HttpMethod::GET, name: 'live.runtime.local', handler: new HandlerReference(LiveAssetsController::class, 'local')),
             new Route(path: $urls[ClientRuntime::REMOTE], methods: HttpMethod::GET, name: 'live.runtime.remote', handler: new HandlerReference(LiveAssetsController::class, 'remote')),
             new Route(path: $urls[ClientRuntime::ALPINE], methods: HttpMethod::GET, name: 'live.runtime.alpine', handler: new HandlerReference(LiveAssetsController::class, 'alpine')),
         ];
+        $design = DesignTokens::urls($this->route . '/assets');
+        $design[ComponentStyles::FILE] = ComponentStyles::url($this->route . '/assets');
+        foreach ($design as $name => $url) {
+            $routes[] = new Route(path: $url, methods: HttpMethod::GET, name: 'live.design.' . $name, handler: new HandlerReference(LiveAssetsController::class, 'design'));
+        }
+
+        return $routes;
     }
 
     /** Live keeps no persistent state of its own beyond the nonce file it creates on demand. */

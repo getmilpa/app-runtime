@@ -16,7 +16,9 @@ namespace Milpa\AppRuntime\Web;
 
 use Milpa\Live\Contracts\Component\ComponentDefinitionInterface;
 use Milpa\Live\Contracts\Rendering\ComponentRendererInterface;
+use Milpa\Live\Contracts\Rendering\DeclaresClientAssets;
 use Milpa\Live\ValueObjects\ComponentContext;
+use Milpa\Live\ValueObjects\ClientAssets;
 use Milpa\Live\ValueObjects\RenderRequest;
 use Milpa\Live\ValueObjects\RenderResult;
 use Milpa\Live\ValueObjects\RenderTarget;
@@ -36,9 +38,6 @@ use Milpa\Live\ValueObjects\RenderTarget;
  */
 final class CompositeHtmlRenderer implements ComponentRendererInterface
 {
-    /** The container contracts whose `children` this renderer composes; everything else passes through. */
-    private const CONTAINERS = ['dashboard-grid', 'dashboard-panel', 'dashboard-main', 'dashboard-shell'];
-
     /** @var callable(string, array<string, mixed>): ?ComponentDefinitionInterface */
     private $factory;
 
@@ -62,44 +61,60 @@ final class CompositeHtmlRenderer implements ComponentRendererInterface
     /** Compose a container's declared children into its `childrenHtml`, then render it; pass a leaf through. */
     public function render(ComponentDefinitionInterface $component, RenderRequest $request): RenderResult
     {
-        if (! \in_array($component::contract()->name, self::CONTAINERS, true)) {
-            return $this->inner->render($component, $request);
-        }
+        return $this->renderNode($component, $request, '');
+    }
 
-        $children = \is_array($request->props['children'] ?? null) ? $request->props['children'] : [];
-        // The layout's shared truth (greenhouse decisions/0169): the values a child WROTE that another READS.
-        // Injected by the page controller from the server-authoritative, per-session LayoutStateStore — the
-        // browser never owns it. A reader child declares `filterBy` and the framework EXECUTES that relation
-        // here, at render, so the coordination is a projection of one truth, not a second machine that reacts.
+    /** Render an intact subtree, retaining the resources of every rendered node. */
+    private function renderNode(ComponentDefinitionInterface $component, RenderRequest $request, string $path): RenderResult
+    {
+        $contract = $component::contract();
+        $children = ScreenTree::children($contract->name, $request->props, $path);
         $layoutState = \is_array($request->props['layoutState'] ?? null) ? $request->props['layoutState'] : [];
         $childrenHtml = '';
-        $index = 0;
-        foreach ($children as $child) {
-            if (! \is_array($child)) {
-                continue;
-            }
-            $type = \is_string($child['type'] ?? null) ? $child['type'] : '';
-            $childProps = \is_array($child['props'] ?? null) ? $child['props'] : [];
-            $childProps = $this->applyLayoutState($childProps, $layoutState);
-            $childComponent = ($this->factory)($type, $childProps);
+        $contracts = [$contract];
+        $clientAssets = ClientAssets::empty();
+        $assets = [];
+        $effects = [];
+        foreach ($children as $index => $child) {
+            $childProps = $this->applyLayoutState($child['props'] ?? [], $layoutState);
+            $childComponent = ($this->factory)($child['type'], $childProps);
+            $childPath = $path . 'props.children.' . $index . '.';
             if ($childComponent === null) {
-                continue;
+                throw new InvalidScreenTree($childPath . 'type', 'unknown component type: ' . $child['type']);
             }
             $childContext = new ComponentContext(
                 $request->context->componentId . '-' . $index,
                 $request->context->principal,
                 $request->context->locale,
                 $request->context->route,
+                $request->context->meta,
             );
-            // Recurse: a child may itself be a container. Leaves land on the wrapped renderer.
-            $childrenHtml .= $this->render($childComponent, new RenderRequest($childContext, $childProps, null, RenderTarget::HTML))->output;
-            $index++;
+            $childResult = $this->renderNode($childComponent, new RenderRequest($childContext, $childProps, null, $request->target), $childPath);
+            $childrenHtml .= $childResult->output;
+            $contracts = array_merge($contracts, $childResult->assets['componentContracts']);
+            $clientAssets = $clientAssets->merge($childResult->clientAssets());
+            $assets = array_merge($assets, $childResult->assets);
+            $effects = array_merge($effects, $childResult->effects);
         }
 
         $props = $request->props;
-        $props['childrenHtml'] = $childrenHtml;
+        if (\in_array($contract->name, ScreenTree::CONTAINERS, true)) {
+            $props['childrenHtml'] = $childrenHtml;
+        }
+        $result = $this->inner->render($component, new RenderRequest($request->context, $props, $request->state, $request->target, $request->options));
 
-        return $this->inner->render($component, new RenderRequest($request->context, $props, $request->state, $request->target, $request->options));
+        if ($this->inner instanceof DeclaresClientAssets) {
+            $clientAssets = $clientAssets->merge($this->inner->clientAssets());
+        }
+
+        return new RenderResult(
+            output: $result->output,
+            state: $result->state,
+            assets: array_merge($assets, $result->assets, ['componentContracts' => $contracts]),
+            effects: array_merge($effects, $result->effects),
+            format: $result->format,
+            clientAssets: $result->clientAssets()->merge($clientAssets),
+        );
     }
 
     /**

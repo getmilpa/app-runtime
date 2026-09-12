@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Web;
 
 use Milpa\Live\Contracts\Component\ComponentDefinitionInterface;
 use Milpa\Live\Contracts\Rendering\ComponentRendererInterface;
+use Milpa\Live\Contracts\Rendering\DeclaresClientAssets;
 use Milpa\Live\ValueObjects\RenderRequest;
 use Milpa\Live\ValueObjects\RenderResult;
 use Milpa\Live\ValueObjects\RenderTarget;
@@ -51,6 +52,18 @@ final class DispatchingHtmlRenderer implements ComponentRendererInterface
         $contract = $component::contract()->name;
         $renderer = $this->byContract[$contract] ?? $this->fallback;
 
-        return $renderer->render($component, $request);
+        $result = $renderer->render($component, $request);
+        if (! $renderer instanceof DeclaresClientAssets) {
+            return $result;
+        }
+
+        return new RenderResult(
+            output: $result->output,
+            state: $result->state,
+            assets: $result->assets,
+            effects: $result->effects,
+            format: $result->format,
+            clientAssets: $result->clientAssets()->merge($renderer->clientAssets()),
+        );
     }
 }

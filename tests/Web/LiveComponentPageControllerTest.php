@@ -183,6 +183,49 @@ final class LiveComponentPageControllerTest extends TestCase
         return $c;
     }
 
+    public function testThePageIsACompleteDocumentWithOneRuntimeAndLocalDesignAssets(): void
+    {
+        $response = $this->bootedController($this->dataTableProvider())->show($this->asActor('rod'));
+        $html = (string) $response->getBody();
+        self::assertStringStartsWith('<!doctype html><html lang="en"', $html);
+        self::assertStringContainsString('name="viewport"', $html);
+        self::assertStringContainsString('/live/assets/milpa-components.css', $html);
+        self::assertStringContainsString('/live/assets/milpa-fonts.css', $html);
+        self::assertStringContainsString('/live/assets/milpa-tokens.css', $html);
+        self::assertStringContainsString('rel="icon"', $html);
+        self::assertSame(1, substr_count($html, 'src="/milpa-live.js"'));
+        self::assertSame(1, substr_count($html, 'src="/milpa-live-remote.js"'));
+        self::assertSame(1, substr_count($html, 'src="/vendor/alpine.min.js"'));
+        self::assertLessThan(strpos($html, 'src="/vendor/alpine.min.js"'), strpos($html, 'src="/milpa-live-remote.js"'));
+        self::assertSame('no-store', $response->getHeaderLine('Cache-Control'));
+    }
+
+    public function testNestedChildMessagesTravelToThePageAndInvalidStoredChildrenAre422(): void
+    {
+        $provider = new class () implements LivePageProvider {
+            public array $children = [['type' => 'dashboard-grid', 'props' => ['children' => [['type' => 'data-table', 'props' => ['rows' => [], 'columns' => []]]]]]];
+            public function propsFor(string $component, ServerRequestInterface $request): ?array
+            {
+                return ['children' => $this->children];
+            }
+        };
+        $c = new DIContainer();
+        $c->registerService(Config::class, new Config(['live' => ['secret' => str_repeat('k', 32), 'route' => '/ui', 'locale' => 'es', 'components' => ['screen' => \Milpa\Live\Components\Dashboard\DashboardGridComponent::class]]]));
+        $c->registerService(LivePageProvider::class, $provider);
+        (new LivePlugin($c))->boot();
+        $controller = $c->get(LiveComponentPageController::class);
+        $request = (new ServerRequest('GET', '/ui/page'))->withQueryParams(['component' => 'screen']);
+        $html = (string) $controller->show($request)->getBody();
+        self::assertStringContainsString('lang="es"', $html);
+        self::assertStringContainsString('/ui/assets/milpa-components.css', $html);
+        self::assertStringContainsString('data-table.selected', $html);
+        self::assertStringContainsString('seleccionados', $html);
+        $provider->children = [['type' => 'missing']];
+        $refused = $controller->show($request);
+        self::assertSame(422, $refused->getStatusCode());
+        self::assertSame('props.children.0.type', json_decode((string) $refused->getBody(), true)['path']);
+    }
+
     public function testAnUnknownComponentIs404(): void
     {
         $req = (new ServerRequest('GET', '/live/page'))->withQueryParams(['component' => 'nope']);

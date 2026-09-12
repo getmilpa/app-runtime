@@ -17,6 +17,11 @@ namespace Milpa\AppRuntime\Web\Controllers;
 use Milpa\AppRuntime\Web\LayoutStateStore;
 use Milpa\AppRuntime\Web\LivePageProvider;
 use Milpa\AppRuntime\Web\LiveRender;
+use Milpa\AppRuntime\Web\InvalidScreenTree;
+use Milpa\Live\Support\DesignTokens;
+use Milpa\Live\Support\ComponentStyles;
+use Milpa\Live\Support\Html;
+use Milpa\Live\ValueObjects\ClientAssets;
 use Milpa\Live\Contracts\Component\ComponentRegistryInterface;
 use Milpa\Live\Contracts\Security\CsrfGuardInterface;
 use Milpa\Live\Http\LiveBoot;
@@ -85,27 +90,44 @@ final class LiveComponentPageController
 
         // OWNERSHIP is the framework's half: the state is born owned by the request's verified actor, the same
         // `actor:<id>` the endpoint verifies on the action — never a hand-written string (decisions/0091, the trap).
-        $context = LiveRender::contextForRequest($request, componentId: $name, route: $this->route);
+        $context = LiveRender::contextForRequest($request, componentId: $name, route: $this->route, locale: $this->locale);
 
         $component = $this->registry->get($name);
-        $rendered = $this->renderer->render(
-            $component,
-            new RenderRequest(context: $context, props: $props, target: RenderTarget::HTML),
-        );
+        try {
+            $rendered = $this->renderer->render(
+                $component,
+                new RenderRequest(context: $context, props: $props, target: RenderTarget::HTML),
+            );
+        } catch (InvalidScreenTree $error) {
+            return $this->json(422, ['error' => 'live_screen_invalid', 'path' => $error->path, 'reason' => $error->getMessage()]);
+        }
 
         $authorization = $request->getHeaderLine('Authorization');
         $boot = LiveBoot::issue($this->csrf, $this->route, $authorization !== '' ? $authorization : null);
 
-        // Whatever the component declared it needs — its stylesheet, its words — travels with it, so
-        // this page does not have to know what any component is made of to serve one correctly. The
-        // styles go before the markup so nothing paints unstyled; the words go after it, beside the
-        // boot payload the client already reads (greenhouse decisions/0246).
-        $declared = $this->assets->collect([$component::contract()], $this->locale);
+        // A composed screen carries the contracts and client files of every descendant (Greenhouse 0326).
+        $contracts = $rendered->assets['componentContracts'] ?? [$component::contract()];
+        $declared = $this->assets->collect($contracts, $this->locale);
+        $urls = DesignTokens::urls($this->route . '/assets');
+        $clientAssets = (new ClientAssets(styles: [
+            $urls[DesignTokens::TOKENS],
+            $urls[DesignTokens::FONTS],
+            ComponentStyles::url($this->route . '/assets'),
+        ]))->merge($rendered->clientAssets());
+        $document = '<!doctype html><html lang="' . Html::escape($this->locale) . '" data-theme="dark"><head>'
+            . '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
+            . '<title>' . Html::escape($name) . '</title>'
+            . DesignTokens::iconLink($urls[DesignTokens::APP_ICON])
+            . $boot->html(clientAssets: $clientAssets)
+            . '<style>body{margin:0;padding:var(--space-4);background:var(--bg);color:var(--text);font-family:var(--font-body)}[x-cloak]{display:none!important}</style>'
+            . $declared->styleTag()
+            . '</head><body>' . $rendered->output . "\n" . $declared->messagesTag() . $declared->scriptTag()
+            . '</body></html>';
 
         return new Response(
             200,
             ['Content-Type' => 'text/html; charset=utf-8', 'Cache-Control' => 'no-store'],
-            $declared->styleTag() . $rendered->output . "\n" . $declared->messagesTag() . $boot->scriptTag(),
+            $document,
         );
     }
 
