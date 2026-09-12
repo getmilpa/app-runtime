@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.157.7](https://github.com/getmilpa/app-runtime/compare/v0.157.6...v0.157.7) (2026-09-12)
+
+
+### Bug Fixes
+
+* bound semantic recovery by measured progress ([3e204fb](https://github.com/getmilpa/app-runtime/commit/3e204fb3e0ec43e86705ca21eebc43f0bac811f3))
+* bound semantic recovery by measured progress (greenhouse 0343) ([a28f684](https://github.com/getmilpa/app-runtime/commit/a28f68430b4d162d3a7de5a9de28716fec0f47fe))
+
 ## [0.157.6](https://github.com/getmilpa/app-runtime/compare/v0.157.5...v0.157.6) (2026-09-12)
 
 
