@@ -96,6 +96,17 @@ groups a Milpa app registers. They are *returned*, never self-registered: whoeve
 registry decides which groups get in and with what authority, and a group that registered itself
 would take that decision away.
 
+At a natural end, `closure.verified` covers `scope: recorded_work`: it requires positive
+recorded evidence, no open or unevidenced done items, and current verification for artifacts
+with mutation attempts. An empty ledger, a scaffold without verification, or a later write
+that invalidated a passing check cannot verify closure. Read-only discovery does not require
+artifact verification. This verdict does not certify that the ledger covers every requirement
+of the human's goal; callers still need task-specific acceptance criteria.
+
+If the provider reports a truncated response, `agent` returns `ok: false`, `truncated: true`,
+`provider`, `outputLimit`, `stopReason`, and the session id when one exists. It records no final answer or
+closure for that incomplete response. Earlier effects and recorded usage remain in the session.
+
 **Containing what an agent may reach**
 
 An agent runs contained from the CLI, not only when a parent delegates to it. The withdrawal is a

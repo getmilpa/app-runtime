@@ -23,6 +23,7 @@ use Milpa\AiGateway\AgentOrchestrator;
 use Milpa\AiGateway\PlanBoard;
 use Milpa\AiGateway\ProgressProbe;
 use Milpa\AiGateway\RunInterrupted;
+use Milpa\AiGateway\OutputTruncatedException;
 use Milpa\Agent\Principal;
 use Milpa\AppRuntime\Support\ContratoInstalado;
 use Milpa\AppRuntime\Support\Foundation;
@@ -2241,6 +2242,18 @@ class AgentOperations implements CommandProvider
                 // wrote. A result that names what it did not do teaches its reader a false fact.
                 'session' => ($sessionId !== '' && $store !== null) ? $sessionId : null,
                 'hint' => 'dile qué cambió y pídele que siga',
+            ];
+        } catch (OutputTruncatedException $e) {
+            // Earlier effects and usage remain in the session; this incomplete message is not
+            // a final answer and cannot acquire a closure verdict (greenhouse decision 0334).
+            return [
+                'ok' => false,
+                'error' => $e->getMessage(),
+                'truncated' => true,
+                'provider' => $e->provider,
+                'outputLimit' => $e->maxTokens,
+                'stopReason' => $e->stopReason,
+                'session' => ($sessionId !== '' && $store !== null) ? $sessionId : null,
             ];
         } catch (\Throwable $e) {
             // El motivo se devuelve tal cual: viene del proveedor —una llave inválida, un modelo que

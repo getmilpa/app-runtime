@@ -122,4 +122,43 @@ final class ClosureVerdictTest extends TestCase
         self::assertNotNull($sesion);
         self::assertSame('build the Tareas plugin', $sesion->goal);
     }
+
+    public function testEmptyLedgerAndScaffoldDoNotSupplyPositiveEvidence(): void
+    {
+        $session = $this->store->load('s');
+        self::assertFalse(ClosureVerdict::derive($session, $this->store->facts('s'))['verified']);
+        $this->store->recordToolCall('s', 'make', ['name' => 'Counter'], '{"ok":true}', mutating: true);
+        $session = $this->store->load('s');
+        $closure = ClosureVerdict::derive($session, $this->store->facts('s'));
+        self::assertFalse($closure['verified']);
+        self::assertContains('artifact Counter has no current verification', $closure['reasons']);
+    }
+
+    public function testCurrentPositiveJudgeSurvivesReadsButNotALaterMutation(): void
+    {
+        $this->store->recordToolCall('s', 'make', ['name' => 'Counter'], '{"ok":true}', mutating: true);
+        $this->store->recordToolCall('s', 'validate', ['target' => 'Counter'], '{"ok":true,"checks":{"behavior":true}}');
+        $this->store->recordToolCall('s', 'source_read', ['target' => 'UnrelatedSdk'], '{"ok":true}');
+        $session = $this->store->load('s');
+        $closure = ClosureVerdict::derive($session, $this->store->facts('s'));
+        self::assertTrue($closure['verified']);
+        self::assertSame('recorded_work', $closure['scope']);
+
+        // Even a failed write cannot prove that the former verification survived.
+        $this->store->recordToolCall('s', 'edit', ['class' => 'Counter'], '{"ok":false}', ok: false, mutating: true);
+        $session = $this->store->load('s');
+        self::assertFalse(ClosureVerdict::derive($session, $this->store->facts('s'))['verified']);
+
+        $this->store->recordToolCall('s', 'validate', ['target' => 'Counter'], '{"ok":true,"checks":{"behavior":true}}');
+        $session = $this->store->load('s');
+        self::assertTrue(ClosureVerdict::derive($session, $this->store->facts('s'))['verified']);
+    }
+
+    public function testOneVerifiedArtifactCannotHideAnUnverifiedMutation(): void
+    {
+        $this->store->recordToolCall('s', 'validate', ['target' => 'Counter'], '{"ok":true,"checks":{"behavior":true}}');
+        $this->store->recordToolCall('s', 'make', ['name' => 'Other'], '{"ok":true}', mutating: true);
+        $session = $this->store->load('s');
+        self::assertFalse(ClosureVerdict::derive($session, $this->store->facts('s'))['verified']);
+    }
 }

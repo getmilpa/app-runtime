@@ -18,6 +18,7 @@ use Milpa\Agent\SessionStore;
 use Milpa\AiGateway\AgentOrchestrator;
 use Milpa\AiGateway\OptionTable;
 use Milpa\AiGateway\PlanBoard;
+use Milpa\AiGateway\OutputTruncatedException;
 use Milpa\ToolRuntime\Gate\ToolCallGate;
 use Milpa\ToolRuntime\Gate\ToolCallRecorder;
 use Milpa\AppRuntime\Agent\DebtSignal;
@@ -108,6 +109,27 @@ final class ProgressWiringTest extends TestCase
         self::assertArrayNotHasKey('closure', $result, 'a stalled end is not a natural end: no closure verdict');
     }
 
+    public function testTruncatedOutputIsStructuredAndNeverRecordedAsACompletedAnswer(): void
+    {
+        $operations = $this->operationsAnswering('must not become a final answer');
+        $operations->failure = new OutputTruncatedException('openai', 4096);
+        $result = $this->runAgent($operations, ['prompt' => 'continue', 'session' => 's1']);
+        self::assertFalse($result['ok']);
+        self::assertTrue($result['truncated'] ?? false);
+        self::assertSame('openai', $result['provider']);
+        self::assertSame(4096, $result['outputLimit']);
+        self::assertSame('length', $result['stopReason']);
+        self::assertSame('s1', $result['session']);
+        self::assertArrayNotHasKey('closure', $result);
+        self::assertNotNull($this->store->load('s1'));
+        foreach ($this->events->replay(SessionStore::PREFIX . 's1') as $event) {
+            self::assertNotSame('session.closure_derived', $event->type);
+            if ($event->type === 'session.turn') {
+                self::assertNotSame('assistant', $event->payload['role']);
+            }
+        }
+    }
+
     /**
      * A `HOUSE_DEBT:` final answer records a FRAMEWORK_GAP debt signal — digest, never the raw
      * prose — on the session's own stream, and the declaration still reaches whoever asked.
@@ -184,6 +206,7 @@ final class ProgressWiringTest extends TestCase
 final class ScriptedAnswerAgentOperations extends AgentOperations
 {
     public string $respuesta = '';
+    public ?\Throwable $failure = null;
 
     protected function ask(
         string $prompt,
@@ -200,6 +223,9 @@ final class ScriptedAnswerAgentOperations extends AgentOperations
         ?PlanBoard $tablero = null,
     ): string {
         $onStep();
+        if ($this->failure !== null) {
+            throw $this->failure;
+        }
 
         return $this->respuesta;
     }
