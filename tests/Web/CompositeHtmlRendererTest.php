@@ -167,6 +167,35 @@ final class CompositeHtmlRendererTest extends TestCase
         self::assertSame('/ui', $result->assets['route']);
     }
 
+    public function testAppRendererInternalComponentsKeepTheirResourcesAtRootAndInsideLayout(): void
+    {
+        $child = $this->realComponent('leaf-b')::contract();
+        $inner = new class ($child) implements ComponentRendererInterface {
+            public function __construct(private \Milpa\Live\ValueObjects\ComponentContract $child)
+            {
+            }
+            public function supportsTarget(RenderTarget $target): bool
+            {
+                return true;
+            }
+            public function render(ComponentDefinitionInterface $component, RenderRequest $request): RenderResult
+            {
+                return new RenderResult(
+                    output: (string) ($request->props['childrenHtml'] ?? '<input>'),
+                    assets: $component::contract()->name === 'leaf-a' ? ['componentContracts' => [$this->child]] : [],
+                    clientAssets: new \Milpa\Live\ValueObjects\ClientAssets(styles: ['/internal.css']),
+                );
+            }
+        };
+        $renderer = new CompositeHtmlRenderer($inner, fn (string $type): ComponentDefinitionInterface => $this->realComponent($type));
+        $root = $renderer->render($this->realComponent('leaf-a'), new RenderRequest(new ComponentContext('app')));
+        self::assertSame(['leaf-a', 'leaf-b'], array_column($root->assets['componentContracts'], 'name'));
+        self::assertSame($child, $root->assets['componentContracts'][1]);
+        $nested = $renderer->render($this->realComponent('dashboard-grid'), new RenderRequest(new ComponentContext('screen'), ['children' => [['type' => 'leaf-a']]]));
+        self::assertSame(['dashboard-grid', 'leaf-a', 'leaf-b'], array_column($nested->assets['componentContracts'], 'name'));
+        self::assertSame(['/internal.css'], $nested->clientAssets()->styles);
+    }
+
     public function testADeclaringRendererContributesItsFilesThroughTheDispatcher(): void
     {
         $declaring = new class () implements ComponentRendererInterface, \Milpa\Live\Contracts\Rendering\DeclaresClientAssets {

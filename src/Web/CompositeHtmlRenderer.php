@@ -114,7 +114,7 @@ final class CompositeHtmlRenderer implements ComponentRendererInterface
         return new RenderResult(
             output: $result->output,
             state: $result->state,
-            assets: array_merge($assets, $result->assets, ['componentContracts' => $contracts]),
+            assets: array_merge($assets, $result->assets, ['componentContracts' => array_merge($contracts, $result->assets['componentContracts'] ?? [])]),
             effects: array_merge($effects, $result->effects),
             format: $result->format,
             clientAssets: $result->clientAssets()->merge($clientAssets),
