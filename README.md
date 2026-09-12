@@ -218,7 +218,9 @@ physical YubiKey, greenhouse evidence/0519):
    (`php coa identity:revoke --fingerprint=<credential id> --sign`) lays `revoked_by` over the entry
    and the sign-in list stops offering the key; enrolling the same id again re-admits it and keeps the
    revocation in the entry's `history` — the ledger records facts, it erases none (greenhouse
-   decisions/0207).
+   decisions/0207). Active passkey sessions use the enrollment's current scopes on every request:
+   reducing permissions takes effect immediately without requiring a new sign-in. An empty scope
+   list preserves authentication and grants no scoped access; revocation ends the session.
 5. **Name the gate.** Where the panel's middleware is declared (`admin.middleware` for `milpa/admin`,
    the `middleware` of any `Route` of yours):
    ```php

@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Web;
 
 use Milpa\AppRuntime\Identity\EnrollmentStore;
+use Milpa\Auth\Actor;
 use Milpa\Auth\AuthContext;
 use Milpa\Auth\Contracts\SessionStore;
 use Milpa\Auth\Http\AuthenticateMiddleware;
@@ -35,7 +36,8 @@ use Psr\Http\Server\RequestHandlerInterface;
  * session reads as absent) is the single «no session» signal. Then the ledger judges: a session whose
  * passkey the enrollment ledger no longer recognizes is DESTROYED on the spot — revocation is immediate,
  * not «when the TTL runs out». The ledger is re-read on every request, so `identity:revoke` closes a
- * live session on its next request.
+ * live session on its next request. A live recognition also replaces the session's sign-in scopes
+ * with the ledger's current list, including an empty list; reducing scopes takes effect immediately.
  *
  * ONLY A PASSKEY'S PRINCIPAL IS THE LEDGER'S TO JUDGE. The credential the ledger is asked about is
  * derived from the principal the ceremony minted (`passkey:<credential id>`). A live session under this
@@ -90,15 +92,20 @@ final class PasskeySessionResolver
             return ResolvedPasskeySession::foreign($context);
         }
 
-        // REVOCATION IS IMMEDIATE. The session froze the scopes at sign-in; the ledger is the living
-        // authority on whether that passkey is still recognized at all. Asked on every request.
-        if ($this->enrollments->scopesFor(self::credentialIdOf($actor->id)) === null) {
+        // The session proves authentication; the ledger supplies CURRENT scopes. Checking only for
+        // revocation left reduced permissions alive until the session expired (greenhouse 0323).
+        $scopes = $this->enrollments->scopesFor(self::credentialIdOf($actor->id));
+        if ($scopes === null) {
             $this->close($request);
 
             return ResolvedPasskeySession::revoked($actor->id);
         }
 
-        return ResolvedPasskeySession::live($context);
+        return ResolvedPasskeySession::live(new AuthContext(
+            actor: new Actor($actor->id, $actor->type, $scopes, $actor->claims, $actor->roles),
+            state: $context->state,
+            metadata: $context->metadata,
+        ));
     }
 
     /** The `Set-Cookie` value that removes this cookie for the request's origin. */
