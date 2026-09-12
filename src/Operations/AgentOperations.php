@@ -32,6 +32,7 @@ use Milpa\AppRuntime\Agent\ArchitectureSummaryProjector;
 use Milpa\AppRuntime\Agent\ClosureVerdict;
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Auth\PresentedToken;
+use Milpa\ToolRuntime\Contracts\ToolContext;
 use Milpa\AppRuntime\Agent\DebtSignal;
 use Milpa\AppRuntime\Agent\LaunchGrants;
 use Milpa\AppRuntime\Agent\SessionGrants;
@@ -711,7 +712,7 @@ class AgentOperations implements CommandProvider
                     subject: Subject::Data,
                 ),
                 description: 'Ask the agent to do something using the operations of this app',
-                handler: fn (array $input, ?InvocationContext $context = null): array => $this->run($input, $context),
+                handler: fn (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array => $this->run($input, $context, $authority),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
@@ -1613,11 +1614,15 @@ class AgentOperations implements CommandProvider
      *
      * @return array{ok: bool, answer?: string, steps?: int, tools?: int, error?: string, hint?: string, question?: array{id: string, text: string, options: list<string>, why: string|null, reason: string|null, expires_at: string|null}, paused?: bool, exhausted?: bool, stalled?: bool, receipt?: array<string, mixed>, houseDebt?: bool, interrupted?: bool, closure?: array{verified: bool, reasons: list<string>}}
      */
-    private function run(array $input, ?InvocationContext $context = null): array
+    private function run(array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array
     {
         // WHO CALLED THE TURN, kept for the tools it runs (greenhouse evidence/0561): over HTTP the actor is
         // the passkey the door verified, and every effect the agent materialises on this turn is his.
         $this->contextoDeLaVuelta = $context;
+        $this->toolAuthority = $authority;
+        if ($context?->channel === 'web' && $authority === null) {
+            return ['ok' => false, 'error' => 'The web invocation did not carry tool authority. Upgrade milpa/console; a web caller cannot inherit the local wildcard.'];
+        }
         $prompt = \is_string($input['prompt'] ?? null) ? trim($input['prompt']) : '';
         if ($prompt === '') {
             return ['ok' => false, 'error' => 'falta `prompt`: qué quieres que haga'];
@@ -2468,6 +2473,9 @@ class AgentOperations implements CommandProvider
     /** The invocation that called the current turn — who the tools it runs are executed by. */
     private ?InvocationContext $contextoDeLaVuelta = null;
 
+    /** The authority passed with this turn; never reconstructed from attribution or ambient state. */
+    private ?ToolContext $toolAuthority = null;
+
     private ?string $intakeSession = null;
 
     /**
@@ -2719,7 +2727,8 @@ class AgentOperations implements CommandProvider
             // THE IDENTITY THE CALLER PRESENTED, so the scope judge on this path has someone to judge
             // instead of the wildcard `ToolContext::cli()` hands out. None presented → the wildcard
             // stays, and every tool that runs today still runs (greenhouse decisions/0311).
-            identity: PresentedToken::identity($this->container),
+            identity: $this->toolAuthority === null ? PresentedToken::identity($this->container) : null,
+            authority: $this->toolAuthority,
             // THE SAME SEAM THE GATE CARRIES (greenhouse decisions/0183): the bridge observes the
             // consent frontier, so its signals land in the session whose grants it holds. Without
             // a session there is no stream to observe into, and the seam stays silent by
@@ -3011,7 +3020,13 @@ class AgentOperations implements CommandProvider
             return $this->trialRouterMemo = null;
         }
 
-        return $this->trialRouterMemo = new TrialRouter($kernel->root(), $runner, \dirname(__DIR__, 2) . '/resources/trial-run.php');
+        $scopes = $this->toolAuthority->scopes ?? PresentedToken::scopes(PresentedToken::identity($this->container), ['*']);
+        return $this->trialRouterMemo = new TrialRouter(
+            $kernel->root(),
+            $runner,
+            \dirname(__DIR__, 2) . '/resources/trial-run.php',
+            confinedTesting: !\in_array('*', $scopes, true)
+        );
     }
 
     /**

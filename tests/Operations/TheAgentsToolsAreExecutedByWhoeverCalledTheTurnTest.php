@@ -39,11 +39,15 @@ final class TheAgentsToolsAreExecutedByWhoeverCalledTheTurnTest extends TestCase
             $handler = $op->handler;
             self::assertIsCallable($handler);
             $parameters = (new \ReflectionFunction(\Closure::fromCallable($handler)))->getParameters();
-            self::assertCount(2, $parameters, 'input and the invocation');
+            self::assertCount(3, $parameters, 'input, attribution and separate tool authority');
             $type = $parameters[1]->getType();
             self::assertInstanceOf(\ReflectionNamedType::class, $type);
             self::assertSame(InvocationContext::class, $type->getName());
             self::assertTrue($type->allowsNull(), 'a terminal turn carries none');
+            $authorityType = $parameters[2]->getType();
+            self::assertInstanceOf(\ReflectionNamedType::class, $authorityType);
+            self::assertSame(\Milpa\ToolRuntime\Contracts\ToolContext::class, $authorityType->getName());
+            self::assertTrue($authorityType->allowsNull());
 
             return;
         }

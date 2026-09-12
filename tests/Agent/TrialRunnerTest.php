@@ -70,6 +70,33 @@ final class TrialRunnerTest extends TestCase
         self::assertSame('added', $run->report['touched.txt']['status']);
     }
 
+    public function testPluginWriteSetConfinesTheVerifierAndItsChildAndDoesNotExportCache(): void
+    {
+        $runner = $this->realRunner();
+        $root = $this->root();
+        mkdir($root . '/src/Plugins/Owned', 0o700, true);
+        mkdir($root . '/src/Plugins/Other', 0o700, true);
+        $stub = $root . '/plugin-runner.php';
+        file_put_contents($stub, <<<'PHP'
+<?php
+chdir(__DIR__);
+$own = file_put_contents('src/Plugins/Owned/ok.txt', 'owned');
+$other = @file_put_contents('src/Plugins/Other/no.txt', 'other');
+$child = 'exit(@file_put_contents("src/Plugins/Other/child.txt", "other") === false ? 0 : 1);';
+exec(PHP_BINARY . ' -r ' . escapeshellarg($child), $lines, $childExit);
+$cache = file_put_contents('.phpunit.cache/result', 'cache');
+echo json_encode(['own' => $own, 'other' => $other, 'child' => $childExit, 'cache' => $cache]);
+PHP);
+        $workspace = TrialWorkspace::materialize($root, 'plugin', $stub);
+        $run = $runner->run($workspace, 'test', [], ['src/Plugins/Owned', 'tests/Plugins/Owned']);
+        self::assertTrue($run->ok(), $run->stdout . $run->stderr);
+        self::assertSame(['own' => 5, 'other' => false, 'child' => 0, 'cache' => 5], $run->output);
+        self::assertSame(['src/Plugins/Owned/ok.txt'], array_keys($run->report));
+        self::assertFileDoesNotExist($root . '/src/Plugins/Owned/ok.txt');
+        self::assertFileDoesNotExist($workspace->copy . '/src/Plugins/Other/no.txt');
+        self::assertFileDoesNotExist($workspace->copy . '/src/Plugins/Other/child.txt');
+    }
+
     public function testANonZeroExitIsReportedNotHidden(): void
     {
         $runner = $this->realRunner();
@@ -80,6 +107,58 @@ final class TrialRunnerTest extends TestCase
         self::assertSame(1, $run->exit);
         self::assertFalse($run->ok());
         self::assertSame('asked to fail', $run->output['error'] ?? null);
+    }
+
+    public function testVerificationAndItsChildProcessCanUsePrivateTemporaryFiles(): void
+    {
+        $runner = $this->realRunner();
+        $root = $this->root();
+        $stub = $root . '/temporary-runner.php';
+        file_put_contents($stub, <<<'PHP'
+<?php
+$path = @tempnam(sys_get_temp_dir(), 'verification-');
+$child = 'echo json_encode(["path" => @tempnam(sys_get_temp_dir(), "child-")]);';
+exec(PHP_BINARY . ' -r ' . escapeshellarg($child), $lines, $exit);
+echo json_encode(['ok' => $path !== false && $exit === 0, 'path' => $path, 'child' => json_decode(implode('', $lines), true)]);
+PHP);
+        $ws = TrialWorkspace::materialize($root, 'temporary', $stub);
+        $run = $runner->run($ws, 'verify', []);
+
+        self::assertTrue($run->ok(), $run->stdout . $run->stderr);
+        foreach ([$run->output['path'], $run->output['child']['path']] as $path) {
+            self::assertIsString($path);
+            self::assertStringStartsWith($ws->copy . '/', $path);
+            self::assertFileExists($path);
+        }
+        self::assertSame([], $run->report, 'temporary verification files must not become promoted artifacts');
+    }
+
+    public function testTheShippedRunnerResolvesInstanceHandlersAndPreservesClosures(): void
+    {
+        $runner = $this->realRunner();
+        $root = $this->root();
+        mkdir($root . '/vendor');
+        mkdir($root . '/config');
+        file_put_contents($root . '/vendor/autoload.php', '<?php require ' . var_export(\dirname(__DIR__, 2) . '/vendor/autoload.php', true) . ';');
+        file_put_contents($root . '/config/boot.php', '<?php return ["container" => new \\Milpa\\Container\\DIContainer(), "plugins" => []];');
+        file_put_contents($root . '/config/app.php', '<?php return [];');
+        file_put_contents($root . '/config/operations.php', '<?php return [\\Milpa\\AppRuntime\\Tests\\Fixtures\\TrialOperations::class];');
+        $ws = TrialWorkspace::materialize($root, 'shipped', \dirname(__DIR__, 2) . '/resources/trial-run.php');
+
+        foreach (['trial:instance', 'trial.instance', 'trial_instance'] as $spelling) {
+            $run = $runner->run($ws, $spelling, ['path' => 'built.txt']);
+            self::assertSame(0, $run->exit, $run->stdout . $run->stderr);
+            self::assertSame(['written' => true], $run->output);
+            self::assertFileExists($ws->copy . '/built.txt');
+            self::assertFileDoesNotExist($root . '/built.txt');
+        }
+        $run = $runner->run($ws, 'trial:closure', ['value' => 'control']);
+        self::assertSame(0, $run->exit, $run->stdout . $run->stderr);
+        self::assertSame(['value' => 'control'], $run->output);
+
+        $missing = $runner->run($ws, 'missing', []);
+        self::assertSame(1, $missing->exit);
+        self::assertSame('no operation «missing» in this app', $missing->output['error'] ?? null);
     }
 
     public function testARunThatOverstaysItsTimeoutIsKilled(): void

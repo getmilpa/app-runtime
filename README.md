@@ -202,7 +202,9 @@ physical YubiKey, greenhouse evidence/0519):
    to `storage/identity/enrollments.json` with `authorized_by: key:<your fingerprint>`. `--scopes` is an
    array argument — repeat the flag for more than one (`--scopes=milpa.admin --scopes=agent:read`).
    Over `http`/`mcp` the operation additionally requires a caller holding the `identity:enroll` scope.
-   On the CLI the signature alone is the authority. To make your gpg key the house's *recognized* root
+   On the CLI a currently recognized signer's scopes are checked after signature verification;
+   `identity:enroll` requires that scope. A key never recognized retains the local bootstrap behavior.
+   To make your gpg key the house's *recognized* root
    as well — so the ledger names it (`authorized_by: bootstrap`) and the same enrollment can run over
    `http`/`mcp` — bootstrap once, on an empty house, before rooting the credential:
    ```php
@@ -351,13 +353,61 @@ emitter, and the one place every dispatch passes through is the dispatcher.
   everything only a declaration could say. Nothing is invented to fill the row out, and nothing is
   hidden for lacking one.
 
+### Scoped plugin authoring
+
+The host registers one `PluginAuthoringPolicy` as a tool `CallPolicy` and an `OperationBoundary`.
+CLI, MCP and HTTP executions carry their current `ToolContext` into the runner; agent, sequence and
+recipe drivers preserve it when opening the next door. `InvocationContext` remains attribution,
+not permission. These contracts require `milpa/tool-runtime >= 0.17` and `milpa/console >= 0.20`.
+
+A finite caller needs the exact scope `plugins.<Plugin>:write` to author that plugin. For example,
+`plugins.Owned:write` permits writing `src/Plugins/Owned/` and `tests/Plugins/Owned/`. This follows
+Permission's namespace/resource/action spelling; it does not expand roles, accept globs or assign
+meaning to the experimental `plugin:Owned` string. Activation still needs its own authorization.
+
+- `make`, `implement` and `edit` require a canonical plugin name. Implementations must currently
+  arrive as one complete body with `mode` omitted; the multipart protocol is not supported here.
+- `test` requires a relative path under `tests/Plugins/<Plugin>/`. Tests and verifier subprocesses
+  run in the same write boundary, with read-only root/vendor, private trial state and temporary
+  storage, an ephemeral PHPUnit cache, and unshared network/PID namespaces. Missing confinement
+  refuses execution; it never falls back to writing the host.
+- A successful trial is a proposal. `sandbox:promote` and `sandbox:undo` judge every affected file
+  against the authority of the current call before writing the first one. Mixed resource exports,
+  traversal and symbolic links refuse as a whole. A saved trial never saves permission to export.
+- The diff compares the trial copy with its original host manifest. Changes made only in the host
+  are not trial edits; stale checks separately reject conflicts on files the trial actually changed.
+  This lets a current regrant authorize a pending trial without overwriting the enrollment ledger.
+- Other mutating operations with empty declared scopes refuse finite callers. The agent's session
+  bookkeeping declares `agent:run`. The local `*` mode keeps its existing behavior.
+
+This confines authoring writes, including code run by a verifier. It does not isolate a local shell
+owner, hide readable files, make already activated host plugins untrusted, or provide transactional
+isolation against external writers. Authoring a plugin and activating its code are separate steps.
+
 ### 0.120.0 — driving the agent requires `agent:run`; the passkey session is a principal
 
 The four operations that drive the agent — `agent`, `skill:invoke`, `agent:goal`, `agent:mode` — now declare
 `scopes: ['agent:run']` (greenhouse decisions/0208). Over HTTP the policy is consulted where before it was
 not: an **anonymous `POST /agent` now answers `401`**, and an authenticated actor without the scope `403`.
-The CLI, where the caller is the operator, enforces no scopes and is unchanged, and so is MCP over stdio
-(its caller holds `*`); an MCP client that authenticates as a principal of its own now needs `agent:run`
+The CLI now checks declared operation scopes when `MILPA_TOKEN` presents a verified identity with
+nonempty scopes. It uses the same `PolicyGate::authorizeScopes` judgement as the agent door, before
+asking for a signature or session consent. Consent cannot supply a missing scope; a sufficient scope
+does not replace consent. This requires `milpa/tool-runtime >= 0.16`.
+
+With `--sign`, the current verified GPG signer also carries its recognized scopes into the shared
+gate and delegated tools. The enrollment ledger takes precedence over static policy: revoked entries
+have empty authority, and an unreadable ledger refuses. A key never recognized retains the existing
+local bootstrap behavior. An explicit signature authenticates read operations as well; a stored
+session owner never supplies that authority. When a token and signature are both presented, their
+scopes intersect, so signing cannot widen the token.
+
+HTTP agent turns additionally require `milpa/console >= 0.19`: the authenticated request's tool
+authority travels separately from `InvocationContext`, through the runner to the agent's governed
+door. A passkey or Bearer caller keeps its own scopes, including an empty list; the server's
+`MILPA_TOKEN` cannot replace them. A web turn missing that authority refuses before calling a model.
+Absent, invalid and empty-scope tokens retain the local process’s `*` default (greenhouse decision
+0311); finite callers are additionally subject to the plugin authoring policy below. MCP over stdio
+also retains its `*` context. An MCP client that authenticates as a principal of its own needs `agent:run`
 for `skill:invoke`, `agent:goal` and `agent:mode`, as it already did for `agent:sessions` and `agent:show`.
 The `*` wildcard an `identity:bootstrap` root holds keeps admitting. An app that exposes any of the four
 in `config/http.php` — by name, or through `expose: ['*']`, which includes them — without an
@@ -433,4 +483,3 @@ Apache-2.0 · © Rodrigo Vicente — TeamX Agency
 ---
 
 Milpa is designed, built, and maintained by **[Rodrigo Vicente - TeamX Agency](https://teamx.agency/?utm_source=github&utm_medium=readme&utm_campaign=milpa&utm_content=app-runtime)**.
-

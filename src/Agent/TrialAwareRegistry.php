@@ -62,6 +62,13 @@ final class TrialAwareRegistry extends ToolRegistry
      */
     public function call(string $name, array $args, ?ToolContext $ctx = null): ToolResult
     {
+        $definition = $this->inner->getDefinition($name);
+        if ($definition !== null) {
+            $admission = $this->inner->getPolicyGate()->authorizeCall($ctx ?? ToolContext::cli(), $definition, $args);
+            if (!$admission->allowed) {
+                return ToolResult::error((string) $admission->reason);
+            }
+        }
         $operation = $this->operationFor($name);
         $plan = $operation === null ? null : $this->router->planFor($operation, $args);
         if ($operation === null || $plan === null) {
@@ -70,7 +77,10 @@ final class TrialAwareRegistry extends ToolRegistry
 
         // THE CALL RUNS IN THE COPY, NOT ON THE HOST. The registered handler is never reached; what
         // the human gets back is the trial's output and, in the meta, the confinement and the diff.
-        $run = $this->router->runner()->run($plan->workspace, $operation->name, $args);
+        $policy = $this->inner->getPolicyGate()->getCallPolicy();
+        $paths = $policy instanceof PluginAuthoringPolicy && in_array($name, PluginAuthoringPolicy::BUILD, true)
+            ? $policy->writePaths($ctx ?? ToolContext::cli(), $name, $args) : null;
+        $run = $this->router->runner()->run($plan->workspace, $operation->name, $args, $paths);
         $this->record($plan, $operation->name, $args, $run);
 
         $meta = [
@@ -83,7 +93,7 @@ final class TrialAwareRegistry extends ToolRegistry
         ];
 
         if (! $run->ok()) {
-            return ToolResult::error($run->stderr !== '' ? $run->stderr : 'the trial did not succeed', $run->output, $meta);
+            return ToolResult::error(\is_string($run->output['error'] ?? null) ? $run->output['error'] : ($run->stderr !== '' ? $run->stderr : 'the trial did not succeed'), $run->output, $meta);
         }
 
         // THE RESULT IS SELF-DESCRIBING, and that is not decoration — it is the difference between a

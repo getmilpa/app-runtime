@@ -102,7 +102,7 @@ final class RecipeGateWiresProducersTest extends TestCase
     private function kernelAt(string $root): Kernel
     {
         $kernel = (new \ReflectionClass(Kernel::class))->newInstanceWithoutConstructor();
-        foreach (['root' => $root, 'commands' => []] as $name => $value) {
+        foreach (['root' => $root, 'commands' => [], 'container' => new \Milpa\Container\DIContainer()] as $name => $value) {
             $prop = new \ReflectionProperty(Kernel::class, $name);
             $prop->setAccessible(true);
             $prop->setValue($kernel, $value);
