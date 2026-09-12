@@ -1,6 +1,17 @@
 # Changelog
 
 
+## [0.154.0](https://github.com/getmilpa/app-runtime/compare/v0.152.0...v0.154.0) (2026-09-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* **authoring:** finite callers need exact plugin write scopes for authoring, a plugin test path, and an available confined runner; other mutations with empty declared scopes now refuse finite callers. Agent bookkeeping declares agent:run. Complete implementation bodies must omit mode.
+
+### Features
+
+* **authoring:** enforce plugin write authority through export ([5f367a3](https://github.com/getmilpa/app-runtime/commit/5f367a3acbfa5bf10e1be1984679b010a9f1198a))
+
 ## [0.152.0](https://github.com/getmilpa/app-runtime/compare/v0.151.4...v0.152.0) (2026-09-11)
 
 
