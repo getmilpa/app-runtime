@@ -151,8 +151,30 @@ final class PasskeySessionMiddlewareTest extends TestCase
 
     // --- the cookie → the passkey principal, with the enrollment's scopes ---
 
+    public function testTheCookieKeepsAuthenticationWhileEveryRequestUsesCurrentEnrollmentScopes(): void
+    {
+        $id = $this->session(['*']);
+        $request = $this->get()->withCookieParams([self::COOKIE => $id]);
+        $middleware = $this->middleware();
+        self::assertSame(['agent:run'], $middleware->fromRequest($request)->actor?->scopes, 'the session cannot retain its former wildcard');
+
+        $this->enrollments->record(new IdentityEnrolled('cred-1', ['plugins.Owned:write'], 'key:TEST'));
+        $middleware->process($request, $this->handler($seen));
+        self::assertInstanceOf(AuthContext::class, $seen);
+        self::assertSame(['plugins.Owned:write'], $seen->actor?->scopes);
+        self::assertSame('passkey:cred-1', $seen->actor?->id);
+        self::assertSame(ActorType::User, $seen->actor?->type);
+
+        $this->enrollments->record(new IdentityEnrolled('cred-1', [], 'key:TEST'));
+        $empty = $middleware->fromRequest($request);
+        self::assertTrue($empty->isAuthenticated());
+        self::assertSame([], $empty->actor?->scopes);
+        self::assertNotNull($this->sessions->read($id));
+    }
+
     public function testTheCookieAuthenticatesThePasskeyPrincipalWithItsScopes(): void
     {
+        $this->enrollments->record(new IdentityEnrolled('cred-1', ['agent:run', 'agent:read'], 'key:TEST'));
         $req = $this->get()->withCookieParams([self::COOKIE => $this->session(['agent:run', 'agent:read'])]);
 
         $res = $this->middleware()->process($req, $this->handler($seen));

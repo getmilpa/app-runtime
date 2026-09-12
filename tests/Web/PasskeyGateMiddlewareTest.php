@@ -54,6 +54,24 @@ final class PasskeyGateMiddlewareTest extends TestCase
     }
 
     /** `identity:revoke` closes a live panel on its next click — a TTL is not a revocation. */
+    public function testReducingAndRestoringScopesChangesTheSameSessionsAdmissionImmediately(): void
+    {
+        $id = $this->session([self::SCOPE]);
+        $request = $this->browserGet('/milpa/admin')->withCookieParams([self::COOKIE => $id]);
+        $gate = $this->gate();
+        self::assertSame(200, $gate->process($request, $this->handler())->getStatusCode());
+
+        $this->enrollments->record(new IdentityEnrolled('cred-1', ['agent:read'], 'key:TEST'));
+        self::assertSame(403, $gate->process($request, $this->handler())->getStatusCode());
+        self::assertNotNull($this->sessions->read($id), 'a scope reduction preserves authentication');
+
+        $this->enrollments->record(new IdentityEnrolled('cred-1', [], 'key:TEST'));
+        self::assertSame(403, $gate->process($request, $this->handler())->getStatusCode());
+
+        $this->enrollments->record(new IdentityEnrolled('cred-1', [self::SCOPE], 'key:TEST'));
+        self::assertSame(200, $gate->process($request, $this->handler())->getStatusCode());
+    }
+
     public function testARevokedPasskeyIsRefusedOnTheNextRequestAndItsSessionDies(): void
     {
         $id = $this->session([self::SCOPE]);
@@ -139,6 +157,7 @@ final class PasskeyGateMiddlewareTest extends TestCase
 
     public function testASessionWithoutTheScopeIsRefusedWithAnHtmlPageForABrowser(): void
     {
+        $this->enrollments->record(new IdentityEnrolled('cred-1', ['agent:read'], 'key:TEST'));
         $id = $this->session(['agent:read']);
 
         $res = $this->gate()->process($this->browserGet('/milpa/admin?tab=x')->withCookieParams([self::COOKIE => $id]), $this->handler());
@@ -156,6 +175,7 @@ final class PasskeyGateMiddlewareTest extends TestCase
 
     public function testASessionWithoutTheScopeIsRefusedWithJsonForAClient(): void
     {
+        $this->enrollments->record(new IdentityEnrolled('cred-1', ['agent:read'], 'key:TEST'));
         $id = $this->session(['agent:read']);
         $req = (new ServerRequest('GET', '/milpa/admin'))->withHeader('Accept', 'application/json')->withCookieParams([self::COOKIE => $id]);
 
@@ -167,6 +187,7 @@ final class PasskeyGateMiddlewareTest extends TestCase
 
     public function testASessionWithTheScopeReachesTheHandlerCarryingTheAuthContext(): void
     {
+        $this->enrollments->record(new IdentityEnrolled('cred-1', ['agent:read', self::SCOPE], 'key:TEST'));
         $id = $this->session(['agent:read', self::SCOPE]);
         $seen = null;
         $handler = $this->handler(static function (ServerRequestInterface $req) use (&$seen): void {
@@ -187,6 +208,7 @@ final class PasskeyGateMiddlewareTest extends TestCase
 
     public function testTheWildcardScopeOpensThePanelAsMilpaAuthGuardsWouldAdmitIt(): void
     {
+        $this->enrollments->record(new IdentityEnrolled('cred-1', ['*'], 'key:TEST'));
         // identity:bootstrap enrolls the first signer with ['*']; the gate honours it like RequireScopeMiddleware does.
         $id = $this->session(['*']);
 
@@ -197,6 +219,7 @@ final class PasskeyGateMiddlewareTest extends TestCase
 
     public function testTheSignInPathAndTheScopeAreTheGatesOwn(): void
     {
+        $this->enrollments->record(new IdentityEnrolled('cred-1', ['ops.panel'], 'key:TEST'));
         $gate = new PasskeyGateMiddleware($this->sessions, $this->enrollments, 'other_cookie', 'ops.panel', '/auth/signin');
 
         self::assertSame('other_cookie', $gate->cookieName());
