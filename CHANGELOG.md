@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.154.1](https://github.com/getmilpa/app-runtime/compare/v0.154.0...v0.154.1) (2026-09-12)
+
+
+### Bug Fixes
+
+* apply current enrollment scopes to passkey requests ([e8d9234](https://github.com/getmilpa/app-runtime/commit/e8d9234c278048e82d8955c224f2f539972abad5))
+
 ## [0.154.0](https://github.com/getmilpa/app-runtime/compare/v0.152.0...v0.154.0) (2026-09-12)
 
 
