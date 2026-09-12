@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.156.0](https://github.com/getmilpa/app-runtime/compare/v0.155.0...v0.156.0) (2026-09-12)
+
+
+### Features
+
+* resolve declared screens through the live registries ([#417](https://github.com/getmilpa/app-runtime/issues/417)) ([fe84786](https://github.com/getmilpa/app-runtime/commit/fe84786329d8a13c29dd72f9cb052f9c2f085abd))
+
 ## [0.155.0](https://github.com/getmilpa/app-runtime/compare/v0.154.1...v0.155.0) (2026-09-12)
 
 
