@@ -21,8 +21,8 @@ use Milpa\EventStore\Event;
 use Milpa\EventStore\EventStoreInterface;
 
 /**
- * Whether a final answer may claim completion — derived from what the session RECORDED, never from
- * the answer's prose.
+ * Whether the session's recorded work has current positive evidence, never inferred from answer prose.
+ * The scope is recorded_work; this does not certify completeness against an undeclared goal contract.
  *
  * ── THE DEBT THIS PAYS, MEASURED (greenhouse evidence/0442) ─────────────────────────────────────
  *
@@ -54,15 +54,20 @@ final class ClosureVerdict
     /**
      * Derive the closure verdict for a session's final answer from its recorded facts.
      *
-     * `verified` is true only when the ledger backs completion: every done carries verifiable
-     * evidence, nothing is left open, and no artifact's latest verification verdict is red. Each
-     * failing fact becomes one bounded reason naming it.
+     * Positive recorded evidence is required; an empty ledger is not verification. Every touched
+     * artifact needs a current verification, every done needs evidence, and nothing stays open.
+     * Read-only discovery does not create a verification obligation. The explicit scope covers
+     * recorded work, not completeness against a human goal whose criteria were never declared.
      *
-     * @return array{verified: bool, reasons: list<string>}
+     * @return array{verified: bool, reasons: list<string>, scope: string}
      */
     public static function derive(Session $session, SessionFacts $facts): array
     {
         $reasons = [];
+        $hasEvidence = false;
+        foreach ($session->todos as $todo) {
+            $hasEvidence = $hasEvidence || $session->isDoneVerified($todo->id);
+        }
 
         foreach ($session->unverifiedDones() as $todo) {
             $reasons[] = "todo {$todo->id} done without evidence";
@@ -80,14 +85,28 @@ final class ClosureVerdict
                 continue;
             }
             $verification = $entry['verification'] ?? null;
-            if (! \is_array($verification) || ($verification['verified'] ?? null) !== false) {
-                continue;
-            }
-            $judge = \is_string($verification['operation'] ?? null) ? $verification['operation'] : '?';
             $artifact = \is_array($entry['artifact'] ?? null) && \is_string($entry['artifact']['value'] ?? null)
                 ? $entry['artifact']['value']
                 : '?';
-            $reasons[] = "judge {$judge} recorded red for {$artifact}";
+            $current = ($entry['state'] ?? null) === 'verified';
+            $hasEvidence = $hasEvidence || $current;
+            if (\is_array($verification) && ($verification['verified'] ?? null) === false) {
+                $judge = \is_string($verification['operation'] ?? null) ? $verification['operation'] : '?';
+                $reasons[] = "judge {$judge} recorded red for {$artifact}";
+                continue;
+            }
+            $touched = false;
+            foreach ($entry['attempts'] ?? [] as $attempt) {
+                if (($attempt['mutating'] ?? false) === true && ($attempt['awaitingConfirmation'] ?? null) !== true) {
+                    $touched = true;
+                }
+            }
+            if (!$current && ($touched || $verification !== null)) {
+                $reasons[] = "artifact {$artifact} has no current verification";
+            }
+        }
+        if (!$hasEvidence) {
+            $reasons[] = 'no positive verification evidence recorded';
         }
 
         if (\count($reasons) > self::MAX_REASONS) {
@@ -96,7 +115,7 @@ final class ClosureVerdict
             $reasons[] = "… and {$overflow} more recorded facts";
         }
 
-        return ['verified' => $reasons === [], 'reasons' => $reasons];
+        return ['verified' => $reasons === [], 'reasons' => $reasons, 'scope' => 'recorded_work'];
     }
 
     /**
@@ -107,7 +126,7 @@ final class ClosureVerdict
      * own enum; the reducer skips what it does not know, so the session keeps folding unchanged
      * while any projection may read the verdict back by {@see self::EVENT}.
      *
-     * @param array{verified: bool, reasons: list<string>} $closure
+     * @param array{verified: bool, reasons: list<string>, scope?: string} $closure
      */
     public static function record(EventStoreInterface $events, string $sessionId, array $closure): void
     {
