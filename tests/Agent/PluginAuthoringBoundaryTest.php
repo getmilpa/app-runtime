@@ -118,6 +118,70 @@ final class PluginAuthoringBoundaryTest extends TestCase
         self::assertSame('local', $this->policy->execute($read, [], null, static fn (): string => 'local'));
     }
 
+    public function testRealMultipartImplementationKeepsPhpIntactUntilVerifiedPromotion(): void
+    {
+        file_put_contents($this->root . '/config/operations.php', '<?php return [\\Milpa\\DevTools\\Operations\\DevToolsOperations::class];');
+        // This miniature fixture shares the package autoloader; bind its own root explicitly.
+        file_put_contents($this->root . '/config/boot.php', <<<'PHP'
+<?php
+$container = new \Milpa\Container\DIContainer();
+$container->registerService(\Milpa\DevTools\Support\RootResolver::class, new \Milpa\DevTools\Support\RootResolver(dirname(__DIR__)));
+return ['container' => $container, 'plugins' => []];
+PHP);
+        $file = $this->root . '/src/Plugins/Owned/PartsProbe.php';
+        $initial = "<?php\ndeclare(strict_types=1);\nnamespace App\\Plugins\\Owned;\nfinal class PartsProbe { public function answer(): int { return 0; } }\n";
+        file_put_contents($file, $initial);
+        $operations = (new \Milpa\DevTools\Operations\DevToolsOperations())->operations();
+        $implement = array_values(array_filter($operations, static fn ($op) => $op->name === 'implement'))[0];
+        $invoke = fn (array $input): array => $this->policy->execute($implement, ['plugin' => 'Owned', 'class' => 'PartsProbe'] + $input, $this->context, static fn () => self::fail('no host fallback'));
+        $app = new Application($this->root);
+        $kernel = (new \ReflectionMethod($app, 'kernel'))->invoke($app);
+        PluginAuthoringPolicy::install($kernel->container(), $this->root);
+        $promote = (new TrialOperations($kernel->container(), root: $this->root))->operations()[0];
+        $runner = new OperationRunner($kernel->container());
+
+        $head = "<?php\ndeclare(strict_types=1);\nnamespace App\\Plugins\\Owned;\nfinal class PartsProbe {\n/* ";
+        $started = $invoke(['mode' => 'start', 'content' => $head]);
+        self::assertTrue($started['ok'], json_encode($started));
+        self::assertSame(['src/Plugins/Owned/PartsProbe.php.milpa-part' => 'added'], $started['changed']);
+        self::assertArrayNotHasKey('verified', $started['output']);
+        self::assertSame($initial, file_get_contents($file));
+        self::assertFileDoesNotExist($file . '.milpa-part');
+        try {
+            $runner->run($promote, ['workspace' => $started['workspace']], 'cli', authority: new ToolContext(scopes: []));
+            self::fail('revocation must refuse even a non-executable partial');
+        } catch (\RuntimeException $error) {
+            self::assertStringContainsString('Missing required permission', $error->getMessage());
+        }
+        self::assertFileDoesNotExist($file . '.milpa-part');
+        self::assertTrue($runner->run($promote, ['workspace' => $started['workspace']], 'cli', authority: $this->context)['ok']);
+        self::assertSame($head, file_get_contents($file . '.milpa-part'));
+
+        $bad = $invoke(['mode' => 'finish']);
+        self::assertFalse($bad['ok']);
+        self::assertArrayNotHasKey('to_apply', $bad);
+        self::assertSame($initial, file_get_contents($file));
+        self::assertSame($head, file_get_contents($file . '.milpa-part'));
+
+        $tail = str_repeat('comment ', 600) . "*/\npublic function answer(): int { return 42; }\n}\n";
+        foreach (str_split($tail, 2000) as $section) {
+            $appended = $invoke(['mode' => 'append', 'content' => $section]);
+            self::assertTrue($appended['ok'], json_encode($appended));
+            self::assertTrue($runner->run($promote, ['workspace' => $appended['workspace']], 'cli', authority: $this->context)['ok']);
+            self::assertSame($initial, file_get_contents($file));
+        }
+        self::assertGreaterThan(4000, strlen((string) file_get_contents($file . '.milpa-part')));
+        $finished = $invoke(['mode' => 'finish']);
+        self::assertTrue($finished['ok'], json_encode($finished));
+        self::assertSame($initial, file_get_contents($file));
+        self::assertTrue($runner->run($promote, ['workspace' => $finished['workspace']], 'cli', authority: $this->context)['ok']);
+        self::assertFileDoesNotExist($file . '.milpa-part');
+        self::assertSame($head . $tail, file_get_contents($file));
+        require $file;
+        $class = 'App\\Plugins\\Owned\\PartsProbe';
+        self::assertSame(42, (new $class())->answer());
+    }
+
     public function testAPermittedButUnconfineableOperationCannotFallBackToTheHost(): void
     {
         $operation = new Operation('make', '', static fn () => self::fail('no fallback'), mutating: true, requiresConfirmation: true);

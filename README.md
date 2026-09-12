@@ -408,7 +408,11 @@ Permission's namespace/resource/action spelling; it does not expand roles, accep
 meaning to the experimental `plugin:Owned` string. Activation still needs its own authorization.
 
 - `make`, `implement` and `edit` require a canonical plugin name. Implementations must currently
-  arrive as one complete body with `mode` omitted; the multipart protocol is not supported here.
+  use either one complete body or `implement`'s `mode=start`, `append`, and `finish` protocol.
+  Each section still runs in a confined trial and must be promoted before the next call can use
+  it. Parts remain beside the scaffold as `.php.milpa-part`, inside the same plugin write set;
+  they never replace executable PHP until `finish` passes the existing verification gate and its
+  trial is promoted. Revocation also blocks promotion of pending parts.
 - `test` requires a relative path under `tests/Plugins/<Plugin>/`. Tests and verifier subprocesses
   run in the same write boundary, with read-only root/vendor, private trial state and temporary
   storage, an ephemeral PHPUnit cache, and unshared network/PID namespaces. Missing confinement
