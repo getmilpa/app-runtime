@@ -18,6 +18,7 @@ use Milpa\ToolRuntime\ToolResult;
 use Milpa\AppRuntime\Support\ContratoInstalado;
 use Milpa\Agent\PolicyDecision;
 use Milpa\Agent\Principal;
+use Milpa\Agent\ProgressReceipt;
 use Milpa\Agent\Session;
 use Milpa\Agent\SessionPolicy;
 use Milpa\Agent\SessionStore;
@@ -264,12 +265,12 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // The ProgressReceipt (0452) detected a stall and worded the forced choice, but the
         // orchestrator's enforcement let ANY tool call through as «acting» — including one more read.
         // A stall is exactly «I have read enough and produced nothing»; more exploration is the one
-        // move that cannot help. So while a stall stands unanswered by an action, this refuses a
+        // move that cannot help. So while a stall stands unanswered by progress, this refuses a
         // NON-mutating call — the read/inspect/speculate family — and names the moves that remain:
         // materialize, verify, close, ask a human, or declare house debt. It is a non-pausing
         // refusal (the teaching, like the arrow and the obligation above), never a question: nothing
-        // here is a human's to decide. A mutating call is the recovery itself and passes untouched;
-        // making one clears the stall for the next read. Bookkeeping (the plan, the todos) already
+        // here is a human's to decide. A mutating call can recover and proceeds to the normal policy;
+        // only recorded semantic progress clears the stall. Bookkeeping (the plan, the todos) already
         // passed as self-log above, so narrowing the plan under recovery is never blocked.
         if (
             ($composicion === null || $composicion->effective->mutation === Mutation::None)
@@ -278,7 +279,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             return 'Progress recovery: the last window produced no evidence, no artifact and closed no '
                 . 'todo, so more reading is not on the table. Do one of these now: materialize an '
                 . 'artifact, run a verification, close a todo with its evidence, ask the human a '
-                . 'decision, or declare framework debt. A mutating action clears this.';
+                . 'decision, or declare framework debt. Recorded progress clears this.';
         }
 
         $decision = $this->policy->decide(
@@ -445,12 +446,13 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      * `composer create-project` y convive con el vendor que su dueño tenga.
      */
     /**
-     * Whether a detected stall stands unanswered by an action (greenhouse decisions/0187, D-03).
+     * Whether a detected stall stands unanswered by semantic progress (greenhouse decisions/0338).
      *
      * Recovery opens when {@see SessionProgressProbe} appends a `progress_stalled` fact and closes
-     * the moment a real mutating call lands after it — acting IS the way out. A call that merely
-     * asked for confirmation (`awaitingConfirmation`) did not act and does not clear it. Read from
-     * the session's own stream by the fact's literal type (the DebtSignal doctrine: the reader reads
+     * when the same receipt that detected it can prove growth after it: a successful mutation,
+     * recorded evidence, or a completed todo. Failed writes, pending confirmation and mere reads
+     * cannot clear it. Reuse that receipt instead of maintaining a second progress predicate.
+     * Read from the session's own stream by the fact's literal type (the reader reads
      * the fact, never the emitter's class), and silent on a store that cannot answer — a recovery it
      * cannot prove is one it does not impose.
      */
@@ -463,20 +465,16 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         }
 
         $stalled = 0;
-        $acted = 0;
+        $last = 0;
         foreach ($stream as $event) {
+            $last = max($last, $event->seq);
             if ($event->type === self::PROGRESS_STALLED) {
                 $stalled = max($stalled, $event->seq);
-            } elseif (
-                $event->type === 'session.tool_called'
-                && ($event->payload['mutating'] ?? false) === true
-                && ($event->payload['awaitingConfirmation'] ?? null) !== true
-            ) {
-                $acted = max($acted, $event->seq);
             }
         }
 
-        return $stalled > 0 && $acted < $stalled;
+        return $stalled > 0
+            && ProgressReceipt::of($stream, $stalled, $last)->progress === ProgressReceipt::STALLED;
     }
 
     private function contratoDeclaradoPor(object $operacion): ?string

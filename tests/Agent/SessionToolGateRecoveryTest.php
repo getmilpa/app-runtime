@@ -27,6 +27,7 @@ use Milpa\Command\Effect\Subject;
 use Milpa\Command\Operation;
 use Milpa\EventStore\Event;
 use Milpa\EventStore\InMemoryEventStore;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -35,7 +36,7 @@ use PHPUnit\Framework\TestCase;
  * The ProgressReceipt (0452) detected a stall and worded the forced choice, but a tool call still
  * passed as «acting» — including one more read. These cases pin the second half: while a stall stands
  * unanswered by an action, the gate refuses a non-mutating (explore/inspect) call and lets the
- * recovery moves through; a mutating action clears it.
+ * recovery moves through; recorded semantic progress clears it.
  */
 final class SessionToolGateRecoveryTest extends TestCase
 {
@@ -94,6 +95,69 @@ final class SessionToolGateRecoveryTest extends TestCase
         $this->store->recordToolCall('s-1', 'materialize', [], '{"ok":true}', true, true, null, true);
 
         self::assertNotNull($gate->refuse('inspect', []), 'asking is not acting; the stall still stands');
+    }
+
+    /** @return iterable<string, array{bool, string}> */
+    public static function failedMutations(): iterable
+    {
+        yield 'dispatch failed' => [false, '{"ok":true}'];
+        yield 'operation refused' => [true, '{"ok":false}'];
+    }
+
+    #[DataProvider('failedMutations')]
+    public function testAFailedMutationDoesNotClearRecovery(bool $ok, string $result): void
+    {
+        $gate = $this->gate();
+        $this->recordStall();
+        $this->store->recordToolCall('s-1', 'materialize', [], $result, $ok, true);
+
+        self::assertNotNull($gate->refuse('inspect', []), 'a failed write is not progress');
+    }
+
+    /** @return iterable<string, array{string, array<string, mixed>}> */
+    public static function semanticProgress(): iterable
+    {
+        yield 'evidence recorded' => ['session.evidence_recorded', ['predicate' => 'verified', 'subject' => 'artifact']];
+        yield 'todo completed' => ['session.todo_changed', ['id' => 'unit', 'status' => 'done']];
+    }
+
+    /** @param array<string, mixed> $payload */
+    #[DataProvider('semanticProgress')]
+    public function testRecordedSemanticProgressClearsRecovery(string $type, array $payload): void
+    {
+        $gate = $this->gate();
+        $this->recordStall();
+        $this->events->append(new Event(SessionStore::PREFIX . 's-1', $type, $payload, $this->events->nextSeq()));
+
+        self::assertNull($gate->refuse('inspect', []));
+    }
+
+    public function testProgressBeforeTheLatestStallDoesNotClearIt(): void
+    {
+        $gate = $this->gate();
+        $this->recordStall();
+        $this->store->recordToolCall('s-1', 'materialize', [], '{"ok":true}', true, true);
+        $this->recordStall();
+
+        self::assertNotNull($gate->refuse('inspect', []));
+    }
+
+    public function testSuccessfulReadingDoesNotClearRecovery(): void
+    {
+        $gate = $this->gate();
+        $this->recordStall();
+        $this->store->recordToolCall('s-1', 'inspect', [], '{"ok":true}', true, false);
+
+        self::assertNotNull($gate->refuse('inspect', []));
+    }
+
+    public function testDebtAloneDoesNotClearRecovery(): void
+    {
+        $gate = $this->gate();
+        $this->recordStall();
+        $this->events->append(new Event(SessionStore::PREFIX . 's-1', 'session.debt_signaled', ['digest' => 'gap'], $this->events->nextSeq()));
+
+        self::assertNotNull($gate->refuse('inspect', []));
     }
 
     // --- helpers ---
