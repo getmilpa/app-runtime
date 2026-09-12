@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.157.2](https://github.com/getmilpa/app-runtime/compare/v0.157.1...v0.157.2) (2026-09-12)
+
+
+### Bug Fixes
+
+* allow verified multipart implementation within plugin authority ([a964519](https://github.com/getmilpa/app-runtime/commit/a9645199aa082aecdb0930bbc1f5957dd8eaa8d6))
+* allow verified multipart implementation within plugin authority ([2f8fbe9](https://github.com/getmilpa/app-runtime/commit/2f8fbe97803f1f19ae08c6801f6f677861e4ebb2))
+
 ## [0.157.1](https://github.com/getmilpa/app-runtime/compare/v0.157.0...v0.157.1) (2026-09-12)
 
 
