@@ -56,6 +56,7 @@ final class LiveComponentPageController
         private readonly ?LayoutStateStore $layoutState = null,
         private readonly string $locale = ComponentMessages::DEFAULT_LOCALE,
         private readonly ComponentAssetOrchestrator $assets = new ComponentAssetOrchestrator(),
+        private readonly ?string $assetsRoute = null,
     ) {
     }
 
@@ -108,11 +109,11 @@ final class LiveComponentPageController
         // A composed screen carries the contracts and client files of every descendant (Greenhouse 0326).
         $contracts = $rendered->assets['componentContracts'] ?? [$component::contract()];
         $declared = $this->assets->collect($contracts, $this->locale);
-        $urls = DesignTokens::urls($this->route . '/assets');
+        $urls = DesignTokens::urls(($this->assetsRoute ?? $this->route) . '/assets');
         $clientAssets = (new ClientAssets(styles: [
             $urls[DesignTokens::TOKENS],
             $urls[DesignTokens::FONTS],
-            ComponentStyles::url($this->route . '/assets'),
+            ComponentStyles::url(($this->assetsRoute ?? $this->route) . '/assets'),
         ]))->merge($rendered->clientAssets());
         $document = '<!doctype html><html lang="' . Html::escape($this->locale) . '" data-theme="dark"><head>'
             . '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
