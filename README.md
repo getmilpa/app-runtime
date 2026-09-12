@@ -25,7 +25,31 @@ endpoint and design-asset mount; runtime URLs retain their existing root mounts.
 `screen:declare` validates the entire `props.children` tree before writing. An unknown or malformed
 child returns `ok: false` with its path and preserves the previous screen; no served-evidence receipt
 is issued. Invalid trees already in the store return HTTP 422 instead of rendering a partial screen.
-The available types remain the nine types advertised in the operation's schema.
+`screen:types` reads the current component and renderer registries. It reports canonical contract
+names with an HTML renderer and explains unavailable registrations. The declaration's `type` field
+references that operation with `x-milpa-source`; validation reads the registry when called, including
+plugins that boot after `LivePlugin`.
+
+A plugin can extend the live door with an object that already has its collaborators:
+
+```php
+// Run after LivePlugin boots. These are the same registries used by GET and action POST.
+$container->get(\Milpa\Live\Contracts\Component\ComponentRegistryInterface::class)
+    ->register('task-item', new TaskItem($repository));
+$container->get(\Milpa\Live\Rendering\ComponentRendererRegistry::class)
+    ->registerFor('task-item', new TaskItemRenderer($container->get(
+        \Milpa\Live\Contracts\Transport\StateTransferCodecInterface::class,
+    )));
+```
+
+The registration name must match `TaskItem::contract()->name`. Its renderer supplies the component
+HTML and signed state envelope. With live-web 0.29+, `x-data="milpaComponent({componentId: 'task'})"`
+and `@click="act('toggle', {})"` use the existing signed transport and HTML reconciliation. No app
+transport module is required. A declared screen can use this type at its root or inside a supported
+container's `props.children`. Renderer `DeclaresClientAssets` and component presentation resources
+are collected from descendants. Merely advertising a class through `DeclaresComponents` does not
+construct it or register a renderer. An opaque registry must implement `ListsComponents` to offer
+types through discovery. Existing configured components and built-in types remain supported.
 
 This page shows the current declaration. It is not an isolated draft or a deployment boundary, and
 rendering a group of controls does not yet provide shared application state between them.

@@ -48,6 +48,8 @@ final class ScreenOperations implements CommandProvider
         private readonly ScreenStore $store,
         private readonly array $types = [],
         private readonly ?LayoutStateStore $layout = null,
+        /** @var \Closure(): ?ScreenComponents|null live registry resolver; null preserves standalone callers */
+        private readonly ?\Closure $registry = null,
     ) {
     }
 
@@ -59,6 +61,13 @@ final class ScreenOperations implements CommandProvider
     public function operations(): array
     {
         return [
+            ...($this->registry === null ? [] : [new Operation(
+                name: 'screen:types',
+                description: 'List registered components that can render as HTML screens and round-trip actions. Names come from the live registry, including plugins registered after boot.',
+                handler: fn (array $input): array => ($this->registry)()?->catalogue() ?? ['types' => [], 'unavailable' => []],
+                effects: EffectProfile::readOnly(),
+                outputSchema: ['type' => 'object', 'properties' => ['types' => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string']]]]]],
+            )]),
             new Operation(
                 name: 'screen:declare',
                 description: 'Declare a live screen by name and component type (default data-table) with its props. It is served at /live/page?component=<name> with no code deploy. A data-table may pass columns/rows at the top level; any type passes its props under "props".',
@@ -68,9 +77,11 @@ final class ScreenOperations implements CommandProvider
                     'required' => ['name'],
                     'properties' => [
                         'name' => ['type' => 'string', 'description' => 'a-z, 0-9, dash; starts with a letter'],
-                        'type' => $this->types === []
+                        'type' => $this->registry !== null
+                            ? ['type' => 'string', 'description' => 'a currently registered HTML component; discover with screen:types', 'x-milpa-source' => ['tool' => 'screen:types', 'path' => 'types', 'key' => 'name']]
+                            : ($this->types === []
                             ? ['type' => 'string', 'description' => 'the SDK component type; default data-table']
-                            : ['type' => 'string', 'enum' => $this->types, 'description' => 'the SDK component type; default data-table'],
+                            : ['type' => 'string', 'enum' => $this->types, 'description' => 'the SDK component type; default data-table']),
                         'props' => ['type' => 'object', 'description' => 'the component-type props (e.g. state-machine: { machine: { initial, transitions } })'],
                         'columns' => ['type' => 'array', 'description' => 'data-table convenience: list of { key, label }'],
                         'rows' => ['type' => 'array', 'description' => 'data-table convenience: list of row objects keyed by column key'],
@@ -195,17 +206,25 @@ final class ScreenOperations implements CommandProvider
      */
     private function declare(array $input): array
     {
-        $type = trim((string) ($input['type'] ?? ScreenStore::DEFAULT_TYPE));
-        if ($type !== '' && $this->types !== [] && ! \in_array($type, $this->types, true)) {
-            return ['ok' => false, 'error' => 'unknown component type', 'type' => $type, 'known' => $this->types];
+        $registry = $this->registry !== null ? ($this->registry)() : null;
+        if ($this->registry !== null && $registry === null) {
+            return ['ok' => false, 'error' => 'live screen registry is not mounted'];
+        }
+        $types = $registry?->types() ?? $this->types;
+        $type = trim((string) ($input['type'] ?? ScreenStore::DEFAULT_TYPE)) ?: ScreenStore::DEFAULT_TYPE;
+        if (($registry !== null || $types !== []) && ! \in_array($type, $types, true)) {
+            return ['ok' => false, 'error' => 'unknown component type', 'type' => $type, 'known' => $types];
         }
 
+        if ($registry?->conflicts(trim((string) ($input['name'] ?? '')), $type)) {
+            return ['ok' => false, 'error' => 'screen name conflicts with a registered component', 'path' => 'name'];
+        }
         $props = $input['props'] ?? [];
         if (! \is_array($props) || ($props !== [] && array_is_list($props))) {
             return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'props', 'reason' => 'props must be an object'];
         }
         try {
-            ScreenTree::validate($type !== '' ? $type : ScreenStore::DEFAULT_TYPE, $props, $this->types);
+            ScreenTree::validate($type, $props, $types);
         } catch (InvalidScreenTree $error) {
             return ['ok' => false, 'error' => 'invalid screen tree', 'path' => $error->path, 'reason' => $error->getMessage()];
         }
