@@ -355,7 +355,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 $this->layoutStateStore(),
                 fn (): ?ScreenComponents => $this->container->has(ScreenComponents::class) ? $this->container->get(ScreenComponents::class) : null,
             ))->operations(),
-            ...($this->container->has(ScreenDrafts::class) ? (new ScreenDraftOperations($this->container->get(ScreenDrafts::class)))->operations() : []),
+            ...($this->container->has(ScreenDrafts::class) ? $this->container->get(ScreenDraftOperations::class)->operations() : []),
             ...(new PresentationOverrideOperations($this->overrideStore()))->operations(),
         ];
     }

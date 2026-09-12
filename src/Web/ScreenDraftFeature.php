@@ -39,6 +39,7 @@ final class ScreenDraftFeature
         );
         $container->registerService(ScreenPreviewRegistry::class, $previews);
         $container->registerService(ScreenDrafts::class, $drafts);
+        $container->registerService(ScreenDraftOperations::class, new ScreenDraftOperations($drafts, $route));
         $container->registerService(ScreenPreviewController::class, new ScreenPreviewController($drafts, $previews, $build, $secret, $root, $route));
         $key = hash_hmac('sha256', 'screen-review', $secret);
         $codec = new SignedXhtmlStateTransferCodec(new XhtmlStateTransferCodec(), new HmacStateSigner($key), new FileNonceStore($root . '/var/screen-review/nonces.json'));
