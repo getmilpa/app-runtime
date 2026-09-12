@@ -101,7 +101,11 @@ final class CompositeHtmlRenderer implements ComponentRendererInterface
         if (\in_array($contract->name, ScreenTree::CONTAINERS, true)) {
             $props['childrenHtml'] = $childrenHtml;
         }
-        $result = $this->inner->render($component, new RenderRequest($request->context, $props, $request->state, $request->target, $request->options));
+        try {
+            $result = $this->inner->render($component, new RenderRequest($request->context, $props, $request->state, $request->target, $request->options));
+        } catch (InvalidScreenTree $error) {
+            throw new InvalidScreenTree($path . $error->path, $error->getMessage());
+        }
 
         if ($this->inner instanceof DeclaresClientAssets) {
             $clientAssets = $clientAssets->merge($this->inner->clientAssets());

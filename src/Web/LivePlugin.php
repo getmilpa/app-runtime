@@ -48,6 +48,8 @@ use Milpa\Live\Assets\ComponentAssetOrchestrator;
 use Milpa\Live\Assets\ComponentMessages;
 use Milpa\Live\Http\LiveEndpoint;
 use Milpa\Live\Rendering\AutocompleteHtmlRenderer;
+use Milpa\Live\Rendering\ComponentRendererRegistry;
+use Milpa\Live\ValueObjects\RenderTarget;
 use Milpa\Live\Rendering\DashboardHtmlRenderer;
 use Milpa\Live\Rendering\FormPrimitiveHtmlRenderer;
 use Milpa\Live\Rendering\StateMachineHtmlRenderer;
@@ -103,17 +105,9 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
     ];
 
     /**
-     * The SDK component types a screen may be DECLARED as (greenhouse decisions/0163, 0164): a declaration
-     * names one of these, and `LivePlugin` registers the screen under the mapped class. Two conditions gate a
-     * type in here — measured, not assumed (evidence/0425, 0426):
-     *   1. it is DEFAULT-CONSTRUCTABLE (a declaration supplies data, not collaborators), and
-     *   2. a renderer the page controller dispatches to can render it AS A PAGE.
-     * `data-table` and `metric-card` render via {@see DashboardHtmlRenderer}; `state-machine` via
-     * {@see StateMachineHtmlRenderer}; `autocomplete` via {@see AutocompleteHtmlRenderer}; the form fields
-     * `input`/`textarea`/`select`/`checkbox` via {@see FormPrimitiveHtmlRenderer} — all dispatched by
-     * {@see DispatchingHtmlRenderer} (decisions/0164, 0166). A state-machine's machine is declared by data
-     * (initial + transitions, decisions/0095); an autocomplete's options are declared inline and built into an
-     * {@see ArrayDataSource} at registration (decisions/0165), so the data source IS the declaration.
+     * Default component definitions shipped with the live door. These populate the same mutable registry
+     * an app extends with constructed objects; they are not an exclusive list of screen types (0327).
+     * The built-in autocomplete uses inline options collected from stored declarations (0165).
      */
     private const DECLARABLE_TYPES = [
         'data-table' => DataTableComponent::class,
@@ -184,44 +178,50 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         if ($stateMachine !== null) {
             $byContract['state-machine'] = $stateMachine;
         }
-        // Compose declared screens out of many components (decisions/0167): a container screen's children are
-        // rendered by this same factory (any declarable type — data, not code) and assembled into the container.
-        $pageRenderer = new CompositeHtmlRenderer(
-            new DispatchingHtmlRenderer($byContract, $dashboard),
-            fn (string $type, array $props): ?ComponentDefinitionInterface => $this->componentFor($type, $props),
-        );
-        $renderers = [];
-        $renderProps = [];
-        foreach ($components->names() as $name) {
-            if (! $components->registry->has($name)) {
-                continue;
-            }
-            $contract = $components->registry->get($name)::contract()->name;
-            $renderer = match (true) {
-                $contract === 'state-machine' => $stateMachine,
-                $contract === 'autocomplete' => $autocomplete,
-                \in_array($contract, ['input', 'textarea', 'select', 'checkbox'], true) => $form,
-                \in_array($contract, self::DASHBOARD_CONTRACTS, true) => $dashboard,
-                default => null,
-            };
-            if ($renderer !== null) {
-                $renderers[$contract] = $renderer;
-                $renderProps[$contract] = ['endpoint' => $route];
-            }
+        $registeredRenderers = $this->container->has(ComponentRendererRegistry::class)
+            ? $this->container->get(ComponentRendererRegistry::class)
+            : new ComponentRendererRegistry();
+        if (! $registeredRenderers instanceof ComponentRendererRegistry) {
+            throw new \LogicException('LivePlugin requires the per-component renderer registry');
         }
+        $renderProps = [];
+        foreach (self::DASHBOARD_CONTRACTS as $contract) {
+            $byContract[$contract] ??= $dashboard;
+        }
+        foreach ($byContract as $contract => $renderer) {
+            if ($registeredRenderers->resolveFor($contract, RenderTarget::HTML) === null) {
+                $registeredRenderers->registerFor($contract, $renderer);
+            }
+            $renderProps[$contract] = ['endpoint' => $route];
+        }
+        if (! $this->container->has(ComponentRendererRegistry::class)) {
+            $this->container->registerService(ComponentRendererRegistry::class, $registeredRenderers);
+        }
+        $screens = new ScreenComponents($components->registry, $registeredRenderers, $this->screenStore());
+        $this->container->registerService(ScreenComponents::class, $screens);
+        $pageRenderer = new CompositeHtmlRenderer(
+            new RegisteredHtmlRenderer($registeredRenderers),
+            fn (string $type, array $props): ?ComponentDefinitionInterface => $type === 'autocomplete'
+                && $components->registry->has($type)
+                && $components->registry->get($type)::class === AutocompleteComponent::class
+                ? $this->autocompleteFor($props)
+                : ($components->registry->has($type) ? $components->registry->get($type) : null),
+        );
         $endpoint = new LiveEndpoint(
-            components: $components->registry,
+            components: $screens,
             codec: $codec,
             authorizer: new ContractInteractionAuthorizer($components->registry),
             csrf: $csrf,
             route: $route,
-            renderers: $renderers,
+            renderers: $registeredRenderers,
             renderProps: $renderProps,
         );
 
         $this->container->registerService(StateTransferCodecInterface::class, $codec);
         $this->container->registerService(CsrfGuardInterface::class, $csrf);
-        $this->container->registerService(ComponentRegistryInterface::class, $components->registry);
+        if (! $this->container->has(ComponentRegistryInterface::class)) {
+            $this->container->registerService(ComponentRegistryInterface::class, $screens);
+        }
         $this->container->registerService(DashboardHtmlRenderer::class, $dashboard);
         $this->container->registerService(LiveEndpoint::class, $endpoint);
         $this->container->registerService(LiveController::class, new LiveController($endpoint, (bool) ($live['anonymous'] ?? false)));
@@ -245,7 +245,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         $this->container->registerService(
             LiveComponentPageController::class,
             new LiveComponentPageController(
-                $components->registry,
+                $screens,
                 $pageRenderer,
                 $csrf,
                 $route,
@@ -346,7 +346,12 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
     public function operations(): array
     {
         return [
-            ...(new ScreenOperations($this->screenStore(), array_keys(self::DECLARABLE_TYPES), $this->layoutStateStore()))->operations(),
+            ...(new ScreenOperations(
+                $this->screenStore(),
+                array_keys(self::DECLARABLE_TYPES),
+                $this->layoutStateStore(),
+                fn (): ?ScreenComponents => $this->container->has(ScreenComponents::class) ? $this->container->get(ScreenComponents::class) : null,
+            ))->operations(),
             ...(new PresentationOverrideOperations($this->overrideStore()))->operations(),
         ];
     }
@@ -381,64 +386,37 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
      */
     private function components(array $live): LiveComponents
     {
-        $registry = new InMemoryComponentRegistry();
-        $declared = \is_array($live['components'] ?? null) ? $live['components'] : [
+        $registry = $this->container->has(ComponentRegistryInterface::class)
+            ? $this->container->get(ComponentRegistryInterface::class)
+            : new InMemoryComponentRegistry();
+        if (! $registry instanceof ComponentRegistryInterface) {
+            throw new \LogicException('LivePlugin requires a component registry');
+        }
+        $declared = array_merge(self::DECLARABLE_TYPES, \is_array($live['components'] ?? null) ? $live['components'] : [
             'data-table' => DataTableComponent::class,
             'metric-card' => MetricCardComponent::class,
             'state-machine' => StateMachineComponent::class,
-        ];
-        // Runtime-declared screens (greenhouse decisions/0158, typed in 0163/0164): every screen the agent
-        // authored through `screen:declare` is registered under the class for ITS component type — data-table,
-        // metric-card, state-machine, autocomplete — so the live door serves it with no code deploy. A
-        // configured component of the same name wins (the app's declaration is explicit); an unknown type is
-        // skipped rather than registered against a class that does not exist. A store screen carries its
-        // PROPS, which a type that needs data (autocomplete: its options) is built from.
-        // One data source registry shared by every declared autocomplete: each screen's inline options become
-        // an ArrayDataSource named by its `source` prop. It is SHARED because the endpoint resolves a component
-        // by CONTRACT name to handle an action (a declared screen registers under its screen name), so the one
-        // `autocomplete`-named registration below must reach every screen's source — the search carries the
-        // source name and the shared registry resolves it (greenhouse decisions/0165).
+        ]);
+        // Screen aliases resolve lazily through ScreenComponents. The built-in autocomplete still needs
+        // every stored inline source at boot so its action can resolve the source by name (0165).
         $store = ScreenStore::fromConfig($live, $this->root());
         $sources = new InMemoryDataSourceRegistry();
-        $usedTypes = [];
         foreach ($store->typedNames() as $screen => $type) {
-            $class = self::DECLARABLE_TYPES[$type] ?? null;
-            if ($class === null || isset($declared[$screen])) {
-                continue;
-            }
-            $declared[$screen] = $class;
             $props = \is_array($store->screen($screen)['props'] ?? null) ? $store->screen($screen)['props'] : [];
-            // Collect the screen's type AND, for a composite, its children's types (recursively): each must be
-            // registered by contract name so a CHILD's action round-trips (greenhouse decisions/0168).
-            $this->collectComposite($type, $props, $usedTypes, $sources);
+            $this->collectSources($type, $props, $sources);
         }
         $names = [];
         foreach ($declared as $name => $class) {
             if (! \is_string($name) || ! \is_string($class) || ! class_exists($class)) {
                 continue;
             }
-            $component = $this->instantiate($class, $sources);
+            $component = $registry->has($name) ? $registry->get($name) : $this->instantiate($class, $sources);
             if ($component === null) {
                 continue;
             }
             $registry->register($name, $component);
             $names[] = $name;
         }
-        // The endpoint resolves a component by its CONTRACT name to handle an action, but a declared screen
-        // registers under its screen ALIAS — so a declared type that is not already in the base set (autocomplete,
-        // the form fields) would 404 on its action. Register each declared type's contract name too, so a
-        // declared screen's round-trip resolves; autocomplete shares the one sources registry (decisions/0165, 0166).
-        foreach ($usedTypes as $type => $class) {
-            if ($registry->has($type)) {
-                continue;
-            }
-            $component = $this->instantiate($class, $sources);
-            if ($component !== null) {
-                $registry->register($type, $component);
-                $names[] = $type;
-            }
-        }
-
         return new LiveComponents($registry, $names);
     }
 
@@ -462,21 +440,14 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
     }
 
     /**
-     * Collect every component type a declared screen uses — itself and, for a container, its children
-     * (recursively) — so each type's contract name is registered and a CHILD's action round-trips (greenhouse
-     * decisions/0168). An autocomplete (top-level or child) contributes its inline options to the shared source
-     * registry, so its search resolves wherever it sits.
+     * Collect inline autocomplete options recursively for the existing data-source contract (0165).
+     * Component discovery uses the live registry, independently of these stored data sources.
      *
-     * @param array<string, mixed>        $props
-     * @param array<string, class-string> $usedTypes
+     * @param array<string, mixed> $props
      */
-    private function collectComposite(string $type, array $props, array &$usedTypes, InMemoryDataSourceRegistry $sources): void
+    private function collectSources(string $type, array $props, InMemoryDataSourceRegistry $sources): void
     {
         $class = self::DECLARABLE_TYPES[$type] ?? null;
-        if ($class === null) {
-            return;
-        }
-        $usedTypes[$type] = $class;
         if ($class === AutocompleteComponent::class) {
             $source = \is_string($props['source'] ?? null) ? $props['source'] : '';
             $options = \is_array($props['options'] ?? null) ? array_values(array_filter($props['options'], 'is_array')) : [];
@@ -489,37 +460,22 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
             if (\is_array($child)) {
                 $childType = \is_string($child['type'] ?? null) ? $child['type'] : '';
                 $childProps = \is_array($child['props'] ?? null) ? $child['props'] : [];
-                $this->collectComposite($childType, $childProps, $usedTypes, $sources);
+                $this->collectSources($childType, $childProps, $sources);
             }
         }
     }
 
     /**
-     * Build a component from a declared type and its props — the factory the composite renderer uses for a
-     * container's children (greenhouse decisions/0167). Unlike {@see instantiate()}, an autocomplete CHILD
-     * carries its own inline options, so its data source is built from THIS declaration, not the shared store
-     * registry. An unknown type yields null (the composer skips it), never a fatal.
+     * Build the shipped autocomplete child's inline data source from this declaration (0167).
+     * App-supplied definitions resolve directly from the registry and never enter this factory.
      *
      * @param array<string, mixed> $props
      */
-    private function componentFor(string $type, array $props): ?ComponentDefinitionInterface
+    private function autocompleteFor(array $props): AutocompleteComponent
     {
-        $class = self::DECLARABLE_TYPES[$type] ?? null;
-        if ($class === null) {
-            return null;
-        }
-        if ($class === AutocompleteComponent::class) {
-            $sources = new InMemoryDataSourceRegistry();
-            $source = \is_string($props['source'] ?? null) ? $props['source'] : '';
-            $options = \is_array($props['options'] ?? null) ? array_values(array_filter($props['options'], 'is_array')) : [];
-            if ($source !== '') {
-                $sources->register(new ArrayDataSource($source, $options));
-            }
-            $sourcesRegistry = $sources;
-        } else {
-            $sourcesRegistry = new InMemoryDataSourceRegistry();
-        }
+        $sources = new InMemoryDataSourceRegistry();
+        $this->collectSources('autocomplete', $props, $sources);
 
-        return $this->instantiate($class, $sourcesRegistry);
+        return new AutocompleteComponent($sources);
     }
 }
