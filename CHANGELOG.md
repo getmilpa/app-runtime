@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.155.0](https://github.com/getmilpa/app-runtime/compare/v0.154.1...v0.155.0) (2026-09-12)
+
+
+### Features
+
+* serve complete screen documents and reject invalid trees ([#415](https://github.com/getmilpa/app-runtime/issues/415)) ([d33d810](https://github.com/getmilpa/app-runtime/commit/d33d810c56e4c89f5fa86af3e2aab45f9f3096d2))
+
 ## [0.154.1](https://github.com/getmilpa/app-runtime/compare/v0.154.0...v0.154.1) (2026-09-12)
 
 
