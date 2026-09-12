@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.157.3](https://github.com/getmilpa/app-runtime/compare/v0.157.2...v0.157.3) (2026-09-12)
+
+
+### Bug Fixes
+
+* require current evidence for recorded-work closure ([9ce9a76](https://github.com/getmilpa/app-runtime/commit/9ce9a7645617f5d27465040e655ce2991aedc38f))
+* require current evidence for recorded-work closure ([190c29f](https://github.com/getmilpa/app-runtime/commit/190c29fac380f7233b2a1001e144f53891d8c37a))
+
 ## [0.157.2](https://github.com/getmilpa/app-runtime/compare/v0.157.1...v0.157.2) (2026-09-12)
 
 
