@@ -122,7 +122,8 @@ final readonly class ScreenDrafts
         if ($source['build'] !== ($this->build)()) {
             throw new \DomainException('build_changed');
         }
-        if ($after !== null) {
+        // Restoring the recorded baseline does not require that older type to offer a preview factory.
+        if ($after !== null && $action === 'promotion') {
             ($this->validate)($source['name'], $after['type'], $after['props']);
         }
         if (!$this->active->compareAndSwap($source['name'], self::hash($before), $after)) {
