@@ -171,13 +171,43 @@ final class TrialRunner
         if (! \is_resource($proc)) {
             return [127, '', 'could not start the trial process'];
         }
-        $stdout = stream_get_contents($pipes[1]) ?: '';
-        $stderr = stream_get_contents($pipes[2]) ?: '';
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $exit = proc_close($proc);
+        // Drain both channels while the child runs. Reading either pipe to EOF first can
+        // block the child on the other pipe, turning an ordinary warning into a timeout.
+        $output = [1 => '', 2 => ''];
+        foreach ($pipes as $pipe) {
+            stream_set_blocking($pipe, false);
+        }
+        try {
+            while ($pipes !== []) {
+                $ready = $pipes;
+                $write = $except = null;
+                if (stream_select($ready, $write, $except, null) === false) {
+                    throw new \RuntimeException('Could not wait for trial output.');
+                }
+                foreach ($pipes as $channel => $pipe) {
+                    if (!in_array($pipe, $ready, true)) {
+                        continue;
+                    }
+                    $chunk = fread($pipe, 65536);
+                    if ($chunk === false) {
+                        throw new \RuntimeException('Could not read trial output.');
+                    }
+                    $output[$channel] .= $chunk;
+                    if (feof($pipe)) {
+                        fclose($pipe);
+                        unset($pipes[$channel]);
+                    }
+                }
+            }
+        } finally {
+            foreach ($pipes as $pipe) {
+                fclose($pipe);
+            }
+            // The existing timeout process still owns the deadline, even if both pipes close.
+            $exit = proc_close($proc);
+        }
 
-        return [$exit, $stdout, $stderr];
+        return [$exit, $output[1], $output[2]];
     }
 
     /** @return array<string, mixed>|null */

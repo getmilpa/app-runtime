@@ -435,6 +435,9 @@ meaning to the experimental `plugin:Owned` string. Activation still needs its ow
   run in the same write boundary, with read-only root/vendor, private trial state and temporary
   storage, an ephemeral PHPUnit cache, and unshared network/PID namespaces. Missing confinement
   refuses execution; it never falls back to writing the host.
+- Trial stdout and stderr are drained together, so a verbose warning cannot block the child
+  behind an unread pipe. Both channels and the exit status are retained, including output
+  produced before the existing trial deadline kills an unfinished process.
 - A successful trial is a proposal. `sandbox:promote` and `sandbox:undo` judge every affected file
   against the authority of the current call before writing the first one. Mixed resource exports,
   traversal and symbolic links refuse as a whole. A saved trial never saves permission to export.
