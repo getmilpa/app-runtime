@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Agent;
 
 use Milpa\Agent\SessionStore;
+use Milpa\Agent\EffectObservation;
 use Milpa\Command\Operation;
 use Milpa\ToolRuntime\ConfirmationTokenStore;
 use Milpa\ToolRuntime\Contracts\ToolContext;
@@ -72,7 +73,16 @@ final class TrialAwareRegistry extends ToolRegistry
         $operation = $this->operationFor($name);
         $plan = $operation === null ? null : $this->router->planFor($operation, $args);
         if ($operation === null || $plan === null) {
-            return $this->inner->call($name, $args, $ctx);
+            if ($operation?->name !== 'sandbox:promote' || $this->sessions === null || $this->sessionId === null) {
+                return $this->inner->call($name, $args, $ctx);
+            }
+            $workspace = is_string($args['workspace'] ?? null) ? $this->router->workspace($args['workspace']) : null;
+            $paths = $workspace === null ? [] : array_keys($workspace->diff());
+            $before = $workspace === null ? null : FileEffectObserver::hostSnapshot($workspace->root, $paths);
+            $result = $this->inner->call($name, $args, $ctx);
+            $after = $workspace === null ? null : FileEffectObserver::hostSnapshot($workspace->root, $paths);
+            $this->recordEffect($name, $args, FileEffectObserver::compare($before, $after, 'applied'));
+            return $result;
         }
 
         // THE CALL RUNS IN THE COPY, NOT ON THE HOST. The registered handler is never reached; what
@@ -80,8 +90,15 @@ final class TrialAwareRegistry extends ToolRegistry
         $policy = $this->inner->getPolicyGate()->getCallPolicy();
         $paths = $policy instanceof PluginAuthoringPolicy && in_array($name, PluginAuthoringPolicy::BUILD, true)
             ? $policy->writePaths($ctx ?? ToolContext::cli(), $name, $args) : null;
+        $observe = $this->sessions !== null && $this->sessionId !== null;
+        $before = $observe ? FileEffectObserver::trialSnapshot($plan->workspace) : null;
         $run = $this->router->runner()->run($plan->workspace, $operation->name, $args, $paths);
         $this->record($plan, $operation->name, $args, $run);
+        if ($observe) {
+            $after = FileEffectObserver::trialSnapshot($plan->workspace);
+            $evidence = FileEffectObserver::testEvidence($name, $args, $after, $run->output);
+            $this->recordEffect($name, $args, FileEffectObserver::compare($before, $after, 'proposal', $evidence));
+        }
 
         $meta = [
             'trial' => [
@@ -235,6 +252,16 @@ final class TrialAwareRegistry extends ToolRegistry
     public function getRateLimiter(): ?RateLimiterInterface
     {
         return $this->inner->getRateLimiter();
+    }
+
+    /** The observer writes facts; tool output never supplies this trusted channel.
+     * @param array<string, mixed> $arguments
+     */
+    private function recordEffect(string $tool, array $arguments, EffectObservation $observation): void
+    {
+        if ($this->sessions !== null && $this->sessionId !== null) {
+            $this->sessions->recordEffectObservation($this->sessionId, $tool, $arguments, $observation);
+        }
     }
 
     /** @param array<string, mixed> $args */

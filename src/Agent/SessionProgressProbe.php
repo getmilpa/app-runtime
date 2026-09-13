@@ -108,6 +108,11 @@ final class SessionProgressProbe implements ProgressProbe
         $last = $this->seqOfLast($stream);
         $receipt = ProgressReceipt::of($stream, $this->checkpointSeq, $last);
 
+        if ($receipt->progress === ProgressReceipt::UNKNOWN) {
+            // Missing observation neither clears pending recovery nor proves its window exhausted.
+            return null;
+        }
+
         if ($receipt->progress === ProgressReceipt::ADVANCING) {
             // Growth moves the checkpoint: the count of zero-growth calls resets by construction.
             $this->checkpointSeq = $last;

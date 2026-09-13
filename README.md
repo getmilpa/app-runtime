@@ -607,3 +607,16 @@ Changing app PHP, configuration, assets or dependencies requires creating a new
 revision. Malformed active declaration stores are refused instead of overwritten
 as empty stores. Promotion and restoration change screen declarations only, never
 PHP, migrations, or application records. Greenhouse decision 0329 defines this cut.
+
+### Observed progress
+
+Native trial calls record a host observation of the file changes made by that execution, separate
+from the operation's permission ceiling. The session links that observation to its tool call;
+repeated content in another trial does not create new progress. Promotion has a separate application
+identity. A successful native `test` contributes behavioral evidence for its selector and input tree,
+Changing only the timeout does not create another proof.
+
+A known empty observation does not reset recovery. An unavailable observation neither clears a
+pending recovery nor proves its window exhausted. Older producers without observations retain the
+legacy session interpretation. This protocol requires `milpa/agent >=0.44` when the optional agent
+capability is installed (greenhouse decisions/0346, evidence/0663).

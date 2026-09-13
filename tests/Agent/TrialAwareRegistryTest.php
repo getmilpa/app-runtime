@@ -95,6 +95,15 @@ final class TrialAwareRegistryTest extends TestCase
         self::assertSame(0, $hechos[0]->payload['exit']);
         self::assertSame('added', $hechos[0]->payload['report']['touched.txt']['status']);
         self::assertNotEmpty($hechos[0]->payload['arguments_digest']);
+        $effects = array_values(array_filter($almacen->stream('s-1'), static fn ($e) => $e->type === 'session.effect_observed'));
+        self::assertCount(1, $effects);
+        self::assertTrue($effects[0]->payload['observation']['known']);
+        self::assertCount(1, $effects[0]->payload['observation']['artifacts']);
+        $registro->call('config_set', ['key' => 'a']);
+        $effects = array_values(array_filter($almacen->stream('s-1'), static fn ($e) => $e->type === 'session.effect_observed'));
+        self::assertCount(2, $effects);
+        self::assertSame([], $effects[1]->payload['observation']['artifacts']);
+
     }
 
     public function testACallWithoutAPlanReachesTheRegisteredToolUntouched(): void

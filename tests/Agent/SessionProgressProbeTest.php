@@ -54,6 +54,31 @@ final class SessionProgressProbeTest extends TestCase
         $store->recordToolCall($session, 'observe', ['target' => 'Judge'], '{"ok":true}');
     }
 
+    public function testUnknownEffectsKeepPendingRecoveryWithoutInventingExpiry(): void
+    {
+        $events = new InMemoryEventStore();
+        $store = new SessionStore($events);
+        $store->start('s', 'measure', AutonomyMode::Auto);
+        $probe = new SessionProgressProbe($events, 's');
+        for ($step = 0; $step < 4; ++$step) {
+            $this->philosophize($events, $store, 's');
+            $answer = $probe->afterStep($step);
+        }
+        self::assertSame('pending', $answer['recovery']);
+        for ($step = 4; $step < 12; ++$step) {
+            $this->modelCalled($events, 's');
+            $seq = $store->recordEffectObservation('s', 'make', [], new \Milpa\Agent\EffectObservation('lost-files', false));
+            $store->recordToolCall('s', 'make', [], '{}', mutating: true, effectObservationSeq: $seq);
+            self::assertNull($probe->afterStep($step));
+        }
+        $stalls = array_filter($store->stream('s'), static fn ($e) => $e->type === SessionProgressProbe::EVENT);
+        self::assertCount(1, $stalls);
+        $this->modelCalled($events, 's');
+        $seq = $store->recordEffectObservation('s', 'test', [], new \Milpa\Agent\EffectObservation('test', true, [], [hash('sha256', 'proof')]));
+        $store->recordToolCall('s', 'test', [], '{}', effectObservationSeq: $seq);
+        self::assertSame('recovered', $probe->afterStep(12)['recovery']);
+    }
+
     public function testFourPhilosophizeCallsTriggerTheNoticeAndTheRecordedStall(): void
     {
         $events = new InMemoryEventStore();
