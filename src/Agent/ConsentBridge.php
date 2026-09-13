@@ -374,12 +374,22 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
      */
     protected function hidden(): array
     {
-        $removed = $this->table?->removed() ?? [];
+        $removed = $this->withdrawn();
         $recovering = $this->gate instanceof SessionToolGate
             ? $this->gate->recoveryHiddenTools(array_column($this->catalogue->getToolSummaries(), 'name'))
             : [];
 
         return array_values(array_unique([...$removed, ...$recovering]));
+    }
+
+    /**
+     * The table's current removals forbid execution; record-only history does not.
+     *
+     * @return list<string>
+     */
+    protected function withdrawn(): array
+    {
+        return $this->table?->removed() ?? [];
     }
 
     /** A refusal of an option the table already removed is a different fact from one never offered. */
