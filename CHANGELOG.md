@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.158.1](https://github.com/getmilpa/app-runtime/compare/v0.158.0...v0.158.1) (2026-09-13)
+
+
+### Bug Fixes
+
+* renew trial plans when copied host inputs change ([683e099](https://github.com/getmilpa/app-runtime/commit/683e099b74105f14d4eda90250c665f1d989adbc))
+* renew trial plans when copied host inputs change (0347/0664) ([76ca94c](https://github.com/getmilpa/app-runtime/commit/76ca94c80a7fdaf9efc0203cc4a402a5591a4e7e))
+
 ## [0.158.0](https://github.com/getmilpa/app-runtime/compare/v0.157.7...v0.158.0) (2026-09-13)
 
 
