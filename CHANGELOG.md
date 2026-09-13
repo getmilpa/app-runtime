@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.158.3](https://github.com/getmilpa/app-runtime/compare/v0.158.2...v0.158.3) (2026-09-13)
+
+
+### Bug Fixes
+
+* connect host input observers to the resident runner ([eb2380a](https://github.com/getmilpa/app-runtime/commit/eb2380a7f30d13e67d5e111d16e2681cd5efcb57))
+* connect host input observers to the resident runner (greenhouse 0351/0668) ([02f68c5](https://github.com/getmilpa/app-runtime/commit/02f68c559b7a638606472237a709cbead36be26b))
+
 ## [0.158.2](https://github.com/getmilpa/app-runtime/compare/v0.158.1...v0.158.2) (2026-09-13)
 
 
