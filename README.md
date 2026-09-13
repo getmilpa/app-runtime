@@ -89,7 +89,22 @@ trigger that painting. Half the improvement landed, half didn't, and nothing sai
 | `BroadcastingEventStore` · `SurfaceBroadcaster` · `MercureBroadcaster` | getting what happens to the live surfaces while it happens |
 | `SessionBookkeeping` · `SessionPlanBoard` | the session's plan and to-dos, bound to *its* id |
 
-Hosts that compose a `TrialRunner` can pass an optional `TrialInputObserver` as `inputObserver`.
+The resident resolves an optional `TrialInputObserver` registered in the app's DI container:
+
+```php
+$container->registerService(TrialInputObserver::class, $hostObserver);
+```
+
+Register it during trusted host composition, before invoking the agent. `AgentOperations` passes
+that same object to its shared trial runner; the existing trial event reports whether an attempt
+has a known, partial or unknown witness. A wrong service type or a resolution error is a visible
+configuration failure, never silently replaced by an unobserved runner. Disabled trials do not
+resolve the observer. A hook or capture failure preserves the trial verdict and records unknown.
+No observer binding keeps the previous behavior. The host still supplies and operates its capture
+mechanism; registering a hook does not install a tracer or attest complete inputs. Measured in
+Greenhouse decisions/0351 and evidence/0668.
+
+Hosts that compose a `TrialRunner` directly can also pass `inputObserver`.
 Its `before(TrialInputAttempt)` and `after(TrialInputAttempt, int $exit)` hooks surround the native
 test execution. The observer runs outside the tested process; tool output is never this channel.
 The returned record binds `id`, `copy`, `operation`, and `arguments` to that attempt and declares

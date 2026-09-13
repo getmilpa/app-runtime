@@ -20,6 +20,8 @@ use Milpa\Agent\SessionStore;
 use Milpa\AppRuntime\Agent\SessionToolGate;
 use Milpa\AppRuntime\Agent\TrialRouter;
 use Milpa\AppRuntime\Agent\TrialRunner;
+use Milpa\AppRuntime\Agent\TrialInputObserver;
+use Milpa\AppRuntime\Agent\TrialInputAttempt;
 use Milpa\AppRuntime\Operations\AgentOperations;
 use Milpa\EventStore\InMemoryEventStore;
 use Milpa\Interfaces\Di\DIContainerInterface;
@@ -95,6 +97,46 @@ final class TrialWiringTest extends TestCase
         self::assertSame($first, $second, 'the gate and the executor must share ONE router, or they plan different workspaces');
     }
 
+    public function testTheDeclaredObserverReachesTheSharedNativeRunner(): void
+    {
+        if (!(new TrialRunner())->available()) {
+            self::markTestSkipped('no unprivileged sandbox');
+        }
+        $observer = new class () implements TrialInputObserver {
+            public function before(TrialInputAttempt $attempt): void
+            {
+            }
+            public function after(TrialInputAttempt $attempt, int $exit): array
+            {
+                return [];
+            }
+        };
+        $operations = $this->operations(true, $observer);
+        $router = $this->callRouter($operations, $this->kernelAt($this->root));
+        self::assertNotNull($router);
+        self::assertSame($observer, (new \ReflectionProperty(TrialRunner::class, 'inputObserver'))->getValue($router->runner()));
+        self::assertSame($router, $this->callRouter($operations, $this->kernelAt($this->root)));
+    }
+
+    public function testMalformedObserverIsAConfigurationErrorRatherThanSilentAbsence(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('must implement TrialInputObserver');
+        $this->callRouter($this->operations(true, new \stdClass()), $this->kernelAt($this->root));
+    }
+
+    public function testObserverResolutionFailureIsNotReplacedByAnUnobservedRunner(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('observer service failed');
+        $this->callRouter($this->operations(true, new \RuntimeException('observer service failed')), $this->kernelAt($this->root));
+    }
+
+    public function testDisabledTrialsDoNotResolveAnObserver(): void
+    {
+        self::assertNull($this->callRouter($this->operations(false, new \RuntimeException('must not resolve')), $this->kernelAt($this->root)));
+    }
+
     private function routerOf(SessionToolGate $gate): ?TrialRouter
     {
         $p = (new \ReflectionObject($gate))->getProperty('trialRouter');
@@ -131,10 +173,10 @@ final class TrialWiringTest extends TestCase
         return $m->invoke($operations, $store, $kernel, $sesion, 'la petición', []);
     }
 
-    private function operations(?bool $trialWorkspace): AgentOperations
+    private function operations(?bool $trialWorkspace, ?object $observer = null): AgentOperations
     {
-        $container = new class ($trialWorkspace) implements DIContainerInterface {
-            public function __construct(private readonly ?bool $trialWorkspace)
+        $container = new class ($trialWorkspace, $observer) implements DIContainerInterface {
+            public function __construct(private readonly ?bool $trialWorkspace, private readonly ?object $observer)
             {
             }
 
@@ -163,11 +205,17 @@ final class TrialWiringTest extends TestCase
 
             public function has(string $id): bool
             {
-                return $id === Config::class;
+                return $id === Config::class || ($id === TrialInputObserver::class && $this->observer !== null);
             }
 
             public function get(string $id): mixed
             {
+                if ($id === TrialInputObserver::class) {
+                    if ($this->observer instanceof \RuntimeException) {
+                        throw $this->observer;
+                    }
+                    return $this->observer;
+                }
                 return new Config($this->trialWorkspace === null ? [] : ['agent' => ['trialWorkspace' => $this->trialWorkspace]]);
             }
         };
