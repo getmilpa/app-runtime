@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Operations;
 
 use Milpa\AppRuntime\Agent\TrialRunner;
+use Milpa\AppRuntime\Agent\TrialInputObserver;
 use Milpa\AppRuntime\Agent\TrialRouter;
 use Milpa\AppRuntime\Agent\TrialAwareRegistry;
 use Milpa\Agent\PendingQuestion;
@@ -3028,7 +3029,16 @@ class AgentOperations implements CommandProvider
             return $this->trialRouterMemo = null;
         }
 
-        $runner = new TrialRunner();
+        // The host binds observation explicitly. A broken binding is not absence: do not
+        // silently replace it with an unobserved runner (greenhouse 0351/0668).
+        $observer = null;
+        if ($this->container->has(TrialInputObserver::class)) {
+            $observer = $this->container->get(TrialInputObserver::class);
+            if (!$observer instanceof TrialInputObserver) {
+                throw new \RuntimeException('The declared observer must implement TrialInputObserver.');
+            }
+        }
+        $runner = new TrialRunner(inputObserver: $observer);
         if (! $runner->available()) {
             return $this->trialRouterMemo = null;
         }
