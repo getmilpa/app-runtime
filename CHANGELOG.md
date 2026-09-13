@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.158.4](https://github.com/getmilpa/app-runtime/compare/v0.158.3...v0.158.4) (2026-09-13)
+
+
+### Bug Fixes
+
+* enforce active session withdrawal before execution ([cfeab91](https://github.com/getmilpa/app-runtime/commit/cfeab911c77025fb703b4b309cef62cc95496fc2))
+* enforce current session withdrawal in the consent bridge ([c8b61a4](https://github.com/getmilpa/app-runtime/commit/c8b61a493a3c6679e2f6f4afe52c7959b4c07569))
+
 ## [0.158.3](https://github.com/getmilpa/app-runtime/compare/v0.158.2...v0.158.3) (2026-09-13)
 
 
