@@ -93,6 +93,69 @@ final class TrialRouterTest extends TestCase
         self::assertSame([], TrialWorkspace::ids($root));
     }
 
+    public function testChangedInputsRenewThePlanAndKeepPendingProposals(): void
+    {
+        $root = $this->root();
+        $router = $this->router($root);
+        $op = $this->op('implement');
+        $first = $router->planFor($op, ['class' => 'A']);
+        file_put_contents($first->workspace->copy . '/src/A.php', '<?php // pending proposal');
+        $diff = $first->workspace->diff();
+        file_put_contents($root . '/src/B.php', '<?php // added input');
+
+        $second = $router->planFor($op, ['class' => 'A']);
+        self::assertNotSame($first, $second);
+        self::assertSame('<?php // added input', file_get_contents($second->workspace->copy . '/src/B.php'));
+        self::assertSame($diff, $first->workspace->diff(), 'renewal must not rewrite the pending proposal');
+        self::assertSame([], $first->workspace->stale(), 'an unrelated input change is not a promotion conflict');
+        self::assertSame($second, $router->planFor($op, ['class' => 'A']));
+
+        file_put_contents($root . '/src/A.php', '<?php // newer host content');
+        $third = $router->planFor($op, ['class' => 'A']);
+        self::assertNotSame($second, $third);
+        self::assertSame('<?php // newer host content', file_get_contents($third->workspace->copy . '/src/A.php'));
+        self::assertSame($diff, $first->workspace->diff());
+        self::assertSame(['src/A.php'], $first->workspace->stale(), 'renewal never rebases the old proposal');
+
+        unlink($root . '/src/B.php');
+        $fourth = $router->planFor($op, ['class' => 'A']);
+        self::assertNotSame($third, $fourth);
+        self::assertFileDoesNotExist($fourth->workspace->copy . '/src/B.php');
+        self::assertSame($fourth, $router->planFor($op, ['class' => 'A']));
+    }
+
+    public function testLiveMountsSecretsAndMtimeAreNotCopiedInputChanges(): void
+    {
+        $root = $this->root();
+        $router = $this->router($root);
+        $op = $this->op('implement');
+        $plan = $router->planFor($op, []);
+        mkdir($root . '/vendor');
+        file_put_contents($root . '/var/events', 'new session event');
+        file_put_contents($root . '/vendor/live', 'mounted at execution');
+        file_put_contents($root . '/.env', 'private host settings');
+        touch($root . '/src/A.php', time() + 10);
+        self::assertSame($plan, $router->planFor($op, []));
+        self::assertFileDoesNotExist($plan->workspace->copy . '/.env');
+
+        mkdir($root . '/src/var');
+        file_put_contents($root . '/src/var/input.php', '<?php // copied nested input');
+        self::assertNotSame($plan, $router->planFor($op, []), 'only top-level live mounts are excluded');
+    }
+
+    public function testAnInvalidManifestCannotKeepAPlanCurrent(): void
+    {
+        $root = $this->root();
+        $router = $this->router($root);
+        $op = $this->op('implement');
+        $first = $router->planFor($op, []);
+        file_put_contents($first->workspace->baseDirectory() . '/manifest.json', '{invalid');
+        $second = $router->planFor($op, []);
+        self::assertNotSame($first, $second);
+        self::assertDirectoryExists($first->workspace->copy, 'unreadable provenance is retained, never silently erased');
+        self::assertSame($second, $router->planFor($op, []));
+    }
+
     public function testDiscardedAndCollapsedCopiesDoNotSurviveInThePlanCache(): void
     {
         $root = $this->root();
