@@ -54,6 +54,9 @@ final class SterileLoopGuard
     /** @var array<string, array{veces: int, error: string}> huella de la llamada → cuántas veces falló y con qué */
     private array $fallos = [];
 
+    /** @var array<string, array<string, array{veces: int, error: string, witness: TestInputWitness}>> */
+    private array $inputFailures = [];
+
     /**
      * @param int $tolerancia cuántos fallos idénticos se dejan pasar antes de negarse. Dos por
      *                        defecto: insistir una vez es legítimo —un fallo puede ser transitorio—
@@ -69,12 +72,36 @@ final class SterileLoopGuard
      * @param array<string, mixed> $arguments
      * @param bool                 $ok        si el runtime pudo ejecutar la herramienta
      */
-    public function anota(string $tool, array $arguments, string $result, bool $ok): void
+    public function anota(string $tool, array $arguments, string $result, bool $ok, ?TestInputWitness $inputWitness = null): void
     {
         $huella = $this->huella($tool, $arguments);
         $error = $this->errorDeclarado($result, $ok);
+        if ($inputWitness !== null && ($tool !== 'test' || $arguments !== $inputWitness->attempt->arguments)) {
+            $inputWitness = TestInputWitness::unknown($inputWitness->attempt);
+        }
+
+        // A known input has its own history. Success on repaired bytes cannot clear the earlier
+        // bad version, and a changed consultation set cannot hide matching previous failures.
+        if ($inputWitness?->status === 'known') {
+            $identity = $inputWitness->identity();
+            if ($error === null) {
+                unset($this->inputFailures[$huella][$identity]);
+            } else {
+                $this->inputFailures[$huella][$identity] = [
+                    'veces' => ($this->inputFailures[$huella][$identity]['veces'] ?? 0) + 1,
+                    'error' => $error,
+                    'witness' => $inputWitness,
+                ];
+            }
+
+            return;
+        }
 
         if ($error === null) {
+            if ($inputWitness !== null) {
+                // A configured but partial/unknown observer cannot locate the history to clear.
+                return;
+            }
             // Un éxito borra la cuenta: lo que falló y luego funcionó no está en bucle.
             unset($this->fallos[$huella]);
 
@@ -96,7 +123,15 @@ final class SterileLoopGuard
      */
     public function motivoParaNoRepetir(string $tool, array $arguments): ?string
     {
-        $visto = $this->fallos[$this->huella($tool, $arguments)] ?? null;
+        $fingerprint = $this->huella($tool, $arguments);
+        $visto = $this->fallos[$fingerprint] ?? null;
+        foreach ($this->inputFailures[$fingerprint] ?? [] as $failure) {
+            if ($failure['witness']->matchesCurrent() === false) {
+                continue;
+            }
+            // Unknown current state retains its failures. Only an observed change separates work.
+            $visto = ['veces' => ($visto['veces'] ?? 0) + $failure['veces'], 'error' => $failure['error']];
+        }
         if ($visto === null || $visto['veces'] < $this->tolerancia) {
             return null;
         }
@@ -114,6 +149,7 @@ final class SterileLoopGuard
     public function olvidar(): void
     {
         $this->fallos = [];
+        $this->inputFailures = [];
     }
 
     /**

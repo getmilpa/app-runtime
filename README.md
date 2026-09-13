@@ -89,6 +89,28 @@ trigger that painting. Half the improvement landed, half didn't, and nothing sai
 | `BroadcastingEventStore` · `SurfaceBroadcaster` · `MercureBroadcaster` | getting what happens to the live surfaces while it happens |
 | `SessionBookkeeping` · `SessionPlanBoard` | the session's plan and to-dos, bound to *its* id |
 
+Hosts that compose a `TrialRunner` can pass an optional `TrialInputObserver` as `inputObserver`.
+Its `before(TrialInputAttempt)` and `after(TrialInputAttempt, int $exit)` hooks surround the native
+test execution. The observer runs outside the tested process; tool output is never this channel.
+The returned record binds `id`, `copy`, `operation`, and `arguments` to that attempt and declares
+`scope: copied-app-file-content-presence-and-directory-members/v1`, `complete_execution_inputs:
+false`, `status: known|partial|unknown`, and `inputs`. Each relative input carries `facets`
+(`content`, `presence`, or `members`) and its `before` state (`kind`, plus `sha256` for file content
+or `members` for enumerated directories). The observer must report writes during execution,
+incomplete resolution, and missing captures conservatively; a post-execution hash alone cannot
+attest an input. The runner rejects records belonging to another attempt.
+
+When the gate and executor share their `TrialRouter` and session, the runner's witness reaches
+`SterileLoopGuard` through a one-use host channel. Known changed inputs permit new work while
+unrelated edits retain the old failures. Returning to old inputs restores their failure history;
+success clears only the exact known input identity. Missing or partial observations cannot prove
+a repair, and an unreadable current input retains its failures. The native trial event records
+the attempt, scope, status and identity. Without an observer, the existing argument-based behavior
+is unchanged. No tracer, platform dependency, or observer is enabled by default. This bounded
+file scope excludes vendor, var, cache, `.env`, the trial runner, external paths, environment,
+clock, randomness and services; it does not claim complete or semantic dependencies. Measured in
+Greenhouse decisions/0350 and evidence/0667.
+
 During progress recovery, `ConsentBridge` removes declared reads from the offered catalogue using
 the session gate's current state. Successful material work, recorded evidence or a completed todo
 restores them; failed writes and pending confirmations do not. Durable option removals remain in

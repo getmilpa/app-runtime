@@ -34,6 +34,7 @@ final class TrialRunner
         private readonly string $bwrap = 'bwrap',
         private readonly int $timeoutSeconds = 60,
         private readonly string $php = \PHP_BINARY,
+        private readonly ?TrialInputObserver $inputObserver = null,
     ) {
     }
 
@@ -143,7 +144,26 @@ final class TrialRunner
         );
         $cmd = implode(' ', array_map('escapeshellarg', $command));
 
+        $attempt = new TrialInputAttempt(bin2hex(random_bytes(16)), $workspace->root, $workspace->copy, $operation, $input);
+        $observing = $this->inputObserver !== null && $operation === 'test';
+        $prepared = false;
+        if ($observing) {
+            try {
+                $this->inputObserver->before($attempt);
+                $prepared = true;
+            } catch (\Throwable) {
+                // An unavailable observer cannot prevent the trial or manufacture a new input.
+            }
+        }
         [$exit, $stdout, $stderr] = $this->exec($cmd);
+        $witness = $observing ? TestInputWitness::unknown($attempt) : null;
+        if ($prepared) {
+            try {
+                $witness = TestInputWitness::fromObservation($attempt, $this->inputObserver->after($attempt, $exit));
+            } catch (\Throwable) {
+                // Preserve the execution verdict, but do not credit an incomplete observation.
+            }
+        }
         // `timeout` exits 124 when it had to kill; say so, because a trial that ran out of time and
         // one that failed are different findings.
         if ($exit === 124 || $exit === 137) {
@@ -160,6 +180,7 @@ final class TrialRunner
                 'net' => 'unshared', 'pid' => 'unshared',
             ],
             report: $workspace->diff(),
+            inputWitness: $witness,
         );
     }
 
