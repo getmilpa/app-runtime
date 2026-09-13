@@ -52,12 +52,48 @@ final class TrialRouter
     /** @var array<string, ?TrialPlan> memoised by operation name + argument digest */
     private array $plans = [];
 
+    /** @var array<string, array{tool: string, arguments: array<string, mixed>, witness: ?TestInputWitness, recorded: bool}> */
+    private array $inputCalls = [];
+
     public function __construct(
         private readonly string $root,
         private readonly TrialRunner $runner,
         private readonly string $runnerPath,
         private readonly bool $confinedTesting = false,
     ) {
+    }
+
+    /** Start a one-use observation window for this session call, clearing any stale result.
+     * @param array<string, mixed> $arguments
+     */
+    public function beginInputCall(string $session, string $tool, array $arguments): void
+    {
+        $this->inputCalls[$session] = ['tool' => $tool, 'arguments' => $arguments, 'witness' => null, 'recorded' => false];
+    }
+
+    /** Only the native executor supplies this channel; payloads and session text do not.
+     * @param array<string, mixed> $arguments
+     */
+    public function recordInputCall(string $session, string $tool, array $arguments, ?TestInputWitness $witness): void
+    {
+        $call = $this->inputCalls[$session] ?? null;
+        if ($call === null || $call['tool'] !== $tool || $call['arguments'] !== $arguments) {
+            return;
+        }
+        // More than one execution in a window cannot attest a single call.
+        $this->inputCalls[$session]['witness'] = $call['recorded'] ? null : $witness;
+        $this->inputCalls[$session]['recorded'] = true;
+    }
+
+    /** Consume exactly once, including when the caller does not match the pending observation.
+     * @param array<string, mixed> $arguments
+     */
+    public function takeInputCall(string $session, string $tool, array $arguments): ?TestInputWitness
+    {
+        $call = $this->inputCalls[$session] ?? null;
+        unset($this->inputCalls[$session]);
+
+        return $call !== null && $call['tool'] === $tool && $call['arguments'] === $arguments ? $call['witness'] : null;
     }
 
     /** The observer reads the same workspace the route owns; this does not create one. */

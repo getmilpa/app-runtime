@@ -93,6 +93,9 @@ final class TrialAwareRegistry extends ToolRegistry
         $observe = $this->sessions !== null && $this->sessionId !== null;
         $before = $observe ? FileEffectObserver::trialSnapshot($plan->workspace) : null;
         $run = $this->router->runner()->run($plan->workspace, $operation->name, $args, $paths);
+        if ($this->sessionId !== null) {
+            $this->router->recordInputCall($this->sessionId, $name, $args, $run->inputWitness);
+        }
         $this->record($plan, $operation->name, $args, $run);
         if ($observe) {
             $after = FileEffectObserver::trialSnapshot($plan->workspace);
@@ -279,6 +282,13 @@ final class TrialAwareRegistry extends ToolRegistry
             'exit' => $run->exit,
             'report' => $run->report,
             'output_digest' => hash('sha256', $run->stdout),
+            ...($run->inputWitness === null ? [] : ['input_witness' => [
+                'attempt' => $run->inputWitness->attempt->id,
+                'scope' => TestInputWitness::SCOPE,
+                'status' => $run->inputWitness->status,
+                'identity' => $run->inputWitness->status === 'known' ? $run->inputWitness->identity() : null,
+                'complete_execution_inputs' => false,
+            ]]),
         ]);
     }
 

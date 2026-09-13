@@ -153,6 +153,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      */
     public function refuse(string $tool, array $arguments): ?string
     {
+        $this->trialRouter?->beginInputCall($this->session->id, $tool, $arguments);
         // LA EXENCIÓN POR NOMBRE SE RETIRÓ AQUÍ, y lo que la sustituye es la regla.
         //
         // Decía —con razón— que pedir permiso para anotar un plan es pedir permiso para ser legible.
@@ -755,7 +756,8 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
 
         // El vigía ve TODO lo que se ejecutó, incluidas las llamadas de operaciones que esta app no
         // declara: un bucle estéril sobre una herramienta externa gasta el mismo presupuesto.
-        $this->vigiaDeBucle?->anota($tool, $arguments, $result, $ok);
+        $inputWitness = $this->trialRouter?->takeInputCall($this->session->id, $tool, $arguments);
+        $this->vigiaDeBucle?->anota($tool, $arguments, $result, $ok, $inputWitness);
 
         // SI LA LLAMADA MUTABA, lo sabe esta compuerta: tiene la operación delante. El stream no lo
         // guardaba, así que no distinguía mirar de mover — y sin esa distinción no se puede verificar
