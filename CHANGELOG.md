@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.158.0](https://github.com/getmilpa/app-runtime/compare/v0.157.7...v0.158.0) (2026-09-13)
+
+
+### Features
+
+* derive progress from native file effects ([e7dafa0](https://github.com/getmilpa/app-runtime/commit/e7dafa08df22b525398be77d3fb145b12824431e))
+* derive progress from native file effects (0346/0663) ([e2a8051](https://github.com/getmilpa/app-runtime/commit/e2a8051d5b6527036052d6139d41051090c153f1))
+
 ## [0.157.7](https://github.com/getmilpa/app-runtime/compare/v0.157.6...v0.157.7) (2026-09-12)
 
 
