@@ -60,6 +60,12 @@ final class TrialRouter
     ) {
     }
 
+    /** The observer reads the same workspace the route owns; this does not create one. */
+    public function workspace(string $id): ?TrialWorkspace
+    {
+        return TrialWorkspace::open($this->root, $id);
+    }
+
     /**
      * What a trial changed, as the host sees it — for a promotion pause to SHOW what would enter.
      *

@@ -87,6 +87,20 @@ final class SessionToolGateRecoveryTest extends TestCase
         self::assertNull($gate->refuse('inspect', []), 'acting cleared the stall; reading is allowed again');
     }
 
+    public function testUnknownOrEmptyObservationsDoNotClearRecoveryButProofDoes(): void
+    {
+        $gate = $this->gate();
+        $this->recordStall();
+        foreach ([false, true] as $known) {
+            $seq = $this->store->recordEffectObservation('s-1', 'materialize', [], new \Milpa\Agent\EffectObservation('files', $known));
+            $this->store->recordToolCall('s-1', 'materialize', [], '{}', mutating: true, effectObservationSeq: $seq);
+            self::assertNotNull($gate->refuse('inspect', []));
+        }
+        $seq = $this->store->recordEffectObservation('s-1', 'test', [], new \Milpa\Agent\EffectObservation('tests', true, [], [hash('sha256', 'proof')]));
+        $this->store->recordToolCall('s-1', 'test', [], '{}', effectObservationSeq: $seq);
+        self::assertNull($gate->refuse('inspect', []));
+    }
+
     /** A confirmation-only call did not act, so it does not clear recovery. */
     public function testAConfirmationOnlyCallDoesNotClearRecovery(): void
     {

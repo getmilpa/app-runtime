@@ -19,6 +19,8 @@ use Milpa\AppRuntime\Support\ContratoInstalado;
 use Milpa\Agent\PolicyDecision;
 use Milpa\Agent\Principal;
 use Milpa\Agent\ProgressReceipt;
+use Milpa\Agent\EffectObservation;
+use Milpa\Agent\SessionEvent;
 use Milpa\Agent\Session;
 use Milpa\Agent\SessionPolicy;
 use Milpa\Agent\SessionStore;
@@ -474,7 +476,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         }
 
         return $stalled > 0
-            && ProgressReceipt::of($stream, $stalled, $last)->progress === ProgressReceipt::STALLED;
+            && ProgressReceipt::of($stream, $stalled, $last)->progress !== ProgressReceipt::ADVANCING;
     }
 
     /**
@@ -820,6 +822,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             // (evidence/0141). El predicado además distingue una petición de un PLAN, que lleva la
             // misma llave anidada para decir qué requeriría confirmarse sin estar pidiéndolo.
             $pidioConfirmacion = ToolResult::asksForConfirmation($result),
+            $this->effectObservationSeq($tool, $arguments),
         );
 
         // LA RECETA PARA DESHACER, dejada donde quien deshaga va a buscarla.
@@ -845,6 +848,24 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
                 'call_seq' => $seqDeLaLlamada,
             ]);
         }
+    }
+
+    /** Link only this execution's observation, never an earlier call or tool-supplied payload.
+     * @param array<string, mixed> $arguments
+     */
+    private function effectObservationSeq(string $tool, array $arguments): ?int
+    {
+        foreach (array_reverse($this->sessions->stream($this->session->id)) as $event) {
+            if ($event->type === SessionEvent::ToolCalled->value) {
+                return null;
+            }
+            if ($event->type === SessionEvent::EffectObserved->value) {
+                return ($event->payload['tool'] ?? null) === $tool
+                    && ($event->payload['argumentsDigest'] ?? null) === EffectObservation::argumentsDigest($arguments)
+                    ? $event->seq : 0;
+            }
+        }
+        return null;
     }
 
     /**
