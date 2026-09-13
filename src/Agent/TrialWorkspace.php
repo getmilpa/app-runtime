@@ -181,6 +181,27 @@ final class TrialWorkspace
     }
 
     /**
+     * Whether another execution may reuse this copy's original inputs (greenhouse 0347/0664).
+     * Promotion's stale() only checks proposed destinations; execution also depends on unchanged
+     * files. Compare the whole copied baseline with the host, excluding live mounts and .env.
+     * Never compare against the edited copy: a pending proposal is not a host input change.
+     * Unreadable provenance cannot establish freshness; the router retains that old workspace.
+     */
+    public function hasCurrentInputs(): bool
+    {
+        try {
+            $baseline = $this->manifest();
+            $current = self::hashTree($this->root);
+            unset($current['.env']);
+            ksort($baseline);
+
+            return $baseline === $current;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
      * What the host held for each copied path at materialize time.
      *
      * @return array<string, string>

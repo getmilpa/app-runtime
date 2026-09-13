@@ -24,7 +24,7 @@ use Milpa\Command\Operation;
  *
  * The gate asks it to know whether to confine the call's profile; the executor asks it to know
  * whether to run the call in the sandbox. They get the SAME answer for the same call because the
- * plan is memoised by the call's argument digest — never two verdicts for one call.
+ * plan is memoised by the call's argument digest while its copied inputs still match the host.
  *
  * ── WHAT IS ELIGIBLE ────────────────────────────────────────────────────────────────────────────
  *
@@ -161,11 +161,14 @@ final class TrialRouter
         $key = $operation->name . '#' . $digest;
         if (\array_key_exists($key, $this->plans)) {
             $cached = $this->plans[$key];
-            if ($cached === null || is_dir($cached->workspace->copy)) {
+            if ($cached === null || (is_dir($cached->workspace->copy) && $cached->workspace->hasCurrentInputs())) {
                 return $cached;
             }
             // Discard, promotion and the retention cap may remove a copy during this turn.
             // A confinement receipt cannot keep promising a workspace that no longer exists.
+            // A changed host also needs a fresh copy, even if the cached trial had no diff.
+            // Forget only the plan: a pending proposal keeps its baseline, bytes and promotion
+            // conflict checks, under the existing KEEP retention bound (greenhouse 0347/0664).
             unset($this->plans[$key]);
         }
 

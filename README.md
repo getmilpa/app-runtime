@@ -620,3 +620,15 @@ A known empty observation does not reset recovery. An unavailable observation ne
 pending recovery nor proves its window exhausted. Older producers without observations retain the
 legacy session interpretation. This protocol requires `milpa/agent >=0.44` when the optional agent
 capability is installed (greenhouse decisions/0346, evidence/0663).
+
+### Trial input freshness
+
+A repeated call reuses its trial plan only while the copied host inputs still match the original
+manifest. Source additions, edits, deletions and undo renew the plan; top-level `var/`, live-mounted
+`vendor/` and `.env` are outside that copied-input comparison. `TrialWorkspace::hasCurrentInputs()`
+checks all copied inputs, while `stale()` continues to check only a proposal's promotion targets.
+
+Renewal retains the old workspace and pending diff under the existing 24-trial retention bound;
+it never rebases or promotes that proposal. Unreadable baselines cannot establish freshness.
+This does not provide an atomic snapshot against concurrent host writers or change the independent
+repeated-failure guard. Greenhouse decisions/0347 and evidence/0664 measure the native path.
