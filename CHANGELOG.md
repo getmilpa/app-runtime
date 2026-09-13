@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.158.2](https://github.com/getmilpa/app-runtime/compare/v0.158.1...v0.158.2) (2026-09-13)
+
+
+### Bug Fixes
+
+* retain test failure histories by witnessed inputs ([f2e49c5](https://github.com/getmilpa/app-runtime/commit/f2e49c5e54cda44c40fa2f9f49d26fb636fbee65))
+* retain test failure histories by witnessed inputs ([52c9bb8](https://github.com/getmilpa/app-runtime/commit/52c9bb82b4c8b91556fa6c640e1aca91a3a631e5))
+
 ## [0.158.1](https://github.com/getmilpa/app-runtime/compare/v0.158.0...v0.158.1) (2026-09-13)
 
 
