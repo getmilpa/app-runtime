@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.160.0](https://github.com/getmilpa/app-runtime/compare/v0.159.1...v0.160.0) (2026-09-14)
+
+
+### Features
+
+* expose native candidate test and screen evidence (greenhouse 0381/0698) ([ad49780](https://github.com/getmilpa/app-runtime/commit/ad49780aad820263c2d38f0c18e4d663f3cbb181))
+* join native candidate, test and screen evidence ([4177096](https://github.com/getmilpa/app-runtime/commit/4177096eb4af6b42739b9968a9458af7850a31e3))
+
 ## [0.159.1](https://github.com/getmilpa/app-runtime/compare/v0.159.0...v0.159.1) (2026-09-14)
 
 
