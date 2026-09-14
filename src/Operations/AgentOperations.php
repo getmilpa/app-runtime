@@ -35,6 +35,8 @@ use Milpa\Http\Routing\Route;
 use Milpa\Http\Routing\Router;
 use Milpa\AppRuntime\Agent\ArchitectureSummaryProjector;
 use Milpa\AppRuntime\Agent\ClosureVerdict;
+use Milpa\AppRuntime\Agent\DeliveryScope;
+use Milpa\AppRuntime\Agent\DeliveryClosure;
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Auth\PresentedToken;
 use Milpa\ToolRuntime\Contracts\ToolContext;
@@ -793,6 +795,7 @@ class AgentOperations implements CommandProvider
                         // whether or not this app can hold one. Same doctrine as above — what
                         // cannot be done is not offered, and a schema is read by agents too.
                         ...($this->sessionStore() !== null ? [
+                            'delivery' => ['type' => ['object', 'string'], 'description' => 'Immutable caller-declared delivery: workspace, artifactPath, test {path, filter}, screen {name, type, definition?}. CLI accepts JSON. Omit to retain the declaration; changing it requires a new session. This is scope, not approval.'],
                             'deny' => ['type' => 'string', 'description' => 'Comma-separated tools withdrawn from its catalogue. Requires --session'],
                             // LA DESCRIPCION SE ARMA DE LA LISTA, no se copia junto a ella. Estas
                             // cuatro vivían escritas aquí Y en el `match` que resuelve, y dos copias
@@ -1752,6 +1755,20 @@ class AgentOperations implements CommandProvider
         if ($sessionId === '' && $store !== null) {
             $sessionId = 'run-' . date('md-His') . '-' . substr(bin2hex(random_bytes(3)), 0, 4);
         }
+        // Validate before any session mutation or provider call. Scope belongs to the caller,
+        // never to answer prose or the arguments of the model's last evidence read.
+        try {
+            $deliveryAsked = array_key_exists('delivery', $input) ? DeliveryScope::parse($input['delivery']) : null;
+            $delivery = $store !== null && $sessionId !== '' ? DeliveryScope::read($store->stream($sessionId), $sessionId) : null;
+            if ($deliveryAsked !== null && ($store === null || $this->sessionEvents === null)) {
+                throw new \RuntimeException('A delivery declaration requires a durable session event store.');
+            }
+            if ($deliveryAsked !== null && $delivery !== null && $deliveryAsked !== $delivery['scope']) {
+                throw new \InvalidArgumentException('The delivery scope is immutable; use a new session for another delivery.');
+            }
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
         $historial = [];
         /** @var list<array{role: string, content: string, class: string}>|null $declaredWindow */
         $declaredWindow = null;
@@ -1816,6 +1833,10 @@ class AgentOperations implements CommandProvider
 
                 $historial = $sesion?->window() ?? $historial;
                 $declaredWindow = $sesion?->classifiedWindow();
+            }
+
+            if ($deliveryAsked !== null && $delivery === null) {
+                DeliveryScope::record($this->sessionEvents, $sessionId, $deliveryAsked, ObservedExecutor::fromContext($context));
             }
 
             // ── SEED THE LAUNCH GRANTS, before the gate reads the session ───────────────────
@@ -2472,14 +2493,14 @@ class AgentOperations implements CommandProvider
         // ── THE CLOSURE VERDICT (greenhouse evidence/0442) ──────────────────────────────────────
         //
         // Only the NATURAL end carries it: paused, interrupted and exhausted returns already say
-        // what they are. Derived from RECORDED facts alone — no re-scan, no re-run, no model call —
+        // what they are. A declared delivery re-observes native evidence; otherwise recorded facts alone —
         // and appended to the session's own stream exactly once per final answer, so a surface can
         // project it. It blocks the assertion, never the write: the answer still returns, but the
         // envelope cannot claim a completion the ledger does not back.
         // `$pausada` is only ever loaded with a session and its store in hand, so its presence is
         // the whole guard: re-checking the store here would be a condition that can never fire.
         if ($pausada !== null && !isset($resultado['paused']) && !isset($resultado['exhausted']) && !isset($resultado['stalled'])) {
-            $closure = ClosureVerdict::derive($pausada, $store->facts($sessionId));
+            $closure = $this->deliveryClosure($store, $pausada);
             $resultado['closure'] = $closure;
             if ($this->sessionEvents !== null) {
                 ClosureVerdict::record($this->sessionEvents, $sessionId, $closure);
@@ -2944,6 +2965,26 @@ class AgentOperations implements CommandProvider
      * coincidir, y el día que lo hicieran `agent:answer` contestaría en una sesión que `agent` no
      * está leyendo.
      */
+    /** Read fresh files only at the natural end; persist the sampled evidence beside its verdict.
+     * @return array<string,mixed>
+     */
+    private function deliveryClosure(SessionStore $store, Session $session): array
+    {
+        try {
+            $declaration = DeliveryScope::read($store->stream($session->id), $session->id);
+            if ($declaration === null) {
+                return ClosureVerdict::derive($session, $store->facts($session->id));
+            }
+            $contract = ['session' => $session->id] + $declaration['scope'];
+            $evidence = $this->acceptanceEvidence($contract);
+            return DeliveryClosure::derive($session, $store->facts($session->id), $contract, $evidence)
+                + ['delivery' => ['declarationSeq' => $declaration['seq'], 'sha256' => $declaration['sha256']],
+                    'observation' => $evidence];
+        } catch (\Throwable) {
+            return DeliveryClosure::derive($session, $store->facts($session->id), [], null);
+        }
+    }
+
     /**
      * Read the SDK through the app's actual session and configured draft authorities.
      *
