@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.159.0](https://github.com/getmilpa/app-runtime/compare/v0.158.4...v0.159.0) (2026-09-14)
+
+
+### Features
+
+* expose candidate state through the native SDK and operation ([bf03a63](https://github.com/getmilpa/app-runtime/commit/bf03a639eb4a41322b2a991ce976d866331d9bc4))
+* expose candidate state through the native SDK and operation ([6a6e676](https://github.com/getmilpa/app-runtime/commit/6a6e6765084f05d0b5f4e8b1ec4707cfa130216d))
+
 ## [0.158.4](https://github.com/getmilpa/app-runtime/compare/v0.158.3...v0.158.4) (2026-09-13)
 
 
