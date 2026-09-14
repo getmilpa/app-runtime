@@ -234,6 +234,97 @@ final class AcceptanceEvidenceTest extends TestCase
         }
     }
 
+    /** @return iterable<string, array{string, string}> */
+    public static function reviewSelections(): iterable
+    {
+        foreach (['catalog' => 'current_evidence', 'empty' => 'current_evidence', 'catalog-only' => 'incomplete',
+            'refused-catalog' => 'current_evidence', 'broken-catalog' => 'current_evidence', 'stale' => 'historical_evidence',
+            'missing-arguments' => 'indeterminate', 'null' => 'indeterminate', 'number' => 'indeterminate',
+            'spaces' => 'indeterminate', 'extra-field' => 'indeterminate', 'empty-extra-field' => 'indeterminate',
+            'missing-revision' => 'indeterminate', 'directed-refused' => 'indeterminate', 'directed-awaiting' => 'indeterminate',
+            'directed-broken' => 'indeterminate', 'directed-truncated' => 'indeterminate', 'other-target' => 'indeterminate',
+            'other-definition' => 'indeterminate', 'compatible-new' => 'current_evidence', 'ambiguous-producer' => 'indeterminate',
+            'unordered-catalog' => 'indeterminate'] as $name => $state) {
+            yield $name => [$name, $state];
+        }
+    }
+
+    #[DataProvider('reviewSelections')]
+    public function testCatalogueDoesNotReplaceTheLatestDirectedAttempt(string $name, string $state): void
+    {
+        $revision = $this->rows[6]['payload']['arguments']['revision'];
+        $expectedSeq = 7;
+        if ($name === 'catalog-only') {
+            unset($this->rows[6]);
+        }
+        if ($name === 'stale') {
+            file_put_contents($this->root . '/tests/Plugins/Owned/NewTest.php', '<?php // new requirement');
+        }
+        if (in_array($name, ['other-target', 'other-definition', 'compatible-new'], true)) {
+            $this->screen['definition'] = ['type' => 'focus-counter', 'props' => ['goal' => 6, 'name' => 'focus']];
+            $draft = $this->drafts->draft($name === 'other-target' ? 'other' : 'focus', 'focus-counter', ['goal' => $name === 'other-definition' ? 9 : 6]);
+            $this->call('screen_draft', [], ['ok' => true, 'result' => $draft]);
+            $revision = $draft['id'];
+            $this->call('screen_review', ['revision' => $revision], ['ok' => true, 'result' => $this->drafts->review($revision)]);
+            $expectedSeq = 9;
+        }
+        if ($name === 'ambiguous-producer') {
+            $this->rows[] = $this->rows[5];
+            $this->rows[] = $this->rows[6];
+        }
+        $invalid = ['missing-arguments' => null, 'null' => ['revision' => null], 'number' => ['revision' => 1],
+            'spaces' => ['revision' => ' '], 'extra-field' => ['unknown' => true], 'empty-extra-field' => ['revision' => '', 'unknown' => true],
+            'missing-revision' => ['revision' => str_repeat('f', 64)]];
+        if (array_key_exists($name, $invalid) || str_starts_with($name, 'directed-')) {
+            $this->rows[] = $this->rows[6];
+            $i = array_key_last($this->rows);
+            if (array_key_exists($name, $invalid)) {
+                $this->rows[$i]['payload']['arguments'] = $invalid[$name];
+                if ($name === 'missing-arguments') {
+                    unset($this->rows[$i]['payload']['arguments']);
+                }
+            }
+            if ($name === 'directed-refused') {
+                $this->rows[$i]['payload']['ok'] = false;
+            }
+            if ($name === 'directed-awaiting') {
+                $this->rows[$i]['payload']['awaitingConfirmation'] = true;
+            }
+            if ($name === 'directed-broken') {
+                $this->rows[$i]['payload']['result'] = '{';
+                $this->rows[$i]['payload']['resultChars'] = 1;
+            }
+            if ($name === 'directed-truncated') {
+                ++$this->rows[$i]['payload']['resultChars'];
+            }
+        }
+        $this->call('screen_review', $name === 'empty' ? ['revision' => ''] : [], ['ok' => true, 'result' => $this->drafts->catalogue()]);
+        $last = array_key_last($this->rows);
+        if ($name === 'refused-catalog') {
+            $this->rows[$last]['payload']['ok'] = false;
+        }
+        if ($name === 'broken-catalog') {
+            $this->rows[$last]['payload']['result'] = '{';
+            $this->rows[$last]['payload']['resultChars'] = 1;
+        }
+        $events = [];
+        foreach ($this->rows as $i => $row) {
+            $events[] = new Event('s1', $row['type'], $row['payload'], $name === 'unordered-catalog' && $i === $last ? 1 : $i + 1, null);
+        }
+        $before = $this->tree();
+        $read = fn () => AcceptanceEvidence::read($this->root, $events, $this->candidate, $this->scope, $this->screen, $this->drafts);
+        $result = $read();
+        self::assertSame($state, $result['state'], json_encode($result));
+        self::assertSame($result, $read());
+        self::assertSame($before, $this->tree());
+        self::assertSame('not_evaluated', $result['authorization']);
+        self::assertSame('not_recorded', $result['humanApproval']);
+        if ($state === 'current_evidence' || $state === 'historical_evidence') {
+            self::assertSame($revision, $result['screen']['revision']);
+            self::assertSame($expectedSeq, $result['screen']['toolCallSeq']);
+        }
+    }
+
     private function call(string $name, array $args, array $result): void
     {
         $raw = json_encode($result, JSON_THROW_ON_ERROR);

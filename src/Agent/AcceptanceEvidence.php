@@ -95,7 +95,7 @@ final class AcceptanceEvidence
                 if (($row['payload']['tool'] ?? null) === 'test') {
                     $test = $row;
                 }
-                if (($row['payload']['tool'] ?? null) === 'screen_review') {
+                if (($row['payload']['tool'] ?? null) === 'screen_review' && !AcceptanceEvidenceJoin::isCatalogueReview($row['payload'])) {
                     $review = $row;
                 }
             }
