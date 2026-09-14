@@ -15,6 +15,8 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Operations;
 
 use Milpa\AppRuntime\Agent\CandidateState;
+use Milpa\AppRuntime\Agent\AcceptanceEvidence;
+use Milpa\AppRuntime\Web\ScreenDrafts;
 use Milpa\AppRuntime\Agent\TrialRunner;
 use Milpa\AppRuntime\Agent\TrialInputObserver;
 use Milpa\AppRuntime\Agent\TrialRouter;
@@ -474,6 +476,35 @@ class AgentOperations implements CommandProvider
                     ],
                     'required' => ['ok'],
                 ],
+                effects: EffectProfile::readOnly(),
+                scopes: ['agent:read'],
+                surfaces: ['cli', 'tui', 'mcp'],
+            ), new Operation(
+                name: 'acceptance:evidence',
+                description: 'Read current candidate, requested test scope and immutable screen review evidence. Full diagnostics remain in the referenced session receipt. This read neither approves nor activates anything.',
+                handler: fn (array $input): array => $this->acceptanceEvidence($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'required' => ['session', 'workspace', 'test', 'screen'],
+                    'properties' => [
+                        'session' => ['type' => 'string'],
+                        'workspace' => ['type' => 'string', 'description' => 'The edit/implement candidate workspace, not the test workspace'],
+                        'test' => ['type' => 'object', 'required' => ['path', 'filter'], 'additionalProperties' => false,
+                            'properties' => ['path' => ['type' => 'string'], 'filter' => ['type' => 'string']]],
+                        'screen' => ['type' => 'object', 'required' => ['name', 'type'],
+                            'properties' => ['name' => ['type' => 'string'], 'type' => ['type' => 'string'], 'definition' => ['type' => 'object']]],
+                    ],
+                ],
+                outputSchema: ['type' => 'object', 'required' => ['ok'], 'properties' => [
+                    'ok' => ['type' => 'boolean'], 'session' => ['type' => 'string'],
+                    'schema' => ['type' => 'string'],
+                    'state' => ['type' => 'string', 'enum' => ['current_evidence', 'historical_evidence', 'failed', 'incomplete', 'indeterminate']],
+                    'authorization' => ['type' => 'string', 'enum' => ['not_evaluated']],
+                    'humanApproval' => ['type' => 'string', 'enum' => ['not_recorded']],
+                    'scope' => ['type' => 'object'], 'candidate' => ['type' => ['object', 'null']],
+                    'test' => ['type' => 'object'], 'screen' => ['type' => 'object'],
+                    'reason' => ['type' => 'string'], 'error' => ['type' => 'string'],
+                ]],
                 effects: EffectProfile::readOnly(),
                 scopes: ['agent:read'],
                 surfaces: ['cli', 'tui', 'mcp'],
@@ -2913,6 +2944,29 @@ class AgentOperations implements CommandProvider
      * coincidir, y el día que lo hicieran `agent:answer` contestaría en una sesión que `agent` no
      * está leyendo.
      */
+    /**
+     * Read the SDK through the app's actual session and configured draft authorities.
+     *
+     * @param array<string,mixed> $input
+     *
+     * @return array<string,mixed>
+     */
+    private function acceptanceEvidence(array $input): array
+    {
+        $session = is_string($input['session'] ?? null) ? trim($input['session']) : '';
+        $workspace = is_string($input['workspace'] ?? null) ? $input['workspace'] : '';
+        if ($session === '' || $workspace === '' || !is_array($input['test'] ?? null) || !is_array($input['screen'] ?? null)) {
+            return ['ok' => false, 'error' => 'Session, candidate workspace, test scope and screen target are required.'];
+        }
+        $store = $this->sessionStore();
+        if ($store === null || $store->load($session) === null) {
+            return ['ok' => false, 'error' => 'The requested session does not exist here.'];
+        }
+        $root = \Milpa\AppRuntime\Support\AppRoot::of($this->container, 'acceptance:evidence');
+        $drafts = $this->container->has(ScreenDrafts::class) ? $this->container->get(ScreenDrafts::class) : null;
+        return ['ok' => true, 'session' => $session] + AcceptanceEvidence::read($root, $store->stream($session), $workspace, $input['test'], $input['screen'], $drafts);
+    }
+
     /**
      * The native operation and public SDK share the same candidate projection.
      *
