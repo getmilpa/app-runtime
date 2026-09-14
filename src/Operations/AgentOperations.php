@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Operations;
 
+use Milpa\AppRuntime\Agent\CandidateState;
 use Milpa\AppRuntime\Agent\TrialRunner;
 use Milpa\AppRuntime\Agent\TrialInputObserver;
 use Milpa\AppRuntime\Agent\TrialRouter;
@@ -442,6 +443,41 @@ class AgentOperations implements CommandProvider
                 // exists to pay off.
                 observableEvidence: 'the answer itself: every key present, each section equal to its one authority — plugins to what the kernel booted, operations to the assembled catalogue, capabilities to the capability registry',
             ),
+            // A session read needs the agent capability, but never a model/provider.
+            ...(Capabilities::installed('agent') ? [new Operation(
+                name: 'candidate:state',
+                description: 'Read the current location and byte continuity of a producer-verified single-file trial candidate. A next operation still needs native permission and a fresh state check.',
+                handler: fn (array $input): array => $this->candidateState($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'session' => ['type' => 'string', 'description' => 'The session containing the producer and trial receipts'],
+                        'workspace' => ['type' => 'string', 'description' => 'The workspace returned by edit or implement'],
+                    ],
+                    'required' => ['session', 'workspace'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean'],
+                        'session' => ['type' => 'string'],
+                        'workspace' => ['type' => 'string'],
+                        'state' => ['type' => 'string', 'enum' => ['pending', 'promoted', 'contradicted', 'indeterminate']],
+                        'reason' => ['type' => 'string'],
+                        'artifact' => ['type' => ['object', 'null'], 'description' => 'Candidate path and SHA-256 from its recorded judgment'],
+                        'verification' => ['type' => ['object', 'null'], 'description' => 'Producer declaration only; may describe conformance without behavior testing'],
+                        'evidence' => ['type' => ['object', 'array'], 'description' => 'Receipt references when known, otherwise an empty array'],
+                        'inputScope' => ['type' => 'string'],
+                        'authorization' => ['type' => 'string', 'enum' => ['not_evaluated']],
+                        'next' => ['type' => ['object', 'null'], 'description' => 'An existing operation and arguments, with requiresRecheck=true; never permission'],
+                        'error' => ['type' => 'string'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                effects: EffectProfile::readOnly(),
+                scopes: ['agent:read'],
+                surfaces: ['cli', 'tui', 'mcp'],
+            )] : []),
             new Operation(
                 name: 'work:snapshot',
                 description: 'Where the WORK stands in one call, derived from the session\'s own stream: objective, materialized, verified, blocked, unclosable, next executable actions and the house debt — so nothing is re-derived by re-reading files (greenhouse decisions/0187, D-06)',
@@ -2877,6 +2913,29 @@ class AgentOperations implements CommandProvider
      * coincidir, y el día que lo hicieran `agent:answer` contestaría en una sesión que `agent` no
      * está leyendo.
      */
+    /**
+     * The native operation and public SDK share the same candidate projection.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function candidateState(array $input): array
+    {
+        $session = \is_string($input['session'] ?? null) ? trim($input['session']) : '';
+        $workspace = \is_string($input['workspace'] ?? null) ? $input['workspace'] : '';
+        if ($session === '' || $workspace === '') {
+            return ['ok' => false, 'error' => 'Both session and workspace are required.'];
+        }
+        $store = $this->sessionStore();
+        if ($store === null || $store->load($session) === null) {
+            return ['ok' => false, 'error' => 'The requested session does not exist here.'];
+        }
+        $root = \Milpa\AppRuntime\Support\AppRoot::of($this->container, 'candidate:state');
+
+        return ['ok' => true, 'session' => $session] + CandidateState::read($root, $store->stream($session), $workspace);
+    }
+
     /**
      * D-06 (greenhouse decisions/0187): the session's work state, derived once from its own stream.
      *

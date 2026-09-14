@@ -669,3 +669,43 @@ Renewal retains the old workspace and pending diff under the existing 24-trial r
 it never rebases or promotes that proposal. Unreadable baselines cannot establish freshness.
 This does not provide an atomic snapshot against concurrent host writers or change the independent
 repeated-failure guard. Greenhouse decisions/0347 and evidence/0664 measure the native path.
+
+## Read a candidate before continuing
+
+`candidate:state` reads a single-file `edit` or `implement` candidate from the session's native
+receipts and current files. It is offered by `AgentOperations` when the `agent` capability is
+installed; no model connection or extra app provider is needed. The operation requires
+`agent:read` and declares read-only effects.
+
+```bash
+php bin/coa candidate:state --session=repair-session --workspace=w1234567890abcdef --json
+```
+
+The same projection is available to PHP consumers:
+
+```php
+use Milpa\AppRuntime\Agent\CandidateState;
+
+$state = CandidateState::read($appRoot, $sessionStore->stream($sessionId), $workspaceId);
+```
+
+Pass an absolute, resolved application root and the trusted session stream. The projection returns
+`pending`, `promoted`, `contradicted` or `indeterminate`, with a reason, the candidate path/hash
+when known, and references to the producing events and physical receipts. It reads again on each
+call; it has no durable state or cache of its own.
+
+A pending candidate has a matching trial copy and current copied-input baseline. A promoted
+candidate has an exact promotion receipt, matching host bytes and a collapsed copy. A contradiction
+or insufficient evidence offers no continuation. `verification.scope=producer_declaration`
+preserves what the producer reported: syntax/conformance alone does not become behavior acceptance.
+
+`authorization` is always `not_evaluated`. When present, `next` describes the existing
+`sandbox:promote` operation and its workspace, with `requiresRecheck=true`. Re-read immediately
+before proposing it through the normal governed runner. The read neither grants permission nor
+reserves future bytes; the normal native gates still decide execution. Reading through the agent
+continues to record ordinary tool-call events.
+
+This contract covers one added or modified file. Pending reads use the native copied-input domain;
+promoted reads cover the files recorded in the baseline, not later added inputs, vendor or the
+process environment. It does not certify all execution dependencies, test/review acceptance or
+readiness to deploy. Evidence: greenhouse decisions/0375–0376 and evidence/0692–0693.
