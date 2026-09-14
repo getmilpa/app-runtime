@@ -716,3 +716,49 @@ This contract covers one added or modified file. Pending reads use the native co
 promoted reads cover the files recorded in the baseline, not later added inputs, vendor or the
 process environment. It does not certify all execution dependencies, test/review acceptance or
 readiness to deploy. Evidence: greenhouse decisions/0375–0376 and evidence/0692–0693.
+
+
+## Join candidate, test and screen evidence
+
+`acceptance:evidence` is an `agent:read` operation offered with the agent capability, without a
+model connection. It joins the candidate's native receipts and current files, the latest test
+attempt in that session, and its latest immutable screen review. The caller supplies the question:
+
+```php
+use Milpa\AppRuntime\Agent\AcceptanceEvidence;
+use Milpa\AppRuntime\Web\ScreenDrafts;
+
+$evidence = AcceptanceEvidence::read(
+    $appRoot,
+    $sessionStore->stream($sessionId),
+    $candidateWorkspace,
+    ['path' => 'tests/Plugins/Owned', 'filter' => ''],
+    ['name' => 'focus', 'type' => 'focus-counter'],
+    $container->get(ScreenDrafts::class),
+);
+```
+
+Pass the host's configured `ScreenDrafts` service; pass `null` when unavailable. The native
+operation uses that same service and SDK. Its arguments are `session`, `workspace`, `test`
+(the exact path/filter object) and `screen` (name/type, optionally an exact `definition`).
+The workspace is the **edit/implement candidate**, not the later test workspace.
+
+The versioned `milpa.acceptance-evidence/v1` result distinguishes `current_evidence`,
+`historical_evidence`, `failed`, `incomplete` and `indeterminate`. Test outcome, `ran`, known
+counts, actual scope and `coversRequestedScope` remain separate: a failed or filtered attempt
+does not stand for the entire requested suite. Unknown counts stay `null`, and zero stays zero.
+Changing copied inputs invalidates failed evidence as well as passing evidence. The reader
+uses complete durable receipts, not a model-window preview, and re-observes current files.
+
+Full output and stderr remain in the session stream. `test.receipt` identifies the original
+`session.tool_called` result by `toolCallSeq`, character count and SHA-256 of its UTF-8 bytes.
+This compact projection preserves the verdict without repeating the diagnostic; it is not a new
+receipt store or a guarantee that arbitrary user-supplied screen definitions fit every model window.
+A refusal without a trial remains indeterminate and does not acquire a PHPUnit verdict.
+
+`authorization=not_evaluated` and `humanApproval=not_recorded` are unconditional. A screen review
+is a read, not human acceptance. This does not activate a screen, deploy, certify browser behavior,
+lock future bytes, or certify execution inputs outside the native copied files and screen build.
+Concurrent changes can invalidate any later action. Output bytes that cannot be reconstructed
+exactly from the native runner's JSON record plus LF remain indeterminate; extra stdout is not
+silently normalized away. Evidence: greenhouse decisions/0381 and evidence/0698.
