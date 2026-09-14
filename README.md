@@ -483,6 +483,13 @@ meaning to the experimental `plugin:Owned` string. Activation still needs its ow
 - Trial stdout and stderr are drained together, so a verbose warning cannot block the child
   behind an unread pipe. Both channels and the exit status are retained, including output
   produced before the existing trial deadline kills an unfinished process.
+- A failed native `test` stays unsuccessful. Its error text is JSON with schema
+  `milpa.trial-test-failure/v1`, `ok: false`, `ran_in_trial: true`, `applied: false`, the
+  workspace, `trial_exit`, the original structured `output` (or `null`), and separate `stderr`.
+  This survives the tool channel's exception and the durable session record. Missing output
+  does not imply a PHPUnit verdict; unknown producer counts remain unknown. Invalid UTF-8 in
+  diagnostics becomes the Unicode replacement character. Direct `ToolResult.data` consumers
+  keep the original producer data. No promotion instruction is added to failed tests.
 - A successful trial is a proposal. `sandbox:promote` and `sandbox:undo` judge every affected file
   against the authority of the current call before writing the first one. Mixed resource exports,
   traversal and symbolic links refuse as a whole. A saved trial never saves permission to export.

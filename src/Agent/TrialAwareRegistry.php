@@ -113,6 +113,23 @@ final class TrialAwareRegistry extends ToolRegistry
         ];
 
         if (! $run->ok()) {
+            if ($operation->name === 'test') {
+                // The native channel persists and throws only error text on failure. Keep the
+                // producer's result there, separately from runner diagnostics (greenhouse 0695).
+                // Null output means no structured result was received; no cause is inferred.
+                $error = json_encode([
+                    'schema' => 'milpa.trial-test-failure/v1',
+                    'ok' => false,
+                    'ran_in_trial' => true,
+                    'applied' => false,
+                    'workspace' => $plan->workspace->id,
+                    'trial_exit' => $run->exit,
+                    'output' => $run->output,
+                    'stderr' => $run->stderr,
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+
+                return ToolResult::error($error, $run->output, $meta);
+            }
             return ToolResult::error(\is_string($run->output['error'] ?? null) ? $run->output['error'] : ($run->stderr !== '' ? $run->stderr : 'the trial did not succeed'), $run->output, $meta);
         }
 
