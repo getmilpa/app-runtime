@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.159.1](https://github.com/getmilpa/app-runtime/compare/v0.159.0...v0.159.1) (2026-09-14)
+
+
+### Bug Fixes
+
+* preserve failed trial test results in the native error channel ([7188fb8](https://github.com/getmilpa/app-runtime/commit/7188fb8b452d0cd1bea85030484c2855a77f3431))
+* preserve failed trial test results through the native error channel (0695) ([a11eba2](https://github.com/getmilpa/app-runtime/commit/a11eba2f08a43c2a111617d74ee06baa71ea9e9e))
+
 ## [0.159.0](https://github.com/getmilpa/app-runtime/compare/v0.158.4...v0.159.0) (2026-09-14)
 
 
