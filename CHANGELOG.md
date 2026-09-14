@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.160.1](https://github.com/getmilpa/app-runtime/compare/v0.160.0...v0.160.1) (2026-09-14)
+
+
+### Bug Fixes
+
+* **agent:** preserve directed review evidence across catalogue queries ([#454](https://github.com/getmilpa/app-runtime/issues/454)) ([88f4482](https://github.com/getmilpa/app-runtime/commit/88f44822988c39f4ff18b25d76f6934d2a05849d))
+
 ## [0.160.0](https://github.com/getmilpa/app-runtime/compare/v0.159.1...v0.160.0) (2026-09-14)
 
 
