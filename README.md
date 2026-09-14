@@ -743,6 +743,12 @@ operation uses that same service and SDK. Its arguments are `session`, `workspac
 (the exact path/filter object) and `screen` (name/type, optionally an exact `definition`).
 The workspace is the **edit/implement candidate**, not the later test workspace.
 
+Catalogue queries (`screen_review` with `{}` or `{"revision":""}`) do not replace the latest
+directed review. The collector and receipt join select by request intent, never success: a
+later failed or malformed directed attempt stays relevant and cannot recover an earlier green
+result. A catalogue alone supplies no exact review. Current files and the selected revision
+are still re-observed; catalogue queries do not freeze evidence freshness.
+
 The versioned `milpa.acceptance-evidence/v1` result distinguishes `current_evidence`,
 `historical_evidence`, `failed`, `incomplete` and `indeterminate`. Test outcome, `ran`, known
 counts, actual scope and `coversRequestedScope` remain separate: a failed or filtered attempt

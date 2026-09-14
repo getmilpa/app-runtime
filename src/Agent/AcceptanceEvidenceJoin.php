@@ -19,6 +19,19 @@ use Milpa\AppRuntime\Web\ScreenDrafts;
 final class AcceptanceEvidenceJoin
 {
     /**
+     * Recognize only unambiguous catalogue requests. Failed or malformed directed attempts
+     * must remain eligible; choosing by result would conceal a later refusal (greenhouse 0383/0700).
+     *
+     * @param array<string,mixed> $payload
+     */
+    public static function isCatalogueReview(array $payload): bool
+    {
+        $arguments = $payload['arguments'] ?? null;
+
+        return $arguments === [] || $arguments === ['revision' => ''];
+    }
+
+    /**
      * Derive evidence from the collector.
      *
      * @param array<string,mixed> $observation
@@ -244,7 +257,10 @@ final class AcceptanceEvidenceJoin
      */
     private static function review(array $events, array $observation, array $target): array
     {
-        $calls = self::calls($events, 'screen_review');
+        $calls = array_values(array_filter(
+            self::calls($events, 'screen_review'),
+            static fn ($event) => !self::isCatalogueReview($event['payload'])
+        ));
         if ($calls === []) {
             return ['state' => 'missing'];
         }
