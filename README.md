@@ -155,6 +155,40 @@ that invalidated a passing check cannot verify closure. Read-only discovery does
 artifact verification. This verdict does not certify that the ledger covers every requirement
 of the human's goal; callers still need task-specific acceptance criteria.
 
+A caller can bind a known candidate to one immutable delivery when continuing a session:
+
+```php
+$input = [
+    'prompt' => 'Finish the focus screen',
+    'session' => $sessionId,
+    'delivery' => [
+        'workspace' => $candidateWorkspace,
+        'artifactPath' => 'src/Plugins/Owned/Services/FocusCounterView.php',
+        'test' => ['path' => 'tests/Plugins/Owned', 'filter' => ''],
+        'screen' => ['name' => 'focus', 'type' => 'focus-counter'],
+    ],
+];
+```
+
+The CLI accepts the same object as JSON in `--delivery`. The invocation records
+`session.delivery_declared` with its observed caller provenance. Omitting `delivery` on later
+turns retains it; an identical declaration is idempotent, and a different or malformed one is
+refused before the turn runs. Use a new session for a different delivery. This input belongs to
+the caller of `agent`, which is outside the resident's tool catalogue.
+
+At each proven current `final_answer` with no pending question, the runtime reads `AcceptanceEvidence` again from the native stream,
+current files and configured draft store. The result covers
+`scope: declared_delivery_and_recorded_work`: current positive evidence can satisfy only the
+identified producer's artifact, while open todos, unevidenced dones, explicit red judges and
+other artifacts still count. A write after the delivery's test receipt blocks its closure,
+even if a separate ledger verifier subsequently says green. No test is run during closure.
+
+The returned closure and its `session.closure_derived` event contain the same sampled
+`observation` and delivery declaration reference. These are historical observations, not locks,
+approval, permissions or browser verification; a later turn must observe again. Sessions without
+a declaration retain the original recorded-work verdict. All other termination causes, including `unknown`, produce no closure.
+Evidence: greenhouse decisions/0390 and evidence/0708.
+
 If the provider reports a truncated response, `agent` returns `ok: false`, `truncated: true`,
 `provider`, `outputLimit`, `stopReason`, and the session id when one exists. It records no final answer or
 closure for that incomplete response. Earlier effects and recorded usage remain in the session.
