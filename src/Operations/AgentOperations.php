@@ -27,6 +27,8 @@ use Milpa\AiGateway\AgentOrchestrator;
 use Milpa\AiGateway\PlanBoard;
 use Milpa\AiGateway\ProgressProbe;
 use Milpa\AiGateway\RunInterrupted;
+use Milpa\AiGateway\RunEnd;
+use Milpa\AiGateway\RunTermination;
 use Milpa\AiGateway\OutputTruncatedException;
 use Milpa\Agent\Principal;
 use Milpa\AppRuntime\Support\ContratoInstalado;
@@ -150,6 +152,16 @@ class AgentOperations implements CommandProvider
      * session writes — a second store would be a second truth about what happened.
      */
     private ?EventStoreInterface $sessionEvents = null;
+
+    private ?RunTermination $runTermination = null;
+
+    /** The current base-loop observation, or explicit absence of proven provenance.
+     * @return array{reason: string, receipt: array<string, mixed>|null}
+     */
+    private function terminationObservation(): array
+    {
+        return $this->runTermination?->toArray() ?? ['reason' => 'unknown', 'receipt' => null];
+    }
 
     public function __construct(private readonly DIContainerInterface $container)
     {
@@ -1681,7 +1693,7 @@ class AgentOperations implements CommandProvider
      *
      * @param array<string, mixed> $input
      *
-     * @return array{ok: bool, answer?: string, steps?: int, tools?: int, error?: string, hint?: string, question?: array{id: string, text: string, options: list<string>, why: string|null, reason: string|null, expires_at: string|null}, paused?: bool, exhausted?: bool, stalled?: bool, receipt?: array<string, mixed>, houseDebt?: bool, interrupted?: bool, closure?: array{verified: bool, reasons: list<string>}}
+     * @return array{ok: bool, answer?: string, steps?: int, tools?: int, error?: string, hint?: string, question?: array{id: string, text: string, options: list<string>, why: string|null, reason: string|null, expires_at: string|null}, paused?: bool, exhausted?: bool, stalled?: bool, receipt?: array<string, mixed>, houseDebt?: bool, interrupted?: bool, termination?: array{reason: string, receipt: array<string, mixed>|null}, closure?: array{verified: bool, reasons: list<string>}}
      */
     private function run(array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array
     {
@@ -2254,6 +2266,7 @@ class AgentOperations implements CommandProvider
         $vigia = $this->container->has(StepWatcher::class) ? $this->container->get(StepWatcher::class) : null;
         $vigia = $vigia instanceof StepWatcher ? $vigia : null;
 
+        $this->runTermination = null;
         try {
             // Lo que ESTA sesión ya consintió, puesto donde `ask()` lo lee sin cambiar su firma:
             // `ask()` es protected y el esqueleto lo sobrescribe, así que crecerle parámetros lo rompe.
@@ -2303,6 +2316,7 @@ class AgentOperations implements CommandProvider
                 'ok' => true,
                 'answer' => 'La vuelta se interrumpió.',
                 'interrupted' => true,
+                'termination' => $this->terminationObservation(),
                 'steps' => $vistos,
                 'tools' => \count($registry->getToolDefinitions()),
                 // B1 (evidence/0091): the WRITE above requires a store and the report did not, so
@@ -2318,6 +2332,7 @@ class AgentOperations implements CommandProvider
                 'ok' => false,
                 'error' => $e->getMessage(),
                 'truncated' => true,
+                'termination' => $this->terminationObservation(),
                 'provider' => $e->provider,
                 'outputLimit' => $e->maxTokens,
                 'stopReason' => $e->stopReason,
@@ -2326,7 +2341,18 @@ class AgentOperations implements CommandProvider
         } catch (\Throwable $e) {
             // El motivo se devuelve tal cual: viene del proveedor —una llave inválida, un modelo que
             // no existe, la red— y quien lo lee necesita esa frase, no una reformulación.
-            return ['ok' => false, 'error' => $e->getMessage()];
+            return ['ok' => false, 'error' => $e->getMessage(), 'termination' => $this->terminationObservation()];
+        } finally {
+            // One observation for each attempt that reached ask, including exceptional exits.
+            // The host's pending question remains independent of the producer's return cause.
+            if ($sessionId !== '' && $store !== null && $this->sessionEvents !== null) {
+                $this->sessionEvents->append(new \Milpa\EventStore\Event(
+                    streamId: SessionStore::PREFIX . $sessionId,
+                    type: 'session.run_terminated',
+                    payload: $this->terminationObservation(),
+                    seq: $this->sessionEvents->nextSeq(),
+                ));
+            }
         }
 
         if ($sessionId !== '' && $store !== null) {
@@ -2336,6 +2362,7 @@ class AgentOperations implements CommandProvider
         $resultado = [
             'ok' => true,
             'answer' => $respuesta,
+            'termination' => $this->terminationObservation(),
             'steps' => $vistos,
             'tools' => \count($registry->getToolDefinitions()),
         ];
@@ -2426,26 +2453,17 @@ class AgentOperations implements CommandProvider
         }
 
         // AGOTAR EL TECHO NO ES CONTESTAR. Se nombra para que la superficie no lo pinte como respuesta.
-        if ($respuesta === AgentOrchestrator::STEPS_EXHAUSTED) {
+        if ($this->runTermination !== null && $this->runTermination->reason === RunEnd::StepsExhausted) {
             $resultado['exhausted'] = true;
             $resultado['answer'] = 'La vuelta se quedó sin pasos antes de terminar.';
             $resultado['hint'] = 'pídele que siga, o dale más pasos con `--steps`';
         }
 
-        // A STALLED LEG IS AN HONEST END, NOT AN ERROR (greenhouse decisions/0185). Named exactly
-        // like `exhausted` above and for the same reason: a surface must recognize the state, never
-        // infer it from a string. The receipt the probe derived rides the sentinel's second line;
-        // it is decoded here once so the surface reads numbers instead of parsing an answer.
-        // Guarded by `defined()` because this file coexists with whatever ai-gateway its owner has
-        // installed (the planBoard trap): against an older one the constant simply does not exist
-        // and no answer can carry it.
-        if (\defined(AgentOrchestrator::class . '::PROGRESS_STALLED')
-            && str_starts_with($respuesta, AgentOrchestrator::PROGRESS_STALLED)
-        ) {
+        // The producer supplies the cause and receipt directly; answer text can quote a sentinel.
+        if ($this->runTermination !== null && $this->runTermination->reason === RunEnd::ProgressStalled) {
             $resultado['stalled'] = true;
-            $decoded = json_decode(trim(substr($respuesta, \strlen(AgentOrchestrator::PROGRESS_STALLED))), true);
-            if (\is_array($decoded) && \is_array($decoded['receipt'] ?? null)) {
-                $resultado['receipt'] = $decoded['receipt'];
+            if ($this->runTermination->receipt !== null) {
+                $resultado['receipt'] = $this->runTermination->receipt;
             }
             $resultado['answer'] = 'The leg ended without semantic progress: the house put the '
                 . 'forced choice in front of the model and it took none of the options.';
@@ -2458,8 +2476,8 @@ class AgentOperations implements CommandProvider
         // full declaration is already in the stream as the assistant turn recorded above. The
         // answer still surfaces verbatim; recording an observation must not rewrite what was said.
         if ($sessionId !== ''
-            && \defined(AgentOrchestrator::class . '::HOUSE_DEBT_MARKER')
-            && str_starts_with(trim($respuesta), AgentOrchestrator::HOUSE_DEBT_MARKER)
+            && $this->runTermination !== null
+            && $this->runTermination->reason === RunEnd::HouseDebt
         ) {
             $declaration = trim(substr(trim($respuesta), \strlen(AgentOrchestrator::HOUSE_DEBT_MARKER)));
             $firstLine = trim(strtok($declaration, "\n") ?: '');
@@ -2469,16 +2487,11 @@ class AgentOperations implements CommandProvider
             $resultado['houseDebt'] = true;
         }
 
-        // ── THE CLOSURE VERDICT (greenhouse evidence/0442) ──────────────────────────────────────
-        //
-        // Only the NATURAL end carries it: paused, interrupted and exhausted returns already say
-        // what they are. Derived from RECORDED facts alone — no re-scan, no re-run, no model call —
-        // and appended to the session's own stream exactly once per final answer, so a surface can
-        // project it. It blocks the assertion, never the write: the answer still returns, but the
-        // envelope cannot claim a completion the ledger does not back.
-        // `$pausada` is only ever loaded with a session and its store in hand, so its presence is
-        // the whole guard: re-checking the store here would be a condition that can never fire.
-        if ($pausada !== null && !isset($resultado['paused']) && !isset($resultado['exhausted']) && !isset($resultado['stalled'])) {
+        // A current base-loop final answer and a question-free session are both required.
+        // The cause only makes this observation eligible; recorded work still decides its verdict.
+        if ($pausada !== null && $pausada->question === null
+            && $this->runTermination !== null && $this->runTermination->reason === RunEnd::FinalAnswer
+        ) {
             $closure = ClosureVerdict::derive($pausada, $store->facts($sessionId));
             $resultado['closure'] = $closure;
             if ($this->sessionEvents !== null) {
@@ -2580,9 +2593,11 @@ class AgentOperations implements CommandProvider
     private TrialRouter|null|false $trialRouterMemo = false;
 
     /**
-     * Una vuelta del agente contra el modelo, con sus herramientas y su compuerta.
+     * Run the model with its governed tools and capture this run's producer observation.
      *
-     * @param array<int, array<string, mixed>> $history lo que ya se dijo en esta sesión
+     * @phpstan-impure
+     *
+     * @param array<int, array<string, mixed>> $history the prior conversation
      */
     protected function ask(
         string $prompt,
@@ -2667,23 +2682,37 @@ class AgentOperations implements CommandProvider
 
         $orquestador = $this->orchestrator($modeloRemoto, $cliente, $pasos, $tablero, $lazyTools, $sonda);
 
-        return $orquestador->run(
-            $prompt,
-            // LO QUE VIAJA DE VERDAD, no lo que el catálogo cree: el prompt se arma con los nombres
-            // que este registro va a mandar, para que no ordene lo que no dio.
-            $this->systemPrompt(
-                array_map(
-                    static fn (\Milpa\ToolRuntime\ToolDefinition $d): string => $d->name,
-                    $registry->getToolDefinitions(),
+        // Only the base ask/run/getter chain proves what this return actually observed.
+        // An override may return after another base run, or never run the producer at all.
+        $proven = (new \ReflectionMethod($this, 'ask'))->getDeclaringClass()->getName() === self::class
+            && (new \ReflectionObject($orquestador))->hasMethod('termination')
+            && (new \ReflectionMethod($orquestador, 'run'))->getDeclaringClass()->getName() === AgentOrchestrator::class
+            && (new \ReflectionMethod($orquestador, 'termination'))->getDeclaringClass()->getName() === AgentOrchestrator::class;
+        $before = $proven ? $orquestador->termination() : null;
+        try {
+            return $orquestador->run(
+                $prompt,
+                // LO QUE VIAJA DE VERDAD, no lo que el catálogo cree: el prompt se arma con los nombres
+                // que este registro va a mandar, para que no ordene lo que no dio.
+                $this->systemPrompt(
+                    array_map(
+                        static fn (\Milpa\ToolRuntime\ToolDefinition $d): string => $d->name,
+                        $registry->getToolDefinitions(),
+                    ),
+                    // The session as `run()` captured it for this run — held on the instance for the same
+                    // reason the decisions are: `ask()` is protected and overridden, so nothing new may
+                    // travel in its signature (greenhouse decisions/0202).
+                    $this->promptSession,
                 ),
-                // The session as `run()` captured it for this run — held on the instance for the same
-                // reason the decisions are: `ask()` is protected and overridden, so nothing new may
-                // travel in its signature (greenhouse decisions/0202).
-                $this->promptSession,
-            ),
-            $history,
-            $onStep,
-        );
+                $history,
+                $onStep,
+            );
+        } finally {
+            $after = $proven ? $orquestador->termination() : null;
+            // A reused producer must have emitted a new observation in this call. Argument
+            // construction can fail before run begins, leaving its earlier observation intact.
+            $this->runTermination = $after !== $before ? $after : null;
+        }
     }
 
     /**

@@ -768,3 +768,23 @@ lock future bytes, or certify execution inputs outside the native copied files a
 Concurrent changes can invalidate any later action. Output bytes that cannot be reconstructed
 exactly from the native runner's JSON record plus LF remain indeterminate; extra stdout is not
 silently normalized away. Evidence: greenhouse decisions/0381 and evidence/0698.
+
+## Run termination and closure
+
+The `agent` result includes `termination: {reason, receipt}` for attempts that reach the model
+invocation. The same observation is appended as `session.run_terminated` when a session event
+store is available. Reasons come from `milpa/ai-gateway` 0.25.0's base loop; `unknown` means the
+current invocation has no proven producer observation. Answer text never supplies the cause.
+
+Closure is derived only for a current `final_answer` with no pending session question. Refusal,
+confirmation, blocking, exhaustion, stalled progress, declared house debt, invalid response and
+exceptional exits cannot derive a closure. A genuine final answer may still have `paused: true`
+if the host recorded a question; it has no closure. A final cause alone certifies no completed
+work, permission or approval: the existing recorded-work verdict remains the judge.
+
+The protected `ask()` and `orchestrator()` signatures remain unchanged. Overriding the factory
+while preserving the base `ask()`, orchestrator `run()` and `termination()` methods retains
+provenance. Replacing any of those three methods yields `unknown`, even if a previous base run
+left an observation. A reused producer must emit a new observation in the current invocation.
+Older stale vendors without the API also yield `unknown`; Composer requires gateway >=0.25
+when that optional capability is installed. Early refusals before `ask()` emit no run observation.
