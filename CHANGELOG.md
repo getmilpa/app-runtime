@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [0.161.0](https://github.com/getmilpa/app-runtime/compare/v0.160.2...v0.161.0) (2026-09-15)
+
+
+### Features
+
+* derive declared delivery closure after a proven final answer ([d1cc016](https://github.com/getmilpa/app-runtime/commit/d1cc016b9dd0075fa5c5837fa3a10f4fa8653bfd))
+* derive declared delivery closure after a proven final answer ([ed63131](https://github.com/getmilpa/app-runtime/commit/ed6313116d383325935336ac9c1aab47502d090a))
+
+
+### Bug Fixes
+
+* **agent:** describe the delivery input as JSON text ([f7ded85](https://github.com/getmilpa/app-runtime/commit/f7ded8508b4157d3d770cb27acfa1464321b55cd))
+* **agent:** describe the delivery input as JSON text ([087e14a](https://github.com/getmilpa/app-runtime/commit/087e14ae55f4ce08c95a0d2acd43168a70cc2dce))
+
 ## [0.160.2](https://github.com/getmilpa/app-runtime/compare/v0.160.1...v0.160.2) (2026-09-15)
 
 
