@@ -183,6 +183,6 @@ class TerminationFixtureOperations extends AgentOperations
         if ($this->failPrompt) {
             throw new \RuntimeException('Fixture prompt failure before run');
         }
-        return parent::systemPrompt($herramientas,$session);
+        return parent::systemPrompt($herramientas, $session);
     }
 }
