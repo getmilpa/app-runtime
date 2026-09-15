@@ -804,6 +804,50 @@ Concurrent changes can invalidate any later action. Output bytes that cannot be 
 exactly from the native runner's JSON record plus LF remain indeterminate; extra stdout is not
 silently normalized away. Evidence: greenhouse decisions/0381 and evidence/0698.
 
+## Declare expectations before selecting a delivery candidate
+
+An agent invocation can declare `expectation` with an exact test path/filter and screen target,
+before the session records its first turn or model/tool activity:
+
+```sh
+php bin/coa agent --session=focus --prompt='Build the focus screen' \
+  --expectation='{"test":{"path":"tests/Plugins/Owned","filter":""},"screen":{"name":"focus","type":"focus-counter"}}'
+```
+
+The native `session.delivery_expected` event records canonical target bytes, their digest and the
+observed caller provenance. Omission retains it; an identical repetition is idempotent. A changed
+or late expectation is refused before session mutation or provider access. SDK invocation accepts
+the same object; HTTP carries its JSON string, as declared by the operation schema.
+
+Once a native edit/implement candidate has been promoted, pass its workspace as
+`deliveryCandidate` on a later `agent` invocation. The runtime derives its artifact and exact
+producer from `CandidateState`, then records `session.delivery_declared` with the expectation
+reference and candidate bytes. It never takes the expected coverage from the executed test.
+An unbound expectation keeps closure unverified. Binding, repetition and omission grant no
+permission or human approval, and a different candidate requires a new session.
+
+Trusted SDK callers can inspect without writing:
+
+```php
+use Milpa\AppRuntime\Agent\{DeliveryExpectation, DeliveryScope};
+
+$expected = DeliveryExpectation::read($sessionStore->stream($sessionId), $sessionId);
+$proposed = DeliveryScope::forCandidate(
+    $appRoot, $sessionStore->stream($sessionId), $sessionId, $candidateWorkspace,
+);
+```
+
+`DeliveryExpectation::record()` and `DeliveryScope::recordCandidate()` write through a native
+`EventStoreInterface` with an `ObservedExecutor`. They are trusted caller APIs, not model-callable
+tools; a model's JSON answer is never an expectation. `recordCandidate()` re-reads native files
+and events rather than accepting the proposed observation as evidence.
+
+Complete legacy `delivery` declarations retain their existing behavior in sessions without an
+expectation. Do not mix the two paths. Readers reject missing expectation links, changed criteria,
+or a different producer behind a bound workspace. Current physical evidence is still sampled by
+`AcceptanceEvidence`; the binding is not a transaction, filesystem lock or session-owner policy.
+Evidence: greenhouse decisions/0403 and evidence/0721.
+
 ## Run termination and closure
 
 The `agent` result includes `termination: {reason, receipt}` for attempts that reach the model

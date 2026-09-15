@@ -39,7 +39,7 @@ final class AgentInvocationSchemaTest extends TestCase
         $after = self::agent(new AgentOperations($container))->inputSchema;
 
         self::assertSame($before, $after);
-        foreach (['delivery', 'deny', 'denyEffects', 'grant'] as $field) {
+        foreach (['delivery', 'expectation', 'deliveryCandidate', 'deny', 'denyEffects', 'grant'] as $field) {
             self::assertSame('string', $before['properties'][$field]['type'] ?? null);
         }
     }
@@ -65,6 +65,8 @@ final class AgentInvocationSchemaTest extends TestCase
             'test' => ['path' => 'tests', 'filter' => 'OwnedTest'],
             'screen' => ['name' => 'owned', 'type' => 'owned'],
         ], JSON_THROW_ON_ERROR)];
+        yield 'expectation' => ['expectation', '{"test":{"path":"tests","filter":""},"screen":{"name":"focus","type":"counter"}}'];
+        yield 'deliveryCandidate' => ['deliveryCandidate', 'w123456789abc'];
         yield 'deny' => ['deny', 'probe_read'];
         yield 'denyEffects' => ['denyEffects', 'mutating'];
         yield 'grant' => ['grant', 'probe:write'];

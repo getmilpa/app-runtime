@@ -38,6 +38,7 @@ use Milpa\Http\Routing\Router;
 use Milpa\AppRuntime\Agent\ArchitectureSummaryProjector;
 use Milpa\AppRuntime\Agent\ClosureVerdict;
 use Milpa\AppRuntime\Agent\DeliveryScope;
+use Milpa\AppRuntime\Agent\DeliveryExpectation;
 use Milpa\AppRuntime\Agent\DeliveryClosure;
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Auth\PresentedToken;
@@ -808,6 +809,8 @@ class AgentOperations implements CommandProvider
                         // Invocation still refuses these inputs if no session store can be composed.
                         ...(Capabilities::installed('agent') ? [
                             'delivery' => ['type' => 'string', 'description' => 'Immutable caller-declared delivery: workspace, artifactPath, test {path, filter}, screen {name, type, definition?}. CLI accepts JSON. Omit to retain the declaration; changing it requires a new session. This is scope, not approval.'],
+                            'expectation' => ['type' => 'string', 'description' => 'Immutable expected delivery before model or tool execution: JSON test {path, filter} and screen {name, type, definition?}. Omit to retain it. Scope, not approval.'],
+                            'deliveryCandidate' => ['type' => 'string', 'description' => 'Bind this native promoted candidate workspace to the previously declared expectation. The SDK derives its artifact and preserves the expected test and screen.'],
                             'deny' => ['type' => 'string', 'description' => 'Comma-separated tools withdrawn from its catalogue. Requires --session'],
                             // LA DESCRIPCION SE ARMA DE LA LISTA, no se copia junto a ella. Estas
                             // cuatro vivían escritas aquí Y en el `match` que resuelve, y dos copias
@@ -1753,7 +1756,7 @@ class AgentOperations implements CommandProvider
         $store = $this->sessions();
         $sessionId = \is_string($input['session'] ?? null) ? trim($input['session']) : '';
 
-        if ($store === null && array_intersect(['delivery', 'deny', 'denyEffects', 'grant'], array_keys($input)) !== []) {
+        if ($store === null && array_intersect(['delivery', 'expectation', 'deliveryCandidate', 'deny', 'denyEffects', 'grant'], array_keys($input)) !== []) {
             return ['ok' => false, 'error' => 'Delivery, withdrawals and launch grants require a session store.'];
         }
 
@@ -1784,8 +1787,26 @@ class AgentOperations implements CommandProvider
         // Validate before any session mutation or provider call. Scope belongs to the caller,
         // never to answer prose or the arguments of the model's last evidence read.
         try {
+            if (array_intersect(['expectation', 'deliveryCandidate'], array_keys($input)) !== [] && $this->sessionEvents === null) {
+                throw new \RuntimeException('A delivery expectation or binding requires a durable session event store.');
+            }
+            $rows = $store !== null && $sessionId !== '' ? $store->stream($sessionId) : [];
+            $expectation = DeliveryExpectation::read($rows, $sessionId);
+            $expectedAsked = array_key_exists('expectation', $input) ? DeliveryExpectation::validate($rows, $sessionId, $input['expectation']) : null;
+            $candidateAsked = null;
+            if (array_key_exists('deliveryCandidate', $input)) {
+                if (!is_string($input['deliveryCandidate']) || !preg_match('/^w[a-f0-9]{12,32}$/D', $input['deliveryCandidate'])) {
+                    throw new \InvalidArgumentException('deliveryCandidate requires a native workspace identifier.');
+                }
+                $candidateAsked = $input['deliveryCandidate'];
+                $candidateRoot = \Milpa\AppRuntime\Support\AppRoot::of($this->container, 'agent');
+                DeliveryScope::forCandidate($candidateRoot, $rows, $sessionId, $candidateAsked);
+            }
+            if (array_key_exists('delivery', $input) && ($expectation !== null || $expectedAsked !== null || $candidateAsked !== null)) {
+                throw new \InvalidArgumentException('Use expectation and deliveryCandidate, or a complete legacy delivery; do not mix them.');
+            }
             $deliveryAsked = array_key_exists('delivery', $input) ? DeliveryScope::parse($input['delivery']) : null;
-            $delivery = $store !== null && $sessionId !== '' ? DeliveryScope::read($store->stream($sessionId), $sessionId) : null;
+            $delivery = DeliveryScope::read($rows, $sessionId);
             if ($deliveryAsked !== null && ($store === null || $this->sessionEvents === null)) {
                 throw new \RuntimeException('A delivery declaration requires a durable session event store.');
             }
@@ -1859,6 +1880,13 @@ class AgentOperations implements CommandProvider
 
                 $historial = $sesion?->window() ?? $historial;
                 $declaredWindow = $sesion?->classifiedWindow();
+            }
+
+            if ($expectedAsked !== null) {
+                DeliveryExpectation::record($this->sessionEvents, $sessionId, $expectedAsked, ObservedExecutor::fromContext($context));
+            }
+            if ($candidateAsked !== null) {
+                DeliveryScope::recordCandidate($this->sessionEvents, $sessionId, $candidateRoot, $candidateAsked, ObservedExecutor::fromContext($context));
             }
 
             if ($deliveryAsked !== null && $delivery === null) {
@@ -2985,6 +3013,12 @@ class AgentOperations implements CommandProvider
         try {
             $declaration = DeliveryScope::read($store->stream($session->id), $session->id);
             if ($declaration === null) {
+                $expectation = DeliveryExpectation::read($store->stream($session->id), $session->id);
+                if ($expectation !== null) {
+                    return DeliveryClosure::derive($session, $store->facts($session->id), [], null)
+                        + ['expectation' => ['declarationSeq' => $expectation['seq'], 'sha256' => $expectation['sha256']],
+                            'bindingState' => 'awaiting_candidate'];
+                }
                 return ClosureVerdict::derive($session, $store->facts($session->id));
             }
             $contract = ['session' => $session->id] + $declaration['scope'];
