@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.162.0](https://github.com/getmilpa/app-runtime/compare/v0.161.1...v0.162.0) (2026-09-15)
+
+
+### Features
+
+* bind delivery candidates to prior expectations ([9a66fa6](https://github.com/getmilpa/app-runtime/commit/9a66fa6446ed340a593e50e3930eb0fe4afcb8c3))
+* bind native delivery candidates to prior expectations ([5c63285](https://github.com/getmilpa/app-runtime/commit/5c63285e27825a86b89afec1941b42dadd397734))
+
 ## [0.161.1](https://github.com/getmilpa/app-runtime/compare/v0.161.0...v0.161.1) (2026-09-15)
 
 
