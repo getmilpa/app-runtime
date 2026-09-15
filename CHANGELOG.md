@@ -6,7 +6,6 @@
 
 ### Bug Fixes
 
-* **agent:** preserve launch schema and resumed operator withdrawals ([4901dd4](https://github.com/getmilpa/app-runtime/commit/4901dd47b1d178b2f6069236dde7c512662ada69))
 * **agent:** preserve launch schema and resumed operator withdrawals ([cd07186](https://github.com/getmilpa/app-runtime/commit/cd0718621259f61c5fac770b2c7353604a46ff53))
 
 ## [0.161.0](https://github.com/getmilpa/app-runtime/compare/v0.160.2...v0.161.0) (2026-09-15)
