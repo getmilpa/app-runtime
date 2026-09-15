@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.160.2](https://github.com/getmilpa/app-runtime/compare/v0.160.1...v0.160.2) (2026-09-15)
+
+
+### Bug Fixes
+
+* require current producer termination before closing a run ([82dbc68](https://github.com/getmilpa/app-runtime/commit/82dbc68b4782f0ef5af16f1b1a5370ea1692f9e7))
+* require current producer termination before closing a run ([214a819](https://github.com/getmilpa/app-runtime/commit/214a819aa71cd8efe36300371eddd1c38b0edb69))
+
 ## [0.160.1](https://github.com/getmilpa/app-runtime/compare/v0.160.0...v0.160.1) (2026-09-14)
 
 
