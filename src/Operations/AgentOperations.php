@@ -803,10 +803,10 @@ class AgentOperations implements CommandProvider
                         'steps' => ['type' => 'integer', 'description' => 'Ceiling on model↔tool steps; 12 when unsaid'],
                         'session' => ['type' => 'string', 'description' => 'Continúa esta sesión — sin ella, cada pregunta empieza de cero'],
                         'mode' => ['type' => 'string', 'enum' => ['ask', 'acknowledge', 'auto'], 'description' => 'Autonomía: ask pregunta antes de mutar, auto sigue sola. Ninguno se salta una firma'],
-                        // B2 (evidence/0091): both say «Requires --session» and both were offered
-                        // whether or not this app can hold one. Same doctrine as above — what
-                        // cannot be done is not offered, and a schema is read by agents too.
-                        ...($this->sessionStore() !== null ? [
+                        // Discovery precedes Kernel registration over HTTP (greenhouse 0400/0718).
+                        // Describe the installed capability, not the store's boot-time availability.
+                        // Invocation still refuses these inputs if no session store can be composed.
+                        ...(Capabilities::installed('agent') ? [
                             'delivery' => ['type' => 'string', 'description' => 'Immutable caller-declared delivery: workspace, artifactPath, test {path, filter}, screen {name, type, definition?}. CLI accepts JSON. Omit to retain the declaration; changing it requires a new session. This is scope, not approval.'],
                             'deny' => ['type' => 'string', 'description' => 'Comma-separated tools withdrawn from its catalogue. Requires --session'],
                             // LA DESCRIPCION SE ARMA DE LA LISTA, no se copia junto a ella. Estas
@@ -1753,6 +1753,20 @@ class AgentOperations implements CommandProvider
         $store = $this->sessions();
         $sessionId = \is_string($input['session'] ?? null) ? trim($input['session']) : '';
 
+        if ($store === null && array_intersect(['delivery', 'deny', 'denyEffects', 'grant'], array_keys($input)) !== []) {
+            return ['ok' => false, 'error' => 'Delivery, withdrawals and launch grants require a session store.'];
+        }
+
+        // Reject an unknown effect class before starting, resuming or changing a session.
+        $unknownEffects = EffectClasses::unknownIn($input['denyEffects'] ?? null);
+        if ($unknownEffects !== []) {
+            return [
+                'ok' => false,
+                'error' => EffectClasses::refusal($unknownEffects),
+                'hint' => 'name the tools with --deny instead, or use one of the classes above',
+            ];
+        }
+
         // SIN SESIÓN NO HAY CONTABILIDAD, Y SIN CONTABILIDAD EL PRIMER TURNO NO PUEDE PLANEAR.
         //
         // `plan` y `todo` se registran atadas a una sesión del almacén, así que una corrida sin
@@ -2138,23 +2152,7 @@ class AgentOperations implements CommandProvider
         // through the catalogue this resolves against. `plan` and `todo` declare `mutating: true` and
         // it is true — they append — but their effect is confined to this session's log. Taking the
         // notebook away from a contained agent does not make it safer, it makes it illegible.
-        // UNA CLASE QUE NADIE DEFINIO SE RECHAZA POR NOMBRE, y con la lista de las reales.
-        //
-        // Medido sobre ganado: `--denyEffects=mutates` retiraba cero, fallaba cero y decía cero, así
-        // que quien lo tecleó pedía retirar una clase entera y creía que había pasado — contenía
-        // menos de lo que creía, sin una palabra (greenhouse evidence/0197). Una bandera que acepta
-        // lo que no entiende es ley sin mecanismo.
-        //
-        // Se rechaza ANTES de retirar: aceptar la mitad buena y callar la inventada sería peor, con
-        // el operador viendo ALGUN retiro y concluyendo que la instrucción entera aterrizó.
-        $clasesInventadas = EffectClasses::unknownIn($input['denyEffects'] ?? null);
-        if ($clasesInventadas !== []) {
-            return [
-                'ok' => false,
-                'error' => EffectClasses::refusal($clasesInventadas),
-                'hint' => 'name the tools with --deny instead, or use one of the classes above',
-            ];
-        }
+        // Effect class names were validated before any session mutation above.
 
         $undeclared = 0;
         $catalogue = 0;
@@ -2183,8 +2181,6 @@ class AgentOperations implements CommandProvider
             ];
         }
 
-        $tableMode = $this->retiraOpciones();
-
         // AN EXPLICIT `deny` IS NOT ENABLED BY AN APP-LEVEL SETTING.
         //
         // `agent.removeRefusedOptions` governs whether the SYSTEM withdraws an option the gate has
@@ -2195,12 +2191,7 @@ class AgentOperations implements CommandProvider
         // `record-only` may not degrade it either: it is a laboratory value that records the
         // withdrawal and keeps offering the tool. Applied to an explicit prohibition it would be a
         // lie with a receipt.
-        $table = ($sessionId !== '' && $store !== null && ($tableMode !== false || $denied !== []))
-            ? new SessionOptionTable($store, $sessionId)
-            : null;
-        if ($table !== null && $tableMode === 'record-only' && $denied === []) {
-            $table = new RecordOnlyOptionTable($table);
-        }
+        $table = $this->invocationOptionTable($store, $sessionId, $denied);
 
         if ($denied !== []) {
             if ($table === null || $store === null) {
@@ -3599,15 +3590,37 @@ class AgentOperations implements CommandProvider
     }
 
     /**
-     * Si una negativa del segundo juicio además RETIRA la opción de la mesa.
+     * Recompose persistent operator withdrawals even when this turn omits deny (0400/0718).
+     * Automatic withdrawal remains a separate opt-in; record-only cannot downgrade an operator.
      *
-     * `agent.removeRefusedOptions` en `config/app.php`. Va detrás de una perilla por la misma razón que
-     * `agent.conditionalCatalog`: es la intervención que Q-P19-H mide, y un experimento necesita poder
-     * correr el brazo que NO la tiene. Sin la perilla, negar-y-quitar sería la única conducta posible y
-     * el brazo de control dejaría de existir — no se puede medir contra nada.
-     *
-     * Apagada por default, y eso es deliberado: mientras la pregunta esté abierta, el comportamiento
-     * que se despacha es el ya medido, no el que se está midiendo.
+     * @param list<string> $denied withdrawals explicitly requested for the current turn
+     */
+    private function invocationOptionTable(?SessionStore $store, string $sessionId, array $denied): ?OptionTable
+    {
+        if ($store === null || $sessionId === '') {
+            return null;
+        }
+        $operator = $denied !== [];
+        foreach ($store->stream($sessionId) as $event) {
+            if ($event->type === 'session.option_removed'
+                && ($event->payload['reason']['code'] ?? null) === 'denied-by-operator'
+                && is_string($event->payload['option'] ?? null) && $event->payload['option'] !== '') {
+                $operator = true;
+                break;
+            }
+        }
+        $mode = $this->retiraOpciones();
+        if (!$operator && $mode === false) {
+            return null;
+        }
+        $table = new SessionOptionTable($store, $sessionId);
+
+        return !$operator && $mode === 'record-only' ? new RecordOnlyOptionTable($table) : $table;
+    }
+
+    /**
+     * Whether automatic refusals also withdraw options from the table.
+     * The default stays off; explicit operator withdrawals are independent of this experiment.
      */
     private function retiraOpciones(): bool|string
     {
