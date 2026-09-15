@@ -16,11 +16,12 @@ namespace Milpa\AppRuntime\Tests\Operations;
 
 use Milpa\Agent\SessionStore;
 use Milpa\AiGateway\AgentOrchestrator;
-use Milpa\AiGateway\OptionTable;
+use Milpa\AiGateway\LlmService;
+use Milpa\AiGateway\ProgressProbe;
+use Milpa\AppRuntime\Agent\SessionProgressProbe;
+use Milpa\ToolRuntime\Gate\GatedToolCalls;
 use Milpa\AiGateway\PlanBoard;
 use Milpa\AiGateway\OutputTruncatedException;
-use Milpa\ToolRuntime\Gate\ToolCallGate;
-use Milpa\ToolRuntime\Gate\ToolCallRecorder;
 use Milpa\AppRuntime\Agent\DebtSignal;
 use Milpa\AppRuntime\Operations\AgentOperations;
 use Milpa\Container\DIContainer;
@@ -100,6 +101,7 @@ final class ProgressWiringTest extends TestCase
             AgentOrchestrator::PROGRESS_STALLED . "\n" . json_encode(['receipt' => $receipt]),
         );
 
+        $operations->progressReceipt = $receipt;
         $result = $this->runAgent($operations, ['prompt' => 'continue', 'session' => 's1']);
 
         self::assertTrue($result['ok'] ?? false, (string) ($result['error'] ?? 'the run failed'));
@@ -139,6 +141,7 @@ final class ProgressWiringTest extends TestCase
         $declaration = "HOUSE_DEBT: the judge cannot verify a target that boots the judge\nLong "
             . 'trailing prose that must never travel into the signal. ' . str_repeat('x', 500);
         $operations = $this->operationsAnswering($declaration);
+        $operations->progressReceipt = ['window' => 4];
 
         $result = $this->runAgent($operations, ['prompt' => 'continue', 'session' => 's1']);
 
@@ -202,31 +205,48 @@ final class ProgressWiringTest extends TestCase
     }
 }
 
-/** The network seam replaced by a scripted final answer. */
+/** Replace model and tool fixtures, preserving the base ask/run/getter chain. */
 final class ScriptedAnswerAgentOperations extends AgentOperations
 {
     public string $respuesta = '';
     public ?\Throwable $failure = null;
+    public ?array $progressReceipt = null;
 
-    protected function ask(
-        string $prompt,
+    protected function orchestrator(
+        LlmService $modeloRemoto,
+        GatedToolCalls $cliente,
         int $pasos,
-        ToolRegistry $registry,
-        string $proveedor,
-        string $llave,
-        string $modelo,
-        callable $onStep,
-        array $history = [],
-        ?ToolCallGate $gate = null,
-        ?OptionTable $mesa = null,
-        ?ToolCallRecorder $recorder = null,
-        ?PlanBoard $tablero = null,
-    ): string {
-        $onStep();
-        if ($this->failure !== null) {
-            throw $this->failure;
-        }
-
-        return $this->respuesta;
+        ?PlanBoard $tablero,
+        bool $lazyTools,
+        ?SessionProgressProbe $sonda,
+    ): AgentOrchestrator {
+        $llm = new class ($this->respuesta, $this->failure, $this->progressReceipt !== null) extends LlmService {
+            public function __construct(private string $answer, private ?\Throwable $failure, private bool $callFirst)
+            {
+            }
+            public function generateResponse(string $prompt, array $tools = [], array $messages = [], int $maxTokens = 4096): array
+            {
+                if ($this->failure !== null) {
+                    throw $this->failure;
+                }
+                if ($this->callFirst) {
+                    $this->callFirst = false;
+                    return ['role' => 'assistant', 'tool_calls' => [['id' => 'fixture', 'function' => ['name' => 'read', 'arguments' => '{}']]]];
+                }
+                return ['role' => 'assistant', 'content' => $this->answer];
+            }
+        };
+        $registry = new ToolRegistry(new NullLogger());
+        $registry->register('read', 'Read fixture', ['type' => 'object'], static fn (): string => 'Fixture read');
+        $probe = $this->progressReceipt === null ? null : new class ($this->progressReceipt) implements ProgressProbe {
+            public function __construct(private array $receipt)
+            {
+            }
+            public function afterStep(int $step): ?array
+            {
+                return ['stalled' => true, 'notice' => 'Choose the next step.', 'receipt' => $this->receipt];
+            }
+        };
+        return new AgentOrchestrator($llm, new GatedToolCalls($registry), progressProbe: $probe);
     }
 }
