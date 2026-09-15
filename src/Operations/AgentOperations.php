@@ -807,7 +807,7 @@ class AgentOperations implements CommandProvider
                         // whether or not this app can hold one. Same doctrine as above — what
                         // cannot be done is not offered, and a schema is read by agents too.
                         ...($this->sessionStore() !== null ? [
-                            'delivery' => ['type' => ['object', 'string'], 'description' => 'Immutable caller-declared delivery: workspace, artifactPath, test {path, filter}, screen {name, type, definition?}. CLI accepts JSON. Omit to retain the declaration; changing it requires a new session. This is scope, not approval.'],
+                            'delivery' => ['type' => 'string', 'description' => 'Immutable caller-declared delivery: workspace, artifactPath, test {path, filter}, screen {name, type, definition?}. CLI accepts JSON. Omit to retain the declaration; changing it requires a new session. This is scope, not approval.'],
                             'deny' => ['type' => 'string', 'description' => 'Comma-separated tools withdrawn from its catalogue. Requires --session'],
                             // LA DESCRIPCION SE ARMA DE LA LISTA, no se copia junto a ella. Estas
                             // cuatro vivían escritas aquí Y en el `match` que resuelve, y dos copias

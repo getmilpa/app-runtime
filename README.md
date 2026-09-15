@@ -161,16 +161,17 @@ A caller can bind a known candidate to one immutable delivery when continuing a 
 $input = [
     'prompt' => 'Finish the focus screen',
     'session' => $sessionId,
-    'delivery' => [
+    'delivery' => json_encode([
         'workspace' => $candidateWorkspace,
         'artifactPath' => 'src/Plugins/Owned/Services/FocusCounterView.php',
         'test' => ['path' => 'tests/Plugins/Owned', 'filter' => ''],
         'screen' => ['name' => 'focus', 'type' => 'focus-counter'],
-    ],
+    ], JSON_THROW_ON_ERROR),
 ];
 ```
 
-The CLI accepts the same object as JSON in `--delivery`. The invocation records
+CLI and HTTP accept `delivery` as a JSON string (`--delivery` on the CLI).
+The `DeliveryScope::parse()` SDK also accepts a PHP array for direct use. The invocation records
 `session.delivery_declared` with its observed caller provenance. Omitting `delivery` on later
 turns retains it; an identical declaration is idempotent, and a different or malformed one is
 refused before the turn runs. Use a new session for a different delivery. This input belongs to
