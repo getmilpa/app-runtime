@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.162.1](https://github.com/getmilpa/app-runtime/compare/v0.162.0...v0.162.1) (2026-09-16)
+
+
+### Bug Fixes
+
+* include durable delivery facts in resident context ([#466](https://github.com/getmilpa/app-runtime/issues/466)) ([79885df](https://github.com/getmilpa/app-runtime/commit/79885df7273422f48ac71dbfa910a1f2dcc197f1))
+
 ## [0.162.0](https://github.com/getmilpa/app-runtime/compare/v0.161.1...v0.162.0) (2026-09-15)
 
 
