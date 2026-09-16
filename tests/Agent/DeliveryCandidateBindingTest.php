@@ -54,6 +54,11 @@ final class DeliveryCandidateBindingTest extends TestCase
         $read = DeliveryScope::read((new SessionStore($this->events))->stream('s'), 's');
         self::assertSame($scope['scope'], $read['scope']);
         self::assertSame($scope['binding'], $read['binding']);
+        $context = \Milpa\AppRuntime\Agent\DeliveryContext::read($this->rows(), 's');
+        self::assertSame($read, $context['delivery']);
+        self::assertSame(DeliveryExpectation::read($this->rows(), 's'), $context['expectation']);
+        file_put_contents($this->root . '/' . self::FILE, 'Later physical change');
+        self::assertSame($context, \Milpa\AppRuntime\Agent\DeliveryContext::read($this->rows(), 's'), 'Context reports recorded binding, not current bytes.');
         $this->candidate('w0000000000000000', 'src/Other.php');
         $before = $this->rows();
         try {

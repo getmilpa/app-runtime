@@ -842,6 +842,18 @@ $proposed = DeliveryScope::forCandidate(
 tools; a model's JSON answer is never an expectation. `recordCandidate()` re-reads native files
 and events rather than accepting the proposed observation as evidence.
 
+Each model leg receives the current session's recorded expectation and delivery declaration in
+its system context, read through the same validated native folds. The first declaration is
+available before the first provider call; continuing without those fields re-reads the durable
+records. Switching sessions or entering a child reads that session's own stream. Sessions without
+either declaration receive no delivery section.
+
+This context is caller-supplied data, not instructions, permission, approval or current verification.
+A null delivery means no candidate is bound. A recorded binding identifies its original producer
+and artifact digest; it does not certify current file bytes or passing tests. Continue to use native
+candidate and acceptance evidence operations to verify current state. Greenhouse0408/evidence0726
+measures this transmission independently from model answers.
+
 Complete legacy `delivery` declarations retain their existing behavior in sessions without an
 expectation. Do not mix the two paths. Readers reject missing expectation links, changed criteria,
 or a different producer behind a bound workspace. Current physical evidence is still sampled by
