@@ -157,12 +157,62 @@ final class GoalTravelsWithTheRunTest extends TestCase
         self::assertSame(AutonomyMode::Auto, $this->store->load($children[0])?->mode);
     }
 
+    /** Invocation declarations reach the first model leg and survive field omission on resume. */
+    public function testDeclaredDeliveryTravelsOnTheFirstAndLaterLegs(): void
+    {
+        $target = \Milpa\AppRuntime\Tests\Agent\DeliveryExpectationTest::target();
+        $target['screen']['name'] = 'amber-declared-screen';
+        $first = $this->runAgentOn('a', ['expectation' => $target]);
+        $resumed = $this->runAgentOn('a');
+        foreach ([$first, $resumed] as $ops) {
+            self::assertStringContainsString('<delivery-context>', $ops->systemPrompts[0]);
+            self::assertStringContainsString('amber-declared-screen', $ops->systemPrompts[0]);
+            self::assertStringContainsString('"delivery":null', $ops->systemPrompts[0]);
+        }
+        $other = $this->runAgentOn('b');
+        self::assertStringNotContainsString('<delivery-context>', $other->systemPrompts[0]);
+        self::assertStringNotContainsString('amber-declared-screen', $other->systemPrompts[0]);
+    }
+
+    /** Reusing the operation instance across tasks cannot retain a previous task's criteria. */
+    public function testReusedRunnerSwitchesCriteriaAndReturnsToTheOriginalTask(): void
+    {
+        $a = \Milpa\AppRuntime\Tests\Agent\DeliveryExpectationTest::target();
+        $a['screen']['name'] = 'amber-current';
+        $b = $a;
+        $b['screen']['name'] = 'indigo-current';
+        $ops = $this->runAgentOn('a', ['expectation' => $a]);
+        $this->runAgentOn('b', ['expectation' => $b], reuse: $ops);
+        $this->runAgentOn('a', reuse: $ops);
+        $this->runAgentOn('legacy', reuse: $ops);
+        self::assertCount(4, $ops->systemPrompts);
+        self::assertStringContainsString('indigo-current', $ops->systemPrompts[1]);
+        self::assertStringNotContainsString('amber-current', $ops->systemPrompts[1]);
+        self::assertStringContainsString('amber-current', $ops->systemPrompts[2]);
+        self::assertStringNotContainsString('indigo-current', $ops->systemPrompts[2]);
+        self::assertStringNotContainsString('<delivery-context>', $ops->systemPrompts[3]);
+    }
+
+    /** The nested branch has its own stream and must not borrow its parent's delivery scope. */
+    public function testChildDoesNotInheritTheParentsDeliveryDeclaration(): void
+    {
+        $target = \Milpa\AppRuntime\Tests\Agent\DeliveryExpectationTest::target();
+        $target['screen']['name'] = 'parent-declared-screen';
+        $ops = $this->runAgentOn('parent', ['expectation' => $target], spawnChild: true);
+        self::assertCount(2, $ops->systemPrompts);
+        self::assertStringContainsString('parent-declared-screen', $ops->systemPrompts[0]);
+        self::assertStringNotContainsString('<delivery-context>', $ops->systemPrompts[1]);
+        self::assertStringNotContainsString('parent-declared-screen', $ops->systemPrompts[1]);
+        $this->runAgentOn('parent', reuse: $ops);
+        self::assertStringContainsString('parent-declared-screen', $ops->systemPrompts[2]);
+    }
+
     /**
      * Drives the `agent` operation on a session, through the real `run()` and the real `ask()`.
      *
      * @param array<string, mixed> $extra
      */
-    private function runAgentOn(string $sessionId, array $extra = [], bool $spawnChild = false): PromptCapturingAgentOperations
+    private function runAgentOn(string $sessionId, array $extra = [], bool $spawnChild = false, ?PromptCapturingAgentOperations $reuse = null): PromptCapturingAgentOperations
     {
         $container = new DIContainer();
         $container->registerService(EventStoreInterface::class, $this->events);
@@ -174,7 +224,7 @@ final class GoalTravelsWithTheRunTest extends TestCase
             'plugins' => [],
         ]);
         $container->registerService(Kernel::class, $kernel);
-        $ops = new PromptCapturingAgentOperations($container);
+        $ops = $reuse ?? new PromptCapturingAgentOperations($container);
         $ops->spawnChild = $spawnChild;
 
         $result = null;

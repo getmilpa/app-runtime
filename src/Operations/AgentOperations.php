@@ -39,6 +39,7 @@ use Milpa\AppRuntime\Agent\ArchitectureSummaryProjector;
 use Milpa\AppRuntime\Agent\ClosureVerdict;
 use Milpa\AppRuntime\Agent\DeliveryScope;
 use Milpa\AppRuntime\Agent\DeliveryExpectation;
+use Milpa\AppRuntime\Agent\DeliveryContext;
 use Milpa\AppRuntime\Agent\DeliveryClosure;
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Auth\PresentedToken;
@@ -4335,6 +4336,15 @@ class AgentOperations implements CommandProvider
                     . 'not this goal and not the mode.';
             }
             $partes[] = $objetivo;
+        }
+
+        // Re-read the leg's own durable facts after invocation declarations have landed. The
+        // child branch already supplies its own Session, so no parent context is cached here.
+        if ($session !== null && ($store = $this->sessions()) !== null) {
+            $deliveryContext = DeliveryContext::section($store->stream($session->id), $session->id);
+            if ($deliveryContext !== '') {
+                $partes[] = $deliveryContext;
+            }
         }
 
         $partes[] =
