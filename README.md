@@ -190,6 +190,46 @@ approval, permissions or browser verification; a later turn must observe again. 
 a declaration retain the original recorded-work verdict. All other termination causes, including `unknown`, produce no closure.
 Evidence: greenhouse decisions/0390 and evidence/0708.
 
+A caller can instead declare a finite read-only diagnostic before executing a new session:
+
+```php
+$input = [
+    'prompt' => 'Compare the required and configured engine in the pinned document.',
+    'session' => $newSessionId,
+    'diagnostic' => json_encode([
+        'path' => 'tests/engine.json',
+        'sha256' => $documentSha256,
+        'fields' => ['required' => 'required_engine', 'configured' => 'configured_engine'],
+        'equals' => ['matches' => ['required_engine', 'configured_engine']],
+    ], JSON_THROW_ON_ERROR),
+];
+```
+
+The CLI accepts the same JSON through `--diagnostic`. `DiagnosticContract::parse()` also accepts
+an array. `fields` maps output names to top-level scalar document keys; `equals` compares two such
+keys with strict equality. The response must contain exactly those names and types in one JSON
+object, optionally fenced as JSON. This criterion pins a document snapshot, not current filesystem
+freshness or the truth of arbitrary prose. It cannot be combined with a work-delivery declaration.
+
+The declaration is durable, immutable and owned by the invoker. Omitting it on later turns retains
+it; an identical redeclaration is idempotent. Changed or late criteria are refused before execution.
+The runtime requires an answer-judge capable gateway and a durable event store. Its native judge
+reconstructs a complete, contiguous `source_page` chain with the declared path and SHA-256 from
+successful read-only results that actually reached subsequent model input. Missing evidence,
+wrong values, extra prose, duplicate output keys and changed types cannot establish acceptance.
+
+The response exposes `answerAccepted` and `diagnostic`; the termination carries the same verdict.
+An accepted diagnostic returns the raw candidate as `final_answer`, even after a pending progress
+notice. Rejected or indeterminate answers have separate terminal causes and do not derive work
+closure. A customized orchestrator factory that omits the current native judgment cannot return a
+successful diagnostic. `session.diagnostic_judged` retains the candidate, criterion identity and
+evidence coordinates; `DiagnosticJudge::derive()` replays it without filesystem access or a model.
+
+A diagnostic never manufactures progress, grants permissions or verifies recorded work. Its
+accepted read-only answer can coexist with `closure.verified: false` for `scope: recorded_work`.
+Sessions without this optional contract retain their existing behavior. Measured in Greenhouse
+decision 0418 and evidence 0736, using fixed provider responses, not a real model.
+
 If the provider reports a truncated response, `agent` returns `ok: false`, `truncated: true`,
 `provider`, `outputLimit`, `stopReason`, and the session id when one exists. It records no final answer or
 closure for that incomplete response. Earlier effects and recorded usage remain in the session.

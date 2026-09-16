@@ -28,6 +28,7 @@ use Milpa\AiGateway\PlanBoard;
 use Milpa\AiGateway\ProgressProbe;
 use Milpa\AiGateway\RunInterrupted;
 use Milpa\AiGateway\RunEnd;
+use Milpa\AppRuntime\Agent\{DiagnosticContract, SessionDiagnosticJudge};
 use Milpa\AiGateway\RunTermination;
 use Milpa\AiGateway\OutputTruncatedException;
 use Milpa\Agent\Principal;
@@ -160,7 +161,7 @@ class AgentOperations implements CommandProvider
     private ?RunTermination $runTermination = null;
 
     /** The current base-loop observation, or explicit absence of proven provenance.
-     * @return array{reason: string, receipt: array<string, mixed>|null}
+     * @return array{reason: string, receipt: array<string, mixed>|null, answerVerdict?: array<string,mixed>}
      */
     private function terminationObservation(): array
     {
@@ -809,6 +810,7 @@ class AgentOperations implements CommandProvider
                         // Describe the installed capability, not the store's boot-time availability.
                         // Invocation still refuses these inputs if no session store can be composed.
                         ...(Capabilities::installed('agent') ? [
+                            'diagnostic' => ['type' => 'string', 'description' => 'Immutable read-only JSON diagnostic: path, sha256, fields map and equals map. Declare before execution; omit to retain. This is an answer criterion, never permission or work verification.'],
                             'delivery' => ['type' => 'string', 'description' => 'Immutable caller-declared delivery: workspace, artifactPath, test {path, filter}, screen {name, type, definition?}. CLI accepts JSON. Omit to retain the declaration; changing it requires a new session. This is scope, not approval.'],
                             'expectation' => ['type' => 'string', 'description' => 'Immutable expected delivery before model or tool execution: JSON test {path, filter} and screen {name, type, definition?}. Omit to retain it. Scope, not approval.'],
                             'deliveryCandidate' => ['type' => 'string', 'description' => 'Bind this native promoted candidate workspace to the previously declared expectation. The SDK derives its artifact and preserves the expected test and screen.'],
@@ -1757,7 +1759,7 @@ class AgentOperations implements CommandProvider
         $store = $this->sessions();
         $sessionId = \is_string($input['session'] ?? null) ? trim($input['session']) : '';
 
-        if ($store === null && array_intersect(['delivery', 'expectation', 'deliveryCandidate', 'deny', 'denyEffects', 'grant'], array_keys($input)) !== []) {
+        if ($store === null && array_intersect(['diagnostic', 'delivery', 'expectation', 'deliveryCandidate', 'deny', 'denyEffects', 'grant'], array_keys($input)) !== []) {
             return ['ok' => false, 'error' => 'Delivery, withdrawals and launch grants require a session store.'];
         }
 
@@ -1792,6 +1794,16 @@ class AgentOperations implements CommandProvider
                 throw new \RuntimeException('A delivery expectation or binding requires a durable session event store.');
             }
             $rows = $store !== null && $sessionId !== '' ? $store->stream($sessionId) : [];
+            $diagnostic = DiagnosticContract::read($rows, $sessionId);
+            $diagnosticAsked = array_key_exists('diagnostic', $input) ? DiagnosticContract::validate($rows, $sessionId, $input['diagnostic']) : null;
+            if ($diagnostic !== null || $diagnosticAsked !== null) {
+                if ($this->sessionEvents === null || !$this->orchestratorAdmitsAnswerJudge()) {
+                    throw new \RuntimeException('A diagnostic requires a durable event store and an answer-judge capable gateway.');
+                }
+                if (array_intersect(['delivery', 'expectation', 'deliveryCandidate'], array_keys($input)) !== []) {
+                    throw new \InvalidArgumentException('Use a separate session for diagnosis and work delivery.');
+                }
+            }
             $expectation = DeliveryExpectation::read($rows, $sessionId);
             $expectedAsked = array_key_exists('expectation', $input) ? DeliveryExpectation::validate($rows, $sessionId, $input['expectation']) : null;
             $candidateAsked = null;
@@ -1881,6 +1893,10 @@ class AgentOperations implements CommandProvider
 
                 $historial = $sesion?->window() ?? $historial;
                 $declaredWindow = $sesion?->classifiedWindow();
+            }
+
+            if ($diagnosticAsked !== null) {
+                DiagnosticContract::record($this->sessionEvents, $sessionId, $diagnosticAsked, ObservedExecutor::fromContext($context));
             }
 
             if ($expectedAsked !== null) {
@@ -2328,6 +2344,10 @@ class AgentOperations implements CommandProvider
             // load, and the prompt must speak for the mode the gate judges by (decisions/0202).
             $this->promptSession = $sessionId !== '' && $store !== null ? $store->load($sessionId) : null;
 
+            $diagnosticRows = $store !== null ? $store->stream($sessionId) : [];
+            $currentDiagnostic = DiagnosticContract::read($diagnosticRows, $sessionId);
+            $beforeDiagnostic = $diagnosticRows === [] ? 0 : $diagnosticRows[array_key_last($diagnosticRows)]->seq;
+
             $respuesta = $this->ask(
                 $prompt,
                 $pasos,
@@ -2345,6 +2365,18 @@ class AgentOperations implements CommandProvider
                 $grabadora,
                 $this->tableroDePlan($sessionId, $store),
             );
+            if ($currentDiagnostic !== null && ($this->runTermination === null || $this->runTermination->reason === RunEnd::FinalAnswer)) {
+                $judgments = array_values(array_filter($store->stream($sessionId), static fn ($e) =>
+                    $e->seq > $beforeDiagnostic && $e->type === SessionDiagnosticJudge::EVENT));
+                $verdict = $this->terminationObservation()['answerVerdict'] ?? null;
+                if (count($judgments) !== 1 || ($verdict['status'] ?? null) !== 'accepted'
+                    || $judgments[0]->payload !== ['candidate' => $respuesta, 'verdict' => $verdict]
+                    || ($verdict['candidateSha256'] ?? null) !== hash('sha256', $respuesta)
+                    || ($verdict['evidence']['criterionSha256'] ?? null) !== $currentDiagnostic['sha256']) {
+                    throw new \RuntimeException('The diagnostic has no current native answer judgment.');
+                }
+            }
+
         } catch (RunInterrupted $e) {
             // INTERRUMPIR NO ES FALLAR. El trabajo hecho hasta aquí ya está en el stream —cada llamada
             // se apenda al ocurrir— así que la sesión sigue viva y retomable. Decirlo como error
@@ -2407,6 +2439,12 @@ class AgentOperations implements CommandProvider
             'steps' => $vistos,
             'tools' => \count($registry->getToolDefinitions()),
         ];
+
+        $answerVerdict = $this->terminationObservation()['answerVerdict'] ?? null;
+        if ($answerVerdict !== null) {
+            $resultado['diagnostic'] = $answerVerdict;
+            $resultado['answerAccepted'] = $answerVerdict['status'] === 'accepted';
+        }
 
         // THE REAL TOKEN COST, from the provider's own numbers — never an estimate (greenhouse
         // decisions/0192). Each `session.model_returned` fact carries the usage the provider spoke
@@ -2792,6 +2830,25 @@ class AgentOperations implements CommandProvider
         $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
         $contexto = AgentEndpoint::contextTokens($config instanceof Config ? $config : null) ?? 0;
 
+        if ($this->promptSession !== null && ($store = $this->sessions()) !== null
+            && DiagnosticContract::read($store->stream($this->promptSession->id), $this->promptSession->id) !== null) {
+            if ($this->sessionEvents === null || !$this->orchestratorAdmitsAnswerJudge()) {
+                throw new \RuntimeException('The diagnostic answer judge is unavailable.');
+            }
+            return new AgentOrchestrator(
+                $modeloRemoto,
+                $cliente,
+                $pasos,
+                new NullLogger(),
+                null,
+                $tablero,
+                $lazyTools,
+                $sonda,
+                $contexto,
+                answerJudge: new SessionDiagnosticJudge($this->sessionEvents, $this->promptSession->id)
+            );
+        }
+
         if ($contexto > 0 && $this->orchestratorAdmitsContextTokens()) {
             return new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger(), null, $tablero, $lazyTools, $sonda, $contexto);
         }
@@ -2806,6 +2863,13 @@ class AgentOperations implements CommandProvider
         }
 
         return new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger());
+    }
+
+    /** Whether the installed loop can consume a typed answer judgment. */
+    protected function orchestratorAdmitsAnswerJudge(): bool
+    {
+        $constructor = (new \ReflectionClass(AgentOrchestrator::class))->getConstructor();
+        return $constructor !== null && in_array('answerJudge', array_map(static fn ($p) => $p->getName(), $constructor->getParameters()), true);
     }
 
     /**
@@ -4345,6 +4409,12 @@ class AgentOperations implements CommandProvider
             if ($deliveryContext !== '') {
                 $partes[] = $deliveryContext;
             }
+            $diagnostic = DiagnosticContract::read($store->stream($session->id), $session->id);
+            if ($diagnostic !== null) {
+                $partes[] = 'Declared diagnostic criterion: ' . json_encode($diagnostic['criterion'], JSON_THROW_ON_ERROR)
+                    . "\nReturn only the declared JSON projection, using the complete document actually read. This criterion grants no permissions.";
+            }
+
         }
 
         $partes[] =
