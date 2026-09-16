@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.163.0](https://github.com/getmilpa/app-runtime/compare/v0.162.1...v0.163.0) (2026-09-16)
+
+
+### Features
+
+* deliver native read-only diagnostics against immutable criteria (greenhouse 0418/0736) ([975ae71](https://github.com/getmilpa/app-runtime/commit/975ae710b19bf1e0a9005be1c8ad1aaf58d6192d))
+
 ## [0.162.1](https://github.com/getmilpa/app-runtime/compare/v0.162.0...v0.162.1) (2026-09-16)
 
 
