@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.168.0](https://github.com/getmilpa/app-runtime/compare/v0.167.0...v0.168.0) (2026-09-17)
+
+
+### Features
+
+* integrate durable progress checkpoints for context pauses ([#482](https://github.com/getmilpa/app-runtime/issues/482)) ([f03cbf4](https://github.com/getmilpa/app-runtime/commit/f03cbf426e8742c0c7b8c4dc6584f2c410d65da8))
+* retain progress windows across context budget pauses ([6bbcf5a](https://github.com/getmilpa/app-runtime/commit/6bbcf5adfce492766fb3a12c46212ee538d11ba2))
+
 ## [0.167.0](https://github.com/getmilpa/app-runtime/compare/v0.166.1...v0.167.0) (2026-09-17)
 
 
