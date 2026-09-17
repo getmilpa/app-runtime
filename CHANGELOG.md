@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.166.0](https://github.com/getmilpa/app-runtime/compare/v0.165.0...v0.166.0) (2026-09-17)
+
+
+### Features
+
+* declare native output capacity through app configuration ([14bc8b3](https://github.com/getmilpa/app-runtime/commit/14bc8b37f0e6272eb840a2c37bf703f203d30b63))
+
 ## [0.165.0](https://github.com/getmilpa/app-runtime/compare/v0.164.1...v0.165.0) (2026-09-17)
 
 
