@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [0.169.0](https://github.com/getmilpa/app-runtime/compare/v0.168.1...v0.169.0) (2026-09-17)
+
+
+### Features
+
+* recognize attributable authoring diagnostics in progress recovery ([b8ffcaa](https://github.com/getmilpa/app-runtime/commit/b8ffcaa6dd5943e575a619c05cbd463071ff53f8))
+
+With devtools 0.31.0, the runtime binds a rejected implementation's behavioral receipt to
+its admitted proposal, copied inputs and rollback. A new diagnostic restores permitted reads;
+repeating the same judged body and inputs does not renew progress. Failed authoring stays
+unapplied and contributes no positive verification. Existing explicit-test diagnostics,
+authority checks and recovery windows remain unchanged. Measured in Greenhouse decision 0431
+and evidence 0774: https://github.com/getmilpa/greenhouse/pull/140.
+
 ## [0.168.1](https://github.com/getmilpa/app-runtime/compare/v0.168.0...v0.168.1) (2026-09-17)
 
 
