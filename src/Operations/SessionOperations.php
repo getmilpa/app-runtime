@@ -15,6 +15,8 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Operations;
 
 use Milpa\AppRuntime\Support\ContratoInstalado;
+use Milpa\AppRuntime\Agent\SessionArgumentPage;
+use Milpa\ToolRuntime\Contracts\ToolContext;
 use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\Principal;
 use Milpa\Agent\Session;
@@ -336,6 +338,27 @@ final class SessionOperations implements CommandProvider
                 // sería documentar que el puesto existe y no atenderlo — el siguiente agente
                 // tendría que volver a fabricarse un proxy.
                 surfaces: ['cli', 'tui', 'mcp', 'http'],
+            ),
+            new Operation(
+                name: 'agent:argument',
+                scopes: ['agent:read', 'agent:answer'],
+                effects: EffectProfile::readOnly(),
+                description: 'Read complete JSON pages of one recorded tool argument, including a rejected proposal. The cursor binds the call and content, not the growing journal. A recorded argument is not evidence that its code was accepted or applied.',
+                handler: fn (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array => $this->argumentPage($input, $authority),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'session' => ['type' => 'string', 'description' => 'The session that recorded the call',
+                            'x-milpa-source' => ['tool' => 'agent:sessions', 'path' => 'sessions', 'key' => 'session']],
+                        'seq' => ['type' => 'integer', 'minimum' => 1, 'description' => 'Exact sequence of a session.tool_called event in that session'],
+                        'argument' => ['type' => 'string', 'description' => 'Exact top-level string argument name, such as content; not a JSON path'],
+                        'cursor' => ['type' => 'string', 'description' => 'The preceding next_cursor, unchanged; omit to start. Grants no permission.'],
+                        'max_chars' => ['type' => 'integer', 'minimum' => 256, 'description' => 'Explicit JSON character budget outside a model transport; may only tighten its budget'],
+                    ],
+                    'required' => ['session', 'seq', 'argument'],
+                ],
+                mutating: false,
+                surfaces: ['cli', 'tui', 'mcp'],
             ),
             new Operation(
                 name: 'agent:answer',
@@ -900,6 +923,21 @@ final class SessionOperations implements CommandProvider
         $almacen->end($id, $porque);
 
         return ['ok' => true, 'session' => $id];
+    }
+
+    /**
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function argumentPage(array $input, ?ToolContext $authority): array
+    {
+        $sessions = $this->sessions();
+        if ($sessions === null) {
+            return ['ok' => false, 'error' => 'this app has nowhere to store sessions'];
+        }
+
+        return (new SessionArgumentPage($sessions))->read($input, $authority?->resultBudget);
     }
 
     /**

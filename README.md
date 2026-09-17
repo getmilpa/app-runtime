@@ -298,6 +298,30 @@ Why a class and not a list: a measurement (`settlement-q-p20p.md`) put an agent 
 not finish without mutating, took five tools away by name, and watched it reach for a sixth that
 mutates — three times out of three. The list is worth exactly what whoever wrote it remembered.
 
+**Recovering a recorded argument — `agent:argument`**
+
+A rejected implementation remains in its `session.tool_called` event even when the trial restores
+its original files. Read one top-level string argument by session and exact event sequence:
+
+```bash
+php bin/coa agent:argument --session=my-session --seq=87 --argument=content --max_chars=3000
+```
+
+The result includes `content`, its full `sha256` and `total_bytes`, byte offsets, the recorded tool
+and `call_ok`, and `next_cursor`. Keep the same session, sequence and argument, pass `next_cursor`
+unchanged, and concatenate page contents until it is null. Each page is complete JSON within the
+transport's result budget; an explicit `max_chars` can only tighten that budget and is required
+when no transport budget exists. Offsets respect UTF-8 boundaries, while the bound measures the
+encoded JSON, including metadata and escapes.
+
+The cursor binds the selected call and content rather than the growing journal, so recording a
+read does not invalidate the next page. It carries no authority: the operation requires the same
+`agent:read` or `agent:answer` scope as other protected session reads and is available on CLI, TUI
+and MCP. Unknown calls, nontext arguments and mismatched cursors return an error. Reading a recorded
+proposal neither accepts its code nor applies it to a workspace. Recovery was measured through the
+native loop in greenhouse evidence/0781; that fixture does not demonstrate autonomous discovery or
+repair of the proposal.
+
 **The surfaces — where you drive it from**
 
 `Console\Application` is the single door of the CLI: `coa` on its own, a named command, the TUI, a
