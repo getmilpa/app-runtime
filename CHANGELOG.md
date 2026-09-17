@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.165.0](https://github.com/getmilpa/app-runtime/compare/v0.164.1...v0.165.0) (2026-09-17)
+
+
+### Features
+
+* recognize fresh failing-test diagnostics during recovery ([0fc8763](https://github.com/getmilpa/app-runtime/commit/0fc8763cb6b98322947b7a1c8e023885afa06fdb))
+
 ## [0.164.1](https://github.com/getmilpa/app-runtime/compare/v0.164.0...v0.164.1) (2026-09-17)
 
 
