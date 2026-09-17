@@ -28,7 +28,7 @@ use Milpa\EventStore\EventStoreInterface;
  * ── THE WINDOW, AND WHEN IT SPEAKS ──────────────────────────────────────────────────────────────
  *
  * The probe stays silent until {@see self::STALL_AFTER_CALLS} consecutive model calls show zero
- * newEvidence + newArtifacts + closedTodos. «Consecutive» is enforced by the checkpoint, not by a
+ * newEvidence + newDiagnostics + newArtifacts + closedTodos. «Consecutive» is enforced by the checkpoint, not by a
  * counter: any advancing window moves the checkpoint forward, so a productive call resets the
  * count by construction. When the probe DOES speak, it records the stall as an additive
  * `session.progress_stalled` fact on the session's own stream — through the same captured-store
