@@ -791,6 +791,12 @@ receipts and current files. It is offered by `AgentOperations` when the `agent` 
 installed; no model connection or extra app provider is needed. The operation requires
 `agent:read` and declares read-only effects.
 
+A verified multipart `implement` finish remains one candidate when its complete report changes
+the declared PHP file and deletes that file's `.milpa-part` sibling. The staged baseline must
+contain exactly the final PHP bytes, and promotion must consume the sibling. Other deleted
+files, unfinished parts, altered inputs or a reappearing staging file do not qualify. The
+reader retains the complete promotion receipt; it does not grant activation or human approval.
+
 ```bash
 php bin/coa candidate:state --session=repair-session --workspace=w1234567890abcdef --json
 ```

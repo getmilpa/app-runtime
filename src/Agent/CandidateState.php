@@ -86,11 +86,25 @@ final class CandidateState
         }
         $expected = $run->payload['report'] ?? null;
         $path = $out['file'] ?? null;
-        if (!is_array($expected) || count($expected) !== 1 || !is_string($path) || !isset($expected[$path]) || !is_array($expected[$path])
+        if (!is_array($expected) || !is_string($path) || !isset($expected[$path]) || !is_array($expected[$path])
             || !in_array($expected[$path]['status'] ?? '', ['added', 'modified'], true)
             || !is_string($expected[$path]['sha256'] ?? null)
-            || !preg_match('/^[a-f0-9]{64}$/D', $expected[$path]['sha256'])
-            || ($r['changed'] ?? null) !== [$path => $expected[$path]['status']]) {
+            || !preg_match('/^[a-f0-9]{64}$/D', $expected[$path]['sha256'])) {
+            return $answer('indeterminate', 'single_file_candidate_not_proven');
+        }
+        $changed = [$path => $expected[$path]['status']];
+        $staging = null;
+        if ($p['tool'] === 'implement' && ($p['arguments']['mode'] ?? null) === 'finish') {
+            // DevTools finish consumes this exact sibling; it is not a second deliverable.
+            // Keep the full report/receipt and prove its baseline bytes below, rather than
+            // discarding arbitrary deleted files or every path with a staging suffix.
+            $staging = $path . '.milpa-part';
+            if (!str_ends_with($path, '.php') || ($expected[$staging] ?? null) !== ['status' => 'deleted', 'sha256' => null]) {
+                return $answer('indeterminate', 'single_file_candidate_not_proven');
+            }
+            $changed[$staging] = 'deleted';
+        }
+        if (count($expected) !== count($changed) || ($r['changed'] ?? null) !== $changed) {
             return $answer('indeterminate', 'single_file_candidate_not_proven');
         }
         $base['artifact'] = ['path' => $path, 'sha256' => $expected[$path]['sha256']];
@@ -118,6 +132,9 @@ final class CandidateState
             if (($expected[$path]['status'] === 'modified') !== isset($manifest[$path])) {
                 return $answer('contradicted', 'baseline_status_mismatch');
             }
+            if ($staging !== null && ($manifest[$staging] ?? null) !== $expected[$path]['sha256']) {
+                return $answer('contradicted', 'consumed_staging_not_proven');
+            }
             $receiptFile = self::path($root, 'var/trials/' . $workspace . '/promoted.json');
             if (file_exists($receiptFile)) {
                 $receiptRaw = self::bytes($receiptFile);
@@ -128,9 +145,12 @@ final class CandidateState
                 if (self::hash($root, $path) !== $expected[$path]['sha256']) {
                     return $answer('contradicted', 'promoted_bytes_changed');
                 }
+                if ($staging !== null && file_exists(self::path($root, $staging))) {
+                    return $answer('contradicted', 'consumed_staging_reappeared');
+                }
                 // The baseline covers copied files, not vendor, environment or all execution inputs.
                 foreach ($manifest as $rel => $hash) {
-                    if ($rel !== $path && self::hash($root, $rel) !== $hash) {
+                    if ($rel !== $path && $rel !== $staging && self::hash($root, $rel) !== $hash) {
                         return $answer('contradicted', 'recorded_input_changed');
                     }
                 }
