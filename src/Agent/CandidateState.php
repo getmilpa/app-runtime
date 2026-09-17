@@ -22,6 +22,28 @@ final class CandidateState
      */
     public static function read(string $root, array $events, string $workspace): array
     {
+        return self::observe($root, $events, $workspace, false);
+    }
+
+    /** Observe only a promoted artifact's retained bytes and producer receipt, not its old execution inputs.
+     * Composition acceptance must separately join every member to a current complete test.
+     *
+     * @param list<mixed> $events
+     *
+     * @return array<string,mixed>
+     *
+     * @internal
+     */
+    public static function retainedMember(string $root, array $events, string $workspace): array
+    {
+        return self::observe($root, $events, $workspace, true);
+    }
+
+    /** @param list<mixed> $events
+     * @return array<string,mixed>
+     */
+    private static function observe(string $root, array $events, string $workspace, bool $member): array
+    {
         clearstatcache(true);
         $base = ['workspace' => $workspace, 'artifact' => null, 'verification' => null, 'evidence' => [],
             'authorization' => 'not_evaluated', 'next' => null];
@@ -150,7 +172,7 @@ final class CandidateState
                 }
                 // The baseline covers copied files, not vendor, environment or all execution inputs.
                 foreach ($manifest as $rel => $hash) {
-                    if ($rel !== $path && $rel !== $staging && self::hash($root, $rel) !== $hash) {
+                    if (!$member && $rel !== $path && $rel !== $staging && self::hash($root, $rel) !== $hash) {
                         return $answer('contradicted', 'recorded_input_changed');
                     }
                 }
@@ -160,9 +182,12 @@ final class CandidateState
                 if (self::bytes($receiptFile) !== $receiptRaw || self::bytes($manifestFile) !== $manifestRaw) {
                     return $answer('indeterminate', 'observation_changed');
                 }
-                return $answer('promoted', 'receipt_and_host_match', ['evidence' => $base['evidence'] + [
+                return $answer($member ? 'retained_member' : 'promoted', 'receipt_and_host_match', ['evidence' => $base['evidence'] + [
                     'baselineSha256' => hash('sha256', $manifestRaw), 'promotionSha256' => hash('sha256', $receiptRaw)],
-                    'inputScope' => 'recorded_copied_files']);
+                    'inputScope' => $member ? 'retained_artifact_only' : 'recorded_copied_files']);
+            }
+            if ($member) {
+                return $answer('indeterminate', 'member_promotion_missing');
             }
             $copy = self::path($root, 'var/trials/' . $workspace . '/copy');
             if (!is_dir($copy)) {

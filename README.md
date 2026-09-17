@@ -938,6 +938,33 @@ or a different producer behind a bound workspace. Current physical evidence is s
 `AcceptanceEvidence`; the binding is not a transaction, filesystem lock or session-owner policy.
 Evidence: greenhouse decisions/0403 and evidence/0721.
 
+For a screen written across several artifacts, add `members` to the expectation **before**
+execution. It is a unique list of at most 32 exact relative paths, normalized as a sorted set:
+
+```json
+{
+  "members": ["src/Plugins/Owned/Services/TodoBoardRenderer.php", "src/Plugins/Owned/Services/TodoItemRenderer.php"],
+  "test": {"path": "tests/Plugins/Owned", "filter": ""},
+  "screen": {"name": "todos", "type": "todo-board"}
+}
+```
+
+Select a current promoted member using the same `deliveryCandidate` input. The SDK also binds
+each member's latest native producer, artifact digest, baseline digest and complete promotion
+receipt digest. Every producer must follow the expectation. These bindings survive rehydration
+and cannot be replaced. Legacy `delivery` cannot introduce composition members.
+
+An earlier member may have historical execution inputs because another member was written later.
+Its retained artifact and promotion receipt do not make that old candidate current: `CandidateState`
+keeps its original freshness checks. Composition acceptance instead requires every retained member
+to appear with identical bytes in a later native test's preserved inputs, along with the exact
+requested test path/filter and current screen review. Closure relates each producer to exactly one
+recorded artifact and retains all other work obligations, red judgments and later mutations.
+
+This proves the declared test ran against those members; it does not prove that the tests cover
+every UI behavior. It grants no activation authority, human approval or browser verification.
+Omitting `members` preserves the single-artifact contract.
+
 ## Run termination and closure
 
 The `agent` result includes `termination: {reason, receipt}` for attempts that reach the model

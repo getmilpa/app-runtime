@@ -22,13 +22,16 @@ final class DeliveryScope
         if (is_string($input)) {
             $input = json_decode($input, true, 32, JSON_THROW_ON_ERROR);
         }
-        if (!is_array($input) || array_diff(array_keys($input), ['workspace', 'artifactPath', 'test', 'screen']) !== []
+        if (!is_array($input) || array_diff(array_keys($input), ['workspace', 'artifactPath', 'test', 'screen', 'members']) !== []
             || !is_string($input['workspace'] ?? null) || !preg_match('/^w[a-f0-9]{12,32}$/D', $input['workspace'])
             || !self::relativePath($input['artifactPath'] ?? null)
             || !is_array($input['test'] ?? null) || !is_array($input['screen'] ?? null)) {
             throw new \InvalidArgumentException('Delivery requires a candidate workspace, relative artifactPath, test and screen.');
         }
-        $expected = self::parseExpected(['test' => $input['test'], 'screen' => $input['screen']]);
+        $expected = self::parseExpected(array_diff_key($input, ['workspace' => true, 'artifactPath' => true]));
+        if (isset($expected['members']) && !in_array($input['artifactPath'], $expected['members'], true)) {
+            throw new \InvalidArgumentException('The selected candidate must belong to the declared members.');
+        }
         $scope = self::canonical(['workspace' => $input['workspace'], 'artifactPath' => $input['artifactPath']] + $expected);
         if (strlen(json_encode($scope, JSON_THROW_ON_ERROR)) > 16384) {
             throw new \InvalidArgumentException('Delivery exceeds 16384 bytes.');
@@ -44,9 +47,23 @@ final class DeliveryScope
         if (is_string($input)) {
             $input = json_decode($input, true, 32, JSON_THROW_ON_ERROR);
         }
-        if (!is_array($input) || array_diff(array_keys($input), ['test', 'screen']) !== []
+        if (!is_array($input) || array_diff(array_keys($input), ['test', 'screen', 'members']) !== []
             || !is_array($input['test'] ?? null) || !is_array($input['screen'] ?? null)) {
-            throw new \InvalidArgumentException('An expectation requires only test and screen targets.');
+            throw new \InvalidArgumentException('An expectation requires test and screen targets, with optional explicit members.');
+        }
+        if (array_key_exists('members', $input)) {
+            if (!is_array($input['members']) || !array_is_list($input['members']) || $input['members'] === [] || count($input['members']) > 32) {
+                throw new \InvalidArgumentException('Delivery members must be a nonempty list of at most 32 relative paths.');
+            }
+            foreach ($input['members'] as $path) {
+                if (!self::relativePath($path)) {
+                    throw new \InvalidArgumentException('Delivery members require safe relative paths.');
+                }
+            }
+            if (count(array_unique($input['members'])) !== count($input['members'])) {
+                throw new \InvalidArgumentException('Delivery members must be unique.');
+            }
+            sort($input['members'], SORT_STRING);
         }
         $test = $input['test'];
         $screen = $input['screen'];
@@ -90,7 +107,7 @@ final class DeliveryScope
                 || !is_string($payload['provenance']['channel'] ?? null)) {
                 throw new \UnexpectedValueException('The durable delivery declaration is inconsistent.');
             }
-            if ($expectation !== null || array_key_exists('binding', $payload)) {
+            if ($expectation !== null || isset($scope['members']) || array_key_exists('binding', $payload)) {
                 self::validateBinding($events, $expectation, $scope, $payload['binding'] ?? null, $event->seq);
             }
             $found = $payload + ['seq' => $event->seq];
@@ -103,7 +120,7 @@ final class DeliveryScope
      */
     public static function record(EventStoreInterface $events, string $session, array $scope, ObservedExecutor $caller): void
     {
-        if (DeliveryExpectation::read((new SessionStore($events))->stream($session), $session) !== null) {
+        if (isset($scope['members']) || DeliveryExpectation::read((new SessionStore($events))->stream($session), $session) !== null) {
             throw new \InvalidArgumentException('An expected delivery must bind a native candidate.');
         }
         self::append($events, $session, $scope, $caller, null);
@@ -146,6 +163,9 @@ final class DeliveryScope
         $binding = ['expectationSeq' => $expectation['seq'], 'expectationSha256' => $expectation['sha256'],
             'candidate' => ['artifact' => $candidate['artifact'], 'trialRunSeq' => $candidate['evidence']['trialRunSeq'],
                 'toolCallSeq' => $candidate['evidence']['toolCallSeq']]];
+        if (isset($expectation['expected']['members'])) {
+            $binding['members'] = DeliveryMembers::read($root, $events, $expectation);
+        }
         $existing = self::read($events, $session);
         if ($existing !== null && ($existing['scope'] !== $scope || ($existing['binding'] ?? null) !== $binding)) {
             throw new \InvalidArgumentException('The delivery candidate binding is immutable; use a new session.');
@@ -174,29 +194,57 @@ final class DeliveryScope
         if ($expectation === null || !is_array($binding)
             || ($binding['expectationSeq'] ?? null) !== $expectation['seq']
             || ($binding['expectationSha256'] ?? null) !== $expectation['sha256']
-            || ['screen' => $scope['screen'], 'test' => $scope['test']] !== $expectation['expected']) {
+            || array_diff_key($scope, ['workspace' => true, 'artifactPath' => true]) !== $expectation['expected']) {
             throw new \UnexpectedValueException('Delivery does not match its prior expectation.');
         }
+        self::validateProducer($events, $scope['workspace'], $scope['artifactPath'], $binding['candidate'] ?? null, $expectation['seq'], $declaredSeq);
+        if (isset($scope['members'])) {
+            $members = $binding['members'] ?? null;
+            if (!is_array($members) || !array_is_list($members) || array_column(array_column($members, 'artifact'), 'path') !== $scope['members']) {
+                throw new \UnexpectedValueException('Delivery members do not match the expectation.');
+            }
+            $workspaces = DeliveryMembers::workspaces($events, $scope['members']);
+            foreach ($members as $member) {
+                $path = $member['artifact']['path'];
+                if (($member['workspace'] ?? null) !== ($workspaces[$path] ?? null)) {
+                    throw new \UnexpectedValueException('Delivery member producer changed.');
+                }
+                self::validateProducer($events, $member['workspace'], $path, $member, $expectation['seq'], $declaredSeq);
+                foreach (['baselineSha256', 'promotionSha256'] as $key) {
+                    if (!is_string($member[$key] ?? null) || !preg_match('/^[a-f0-9]{64}$/D', $member[$key])) {
+                        throw new \UnexpectedValueException('Delivery member receipt binding is invalid.');
+                    }
+                }
+            }
+        } elseif (array_key_exists('members', $binding)) {
+            throw new \UnexpectedValueException('Undeclared delivery members.');
+        }
+    }
+
+    /** Match one pinned producer to its native ledger history, without making a freshness claim.
+     * @param list<Event> $events
+     */
+    private static function validateProducer(array $events, string $workspace, string $path, mixed $c, int $expectedSeq, int $declaredSeq): void
+    {
         $run = $call = null;
         foreach ($events as $event) {
-            if ($event->type === 'session.trial_run_recorded' && ($event->payload['workspace'] ?? null) === $scope['workspace']) {
+            if ($event->type === 'session.trial_run_recorded' && ($event->payload['workspace'] ?? null) === $workspace) {
                 $run = $event;
             }
             if ($event->type === 'session.tool_called' && in_array($event->payload['tool'] ?? '', ['edit', 'implement'], true)) {
                 $raw = $event->payload['result'] ?? null;
                 $result = is_string($raw) ? json_decode($raw, true) : null;
-                if (is_array($result) && ($result['workspace'] ?? null) === $scope['workspace']) {
+                if (is_array($result) && ($result['workspace'] ?? null) === $workspace) {
                     $call = $event;
                 }
             }
         }
-        $c = $binding['candidate'] ?? null;
         if ($run === null || $call === null || !is_array($c)
             || ($c['trialRunSeq'] ?? null) !== $run->seq || ($c['toolCallSeq'] ?? null) !== $call->seq
-            || !($expectation['seq'] < $run->seq && $run->seq < $call->seq && $call->seq < $declaredSeq)
-            || ($c['artifact']['path'] ?? null) !== $scope['artifactPath']
+            || !($expectedSeq < $run->seq && $run->seq < $call->seq && $call->seq < $declaredSeq)
+            || ($c['artifact']['path'] ?? null) !== $path
             || !is_string($c['artifact']['sha256'] ?? null)
-            || ($run->payload['report'][$scope['artifactPath']]['sha256'] ?? null) !== $c['artifact']['sha256']) {
+            || ($run->payload['report'][$path]['sha256'] ?? null) !== $c['artifact']['sha256']) {
             throw new \UnexpectedValueException('Delivery candidate no longer matches its bound producer.');
         }
     }

@@ -46,6 +46,9 @@ final class AcceptanceEvidenceJoin
             'scope' => ['test' => $scope, 'screen' => $screen, 'coverage' => 'requested_test_scope',
                 'inputs' => 'native_copied_files_and_screen_build', 'browserBehavior' => 'not_observed'],
             'candidate' => $observation['candidate'] ?? null];
+        if (isset($observation['memberPaths'])) {
+            $base['scope']['members'] = $observation['memberPaths'];
+        }
         try {
             $events = $observation['events'] ?? null;
             if (!is_array($events)) {
@@ -236,6 +239,15 @@ final class AcceptanceEvidenceJoin
         $base = ['workspace' => $id, 'trialRunSeq' => $run['seq'], 'toolCallSeq' => $call['seq'],
             'scope' => $actual, 'coversRequestedScope' => $actual === $scope, 'exit' => $exit,
             'output' => $out, 'outcome' => $outcome, 'effectSeq' => $effects[0]['seq'], 'candidate' => $artifact] + $counts;
+        if (isset($observation['members'])) {
+            foreach ($observation['members'] as $member) {
+                if (($ws['manifest'][$member['artifact']['path']] ?? null) !== $member['artifact']['sha256']
+                    || $member['toolCallSeq'] >= $run['seq']) {
+                    throw new RuntimeException('test_member_mismatch');
+                }
+            }
+            $base['members'] = $observation['members'];
+        }
         if ($failed) {
             $base['stderr'] = $result['stderr'];
         }
