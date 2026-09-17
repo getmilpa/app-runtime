@@ -750,8 +750,17 @@ Changing only the timeout does not create another proof.
 
 A known empty observation does not reset recovery. An unavailable observation neither clears a
 pending recovery nor proves its window exhausted. Older producers without observations retain the
-legacy session interpretation. This protocol requires `milpa/agent >=0.44` when the optional agent
+legacy session interpretation. This protocol requires `milpa/agent >=0.46` when the optional agent
 capability is installed (greenhouse decisions/0346, evidence/0663).
+
+A completed native trial with failed assertions can separately produce a diagnostic identity when
+its copied inputs remain unchanged. This is not positive test evidence. The identity binds the
+normalized relative test selector and copied input bytes; another workspace, timeout, output text
+or equivalent relative path spelling cannot make it new. Repeating it does not reset progress
+again. Unexecuted tests, assertion-free runs, infrastructure errors, absolute selectors and
+unobserved or changed inputs produce no diagnostic identity. Permissions, verification claims and
+screen activation remain separate (greenhouse decision0429/evidence0751).
+
 
 ### Trial input freshness
 

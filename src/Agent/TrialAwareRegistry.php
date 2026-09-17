@@ -100,7 +100,9 @@ final class TrialAwareRegistry extends ToolRegistry
         if ($observe) {
             $after = FileEffectObserver::trialSnapshot($plan->workspace);
             $evidence = FileEffectObserver::testEvidence($name, $args, $after, $run->output);
-            $this->recordEffect($name, $args, FileEffectObserver::compare($before, $after, 'proposal', $evidence));
+            $diagnostics = $run->exit === 1 && $before !== null && $before === $after
+                ? FileEffectObserver::testDiagnostics($name, $args, $after, $run->output) : [];
+            $this->recordEffect($name, $args, FileEffectObserver::compare($before, $after, 'proposal', $evidence, $diagnostics));
         }
 
         $meta = [

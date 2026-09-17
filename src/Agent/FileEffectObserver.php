@@ -72,8 +72,9 @@ final class FileEffectObserver
      * @param array<string, string>|null $before
      * @param array<string, string>|null $after
      * @param list<string>               $evidence
+     * @param list<string>               $diagnostics
      */
-    public static function compare(?array $before, ?array $after, string $stage, array $evidence = []): EffectObservation
+    public static function compare(?array $before, ?array $after, string $stage, array $evidence = [], array $diagnostics = []): EffectObservation
     {
         if ($before === null || $after === null) {
             return new EffectObservation('app-runtime/file-effects/v1', false);
@@ -85,7 +86,7 @@ final class FileEffectObserver
             }
         }
         sort($identities);
-        return new EffectObservation('app-runtime/file-effects/v1', true, $identities, $evidence);
+        return new EffectObservation('app-runtime/file-effects/v1', true, $identities, $evidence, $diagnostics);
     }
 
     /** A structured native test verdict witnesses behavior of this exact copied input tree.
@@ -105,4 +106,53 @@ final class FileEffectObserver
         }
         return [hash('sha256', json_encode(['native-test/v1', EffectObservation::argumentsDigest(['path' => trim((string) ($arguments['path'] ?? '')), 'filter' => trim((string) ($arguments['filter'] ?? ''))]), $state], JSON_THROW_ON_ERROR))];
     }
+
+    /** A failed executed assertion can inform the next step without certifying behavior.
+     * Stable scope and copied bytes consume this diagnostic once; output prose and trial ids do not.
+     *
+     * @param array<string, mixed>      $arguments
+     * @param array<mixed>|null         $state
+     * @param array<string, mixed>|null $output
+     *
+     * @return list<string>
+     */
+    public static function testDiagnostics(string $tool, array $arguments, ?array $state, ?array $output): array
+    {
+        if ($tool !== 'test' || $state === null || $state === [] || ($output['ok'] ?? null) !== false
+            || ($output['ran'] ?? null) !== true || !is_int($output['tests'] ?? null) || $output['tests'] < 1
+            || !is_int($output['assertions'] ?? null) || $output['assertions'] < 1
+            || ($output['errors'] ?? null) !== 0 || !is_int($output['failures'] ?? null)
+            || $output['failures'] < 1 || $output['failures'] > $output['tests']
+            || !is_string($arguments['path'] ?? null) || trim($arguments['path']) === ''
+            || !is_string($arguments['filter'] ?? '')) {
+            return [];
+        }
+        $path = trim($arguments['path']);
+        if (str_starts_with($path, '/')) {
+            return [];
+        }
+        $parts = [];
+        foreach (explode('/', $path) as $part) {
+            if ($part === '' || $part === '.') {
+                continue;
+            }
+            if ($part === '..') {
+                if ($parts === []) {
+                    return [];
+                }
+                array_pop($parts);
+            } else {
+                $parts[] = $part;
+            }
+        }
+        foreach ($state as $name => $digest) {
+            if (!is_string($name) || $name === '' || !is_string($digest) || preg_match('/^[a-f0-9]{64}$/D', $digest) !== 1) {
+                return [];
+            }
+        }
+        ksort($state);
+        $scope = ['path' => implode('/', $parts), 'filter' => trim($arguments['filter'] ?? '')];
+        return [hash('sha256', json_encode(['native-test-diagnostic/v1', EffectObservation::argumentsDigest($scope), $state], JSON_THROW_ON_ERROR))];
+    }
+
 }
