@@ -112,6 +112,20 @@ final class AgentEndpoint
         return \is_string($entorno) && $entorno !== '' ? $entorno : null;
     }
 
+    /** The app's explicit output limit, or null for the gateway's unchanged default. */
+    public static function outputTokens(?Config $config): ?int
+    {
+        if ($config === null || !$config->has('agent.outputTokens')) {
+            return null;
+        }
+        $declared = $config->get('agent.outputTokens');
+        if (!\is_int($declared) || $declared < 1) {
+            throw new \InvalidArgumentException('agent.outputTokens must be a positive integer.');
+        }
+
+        return $declared;
+    }
+
     /**
      * The context window this app's agent runs under, or `null` when nothing produced one.
      *

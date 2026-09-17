@@ -111,6 +111,12 @@ final class AgentKeys
                     . 'is set, the provider is asked what it actually allocated and the SMALLER of '
                     . 'the two governs — declare less to leave air, never more than exists',
             ],
+            'agent.outputTokens' => [
+                'type' => DeclaredType::integer(),
+                'does' => 'A positive output-token limit for each native loop call; absent keeps 4096. '
+                    . 'Must leave input room inside a known context window. The intake records the '
+                    . 'actual provider limit; truncation never raises it or executes partial tools',
+            ],
             'agent.permissionWindow' => [
                 'type' => DeclaredType::text('ISO-8601 duration, e.g. PT1H'),
                 'does' => 'How long a paused question waits for its answer before it dies',
