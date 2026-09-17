@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.166.1](https://github.com/getmilpa/app-runtime/compare/v0.166.0...v0.166.1) (2026-09-17)
+
+
+### Bug Fixes
+
+* recognize verified multipart finish candidates ([ca82d54](https://github.com/getmilpa/app-runtime/commit/ca82d54887171e4f7340df7c6ed4fd4054d8375a))
+
 ## [0.166.0](https://github.com/getmilpa/app-runtime/compare/v0.165.0...v0.166.0) (2026-09-17)
 
 
