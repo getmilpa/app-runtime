@@ -128,7 +128,7 @@ Greenhouse decisions/0350 and evidence/0667.
 
 During progress recovery, `ConsentBridge` removes declared reads from the offered catalogue using
 the session gate's current state. Successful material work, recorded evidence or a completed todo
-restores them; failed writes and pending confirmations do not. Durable option removals remain in
+restores them. A new validated diagnostic can also restore reads; an unobserved failure or pending confirmation cannot. Durable option removals remain in
 force. Full and lazy discovery use this current offer, including previously discovered schemas.
 Offering a mutation does not authorize it: scopes and argument-dependent effects are still judged
 when it is called. Catalogue inspection does not execute that judgment or open consent questions.
@@ -136,10 +136,25 @@ when it is called. Catalogue inspection does not execute that judgment or open c
 `SessionProgressProbe` opens recovery after four model calls without recorded growth. It allows
 one further window of the same size for preparation, then reports exhaustion if growth is still
 absent. A successful artifact-producing operation, recorded evidence or a completed todo resets
-the window, including on its last call. Plan edits, repeated todos, failures and confirmation
-requests do not. Observations explicitly distinguish pending, recovered and exhausted recovery;
+the window, including on its last call. New validated diagnostics are tracked separately from positive
+evidence. Plan edits, repeated todos, repeated diagnostics and confirmation requests do not reset it. Observations explicitly distinguish pending, recovered and exhausted recovery;
 an unavailable store cannot claim any of them. The orchestrator enforces this contract without
 changing tool permissions or the total step budget. Windows belong to the current invocation.
+
+A rejected `implement` can report a new diagnostic when `milpa/devtools` supplies a
+`milpa.authoring-diagnostic/v1` receipt from the class's behavioral judge. The host binds it to
+the admitted call, submitted and normalized body, test selector, observed copied files and
+completed rollback. Runtime errors can describe that scoped execution; they do not establish
+that the proposal caused the error. Size/syntax/static refusals, missing counts, timeouts,
+unobserved mutations and invalid receipts earn no diagnostic identity. The existing explicit
+`test` diagnostic contract is unchanged.
+
+The same judged body, selector and observed copied tree consume one diagnostic identity across
+workspaces, prose changes and inline/finish transport. The copied file scope excludes vendor,
+var and other trial machinery; it is not a complete dependency trace. A failed authoring result
+retains its structured receipt in the `milpa.trial-authoring-failure/v1` error envelope so it can
+reach the next model request. It remains failed and unapplied, with no promotion instruction.
+Older devtools producers without this receipt continue to earn no authoring diagnostic credit.
 
 **The operations — what your app knows how to do**
 
