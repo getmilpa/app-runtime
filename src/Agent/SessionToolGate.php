@@ -150,6 +150,8 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      * El motivo por el que esta llamada no procede, o `null` si procede.
      *
      * @param array<string, mixed> $arguments
+     *
+     * @throws \InvalidArgumentException for a recorded draft-name mismatch against a known caller target
      */
     public function refuse(string $tool, array $arguments): ?string
     {
@@ -248,7 +250,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             }
         }
         $duda = $this->intentUnderdetermined($operacion, $arguments, $deliveryTarget);
-        if ($duda !== null) {
+        if ($duda !== null && $deliveryTarget === null) {
             return $this->pause($duda);
         }
 
@@ -263,6 +265,21 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         $bucle = $this->vigiaDeBucle?->motivoParaNoRepetir($tool, $arguments);
         if ($bucle !== null) {
             return $bucle;
+        }
+
+        // A known caller target makes this an argument error, not an unanswered human choice
+        // (greenhouse 0767). Explicit current/standing/confirmed intent already returned null
+        // from intentUnderdetermined. Reject without rewriting or executing the proposal; the
+        // normal tool-error channel lets the caller correct it. A corrected call still passes
+        // every authority check. Record failure here: the registry is never reached, and the
+        // receipt must neither count as progress nor escape the identical-failure guard above.
+        if ($duda !== null) {
+            $error = 'delivery_target_mismatch: screen:draft.name does not match the caller delivery target. '
+                . json_encode(['expected' => $deliveryTarget, 'received' => $arguments['name']], \JSON_THROW_ON_ERROR)
+                . '. No draft was created. Correct the name to match the declared target; a different '
+                . 'delivery requires a caller decision, not an invented target.';
+            $this->recorded($tool, $arguments, $error, false);
+            throw new \InvalidArgumentException($error);
         }
 
         // THE GATE DECIDES BY THE COMPOSED CEILING OF THIS CALL, not by the declared flag
