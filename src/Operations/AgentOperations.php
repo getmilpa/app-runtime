@@ -2837,6 +2837,12 @@ class AgentOperations implements CommandProvider
     ): AgentOrchestrator {
         $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
         $contexto = AgentEndpoint::contextTokens($config instanceof Config ? $config : null) ?? 0;
+        $salida = AgentEndpoint::outputTokens($config instanceof Config ? $config : null);
+        if ($salida !== null && (!$this->orchestratorAdmitsOutputTokens()
+            || !property_exists(\Milpa\Agent\ModelCallIntake::class, 'outputBudget'))) {
+            throw new \RuntimeException('Explicit output requires an output-budget-aware gateway and agent intake.');
+        }
+        $outputArguments = $salida === null ? [] : ['outputTokens' => $salida];
 
         if ($this->promptSession !== null && ($store = $this->sessions()) !== null
             && ($diagnostic = DiagnosticContract::read($store->stream($this->promptSession->id), $this->promptSession->id)) !== null) {
@@ -2857,8 +2863,12 @@ class AgentOperations implements CommandProvider
                 $lazyTools,
                 $sonda,
                 $contexto,
-                answerJudge: new SessionDiagnosticJudge($this->sessionEvents, $this->promptSession->id)
+                ...['answerJudge' => new SessionDiagnosticJudge($this->sessionEvents, $this->promptSession->id), ...$outputArguments]
             );
+        }
+
+        if ($salida !== null) {
+            return new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger(), null, $tablero, $lazyTools, $sonda, $contexto, outputTokens: $salida);
         }
 
         if ($contexto > 0 && $this->orchestratorAdmitsContextTokens()) {
@@ -2875,6 +2885,13 @@ class AgentOperations implements CommandProvider
         }
 
         return new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger());
+    }
+
+    /** Whether the installed native loop can carry an explicitly declared output budget. */
+    protected function orchestratorAdmitsOutputTokens(): bool
+    {
+        $constructor = (new \ReflectionClass(AgentOrchestrator::class))->getConstructor();
+        return $constructor !== null && in_array('outputTokens', array_map(static fn ($p) => $p->getName(), $constructor->getParameters()), true);
     }
 
     /** Optional output must be both transmitted and durably observable before it can be requested. */

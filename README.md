@@ -247,6 +247,16 @@ If the provider reports a truncated response, `agent` returns `ok: false`, `trun
 `provider`, `outputLimit`, `stopReason`, and the session id when one exists. It records no final answer or
 closure for that incomplete response. Earlier effects and recorded usage remain in the session.
 
+The app may declare `agent.outputTokens` as a positive integer in `config/app.php` or through
+`config:set`. Absent keeps the native 4096-token default; invalid values, including explicit null,
+are refused. Explicit output requires gateway 0.29+ and agent 0.47+ so both the native loop and
+its intake support the contract; older installations refuse the option before generation.
+Every loop call carries the same limit, including existing context and degeneration recovery.
+A known context must be larger than the output limit. Input projection reserves that output
+space and refuses an estimated input that still cannot fit; the estimate is not a provider
+token count, and an unknown context makes no capacity guarantee. A truncated response never
+raises the limit or executes its partial tools. This configuration grants no additional scopes.
+
 **Containing what an agent may reach**
 
 An agent runs contained from the CLI, not only when a parent delegates to it. The withdrawal is a
