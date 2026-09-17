@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.170.0](https://github.com/getmilpa/app-runtime/compare/v0.169.1...v0.170.0) (2026-09-17)
+
+
+### Features
+
+* expose bounded reads of recorded tool arguments ([5d6fcd8](https://github.com/getmilpa/app-runtime/commit/5d6fcd8c7cd692482e0b5527d2dc53de75b5b4b9))
+
 ## [0.169.1](https://github.com/getmilpa/app-runtime/compare/v0.169.0...v0.169.1) (2026-09-17)
 
 
