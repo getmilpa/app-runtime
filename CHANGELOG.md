@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.169.0](https://github.com/getmilpa/app-runtime/compare/v0.168.1...v0.169.0) (2026-09-17)
+
+
+### Features
+
+* recognize attributable authoring diagnostics in progress recovery ([b8ffcaa](https://github.com/getmilpa/app-runtime/commit/b8ffcaa6dd5943e575a619c05cbd463071ff53f8))
+
 ## [0.168.1](https://github.com/getmilpa/app-runtime/compare/v0.168.0...v0.168.1) (2026-09-17)
 
 
