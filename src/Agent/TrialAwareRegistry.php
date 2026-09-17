@@ -92,6 +92,7 @@ final class TrialAwareRegistry extends ToolRegistry
             ? $policy->writePaths($ctx ?? ToolContext::cli(), $name, $args) : null;
         $observe = $this->sessions !== null && $this->sessionId !== null;
         $before = $observe ? FileEffectObserver::trialSnapshot($plan->workspace) : null;
+        $authoring = AuthoringDiagnostic::prepare($name, $args, $plan->workspace, $before, $paths);
         $run = $this->router->runner()->run($plan->workspace, $operation->name, $args, $paths);
         if ($this->sessionId !== null) {
             $this->router->recordInputCall($this->sessionId, $name, $args, $run->inputWitness);
@@ -102,6 +103,7 @@ final class TrialAwareRegistry extends ToolRegistry
             $evidence = FileEffectObserver::testEvidence($name, $args, $after, $run->output);
             $diagnostics = $run->exit === 1 && $before !== null && $before === $after
                 ? FileEffectObserver::testDiagnostics($name, $args, $after, $run->output) : [];
+            $diagnostics = [...$diagnostics, ...($authoring?->identities($before, $after, $run->output, $run->exit) ?? [])];
             $this->recordEffect($name, $args, FileEffectObserver::compare($before, $after, 'proposal', $evidence, $diagnostics));
         }
 
@@ -115,12 +117,12 @@ final class TrialAwareRegistry extends ToolRegistry
         ];
 
         if (! $run->ok()) {
-            if ($operation->name === 'test') {
+            if ($operation->name === 'test' || ($operation->name === 'implement' && is_array($run->output['diagnostic'] ?? null))) {
                 // The native channel persists and throws only error text on failure. Keep the
                 // producer's result there, separately from runner diagnostics (greenhouse 0695).
                 // Null output means no structured result was received; no cause is inferred.
                 $error = json_encode([
-                    'schema' => 'milpa.trial-test-failure/v1',
+                    'schema' => $operation->name === 'test' ? 'milpa.trial-test-failure/v1' : 'milpa.trial-authoring-failure/v1',
                     'ok' => false,
                     'ran_in_trial' => true,
                     'applied' => false,
