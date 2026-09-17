@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.164.0](https://github.com/getmilpa/app-runtime/compare/v0.163.0...v0.164.0) (2026-09-17)
+
+
+### Features
+
+* declare immutable structured diagnostic output (greenhouse 0421) ([f07698b](https://github.com/getmilpa/app-runtime/commit/f07698b7562f8815fe7966d12d965ac6b020ec9f))
+
 ## [0.163.0](https://github.com/getmilpa/app-runtime/compare/v0.162.1...v0.163.0) (2026-09-16)
 
 
