@@ -87,6 +87,23 @@ final class AcceptanceEvidence
     {
         clearstatcache(true);
         $candidate = CandidateState::read($root, $events, $workspace);
+        $composition = [];
+        foreach ($events as $event) {
+            if ($event->type !== DeliveryExpectation::EVENT) {
+                continue;
+            }
+            $session = $event->payload['session'] ?? '';
+            $expectation = DeliveryExpectation::read($events, $session);
+            if (isset($expectation['expected']['members'])) {
+                $members = DeliveryMembers::read($root, $events, $expectation);
+                $declaration = DeliveryScope::read($events, $session);
+                if ($declaration !== null && ($declaration['binding']['members'] ?? null) !== $members) {
+                    throw new \RuntimeException('Bound composition members changed');
+                }
+                $composition = ['members' => $members, 'memberPaths' => $expectation['expected']['members']];
+            }
+            break;
+        }
         $workspaces = [];
         $reviews = [];
         $test = $review = null;
@@ -129,7 +146,7 @@ final class AcceptanceEvidence
                 $reviews[$id] = ['ok' => true, 'result' => $drafts->review($id)];
             }
         }
-        return ['candidate' => $candidate, 'workspaces' => $workspaces, 'reviews' => $reviews,
+        return $composition + ['candidate' => $candidate, 'workspaces' => $workspaces, 'reviews' => $reviews,
             'screenBuild' => (new ScreenBuild($root))->fingerprint(), 'events' => $rows];
     }
 }

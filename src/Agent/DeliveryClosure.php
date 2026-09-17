@@ -34,18 +34,29 @@ final class DeliveryClosure
         } elseif (!$positive) {
             $reasons[] = 'declared delivery has no current positive evidence';
         }
-        $producer = $bound ? ($evidence['candidate']['evidence']['toolCallSeq'] ?? null) : null;
+        $producers = $bound ? [$evidence['candidate']['evidence']['toolCallSeq'] ?? null] : [];
+        if ($bound && isset($contract['members'])) {
+            $producers = array_column($evidence['test']['members'] ?? [], 'toolCallSeq');
+        }
         $test = $bound ? ($evidence['test']['toolCallSeq'] ?? null) : null;
         $matches = [];
-        foreach ($ledger['workState']['artifacts'] as $key => $entry) {
-            foreach ($entry['attempts'] as $attempt) {
-                if (is_int($producer) && $attempt['seq'] === $producer) {
-                    $matches[] = $key;
-                    break;
+        $unique = true;
+        foreach ($producers as $producer) {
+            $found = [];
+            foreach ($ledger['workState']['artifacts'] as $key => $entry) {
+                foreach ($entry['attempts'] as $attempt) {
+                    if (is_int($producer) && $attempt['seq'] === $producer) {
+                        $found[] = $key;
+                        break;
+                    }
                 }
             }
+            if (count($found) !== 1) {
+                $unique = false;
+            }
+            $matches = array_merge($matches, $found);
         }
-        if (count($matches) !== 1) {
+        if (!$unique || $producers === [] || count($matches) !== count($producers) || count(array_unique($matches)) !== count($producers)) {
             $positive = false;
             $reasons[] = 'delivery producer does not identify exactly one recorded artifact';
         }
@@ -61,7 +72,7 @@ final class DeliveryClosure
             $artifact = $entry['artifact']['value'] ?? '?';
             $verification = $entry['verification'] ?? null;
             $current = ($entry['state'] ?? null) === 'verified';
-            $bridge = $positive && $matches === [$key];
+            $bridge = $positive && in_array($key, $matches, true);
             $touched = false;
             foreach ($entry['attempts'] as $attempt) {
                 if (($attempt['mutating'] ?? false) === true && ($attempt['awaitingConfirmation'] ?? null) !== true) {
@@ -110,7 +121,8 @@ final class DeliveryClosure
             || !is_string($contract['artifactPath'] ?? null) || $contract['artifactPath'] === ''
             || ($e['candidate']['artifact']['path'] ?? null) !== $contract['artifactPath']
             || !is_array($contract['test'] ?? null) || !is_array($contract['screen'] ?? null)
-            || self::same($e['scope']['test'] ?? null, $contract['test']) === false || self::same($e['scope']['screen'] ?? null, $contract['screen']) === false) {
+            || self::same($e['scope']['test'] ?? null, $contract['test']) === false || self::same($e['scope']['screen'] ?? null, $contract['screen']) === false
+            || self::same($e['scope']['members'] ?? null, $contract['members'] ?? null) === false) {
             return false;
         }
         return ($e['authorization'] ?? null) === 'not_evaluated' && ($e['humanApproval'] ?? null) === 'not_recorded'
@@ -163,6 +175,29 @@ final class DeliveryClosure
         $producer = $candidate['evidence']['toolCallSeq'] ?? null;
         $trial = $test['trialRunSeq'] ?? null;
         $call = $test['toolCallSeq'] ?? null;
+        if (isset($e['scope']['members'])) {
+            $members = $test['members'] ?? null;
+            if (!is_array($members) || !array_is_list($members) || $members === []
+                || array_column(array_column($members, 'artifact'), 'path') !== $e['scope']['members']) {
+                return false;
+            }
+            $selected = false;
+            foreach ($members as $member) {
+                if (!is_int($member['trialRunSeq'] ?? null) || !is_int($member['toolCallSeq'] ?? null)
+                    || $member['trialRunSeq'] < 1 || $member['trialRunSeq'] >= $member['toolCallSeq'] || $member['toolCallSeq'] >= $trial) {
+                    return false;
+                }
+                foreach ([$member['artifact']['sha256'] ?? null, $member['baselineSha256'] ?? null, $member['promotionSha256'] ?? null] as $hash) {
+                    if (!is_string($hash) || !preg_match('/^[a-f0-9]{64}$/D', $hash)) {
+                        return false;
+                    }
+                }
+                $selected = $selected || ($member['toolCallSeq'] === $producer && $member['artifact'] === $candidate['artifact'] && ($member['workspace'] ?? null) === $candidate['workspace']);
+            }
+            if (!$selected) {
+                return false;
+            }
+        }
         return is_int($producer) && $producer > 0 && is_int($trial) && is_int($call) && $producer < $trial && $trial < $call
             && ($test['receipt']['toolCallSeq'] ?? null) === $call;
     }
