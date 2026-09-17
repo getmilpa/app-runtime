@@ -810,7 +810,7 @@ class AgentOperations implements CommandProvider
                         // Describe the installed capability, not the store's boot-time availability.
                         // Invocation still refuses these inputs if no session store can be composed.
                         ...(Capabilities::installed('agent') ? [
-                            'diagnostic' => ['type' => 'string', 'description' => 'Immutable read-only JSON diagnostic: path, sha256, fields map and equals map. Declare before execution; omit to retain. This is an answer criterion, never permission or work verification.'],
+                            'diagnostic' => ['type' => 'string', 'description' => 'Immutable read-only JSON diagnostic: path, sha256, fields map and equals map; optional output:json_schema requests a finite structured response. Declare before execution; omit to retain. This is an answer criterion, never permission or work verification.'],
                             'delivery' => ['type' => 'string', 'description' => 'Immutable caller-declared delivery: workspace, artifactPath, test {path, filter}, screen {name, type, definition?}. CLI accepts JSON. Omit to retain the declaration; changing it requires a new session. This is scope, not approval.'],
                             'expectation' => ['type' => 'string', 'description' => 'Immutable expected delivery before model or tool execution: JSON test {path, filter} and screen {name, type, definition?}. Omit to retain it. Scope, not approval.'],
                             'deliveryCandidate' => ['type' => 'string', 'description' => 'Bind this native promoted candidate workspace to the previously declared expectation. The SDK derives its artifact and preserves the expected test and screen.'],
@@ -1802,6 +1802,14 @@ class AgentOperations implements CommandProvider
                 }
                 if (array_intersect(['delivery', 'expectation', 'deliveryCandidate'], array_keys($input)) !== []) {
                     throw new \InvalidArgumentException('Use a separate session for diagnosis and work delivery.');
+                }
+                $criterion = $diagnosticAsked ?? $diagnostic['criterion'];
+                if (isset($criterion['output'])) {
+                    if (!$this->diagnosticOutputAvailable()) {
+                        throw new \RuntimeException('Diagnostic output requires a structured-output gateway and a format-aware agent intake.');
+                    }
+                    // Validate effective provider support before any session change or model call.
+                    (new LlmService($llave, $modelo, $proveedor))->withStructuredOutput(DiagnosticContract::outputFormat($criterion));
                 }
             }
             $expectation = DeliveryExpectation::read($rows, $sessionId);
@@ -2831,9 +2839,13 @@ class AgentOperations implements CommandProvider
         $contexto = AgentEndpoint::contextTokens($config instanceof Config ? $config : null) ?? 0;
 
         if ($this->promptSession !== null && ($store = $this->sessions()) !== null
-            && DiagnosticContract::read($store->stream($this->promptSession->id), $this->promptSession->id) !== null) {
+            && ($diagnostic = DiagnosticContract::read($store->stream($this->promptSession->id), $this->promptSession->id)) !== null) {
             if ($this->sessionEvents === null || !$this->orchestratorAdmitsAnswerJudge()) {
                 throw new \RuntimeException('The diagnostic answer judge is unavailable.');
+            }
+            $output = DiagnosticContract::outputFormat($diagnostic['criterion']);
+            if ($output !== null) {
+                $modeloRemoto = $modeloRemoto->withStructuredOutput($output);
             }
             return new AgentOrchestrator(
                 $modeloRemoto,
@@ -2863,6 +2875,14 @@ class AgentOperations implements CommandProvider
         }
 
         return new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger());
+    }
+
+    /** Optional output must be both transmitted and durably observable before it can be requested. */
+    protected function diagnosticOutputAvailable(): bool
+    {
+        return class_exists(\Milpa\AiGateway\StructuredOutput::class)
+            && (new \ReflectionClass(LlmService::class))->hasMethod('withStructuredOutput')
+            && property_exists(\Milpa\Agent\ModelCallIntake::class, 'responseFormat');
     }
 
     /** Whether the installed loop can consume a typed answer judgment. */

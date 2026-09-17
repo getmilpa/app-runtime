@@ -6,6 +6,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Agent;
 
 use Milpa\Agent\SessionStore;
+use Milpa\AiGateway\StructuredOutput;
 use Milpa\EventStore\{Event, EventStoreInterface};
 
 /** An immutable caller-declared JSON projection, before execution (greenhouse 0418). */
@@ -15,14 +16,14 @@ final class DiagnosticContract
     private const EXECUTION = ['session.turn', 'session.model_called', 'session.tool_called', 'session.trial_run_recorded'];
 
     /** Parse only a finite scalar projection of one content-addressed document.
-     * @return array{path:string,sha256:string,fields:array<string,string>,equals:array<string,array{string,string}>}
+     * @return array{path:string,sha256:string,fields:array<string,string>,equals:array<string,array{string,string}>,output?:string}
      */
     public static function parse(mixed $input): array
     {
         if (is_string($input)) {
             $input = json_decode($input, true, flags: JSON_THROW_ON_ERROR);
         }
-        if (!is_array($input) || array_diff(array_keys($input), ['path', 'sha256', 'fields', 'equals']) !== []
+        if (!is_array($input) || array_diff(array_keys($input), ['path', 'sha256', 'fields', 'equals', 'output']) !== []
             || !is_string($input['path'] ?? null) || !preg_match('~^[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*$~D', $input['path'])
             || array_intersect(explode('/', $input['path']), ['.', '..']) !== []
             || !is_string($input['sha256'] ?? null) || !preg_match('/^[a-f0-9]{64}$/D', $input['sha256'])
@@ -41,9 +42,34 @@ final class DiagnosticContract
                 throw new \InvalidArgumentException('Diagnostic equals maps distinct output names to two document keys.');
             }
         }
+        if (array_key_exists('output', $input)
+            && ($input['output'] !== 'json_schema' || count($input['fields']) + count($input['equals']) > 64
+                || array_filter([...array_keys($input['fields']), ...array_keys($input['equals'])], static fn ($v): bool => strlen($v) > 64) !== [])) {
+            throw new \InvalidArgumentException('Diagnostic output must be json_schema with at most 64 named scalar fields (64 characters each).');
+        }
         ksort($input['fields']);
         ksort($input['equals']);
-        return ['path' => $input['path'], 'sha256' => $input['sha256'], 'fields' => $input['fields'], 'equals' => $input['equals']];
+        return ['path' => $input['path'], 'sha256' => $input['sha256'], 'fields' => $input['fields'], 'equals' => $input['equals']]
+            + (array_key_exists('output', $input) ? ['output' => $input['output']] : []);
+    }
+
+    /** Derive shape solely from the declared projection, without reading source or expected values.
+     * @param array<string,mixed> $criterion
+     */
+    public static function outputFormat(array $criterion): ?StructuredOutput
+    {
+        $criterion = self::parse($criterion);
+        if (!isset($criterion['output'])) {
+            return null;
+        }
+        if (!class_exists(StructuredOutput::class)) {
+            throw new \RuntimeException('The gateway does not support diagnostic structured output.');
+        }
+        $fields = array_fill_keys(array_keys($criterion['fields']), ['string', 'number', 'boolean', 'null']);
+        foreach ($criterion['equals'] as $name => $_pair) {
+            $fields[$name] = ['boolean'];
+        }
+        return new StructuredOutput('diagnostic', $fields);
     }
 
     /** Read native declaration provenance; corrupt, duplicate or late facts cannot become absence.

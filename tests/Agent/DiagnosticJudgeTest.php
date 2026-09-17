@@ -23,12 +23,13 @@ final class DiagnosticJudgeTest extends TestCase
     }
 
     /** @return array{InMemoryEventStore,SessionStore} */
-    private function ledger(bool $complete = true, bool $delivered = true): array
+    private function ledger(bool $complete = true, bool $delivered = true, bool $structured = false): array
     {
         $events = new InMemoryEventStore();
         $sessions = new SessionStore($events);
         $sessions->start('s', 'Diagnose');
-        DiagnosticContract::record($events, 's', self::criterion(), ObservedExecutor::unknown());
+        $criterion = self::criterion() + ($structured ? ['output' => 'json_schema'] : []);
+        DiagnosticContract::record($events, 's', $criterion, ObservedExecutor::unknown());
         $offset = 0;
         $parts = [substr(self::DOCUMENT, 0, 20), substr(self::DOCUMENT, 20)];
         foreach ($complete ? $parts : [$parts[0]] as $i => $part) {
@@ -46,7 +47,7 @@ final class DiagnosticJudgeTest extends TestCase
                 $events->append(new Event(
                     SessionStore::PREFIX . 's',
                     'session.model_called',
-                    ['messages' => [['role' => 'tool', 'content' => json_encode($page)]]],
+                    ['messages' => [['role' => 'tool', 'content' => json_encode($page)]]] + ($structured ? ['response_format' => DiagnosticContract::outputFormat($criterion)->toArray()] : []),
                     $events->nextSeq()
                 ));
             }
@@ -78,6 +79,54 @@ final class DiagnosticJudgeTest extends TestCase
             [, $sessions] = $this->ledger($complete, $delivered);
             self::assertSame('rejected', DiagnosticJudge::derive('s', $sessions->stream('s'), $candidate)->status);
         }
+    }
+
+    public function testStructuredDeliveryRequiresItsObservedFormatAndStillRejectsFalseValues(): void
+    {
+        [, $sessions] = $this->ledger(structured:true);
+        $rows = $sessions->stream('s');
+        self::assertSame('accepted', DiagnosticJudge::derive('s', $rows, self::ANSWER)->status);
+        self::assertSame('rejected', DiagnosticJudge::derive('s', $rows, str_replace('false', 'true', self::ANSWER))->status);
+        self::assertSame('rejected', DiagnosticJudge::derive('s', $rows, "```json\n" . self::ANSWER . "\n```")->status);
+        foreach ([null, ['type' => 'json_object']] as $format) {
+            $bad = $rows;
+            foreach ($bad as $i => $event) {
+                if ($event->type !== 'session.model_called') {
+                    continue;
+                }
+                $payload = $event->payload;
+                if ($format === null) {
+                    unset($payload['response_format']);
+                } else {
+                    $payload['response_format'] = $format;
+                }
+                $bad[$i] = new Event($event->streamId, $event->type, $payload, $event->seq);
+                break;
+            }
+            $verdict = DiagnosticJudge::derive('s', $bad, self::ANSWER);
+            self::assertSame('indeterminate', $verdict->status);
+            self::assertSame('output_format_not_observed', $verdict->reason);
+        }
+    }
+
+    public function testOutputIsOptionalFiniteAndCannotBeAddedToAnExistingDeclaration(): void
+    {
+        self::assertNull(DiagnosticContract::outputFormat(self::criterion()));
+        $criterion = self::criterion() + ['output' => 'json_schema'];
+        $format = DiagnosticContract::outputFormat($criterion)->toArray();
+        self::assertSame('boolean', $format['json_schema']['schema']['properties']['matches']['type']);
+        self::assertSame(['boolean','null','number','string'], $format['json_schema']['schema']['properties']['required']['type']);
+        foreach ([null,false,[], 'json_object'] as $invalid) {
+            try {
+                DiagnosticContract::parse(self::criterion() + ['output' => $invalid]);
+                self::fail('Invalid format accepted');
+            } catch (\InvalidArgumentException) {
+                self::assertTrue(true);
+            }
+        }
+        [$events] = $this->ledger();
+        $this->expectException(\InvalidArgumentException::class);
+        DiagnosticContract::record($events, 's', $criterion, ObservedExecutor::unknown());
     }
 
     public function testCriterionIsImmutableAndMustPrecedeExecution(): void

@@ -211,6 +211,19 @@ keys with strict equality. The response must contain exactly those names and typ
 object, optionally fenced as JSON. This criterion pins a document snapshot, not current filesystem
 freshness or the truth of arbitrary prose. It cannot be combined with a work-delivery declaration.
 
+Add `'output' => 'json_schema'` inside the diagnostic to request structured JSON from an
+OpenAI-compatible provider. The runtime derives a required scalar-object schema from `fields`
+and boolean `equals` outputs without inserting expected values. This finite option supports up to
+64 output names of at most 64 characters; it does not accept arbitrary JSON Schema. It requires
+gateway structured-output support and an agent intake that records the wire format. Unsupported
+installations or providers refuse; a provider HTTP error never falls back to an ordinary answer.
+
+With this option, every observed model call must carry the declared `response_format`, and the
+answer must be a JSON object without fences or surrounding prose. Missing or changed transport
+evidence yields `answer_indeterminate`; the existing diagnostic judge still rejects false values.
+The option is part of the immutable declaration and cannot be added to an existing session.
+Omitting it preserves the original diagnostic behavior, including an optional JSON fence.
+
 The declaration is durable, immutable and owned by the invoker. Omitting it on later turns retains
 it; an identical redeclaration is idempotent. Changed or late criteria are refused before execution.
 The runtime requires an answer-judge capable gateway and a durable event store. Its native judge
