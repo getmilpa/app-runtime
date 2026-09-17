@@ -1702,7 +1702,7 @@ class AgentOperations implements CommandProvider
      *
      * @param array<string, mixed> $input
      *
-     * @return array{ok: bool, answer?: string, steps?: int, tools?: int, error?: string, hint?: string, question?: array{id: string, text: string, options: list<string>, why: string|null, reason: string|null, expires_at: string|null}, paused?: bool, exhausted?: bool, stalled?: bool, receipt?: array<string, mixed>, houseDebt?: bool, interrupted?: bool, termination?: array{reason: string, receipt: array<string, mixed>|null}, closure?: array{verified: bool, reasons: list<string>}}
+     * @return array{ok: bool, answer?: string, steps?: int, tools?: int, error?: string, hint?: string, question?: array{id: string, text: string, options: list<string>, why: string|null, reason: string|null, expires_at: string|null}, paused?: bool, exhausted?: bool, contextExhausted?: bool, stalled?: bool, receipt?: array<string, mixed>, houseDebt?: bool, interrupted?: bool, termination?: array{reason: string, receipt: array<string, mixed>|null}, closure?: array{verified: bool, reasons: list<string>}}
      */
     private function run(array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array
     {
@@ -2546,6 +2546,14 @@ class AgentOperations implements CommandProvider
             $resultado['hint'] = 'pídele que siga, o dale más pasos con `--steps`';
         }
 
+        // Read the current producer's typed value, keeping older gateways compatible. A local
+        // between-step budget pause is neither a human question nor evidence of completed work.
+        if ($this->runTermination !== null && $this->runTermination->reason->value === 'context_budget_exhausted') {
+            $resultado['contextExhausted'] = true;
+            $resultado['answer'] = 'The leg reached its context budget before another request.';
+            $resultado['hint'] = 'Continue the same session under a finite total request budget; the task remains unfinished.';
+        }
+
         // The producer supplies the cause and receipt directly; answer text can quote a sentinel.
         if ($this->runTermination !== null && $this->runTermination->reason === RunEnd::ProgressStalled) {
             $resultado['stalled'] = true;
@@ -2799,6 +2807,9 @@ class AgentOperations implements CommandProvider
             // A reused producer must have emitted a new observation in this call. Argument
             // construction can fail before run begins, leaving its earlier observation intact.
             $this->runTermination = $after !== $before ? $after : null;
+            if ($this->runTermination?->reason->value === 'context_budget_exhausted' && $sonda !== null) {
+                $sonda->recordContextPause();
+            }
         }
     }
 

@@ -61,6 +61,9 @@ final class SessionProgressProbe implements ProgressProbe
      */
     public const EVENT = SessionToolGate::PROGRESS_STALLED;
 
+    /** Internal continuation fact paired with the immediately following context termination. */
+    private const CONTEXT_CHECKPOINT = 'session.progress_context_checkpoint';
+
     /**
      * The last stream position already measured — `null` until a replay succeeds, so a store that
      * fails at construction degrades to a probe with no opinion instead of an exception.
@@ -80,9 +83,47 @@ final class SessionProgressProbe implements ProgressProbe
         private readonly ?EventStoreInterface $events,
         private readonly string $sessionId,
     ) {
-        // Arm the checkpoint at the run's start: what happened in earlier turns was already
-        // somebody's progress or somebody's stall — this run is measured from here.
-        $this->checkpointSeq = $this->lastSeq();
+        $stream = $this->replayed();
+        $this->checkpointSeq = $stream === null ? null : $this->seqOfLast($stream);
+        if ($stream === null) {
+            return;
+        }
+        // Ordinary new turns keep their historical behavior. A context continuation carries the
+        // exact partial window, including pending recovery; it cannot buy another preparation quota.
+        for ($i = count($stream) - 1; $i >= 0; --$i) {
+            if ($stream[$i]->type !== 'session.run_terminated') {
+                continue;
+            }
+            if (($stream[$i]->payload['reason'] ?? null) !== 'context_budget_exhausted') {
+                return;
+            }
+            $event = $stream[$i - 1] ?? null;
+            $checkpoint = $event?->payload['checkpointSeq'] ?? null;
+            $recovering = $event?->payload['recovering'] ?? null;
+            if ($event?->type !== self::CONTEXT_CHECKPOINT || !is_int($checkpoint)
+                || $checkpoint < 0 || $checkpoint >= $event->seq || !is_bool($recovering)) {
+                throw new \RuntimeException('Cannot resume context pause without its recorded progress checkpoint.');
+            }
+            $this->checkpointSeq = $checkpoint;
+            $this->recovering = $recovering;
+            return;
+        }
+    }
+
+    /** Persist this probe's window immediately before a proven context-budget termination.
+     * A failed append propagates: an unrecorded continuation must not silently renew its allowance.
+     */
+    public function recordContextPause(): void
+    {
+        if ($this->events === null || $this->checkpointSeq === null) {
+            throw new \RuntimeException('Cannot retain context pause without an observed progress checkpoint.');
+        }
+        $this->events->append(new Event(
+            streamId: SessionStore::PREFIX . $this->sessionId,
+            type: self::CONTEXT_CHECKPOINT,
+            payload: ['checkpointSeq' => $this->checkpointSeq, 'recovering' => $this->recovering],
+            seq: $this->events->nextSeq(),
+        ));
     }
 
     /**
@@ -199,14 +240,6 @@ final class SessionProgressProbe implements ProgressProbe
         } catch (\Throwable) {
             return null;
         }
-    }
-
-    /** The checkpoint the constructor arms, or `null` when the store could not answer yet. */
-    private function lastSeq(): ?int
-    {
-        $stream = $this->replayed();
-
-        return $stream === null ? null : $this->seqOfLast($stream);
     }
 
     /** @param list<Event> $stream */

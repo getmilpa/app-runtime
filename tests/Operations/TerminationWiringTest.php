@@ -154,6 +154,7 @@ final class TerminationWiringTest extends TestCase
     public static function collisions(): iterable
     {
         yield 'steps' => [AgentOrchestrator::STEPS_EXHAUSTED];
+        yield 'context' => ['Error: Agent context budget exhausted.'];
         yield 'progress' => [AgentOrchestrator::PROGRESS_STALLED];
         yield 'debt' => ['HOUSE_DEBT: quoted'];
     }
@@ -164,9 +165,31 @@ final class TerminationWiringTest extends TestCase
         self::assertSame($answer, $r['answer']);
         self::assertSame('final_answer', $r['termination']['reason']);
         self::assertTrue($r['closure']['verified']);
-        foreach (['exhausted','stalled','houseDebt'] as $flag) {
+        foreach (['exhausted','contextExhausted','stalled','houseDebt'] as $flag) {
             self::assertArrayNotHasKey($flag, $r);
         }
+    }
+
+    public function testContextBudgetPauseIsDurableAndIneligibleForClosure(): void
+    {
+        $llm = $this->llm(['role' => 'assistant', 'content' => '', 'reasoning_content' => str_repeat('reason ', 16000),
+            'tool_calls' => [['id' => 'once', 'function' => ['name' => 'read', 'arguments' => '{}']]]]);
+        $tools = $this->tools();
+        $tools->expects(self::once())->method('callTool')->willReturn('Recorded result');
+        $loop = new AgentOrchestrator($llm, $tools, contextTokens:32768, outputTokens:8192);
+        $r = $this->invoke($this->ops($loop));
+        self::assertTrue($r['ok']);
+        self::assertTrue($r['contextExhausted']);
+        self::assertSame('context_budget_exhausted', $r['termination']['reason']);
+        self::assertSame(1, $r['termination']['receipt']['completedSteps']);
+        self::assertArrayNotHasKey('closure', $r);
+        self::assertArrayNotHasKey('paused', $r);
+        self::assertSame($r['termination'], $this->terminalEvents()[0]->payload);
+        self::assertCount(0, array_filter($this->sessions->stream('s'), static fn ($e) => $e->type === 'session.closure_derived'));
+        $next = $this->invoke($this->ops(new AgentOrchestrator($this->llm(['role' => 'assistant', 'content' => self::ANSWER]), $this->tools())));
+        self::assertSame('final_answer', $next['termination']['reason']);
+        self::assertArrayNotHasKey('contextExhausted', $next);
+        self::assertCount(2, $this->terminalEvents());
     }
 }
 
