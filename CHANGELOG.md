@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.167.0](https://github.com/getmilpa/app-runtime/compare/v0.166.1...v0.167.0) (2026-09-17)
+
+
+### Features
+
+* bind explicit composition members to current delivery evidence ([8c1f9b1](https://github.com/getmilpa/app-runtime/commit/8c1f9b1886b0bc6b26b728e8e5ae0238312252e1))
+
 ## [0.166.1](https://github.com/getmilpa/app-runtime/compare/v0.166.0...v0.166.1) (2026-09-17)
 
 
