@@ -25,6 +25,8 @@ final class DiagnosticInvocationTest extends TestCase
     public static function refusals(): iterable
     {
         $c = DiagnosticJudgeTest::criterion();
+        yield 'output-null' => ['empty', ['diagnostic' => $c + ['output' => null]], 'output'];
+        yield 'output-unavailable' => ['output-unsupported', ['diagnostic' => $c + ['output' => 'json_schema']], 'output'];
         yield 'invalid' => ['empty', ['diagnostic' => '{}'], 'diagnostic'];
         yield 'null' => ['empty', ['diagnostic' => null], 'diagnostic'];
         yield 'late' => ['late', ['diagnostic' => $c], 'before'];
@@ -49,11 +51,15 @@ final class DiagnosticInvocationTest extends TestCase
         $container = new DIContainer();
         $container->registerService(Config::class, new Config(['agent' => ['baseUrl' => 'http://127.0.0.1:1', 'model' => 'fixture']]));
         $container->registerService($initial === 'opaque' ? SessionStore::class : EventStoreInterface::class, $initial === 'opaque' ? $store : $events);
-        $ops = new class ($container, $initial !== 'unsupported') extends AgentOperations {
+        $ops = new class ($container, $initial !== 'unsupported', $initial !== 'output-unsupported') extends AgentOperations {
             public bool $called = false;
-            public function __construct($container, private bool $supported)
+            public function __construct($container, private bool $supported, private bool $outputSupported)
             {
                 parent::__construct($container);
+            }
+            protected function diagnosticOutputAvailable(): bool
+            {
+                return $this->outputSupported;
             }
             protected function orchestratorAdmitsAnswerJudge(): bool
             {

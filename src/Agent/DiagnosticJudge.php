@@ -21,6 +21,7 @@ final class DiagnosticJudge
             throw new \UnexpectedValueException('No diagnostic contract was declared.');
         }
         $c = $declaration['criterion'];
+        $outputFormat = DiagnosticContract::outputFormat($c);
         $evidence = ['scope' => 'declared_json_projection', 'declarationSeq' => $declaration['seq'],
             'criterionSha256' => $declaration['sha256'], 'throughSeq' => $events[array_key_last($events)]->seq,
             'pages' => []];
@@ -43,6 +44,9 @@ final class DiagnosticJudge
             }
             if ($event->type !== 'session.model_called') {
                 continue;
+            }
+            if ($outputFormat !== null && ($event->payload['response_format'] ?? null) !== $outputFormat->toArray()) {
+                return $verdict('indeterminate', 'output_format_not_observed');
             }
             foreach ($event->payload['messages'] ?? [] as $message) {
                 if (($message['role'] ?? null) !== 'tool' || !is_string($message['content'] ?? null)) {
@@ -119,7 +123,7 @@ final class DiagnosticJudge
             $expected[$output] = $document[$left] === $document[$right];
         }
         $raw = trim($candidate);
-        if (preg_match('/\A```(?:json)?\s*\n(.*?)\n```\z/s', $raw, $fence)) {
+        if ($outputFormat === null && preg_match('/\A```(?:json)?\s*\n(.*?)\n```\z/s', $raw, $fence)) {
             $raw = $fence[1];
         }
         $report = json_decode($raw);
