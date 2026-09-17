@@ -978,6 +978,17 @@ exceptional exits cannot derive a closure. A genuine final answer may still have
 if the host recorded a question; it has no closure. A final cause alone certifies no completed
 work, permission or approval: the existing recorded-work verdict remains the judge.
 
+A gateway with context-budget termination can return `context_budget_exhausted` after a completed
+step. The SDK exposes `contextExhausted: true` and persists the same estimated-budget receipt in
+`session.run_terminated`. This is not a pending human question and produces no closure. An invoker
+may continue the same session with its existing delivery criteria and authority under a finite
+total request budget. Nothing retries or resumes automatically, and a continuation does not reset
+the durable progress history. The partial progress window and pending recovery are checkpointed
+before the termination event, then restored in the next process. A missing or malformed checkpoint
+refuses continuation instead of silently granting a new preparation quota. Other termination
+causes keep the previous new-run accounting. An impossible initial input and provider failures retain their
+original failure cause; older gateways remain compatible.
+
 The protected `ask()` and `orchestrator()` signatures remain unchanged. Overriding the factory
 while preserving the base `ask()`, orchestrator `run()` and `termination()` methods retains
 provenance. Replacing any of those three methods yields `unknown`, even if a previous base run
