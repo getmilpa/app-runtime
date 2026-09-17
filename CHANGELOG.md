@@ -7,6 +7,7 @@
 ### Features
 
 * expose bounded reads of recorded tool arguments ([5d6fcd8](https://github.com/getmilpa/app-runtime/commit/5d6fcd8c7cd692482e0b5527d2dc53de75b5b4b9))
+  Recover a rejected proposal from its recorded argument as complete JSON pages. Continuation survives journal growth, respects the existing session read scopes and transport budget, and does not treat the recovered code as accepted or applied.
 
 ## [0.169.1](https://github.com/getmilpa/app-runtime/compare/v0.169.0...v0.169.1) (2026-09-17)
 
