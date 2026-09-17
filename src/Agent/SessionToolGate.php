@@ -234,7 +234,20 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // mayúsculas? — sin ningún modelo en el circuito: el piso es la autoridad no-persuadible y
         // así se queda. Sus falsos positivos («apaga el plugin de hola» no nombra HelloPlugin)
         // producen una pregunta contestable, no un bloqueo, y su tasa es lo que Q-P19-M mide.
-        $duda = $this->intentUnderdetermined($operacion, $arguments);
+        // A prior caller expectation names a screen recipient, not a permission (0428/0748).
+        // Read its native provenance on each continuation. This binding belongs only to the
+        // draft contract: neither activation revision ids nor other operations inherit it.
+        $deliveryTarget = null;
+        if ($operacion->name === 'screen:draft' && $this->contratoDeclaradoPor($operacion) === 'name'
+            && IntentAdmissibility::tier($operacion->effectCeiling()) !== IntentAdmissibility::NEVER) {
+            try {
+                $expected = DeliveryExpectation::read($this->sessions->stream($this->session->id), $this->session->id);
+                $deliveryTarget = $expected['expected']['screen']['name'] ?? null;
+            } catch (\InvalidArgumentException|\UnexpectedValueException|\JsonException $error) {
+                return self::UNJUDGEABLE . ': Invalid durable delivery expectation. ' . $error->getMessage();
+            }
+        }
+        $duda = $this->intentUnderdetermined($operacion, $arguments, $deliveryTarget);
         if ($duda !== null) {
             return $this->pause($duda);
         }
@@ -343,7 +356,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      *
      * @param array<string, mixed> $arguments
      */
-    private function intentUnderdetermined(Operation $operacion, array $arguments): ?\Milpa\Agent\PendingQuestion
+    private function intentUnderdetermined(Operation $operacion, array $arguments, ?string $deliveryTarget = null): ?\Milpa\Agent\PendingQuestion
     {
         // SE PREGUNTA SI EL CONTRATO EXISTE, no se asume. `namedTarget` nació en milpa/command 0.5 y
         // este `src/` viaja con `composer create-project`: puede convivir con un vendor que su dueño
@@ -360,6 +373,12 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
 
         $valor = $arguments[$campo] ?? null;
         if (!\is_string($valor) || trim($valor) === '') {
+            return null;
+        }
+
+        // The structured target is exact, unlike the legacy free-text petition comparison.
+        // Returning here resolves only intent; the caller still applies policy and scopes.
+        if ($valor === $deliveryTarget) {
             return null;
         }
 
