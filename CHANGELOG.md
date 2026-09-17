@@ -6,8 +6,9 @@
 
 ### Bug Fixes
 
-* count native draft proposal novelty instead of revision IDs ([1fd0e31](https://github.com/getmilpa/app-runtime/commit/1fd0e310618b25ad3087116967d534ce332c51bf))
-* measure native screen draft proposal novelty ([#488](https://github.com/getmilpa/app-runtime/issues/488)) ([b1138e2](https://github.com/getmilpa/app-runtime/commit/b1138e2327f1a49758bb6f97384838a9b5a01c75))
+* Credit native agent screen drafts by their persisted proposal values, so saving another revision of the same name, baseline, definition and build no longer renews progress recovery. Existing revisions, review links, scopes and historical events retain their behavior ([#488](https://github.com/getmilpa/app-runtime/pull/488)).
+
+The observation applies to the agent registry with trials enabled. It does not certify UI behavior or authorize activation. Greenhouse evidence 0777 and decision 0432 retain the published baseline, verify 70 offline wire/intake pairs and preserve the complete composition control at 9 tests / 187 assertions. Package validation passed 1,903 tests / 8,464 assertions with 95.29% coverage, including PHP 8.3 and 8.4 CI on the reviewed source.
 
 ## [0.169.0](https://github.com/getmilpa/app-runtime/compare/v0.168.1...v0.169.0) (2026-09-17)
 
