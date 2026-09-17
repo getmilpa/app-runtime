@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.169.1](https://github.com/getmilpa/app-runtime/compare/v0.169.0...v0.169.1) (2026-09-17)
+
+
+### Bug Fixes
+
+* count native draft proposal novelty instead of revision IDs ([1fd0e31](https://github.com/getmilpa/app-runtime/commit/1fd0e310618b25ad3087116967d534ce332c51bf))
+* measure native screen draft proposal novelty ([#488](https://github.com/getmilpa/app-runtime/issues/488)) ([b1138e2](https://github.com/getmilpa/app-runtime/commit/b1138e2327f1a49758bb6f97384838a9b5a01c75))
+
 ## [0.169.0](https://github.com/getmilpa/app-runtime/compare/v0.168.1...v0.169.0) (2026-09-17)
 
 
