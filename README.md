@@ -786,6 +786,20 @@ again. Unexecuted tests, assertion-free runs, infrastructure errors, absolute se
 unobserved or changed inputs produce no diagnostic identity. Permissions, verification claims and
 screen activation remain separate (greenhouse decision0429/evidence0751).
 
+With trials enabled, native agent `screen:draft` calls also observe the screen revision store
+before and after execution. A successful result must identify a verified stored record matching
+the requested name, type and normalized props. Artifact identity describes the screen name,
+baseline, definition and app build; revision IDs, timestamps and nonces remain storage metadata.
+Saving those same values again, including values present before this session, contributes no new
+artifact. Map order and the native default screen name do not make a proposal new.
+
+Each save still creates its own immutable revision and review link. Draft observation supplies no
+test evidence, diagnostic, UI validation or activation approval. Missing observations and
+unverifiable results remain unknown; scopes and permission gates continue to govern the call.
+Historical calls without observations retain their existing interpretation. This observation is
+scoped to the agent's trial-aware registry, not manual CLI calls or agents with trials disabled
+(greenhouse evidence0777).
+
 
 ### Trial input freshness
 
