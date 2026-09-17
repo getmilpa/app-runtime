@@ -2322,6 +2322,7 @@ class AgentOperations implements CommandProvider
                 Operations::all($kernel, $kernel->root()),
                 $store,
                 $sessionId !== '' ? $sessionId : null,
+                fn (): ?ScreenDrafts => $this->container->has(ScreenDrafts::class) ? $this->container->get(ScreenDrafts::class) : null,
             );
         }
 

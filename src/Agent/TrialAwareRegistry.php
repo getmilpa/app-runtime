@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Agent;
 
 use Milpa\Agent\SessionStore;
 use Milpa\Agent\EffectObservation;
+use Milpa\AppRuntime\Web\ScreenDrafts;
 use Milpa\Command\Operation;
 use Milpa\ToolRuntime\ConfirmationTokenStore;
 use Milpa\ToolRuntime\Contracts\ToolContext;
@@ -44,13 +45,17 @@ use Psr\Log\NullLogger;
  */
 final class TrialAwareRegistry extends ToolRegistry
 {
-    /** @param list<Operation> $operations */
+    /**
+     * @param list<Operation>                  $operations
+     * @param (\Closure(): ?ScreenDrafts)|null $screenDrafts
+     */
     public function __construct(
         private readonly ToolRegistry $inner,
         private readonly TrialRouter $router,
         private readonly array $operations,
         private readonly ?SessionStore $sessions = null,
         private readonly ?string $sessionId = null,
+        private readonly ?\Closure $screenDrafts = null,
     ) {
         parent::__construct(new NullLogger());
     }
@@ -73,6 +78,12 @@ final class TrialAwareRegistry extends ToolRegistry
         $operation = $this->operationFor($name);
         $plan = $operation === null ? null : $this->router->planFor($operation, $args);
         if ($operation === null || $plan === null) {
+            if ($operation?->name === 'screen:draft' && $this->sessions !== null && $this->sessionId !== null) {
+                $observation = ScreenDraftObservation::prepare($this->screenDrafts, $args);
+                $result = $this->inner->call($name, $args, $ctx);
+                $this->recordEffect($name, $args, $observation->observe($result));
+                return $result;
+            }
             if ($operation?->name !== 'sandbox:promote' || $this->sessions === null || $this->sessionId === null) {
                 return $this->inner->call($name, $args, $ctx);
             }
