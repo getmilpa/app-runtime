@@ -160,6 +160,8 @@ var and other trial machinery; it is not a complete dependency trace. A failed a
 retains its structured receipt in the `milpa.trial-authoring-failure/v1` error envelope so it can
 reach the next model request. It remains failed and unapplied, with no promotion instruction.
 Older devtools producers without this receipt continue to earn no authoring diagnostic credit.
+Static receipts require `milpa/devtools` 0.32 or later; older producers retain their existing
+behavioral receipt support. Devtools remains an optional runtime capability.
 
 **The operations — what your app knows how to do**
 
