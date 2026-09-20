@@ -133,7 +133,15 @@ force. Full and lazy discovery use this current offer, including previously disc
 Offering a mutation does not authorize it: scopes and argument-dependent effects are still judged
 when it is called. Catalogue inspection does not execute that judgment or open consent questions.
 
-`SessionProgressProbe` opens recovery after four model calls without recorded growth. It allows
+`SessionProgressProbe` opens recovery after four model calls without recorded growth. Successful
+`source_read`, `source_page`, and `skill_load` results may defer that first stall when the latest
+round returned previously unseen, nonempty content. This initial exploration allowance ends at
+the twelfth model call of the session, including calls before a continuation. Repeated content,
+changed paths or cursors, failures and confirmation requests do not extend it. Exploration is
+recorded separately as `session.exploration_observed`; it never counts as material progress or
+clears an existing recovery. This bounded exception follows Greenhouse 0439/0826.
+
+Once recovery opens, the probe allows
 one further window of the same size for preparation, then reports exhaustion if growth is still
 absent. A successful artifact-producing operation, recorded evidence or a completed todo resets
 the window, including on its last call. New validated diagnostics are tracked separately from positive
