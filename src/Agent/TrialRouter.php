@@ -163,6 +163,12 @@ final class TrialRouter
         return $this->runner;
     }
 
+    /** The host whose inputs this router confines; recorded proposals are resolved here. */
+    public function root(): string
+    {
+        return $this->root;
+    }
+
     /** Whether this operation may be rehearsed in a trial at all — see the class docblock. */
     public function eligible(Operation $operation): bool
     {

@@ -337,6 +337,34 @@ proposal neither accepts its code nor applies it to a workspace. Recovery was me
 native loop in greenhouse evidence/0781; that fixture does not demonstrate autonomous discovery or
 repair of the proposal.
 
+**Repairing a recorded proposal — `edit` with `source`**
+
+With DevTools 0.34 or later providing `EditPairs`, the runtime adds an optional `source` to
+its existing `edit` contract. Supply the rejected call's `session`, exact tool-call `seq`,
+and the complete proposal's `submitted_sha256` as `source.sha256`, alongside the usual
+`plugin`, `class`, and exact `edits` pairs. Without `source`, editing keeps its current-file
+behavior. The same `agent:read` or `agent:answer` permission used by session readers and
+`plugins.<Plugin>:write` are both required before the source is read.
+
+A source must be a complete recorded inline `implement` rejection, or a recorded rejection
+of an earlier source-based `edit`. The runtime validates the native trial and effect
+receipts, destination, submitted/judged hashes, and preserved or restored baseline.
+The current destination must still match that baseline; this operation does not silently
+rebase an old proposal onto changed code. Missing, ambiguous, malformed, or oversized
+repairs refuse before judgment. Derived source chains are limited to 16 producer calls.
+
+The host reconstructs the exact repaired PHP and sends only that implementation to the
+normal `implement` judges inside a confined trial. It does not copy the session ledger
+into the trial. The public edit arguments stay in the session record; the trial receipt
+also identifies the effective implementation input and repair provenance. Success still
+requires explicit promotion, and a recorded failed repair can be referenced by its new
+call sequence and submitted hash. This does not grant activation or human approval.
+
+A compatible runtime must resolve `source` before invoking DevTools: the standalone
+editor explicitly refuses that argument so an older host cannot silently edit the current
+file instead. Unsupported or unrecorded proposals can still be read with the existing
+readers and resubmitted as a complete `implement` input under the ordinary gates.
+
 **Recovering a recorded result — `agent:result`**
 
 When a resumed conversation no longer contains a full diagnostic, read the stored result of that

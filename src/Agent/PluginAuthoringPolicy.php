@@ -27,14 +27,18 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
 {
     public const BUILD = ['make', 'implement', 'edit', 'test'];
 
-    public function __construct(private readonly string $root, private readonly TrialRunner $runner = new TrialRunner())
-    {
+    /** @param (\Closure(): ?\Milpa\Agent\SessionStore)|null $sessions */
+    public function __construct(
+        private readonly string $root,
+        private readonly TrialRunner $runner = new TrialRunner(),
+        private readonly ?\Closure $sessions = null,
+    ) {
     }
 
     /** Install the host boundary for both the CLI catalogue and HTTP/agent projections. */
     public static function install(\Milpa\Interfaces\Di\DIContainerInterface $container, string $root): void
     {
-        $policy = new self($root);
+        $policy = new self($root, sessions: static fn () => (new \Milpa\AppRuntime\Operations\AgentOperations($container))->sessionStore());
         if (!$container->has(CallPolicy::class)) {
             $container->registerService(CallPolicy::class, $policy);
         }
@@ -52,6 +56,10 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
     {
         try {
             $name = $tool->name;
+            if ($name === 'edit' && array_key_exists('source', $arguments)
+                && !$context->hasScope('agent:read') && !$context->hasScope('agent:answer')) {
+                throw new \RuntimeException('Recorded repair requires agent:read or agent:answer.');
+            }
             if ($name === 'sandbox_promote' || $name === 'sandbox_undo') {
                 $this->checkExport($context, $name, $arguments);
                 return AuthorizationResult::allowed();
@@ -87,7 +95,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
      */
     public function writePaths(ToolContext $context, string $name, array $arguments): ?array
     {
-        if ($context->hasScope('*')) {
+        if ($context->hasScope('*') && !($name === 'edit' && array_key_exists('source', $arguments))) {
             return null;
         }
         $plugin = $arguments['plugin'] ?? null;
@@ -135,21 +143,42 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         if (!$verdict->allowed) {
             throw new \RuntimeException((string) $verdict->reason);
         }
-        if ($context->hasScope('*') || !in_array($name, self::BUILD, true)) {
+        $recorded = RecordedEdit::usesSource($operation, $input);
+        if (($context->hasScope('*') && !$recorded) || !in_array($name, self::BUILD, true)) {
             return $next();
+        }
+        $prepared = null;
+        if ($recorded) {
+            $sessions = $this->sessions === null ? null : ($this->sessions)();
+            if ($sessions === null) {
+                throw new \RuntimeException('Recorded repair requires the host session store.');
+            }
+            $prepared = (new RecordedEdit($this->root, $sessions))->prepare($input, $context);
         }
         $router = new TrialRouter($this->root, $this->runner, dirname(__DIR__, 2) . '/resources/trial-run.php', confinedTesting: true);
         $plan = $router->planFor($operation, $input);
         if ($plan === null) {
             throw new \RuntimeException('This authoring call cannot run in a confined trial.');
         }
-        $run = $this->runner->run($plan->workspace, $operation->name, $input, $this->writePaths($context, $name, $input));
+        if ($prepared !== null) {
+            RecordedEdit::assertBaseline($plan->workspace->copy, $prepared['provenance']['subject'], $prepared['provenance']['baseline_sha256']);
+        }
+        $run = $this->runner->run(
+            $plan->workspace,
+            $prepared === null ? $operation->name : 'implement',
+            $prepared['input'] ?? $input,
+            $this->writePaths($context, $name, $input)
+        );
         if (!$run->ok()) {
             return ['ok' => false, 'error' => $run->output['error'] ?? ($run->stderr !== '' ? $run->stderr : 'the trial did not succeed'),
-                'workspace' => $plan->workspace->id, 'output' => $run->output];
+                'workspace' => $plan->workspace->id, 'output' => $run->output,
+                ...($prepared === null ? [] : ['repair' => $prepared['provenance']])];
         }
         $data = ['ok' => true, 'ran_in_trial' => true, 'applied' => false, 'workspace' => $plan->workspace->id,
             'changed' => array_map(static fn (array $entry): string => $entry['status'], $run->report), 'output' => $run->output];
+        if ($prepared !== null) {
+            $data['repair'] = $prepared['provenance'];
+        }
         if ($run->report !== []) {
             $data['to_apply'] = ['operation' => 'sandbox:promote', 'arguments' => ['workspace' => $plan->workspace->id]];
         }

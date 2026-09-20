@@ -76,7 +76,21 @@ final class TrialAwareRegistry extends ToolRegistry
             }
         }
         $operation = $this->operationFor($name);
+        $prepared = null;
+        if ($operation !== null && RecordedEdit::usesSource($operation, $args)) {
+            if ($this->sessions === null) {
+                return ToolResult::error('Recorded repair requires the host session store.');
+            }
+            try {
+                $prepared = (new RecordedEdit($this->router->root(), $this->sessions))->prepare($args, $ctx ?? ToolContext::cli());
+            } catch (\RuntimeException $error) {
+                return ToolResult::error($error->getMessage());
+            }
+        }
         $plan = $operation === null ? null : $this->router->planFor($operation, $args);
+        if ($prepared !== null && $plan === null) {
+            return ToolResult::error('Recorded repair requires an available confined trial.');
+        }
         if ($operation === null || $plan === null) {
             if ($operation?->name === 'screen:draft' && $this->sessions !== null && $this->sessionId !== null) {
                 $observation = ScreenDraftObservation::prepare($this->screenDrafts, $args);
@@ -99,16 +113,31 @@ final class TrialAwareRegistry extends ToolRegistry
         // THE CALL RUNS IN THE COPY, NOT ON THE HOST. The registered handler is never reached; what
         // the human gets back is the trial's output and, in the meta, the confinement and the diff.
         $policy = $this->inner->getPolicyGate()->getCallPolicy();
+        // A custom registry policy cannot turn a source repair's named write set into a whole-copy write.
+        if ($prepared !== null && !$policy instanceof PluginAuthoringPolicy) {
+            $policy = new PluginAuthoringPolicy($this->router->root());
+        }
         $paths = $policy instanceof PluginAuthoringPolicy && in_array($name, PluginAuthoringPolicy::BUILD, true)
             ? $policy->writePaths($ctx ?? ToolContext::cli(), $name, $args) : null;
         $observe = $this->sessions !== null && $this->sessionId !== null;
         $before = $observe ? FileEffectObserver::trialSnapshot($plan->workspace) : null;
-        $authoring = AuthoringDiagnostic::prepare($name, $args, $plan->workspace, $before, $paths);
-        $run = $this->router->runner()->run($plan->workspace, $operation->name, $args, $paths);
+        $executionName = $prepared === null ? $operation->name : 'implement';
+        $executionInput = $prepared['input'] ?? $args;
+        if ($prepared !== null) {
+            try {
+                RecordedEdit::assertBaseline($plan->workspace->copy, $prepared['provenance']['subject'], $prepared['provenance']['baseline_sha256']);
+            } catch (\RuntimeException $error) {
+                return ToolResult::error($error->getMessage());
+            }
+        }
+        $authoring = AuthoringDiagnostic::prepare($executionName, $executionInput, $plan->workspace, $before, $paths);
+        $run = $this->router->runner()->run($plan->workspace, $executionName, $executionInput, $paths);
         if ($this->sessionId !== null) {
             $this->router->recordInputCall($this->sessionId, $name, $args, $run->inputWitness);
         }
-        $this->record($plan, $operation->name, $args, $run);
+        $execution = $prepared === null ? null : ['operation' => $executionName,
+            'arguments_digest' => EffectObservation::argumentsDigest($executionInput), 'repair' => $prepared['provenance']];
+        $this->record($plan, $operation->name, $args, $run, $execution);
         if ($observe) {
             $after = FileEffectObserver::trialSnapshot($plan->workspace);
             $evidence = FileEffectObserver::testEvidence($name, $args, $after, $run->output);
@@ -128,7 +157,7 @@ final class TrialAwareRegistry extends ToolRegistry
         ];
 
         if (! $run->ok()) {
-            if ($operation->name === 'test' || ($operation->name === 'implement' && is_array($run->output['diagnostic'] ?? null))) {
+            if ($operation->name === 'test' || ($executionName === 'implement' && is_array($run->output['diagnostic'] ?? null))) {
                 // The native channel persists and throws only error text on failure. Keep the
                 // producer's result there, separately from runner diagnostics (greenhouse 0695).
                 // Null output means no structured result was received; no cause is inferred.
@@ -141,6 +170,7 @@ final class TrialAwareRegistry extends ToolRegistry
                     'trial_exit' => $run->exit,
                     'output' => $run->output,
                     'stderr' => $run->stderr,
+                    ...($prepared === null ? [] : ['repair' => $prepared['provenance']]),
                 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
 
                 return ToolResult::error($error, $run->output, $meta);
@@ -163,6 +193,7 @@ final class TrialAwareRegistry extends ToolRegistry
             'workspace' => $ws,
             'changed' => $changed,
             'output' => $run->output,
+            ...($prepared === null ? [] : ['repair' => $prepared['provenance']]),
         ];
         if ($changed === []) {
             $data['note'] = 'This ran in a disposable trial and changed nothing on disk; there is nothing to apply.';
@@ -299,8 +330,10 @@ final class TrialAwareRegistry extends ToolRegistry
         }
     }
 
-    /** @param array<string, mixed> $args */
-    private function record(TrialPlan $plan, string $operation, array $args, TrialRun $run): void
+    /** @param array<string, mixed> $args
+     * @param array<string, mixed>|null $execution
+     */
+    private function record(TrialPlan $plan, string $operation, array $args, TrialRun $run, ?array $execution = null): void
     {
         if ($this->sessions === null || $this->sessionId === null) {
             return;
@@ -314,6 +347,7 @@ final class TrialAwareRegistry extends ToolRegistry
             'exit' => $run->exit,
             'report' => $run->report,
             'output_digest' => hash('sha256', $run->stdout),
+            ...($execution === null ? [] : ['execution' => $execution]),
             ...($run->inputWitness === null ? [] : ['input_witness' => [
                 'attempt' => $run->inputWitness->attempt->id,
                 'scope' => TestInputWitness::SCOPE,
