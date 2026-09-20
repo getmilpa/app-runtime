@@ -329,6 +329,32 @@ proposal neither accepts its code nor applies it to a workspace. Recovery was me
 native loop in greenhouse evidence/0781; that fixture does not demonstrate autonomous discovery or
 repair of the proposal.
 
+**Recovering a recorded result — `agent:result`**
+
+When a resumed conversation no longer contains a full diagnostic, read the stored result of that
+exact call without invoking its producer again:
+
+```bash
+php bin/coa agent:result --session=my-session --seq=87 --max_chars=3000
+```
+
+Concatenate `content` pages using each `next_cursor` unchanged with the same session and sequence.
+The result includes the stored bytes' `sha256`, a `call_sha256` binding the recorded event and its
+metadata, byte offsets and `total_bytes`. Cursors survive journal growth, reject a different call
+or changed record, and respect UTF-8 boundaries. Complete JSON pages obey the transport's encoded
+result budget; `max_chars` can only tighten it and is required without a transport budget.
+
+`ok` reports whether the read succeeded; `call_ok` preserves the original call's outcome.
+`stored_chars` counts the text available in the record, while `declared_chars` preserves the
+producer's recorded length. `storage_complete` is true for a known full result, false for a known
+cut, and null when completeness is unknown. A null `next_cursor` ends the stored bytes without
+upgrading unknown or partial storage to complete. Reading a diagnostic neither repairs the code
+nor proves that an implementation was accepted.
+
+This read-only operation uses `agent:read` or `agent:answer` on CLI, TUI and MCP. Its cursor grants
+no authority. An unknown or ambiguous sequence, a non-call event, invalid text or metadata, and
+a mismatched cursor return an error. `agent:argument` remains the reader for submitted arguments.
+
 **The surfaces — where you drive it from**
 
 `Console\Application` is the single door of the CLI: `coa` on its own, a named command, the TUI, a
