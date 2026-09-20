@@ -36,7 +36,7 @@
         "milpa/ai-gateway": ">=0.30 <1.0",
         "milpa/auth": ">=0.9 <1.0",
         "milpa/data": ">=0.2.2 <1.0",
-        "milpa/devtools": ">=0.32 <1.0",
+        "milpa/devtools": ">=0.33 <1.0",
         "milpa/event-store": ">=0.3 <1.0",
         "milpa/events": ">=0.4 <1.0",
         "milpa/mercure": "*",

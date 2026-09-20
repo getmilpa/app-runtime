@@ -141,6 +141,9 @@ evidence. Plan edits, repeated todos, repeated diagnostics and confirmation requ
 an unavailable store cannot claim any of them. The orchestrator enforces this contract without
 changing tool permissions or the total step budget. Windows belong to the current invocation.
 
+Syntax receipts require `milpa/devtools` 0.33 or later; DevTools remains optional.
+Older producers retain their existing rejection behavior without syntax diagnostic credit.
+
 A rejected `implement` can report a new diagnostic when `milpa/devtools` supplies a
 `milpa.authoring-diagnostic/v1` receipt. All phases bind the admitted call, submitted and
 normalized body and observed copied files. Behavior and static analysis require completed rollback. The `behavior` phase additionally
