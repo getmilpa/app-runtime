@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.174.0](https://github.com/getmilpa/app-runtime/compare/v0.173.0...v0.174.0) (2026-09-20)
+
+
+### Features
+
+* repair recorded proposals through confined authoring trials ([#500](https://github.com/getmilpa/app-runtime/issues/500); Greenhouse 0819) ([daaa9c7](https://github.com/getmilpa/app-runtime/commit/daaa9c79d25865c72fd575691cc4dc331ed26bb9))
+
 ## [0.173.0](https://github.com/getmilpa/app-runtime/compare/v0.172.0...v0.173.0) (2026-09-20)
 
 ### Features
