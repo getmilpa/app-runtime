@@ -339,7 +339,7 @@ repair of the proposal.
 
 **Repairing a recorded proposal — `edit` with `source`**
 
-When the installed DevTools provides `EditPairs`, the runtime adds an optional `source` to
+With DevTools 0.34 or later providing `EditPairs`, the runtime adds an optional `source` to
 its existing `edit` contract. Supply the rejected call's `session`, exact tool-call `seq`,
 and the complete proposal's `submitted_sha256` as `source.sha256`, alongside the usual
 `plugin`, `class`, and exact `edits` pairs. Without `source`, editing keeps its current-file
