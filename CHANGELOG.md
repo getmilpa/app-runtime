@@ -7,6 +7,10 @@
 ### Features
 
 * recover reads from attributed static diagnostic findings ([#492](https://github.com/getmilpa/app-runtime/issues/492)) ([3e30a6a](https://github.com/getmilpa/app-runtime/commit/3e30a6a3226ceb2d294b15137909c3c1d14ae61b))
+  A verified static rejection can restore recovery reads without counting as an applied change or positive evidence.
+  Body hashes establish attribution; message/identifier findings distinguish new diagnostics from repeats and comment-only edits.
+  Inline and staged submissions share that identity, read permissions still apply, and behavioral receipts retain their existing contract.
+  Requires the optional `milpa/devtools` 0.32 producer for static receipts. Native evidence: [Greenhouse 0786](https://github.com/getmilpa/greenhouse/pull/152).
 
 ## [0.170.0](https://github.com/getmilpa/app-runtime/compare/v0.169.1...v0.170.0) (2026-09-17)
 
