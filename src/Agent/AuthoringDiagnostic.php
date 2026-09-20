@@ -6,12 +6,15 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Agent;
 
 use Milpa\DevTools\Operations\ImplementationBody;
+use Milpa\DevTools\Operations\StaticAnalysisFindings;
 
 /** Bind the landing judge to its transient proposal before rollback hides that proposal. */
 final readonly class AuthoringDiagnostic
 {
-    /** @param array<string, string> $expected */
-    private function __construct(private array $expected)
+    /** @param array<string, string>      $expected
+     * @param array<string, string>|null $behavior
+     */
+    private function __construct(private array $expected, private ?array $behavior)
     {
     }
 
@@ -42,11 +45,10 @@ final readonly class AuthoringDiagnostic
         ));
         $subjects = $find('src/Plugins/' . $plugin, $class . '.php');
         $selectors = $find('tests/Plugins/' . $plugin, $class . 'Test.php');
-        if (count($subjects) !== 1 || count($selectors) !== 1) {
+        if (count($subjects) !== 1) {
             return null;
         }
         $subject = $subjects[0];
-        $selector = $selectors[0];
         $content = $arguments['content'] ?? null;
         if ($mode === 'finish') {
             $part = $subject . '.milpa-part';
@@ -61,9 +63,16 @@ final readonly class AuthoringDiagnostic
         if (!is_string($content) || $content === '') {
             return null;
         }
-        foreach ([$subject, $selector] as $path) {
-            if (is_link($workspace->copy . '/' . $path) || hash_file('sha256', $workspace->copy . '/' . $path) !== $state[$path]) {
-                return null;
+        if (!is_file($workspace->copy . '/' . $subject) || is_link($workspace->copy . '/' . $subject)
+            || hash_file('sha256', $workspace->copy . '/' . $subject) !== $state[$subject]) {
+            return null;
+        }
+        $behavior = null;
+        if (count($selectors) === 1) {
+            $selector = $selectors[0];
+            if (is_file($workspace->copy . '/' . $selector) && !is_link($workspace->copy . '/' . $selector)
+                && hash_file('sha256', $workspace->copy . '/' . $selector) === $state[$selector]) {
+                $behavior = ['selector' => $selector, 'selector_sha256' => $state[$selector]];
             }
         }
         return new self([
@@ -71,12 +80,10 @@ final readonly class AuthoringDiagnostic
             'submitted_sha256' => hash('sha256', $content),
             'judged_sha256' => hash('sha256', ImplementationBody::normalize($content, $subject)),
             'restored_sha256' => $state[$subject],
-            'selector' => $selector,
-            'selector_sha256' => $state[$selector],
-        ]);
+        ], $behavior);
     }
 
-    /** Credit information once for the same judged bytes, selector and copied tree.
+    /** Bind judged bytes, then credit information according to the judge's novelty contract.
      * Runtime errors report a failed scoped execution, not proof that the proposal caused it.
      *
      * @param array<string, string>|null $before
@@ -91,11 +98,24 @@ final readonly class AuthoringDiagnostic
         if ($exit !== 1 || $before === null || $before === [] || $before !== $after
             || ($output['ok'] ?? null) !== false || !is_array($receipt)
             || ($receipt['schema'] ?? null) !== 'milpa.authoring-diagnostic/v1'
-            || ($receipt['phase'] ?? null) !== 'behavior'
             || ($receipt['stable_subject'] ?? null) !== true || ($receipt['rolled_back'] ?? null) !== true) {
             return [];
         }
         foreach ($this->expected as $key => $value) {
+            if (($receipt[$key] ?? null) !== $value) {
+                return [];
+            }
+        }
+        // The staged body has already been bound as the proposal. Its transport does not renew it.
+        unset($before[$this->expected['subject'] . '.milpa-part']);
+        ksort($before);
+        if (($receipt['phase'] ?? null) === 'static-analysis') {
+            return $this->staticIdentities($receipt['result'] ?? null, $before);
+        }
+        if (($receipt['phase'] ?? null) !== 'behavior' || $this->behavior === null) {
+            return [];
+        }
+        foreach ($this->behavior as $key => $value) {
             if (($receipt[$key] ?? null) !== $value) {
                 return [];
             }
@@ -113,12 +133,30 @@ final readonly class AuthoringDiagnostic
             || $result['failures'] + $result['errors'] > $result['tests']) {
             return [];
         }
-        // The staged body has already been bound as the proposal. Its transport does not renew it.
-        unset($before[$this->expected['subject'] . '.milpa-part']);
-        ksort($before);
         return [hash('sha256', json_encode([
             'native-authoring-diagnostic/v1', $this->expected['subject'], $this->expected['judged_sha256'],
-            $this->expected['selector'], $before,
+            $this->behavior['selector'], $before,
+        ], JSON_THROW_ON_ERROR))];
+    }
+
+    /** A different body is not new static information when its rule findings are unchanged.
+     * @param array<string, string> $before
+     *
+     * @return list<string>
+     */
+    private function staticIdentities(mixed $result, array $before): array
+    {
+        if (!class_exists(StaticAnalysisFindings::class) || !is_array($result)
+            || ($result['exit'] ?? null) !== 1 || !is_int($result['errors'] ?? null)
+            || !is_array($result['findings'] ?? null) || $result['errors'] !== count($result['findings'])) {
+            return [];
+        }
+        $fingerprint = StaticAnalysisFindings::fingerprint($result['findings']);
+        if ($fingerprint === null || ($result['fingerprint'] ?? null) !== $fingerprint) {
+            return [];
+        }
+        return [hash('sha256', json_encode([
+            'native-static-analysis-diagnostic/v1', $this->expected['subject'], $fingerprint, $before,
         ], JSON_THROW_ON_ERROR))];
     }
 }

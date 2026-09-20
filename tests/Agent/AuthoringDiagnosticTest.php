@@ -8,6 +8,8 @@ namespace Milpa\AppRuntime\Tests\Agent;
 use Milpa\AppRuntime\Agent\AuthoringDiagnostic;
 use Milpa\AppRuntime\Agent\FileEffectObserver;
 use Milpa\AppRuntime\Agent\TrialWorkspace;
+use Milpa\DevTools\Operations\ImplementationBody;
+use Milpa\DevTools\Operations\StaticAnalysisFindings;
 use PHPUnit\Framework\TestCase;
 
 /** A failed judgment earns information only with its original native subject and inputs. */
@@ -111,5 +113,102 @@ final class AuthoringDiagnosticTest extends TestCase
         foreach ([['mode' => 'start'], ['mode' => 'finish'], ['class' => '../Greet'], ['plugin' => 'Elsewhere'], ['content' => '']] as $change) {
             self::assertNull(AuthoringDiagnostic::prepare('implement', [...$this->arguments(), ...$change], $this->workspace, $before, self::PATHS));
         }
+    }
+
+    /** @return array<string, mixed> */
+    private function staticResult(string $body = self::BODY): array
+    {
+        $result = $this->rejectedResult();
+        $receipt = &$result['diagnostic'];
+        $receipt['phase'] = 'static-analysis';
+        unset($receipt['selector'], $receipt['selector_sha256']);
+        $receipt['submitted_sha256'] = hash('sha256', $body);
+        $receipt['judged_sha256'] = hash('sha256', ImplementationBody::normalize($body, self::SUBJECT));
+        $findings = [['message' => 'Unknown contract.', 'identifier' => 'class.notFound', 'line' => 7]];
+        $receipt['result'] = ['exit' => 1, 'errors' => 1, 'findings' => $findings, 'fingerprint' => StaticAnalysisFindings::fingerprint($findings)];
+        return $result;
+    }
+
+    public function testStaticNoveltyUsesFindingsWhileBodyHashStillBindsAttribution(): void
+    {
+        $before = FileEffectObserver::trialSnapshot($this->workspace);
+        $prepared = AuthoringDiagnostic::prepare('implement', $this->arguments(), $this->workspace, $before, self::PATHS);
+        self::assertNotNull($prepared);
+        $result = $this->staticResult();
+        $ids = $prepared->identities($before, $before, $result, 1);
+        self::assertCount(1, $ids);
+        $effect = FileEffectObserver::compare($before, $before, 'proposal', diagnostics: $ids);
+        self::assertSame([], $effect->artifacts);
+        self::assertSame([], $effect->evidence);
+
+        $body = self::BODY . '// Only a comment.';
+        $comment = AuthoringDiagnostic::prepare('implement', [...$this->arguments(), 'content' => $body], $this->workspace, $before, self::PATHS);
+        self::assertNotNull($comment);
+        self::assertSame([], $comment->identities($before, $before, $result, 1), 'The old body receipt cannot attribute the new proposal.');
+        $commentResult = $this->staticResult($body);
+        $commentResult['diagnostic']['result']['findings'][0]['line'] = 90;
+        self::assertSame($ids, $comment->identities($before, $before, $commentResult, 1), 'A newly attributed body with the same findings is not new information.');
+        $changed = $result;
+        $changed['diagnostic']['result']['findings'][0]['message'] = 'A different contract.';
+        self::assertSame([], $prepared->identities($before, $before, $changed, 1), 'The advertised fingerprint must be recomputed.');
+        $changed['diagnostic']['result']['fingerprint'] = StaticAnalysisFindings::fingerprint($changed['diagnostic']['result']['findings']);
+        $changedIds = $prepared->identities($before, $before, $changed, 1);
+        self::assertCount(1, $changedIds);
+        self::assertNotSame($ids, $changedIds);
+
+        $other = TrialWorkspace::materialize($this->root, 'w-static-other', $this->root . '/' . self::SUBJECT);
+        file_put_contents($other->copy . '/' . self::SUBJECT . '.milpa-part', self::BODY);
+        $staged = FileEffectObserver::trialSnapshot($other);
+        $finish = AuthoringDiagnostic::prepare('implement', ['plugin' => 'Demo', 'class' => 'Greet', 'mode' => 'finish'], $other, $staged, self::PATHS);
+        self::assertSame($ids, $finish?->identities($staged, $staged, $result, 1));
+        file_put_contents($other->copy . '/criterion.txt', 'A different observed input');
+        $newState = FileEffectObserver::trialSnapshot($other);
+        $otherPrepared = AuthoringDiagnostic::prepare('implement', $this->arguments(), $other, $newState, self::PATHS);
+        $otherIds = $otherPrepared?->identities($newState, $newState, $result, 1);
+        self::assertCount(1, $otherIds);
+        self::assertNotSame($ids, $otherIds);
+    }
+
+    public function testStaticReceiptsRequireCompleteResultBindingRollbackAndAuthority(): void
+    {
+        $before = FileEffectObserver::trialSnapshot($this->workspace);
+        $prepared = AuthoringDiagnostic::prepare('implement', $this->arguments(), $this->workspace, $before, self::PATHS);
+        self::assertNotNull($prepared);
+        foreach (['subject', 'submitted_sha256', 'judged_sha256', 'restored_sha256', 'schema', 'phase', 'stable_subject', 'rolled_back'] as $field) {
+            $bad = $this->staticResult();
+            $bad['diagnostic'][$field] = 'unrelated';
+            self::assertSame([], $prepared->identities($before, $before, $bad, 1), $field);
+        }
+        foreach (['exit' => 124, 'errors' => '1', 'findings' => [], 'fingerprint' => 'invented'] as $field => $value) {
+            $bad = $this->staticResult();
+            $bad['diagnostic']['result'][$field] = $value;
+            self::assertSame([], $prepared->identities($before, $before, $bad, 1), $field);
+        }
+        $bad = $this->staticResult();
+        $bad['diagnostic']['result']['errors'] = 0;
+        $bad['diagnostic']['result']['findings'] = [];
+        self::assertSame([], $prepared->identities($before, $before, $bad, 1));
+        self::assertSame([], $prepared->identities($before, $before, ['ok' => false, 'error' => 'Older producer static refusal'], 1));
+        self::assertSame([], $prepared->identities($before, $before, $this->staticResult(), 77));
+        self::assertSame([], $prepared->identities($before, [...$before, self::SUBJECT => hash('sha256', 'changed')], $this->staticResult(), 1));
+        self::assertNull(AuthoringDiagnostic::prepare('implement', $this->arguments(), $this->workspace, $before, ['tests/Plugins/Demo']));
+    }
+
+    public function testStaticJudgmentNeedsNoBehavioralSelectorButBehaviorStillDoes(): void
+    {
+        unlink($this->workspace->copy . '/' . self::TEST);
+        $before = FileEffectObserver::trialSnapshot($this->workspace);
+        $prepared = AuthoringDiagnostic::prepare('implement', $this->arguments(), $this->workspace, $before, self::PATHS);
+        self::assertNotNull($prepared);
+        self::assertCount(1, $prepared->identities($before, $before, $this->staticResult(), 1));
+        self::assertSame([], $prepared->identities($before, $before, $this->rejectedResult(), 1));
+        foreach (['one', 'two'] as $dir) {
+            mkdir($this->workspace->copy . '/tests/Plugins/Demo/' . $dir, 0o700, true);
+            file_put_contents($this->workspace->copy . '/tests/Plugins/Demo/' . $dir . '/GreetTest.php', '<?php // judge');
+        }
+        $ambiguous = FileEffectObserver::trialSnapshot($this->workspace);
+        $prepared = AuthoringDiagnostic::prepare('implement', $this->arguments(), $this->workspace, $ambiguous, self::PATHS);
+        self::assertCount(1, $prepared?->identities($ambiguous, $ambiguous, $this->staticResult(), 1));
+        self::assertSame([], $prepared?->identities($ambiguous, $ambiguous, $this->rejectedResult(), 1));
     }
 }
