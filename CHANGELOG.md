@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.173.0](https://github.com/getmilpa/app-runtime/compare/v0.172.0...v0.173.0) (2026-09-20)
+
+
+### Features
+
+* recover from attributed syntax rejections ([#497](https://github.com/getmilpa/app-runtime/issues/497)) ([fcd7636](https://github.com/getmilpa/app-runtime/commit/fcd763604903b49f34d0197dfaf17643c1f16ab3))
+
 ## [0.172.0](https://github.com/getmilpa/app-runtime/compare/v0.171.0...v0.172.0) (2026-09-20)
 
 ### Features
