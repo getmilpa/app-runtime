@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [0.173.0](https://github.com/getmilpa/app-runtime/compare/v0.172.0...v0.173.0) (2026-09-20)
+
+### Features
+
+* Recover from attributed syntax rejections ([#497](https://github.com/getmilpa/app-runtime/pull/497)).
+
+The native authoring consumer recognizes DevTools 0.33 syntax receipts with preserved targets,
+independently reproduces their parser findings and binds them to the admitted proposal. Repeated
+findings, shifted locations and inline/finish transport cannot renew progress; different findings
+or observed context remain distinct. Existing read permissions and progress limits still apply,
+and failed authoring remains failed and unapplied. DevTools remains optional; older producers
+retain their prior behavior without syntax diagnostic credit.
+
+Measured with recovery and authority counterfactuals and the complete ToDo control in Greenhouse
+evidence 0813 and decision 0438: https://github.com/getmilpa/greenhouse/pull/178.
+
 ## [0.172.0](https://github.com/getmilpa/app-runtime/compare/v0.171.0...v0.172.0) (2026-09-20)
 
 ### Features
