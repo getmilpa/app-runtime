@@ -1,6 +1,16 @@
 # Changelog
 
 
+## [0.172.0](https://github.com/getmilpa/app-runtime/compare/v0.171.0...v0.172.0) (2026-09-20)
+
+### Features
+
+* recover stored tool results with `agent:result` ([#494](https://github.com/getmilpa/app-runtime/pull/494))
+  Read complete JSON pages by session and event sequence without executing the original tool again.
+  Pages respect the transport budget and UTF-8 boundaries; cursors bind the result and recorded event while surviving journal growth.
+  Read success remains separate from the original outcome and from complete, partial or unknown storage.
+  Existing session-read scopes and progress limits still apply. Native evidence: [Greenhouse 0809](https://github.com/getmilpa/greenhouse/pull/174).
+
 ## [0.171.0](https://github.com/getmilpa/app-runtime/compare/v0.170.0...v0.171.0) (2026-09-20)
 
 
