@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.171.0](https://github.com/getmilpa/app-runtime/compare/v0.170.0...v0.171.0) (2026-09-20)
+
+
+### Features
+
+* recover reads from attributed static diagnostic findings ([#492](https://github.com/getmilpa/app-runtime/issues/492)) ([3e30a6a](https://github.com/getmilpa/app-runtime/commit/3e30a6a3226ceb2d294b15137909c3c1d14ae61b))
+
 ## [0.170.0](https://github.com/getmilpa/app-runtime/compare/v0.169.1...v0.170.0) (2026-09-17)
 
 
