@@ -141,20 +141,28 @@ evidence. Plan edits, repeated todos, repeated diagnostics and confirmation requ
 an unavailable store cannot claim any of them. The orchestrator enforces this contract without
 changing tool permissions or the total step budget. Windows belong to the current invocation.
 
+Syntax receipts require `milpa/devtools` 0.33 or later; DevTools remains optional.
+Older producers retain their existing rejection behavior without syntax diagnostic credit.
+
 A rejected `implement` can report a new diagnostic when `milpa/devtools` supplies a
-`milpa.authoring-diagnostic/v1` receipt. Both phases bind the admitted call, submitted and
-normalized body, observed copied files and completed rollback. The `behavior` phase additionally
+`milpa.authoring-diagnostic/v1` receipt. All phases bind the admitted call, submitted and
+normalized body and observed copied files. Behavior and static analysis require completed rollback. The `behavior` phase additionally
 requires the class's unique test selector. Runtime errors describe that scoped execution; they
 do not establish that the proposal caused the error. The `static-analysis` phase requires a
 complete attributed PHPStan rule report, exit 1, consistent counts and a recomputed finding
-fingerprint. It needs no behavioral test. Size/syntax refusals, incomplete or foreign reports,
+fingerprint. It needs no behavioral test. The `syntax` phase instead requires a stable proposal,
+an unchanged destination with its prior hash and an explicit claim that the candidate was never
+installed. The consumer independently reproduces the native parser finding from the admitted
+body; invented rollback fields are rejected. Size refusals, unstructured syntax errors, incomplete or foreign reports,
 infrastructure failures, timeouts, unobserved mutations and invalid receipts earn no diagnostic
 identity. The existing explicit `test` diagnostic contract is unchanged.
 
 Behavioral novelty uses the judged body, selector and observed copied tree. Static novelty uses
 the subject, canonical message/identifier set and observed copied tree: a changed body hash
 still needs attribution but cannot renew unchanged findings. Lines, finding order and duplicate
-occurrences do not renew static information. Both phases deduplicate across workspaces and
+occurrences do not renew static information. Syntax novelty uses the subject, parser/message
+fingerprint and observed tree, ignoring body hash and location changes that preserve the finding.
+All phases deduplicate across workspaces and
 inline/finish transport. These identities do not establish semantic equivalence. The copied file scope excludes vendor,
 var and other trial machinery; it is not a complete dependency trace. A failed authoring result
 retains its structured receipt in the `milpa.trial-authoring-failure/v1` error envelope so it can
