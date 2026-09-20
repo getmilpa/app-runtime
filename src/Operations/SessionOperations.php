@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Operations;
 
 use Milpa\AppRuntime\Support\ContratoInstalado;
 use Milpa\AppRuntime\Agent\SessionArgumentPage;
+use Milpa\AppRuntime\Agent\SessionResultPage;
 use Milpa\ToolRuntime\Contracts\ToolContext;
 use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\Principal;
@@ -356,6 +357,26 @@ final class SessionOperations implements CommandProvider
                         'max_chars' => ['type' => 'integer', 'minimum' => 256, 'description' => 'Explicit JSON character budget outside a model transport; may only tighten its budget'],
                     ],
                     'required' => ['session', 'seq', 'argument'],
+                ],
+                mutating: false,
+                surfaces: ['cli', 'tui', 'mcp'],
+            ),
+            new Operation(
+                name: 'agent:result',
+                scopes: ['agent:read', 'agent:answer'],
+                effects: EffectProfile::readOnly(),
+                description: 'Read complete JSON pages of one recorded tool result by session and sequence, including a failed call. This reads stored bytes without invoking the producer. call_ok and storage_complete describe the record; reading it does not prove execution, acceptance or approval.',
+                handler: fn (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array => $this->resultPage($input, $authority),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'session' => ['type' => 'string', 'description' => 'The session that recorded the result',
+                            'x-milpa-source' => ['tool' => 'agent:sessions', 'path' => 'sessions', 'key' => 'session']],
+                        'seq' => ['type' => 'integer', 'minimum' => 1, 'description' => 'Exact sequence of a session.tool_called event in that session'],
+                        'cursor' => ['type' => 'string', 'description' => 'The preceding next_cursor, unchanged; omit to start. Grants no permission.'],
+                        'max_chars' => ['type' => 'integer', 'minimum' => 256, 'description' => 'Explicit JSON character budget outside a model transport; may only tighten its budget'],
+                    ],
+                    'required' => ['session', 'seq'],
                 ],
                 mutating: false,
                 surfaces: ['cli', 'tui', 'mcp'],
@@ -938,6 +959,21 @@ final class SessionOperations implements CommandProvider
         }
 
         return (new SessionArgumentPage($sessions))->read($input, $authority?->resultBudget);
+    }
+
+    /**
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function resultPage(array $input, ?ToolContext $authority): array
+    {
+        $sessions = $this->sessions();
+        if ($sessions === null) {
+            return ['ok' => false, 'error' => 'this app has nowhere to store sessions'];
+        }
+
+        return (new SessionResultPage($sessions))->read($input, $authority?->resultBudget);
     }
 
     /**
