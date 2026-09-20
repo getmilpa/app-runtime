@@ -9,7 +9,9 @@ use Milpa\AppRuntime\Agent\AuthoringDiagnostic;
 use Milpa\AppRuntime\Agent\FileEffectObserver;
 use Milpa\AppRuntime\Agent\TrialWorkspace;
 use Milpa\DevTools\Operations\ImplementationBody;
+use Milpa\DevTools\Operations\ImplementHandler;
 use Milpa\DevTools\Operations\StaticAnalysisFindings;
+use Milpa\DevTools\Support\RootResolver;
 use PHPUnit\Framework\TestCase;
 
 /** A failed judgment earns information only with its original native subject and inputs. */
@@ -210,5 +212,79 @@ final class AuthoringDiagnosticTest extends TestCase
         $prepared = AuthoringDiagnostic::prepare('implement', $this->arguments(), $this->workspace, $ambiguous, self::PATHS);
         self::assertCount(1, $prepared?->identities($ambiguous, $ambiguous, $this->staticResult(), 1));
         self::assertSame([], $prepared?->identities($ambiguous, $ambiguous, $this->rejectedResult(), 1));
+    }
+
+    /** @return array<string, mixed> */
+    private function syntaxResult(string $body): array
+    {
+        return (new ImplementHandler(new RootResolver($this->workspace->copy)))->handle([
+            'plugin' => 'Demo', 'class' => 'Greet', 'content' => $body,
+        ]);
+    }
+
+    public function testSyntaxInformationSurvivesTransportButNotBodyLineOrCommentChurn(): void
+    {
+        $body = str_replace('class Greet {}', 'class Greet { public function broken( }', self::BODY);
+        $before = FileEffectObserver::trialSnapshot($this->workspace);
+        $prepare = fn (string $content): ?AuthoringDiagnostic => AuthoringDiagnostic::prepare('implement', [...$this->arguments(), 'content' => $content], $this->workspace, $before, self::PATHS);
+        $result = $this->syntaxResult($body);
+        $ids = $prepare($body)?->identities($before, $before, $result, 1);
+        self::assertCount(1, $ids);
+        $effect = FileEffectObserver::compare($before, $before, 'proposal', diagnostics: $ids);
+        self::assertSame([], $effect->artifacts);
+        self::assertSame([], $effect->evidence);
+        $shift = str_replace('<?php', "<?php\n// Shift only.", $body);
+        self::assertSame([], $prepare($shift)?->identities($before, $before, $result, 1), 'An old receipt cannot attribute different submitted bytes.');
+        self::assertSame($ids, $prepare($shift)?->identities($before, $before, $this->syntaxResult($shift), 1));
+        $different = str_replace('class Greet', 'class Greet ?', $body);
+        $differentIds = $prepare($different)?->identities($before, $before, $this->syntaxResult($different), 1);
+        self::assertCount(1, $differentIds);
+        self::assertNotSame($ids, $differentIds);
+
+        $other = TrialWorkspace::materialize($this->root, 'w-syntax-other', $this->root . '/' . self::SUBJECT);
+        file_put_contents($other->copy . '/' . self::SUBJECT . '.milpa-part', $body);
+        $staged = FileEffectObserver::trialSnapshot($other);
+        $finish = AuthoringDiagnostic::prepare('implement', ['plugin' => 'Demo', 'class' => 'Greet', 'mode' => 'finish'], $other, $staged, self::PATHS);
+        self::assertSame($ids, $finish?->identities($staged, $staged, $result, 1));
+        file_put_contents($other->copy . '/criterion.txt', 'Different observed input');
+        $changed = FileEffectObserver::trialSnapshot($other);
+        $context = AuthoringDiagnostic::prepare('implement', [...$this->arguments(), 'content' => $body], $other, $changed, self::PATHS);
+        self::assertNotSame($ids, $context?->identities($changed, $changed, $result, 1));
+    }
+
+    public function testSyntaxCannotCreditFabricatedRollbackResultsOrUnboundPreservation(): void
+    {
+        $body = str_replace('class Greet {}', 'class Greet ?', self::BODY);
+        unlink($this->workspace->copy . '/' . self::TEST);
+        $before = FileEffectObserver::trialSnapshot($this->workspace);
+        $arguments = [...$this->arguments(), 'content' => $body];
+        $prepared = AuthoringDiagnostic::prepare('implement', $arguments, $this->workspace, $before, self::PATHS);
+        self::assertNotNull($prepared);
+        $result = $this->syntaxResult($body);
+        self::assertCount(1, $prepared->identities($before, $before, $result, 1), 'Syntax does not need a behavioral selector.');
+        foreach (['schema', 'phase', 'subject', 'submitted_sha256', 'judged_sha256', 'preserved_sha256', 'stable_subject', 'candidate_installed', 'destination_preserved'] as $field) {
+            $bad = $result;
+            $bad['diagnostic'][$field] = 'unrelated';
+            self::assertSame([], $prepared->identities($before, $before, $bad, 1), $field);
+        }
+        foreach (['rolled_back' => true, 'restored_sha256' => $before[self::SUBJECT]] as $field => $value) {
+            $bad = $result;
+            $bad['diagnostic'][$field] = $value;
+            self::assertSame([], $prepared->identities($before, $before, $bad, 1), 'No fictitious restoration');
+        }
+        foreach (['parser', 'message', 'line', 'fingerprint', 'extra'] as $field) {
+            $bad = $result;
+            $bad['diagnostic']['result'][$field] = 'invented';
+            self::assertSame([], $prepared->identities($before, $before, $bad, 1), $field);
+        }
+        $bad = $result;
+        $bad['diagnostic']['result'] = null;
+        self::assertSame([], $prepared->identities($before, $before, $bad, 1));
+        $valid = AuthoringDiagnostic::prepare('implement', $this->arguments(), $this->workspace, $before, self::PATHS);
+        self::assertSame([], $valid?->identities($before, $before, $result, 1));
+        self::assertSame([], $prepared->identities($before, [...$before, self::SUBJECT => hash('sha256', 'changed')], $result, 1));
+        self::assertSame([], $prepared->identities($before, $before, $result, 77));
+        self::assertSame([], $prepared->identities($before, $before, ['ok' => false, 'error' => 'Unstructured lint error'], 1));
+        self::assertNull(AuthoringDiagnostic::prepare('implement', $arguments, $this->workspace, $before, ['tests/Plugins/Demo']));
     }
 }
