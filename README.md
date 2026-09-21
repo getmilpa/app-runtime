@@ -345,6 +345,16 @@ proposal neither accepts its code nor applies it to a workspace. Recovery was me
 native loop in greenhouse evidence/0781; that fixture does not demonstrate autonomous discovery or
 repair of the proposal.
 
+During progress recovery, `agent:argument` can read a call already recorded in the current
+session through its declared `SessionArgumentOperation` contract. It remains subject to scopes,
+explicit withdrawal, prerequisites, argument identity, cursor checks and the transport budget.
+An aliased operation keeps this contract; a matching tool name alone does not acquire it.
+Reading does not clear recovery, invoke the original producer or prove accepted code. A `finish`
+call without a `content` argument cannot supply the earlier `start` or `append` arguments.
+The initial run context lists `recorded_argument_readers` separately from
+`recorded_result_readers`; both describe only readers visible at that snapshot. Always use the
+current outgoing offer for continued availability. General source exploration stays restricted.
+
 **Repairing a recorded proposal — `edit` with `source`**
 
 With DevTools 0.34 or later providing `EditPairs`, the runtime adds an optional `source` to

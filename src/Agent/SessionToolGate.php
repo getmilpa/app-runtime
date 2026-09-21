@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Agent;
 
 use Milpa\ToolRuntime\ToolResult;
 use Milpa\AppRuntime\Support\ContratoInstalado;
+use Milpa\AppRuntime\Operations\SessionArgumentOperation;
 use Milpa\AppRuntime\Operations\SessionResultOperation;
 use Milpa\Agent\PolicyDecision;
 use Milpa\Agent\Principal;
@@ -309,11 +310,11 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         if (
             ($composicion === null || $composicion->effective->mutation === Mutation::None)
             && $this->recoveryState() === true
-            && !$this->readsOwnRecordedResult($operacion, $arguments)
+            && !$this->readsOwnRecordedCall($operacion, $arguments)
         ) {
             return 'Progress recovery: the last window produced no evidence, no artifact and closed no '
                 . 'todo, so more reading is not on the table. Do one of these now: materialize an '
-                . 'artifact, recover a stored result from this session with agent:result, run a verification, close a todo with its evidence, ask the human a '
+                . 'artifact, recover recorded bytes with a reader available in the current tool offer, run a verification, close a todo with its evidence, ask the human a '
                 . 'decision, or declare framework debt. Recorded progress clears this.';
         }
 
@@ -523,7 +524,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      *
      * @param list<string> $offered
      *
-     * @return array{active: bool|null, result_readers: list<string>}
+     * @return array{active: bool|null, result_readers: list<string>, argument_readers: list<string>}
      */
     public function recoveryContext(array $offered): array
     {
@@ -531,19 +532,21 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             'active' => $this->recoveryState(),
             'result_readers' => array_values(array_filter($offered, fn (string $tool): bool =>
                 $this->operationFor($tool) instanceof SessionResultOperation)),
+            'argument_readers' => array_values(array_filter($offered, fn (string $tool): bool =>
+                $this->operationFor($tool) instanceof SessionArgumentOperation)),
         ];
     }
 
     /**
-     * Recovering a result already recorded here is continuity, not another producer invocation.
+     * Recovering a value already recorded here is continuity, not another producer invocation.
      * This only exempts the recovery restriction; all earlier and later checks still apply.
-     * The producer validates result metadata, immutable cursors and the transport budget.
+     * The producer validates its value metadata, immutable cursors and the transport budget.
      *
      * @param array<string, mixed> $arguments
      */
-    private function readsOwnRecordedResult(Operation $operation, array $arguments): bool
+    private function readsOwnRecordedCall(Operation $operation, array $arguments): bool
     {
-        if (!$operation instanceof SessionResultOperation || ($arguments['session'] ?? null) !== $this->session->id
+        if (!$this->isRecordedReader($operation) || ($arguments['session'] ?? null) !== $this->session->id
             || !\is_int($arguments['seq'] ?? null) || $arguments['seq'] < 1) {
             return false;
         }
@@ -582,8 +585,14 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             $operation = $this->operationFor($tool);
 
             return $operation !== null && ! $operation->mutating && ! $this->esBitacoraPropia($operation)
-                && !$operation instanceof SessionResultOperation;
+                && !$this->isRecordedReader($operation);
         }));
+    }
+
+    /** A declared reader contract, never an exemption based on a coinciding tool name. */
+    private function isRecordedReader(Operation $operation): bool
+    {
+        return $operation instanceof SessionResultOperation || $operation instanceof SessionArgumentOperation;
     }
 
     private function contratoDeclaradoPor(object $operacion): ?string
