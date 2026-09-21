@@ -170,7 +170,7 @@ final class RecoveryOfferTest extends TestCase
         self::assertTrue($this->table->wasRemoved('inspect'));
     }
 
-    public function testDirectCallStillRefusesAndKeepsItsTerminalClassification(): void
+    public function testDirectCallRefusesExecutionAndReportsTheHiddenRecoveryOption(): void
     {
         $this->stall();
         try {
@@ -178,7 +178,7 @@ final class RecoveryOfferTest extends TestCase
             self::fail('A withdrawn read executed');
         } catch (ToolCallRefused $error) {
             self::assertStringStartsWith('Progress recovery:', $error->getMessage());
-            self::assertFalse($error->optionRemoved);
+            self::assertTrue($error->optionRemoved);
         }
         self::assertSame(0, $this->executions);
     }
@@ -281,6 +281,148 @@ final class RecoveryOfferTest extends TestCase
             },
         );
         (new AgentOrchestrator($llm, $this->bridge, maxSteps: 4))->run('Exercise recovery');
+    }
+
+    public function testTheRefusalReturnsToTheModelWithoutExecutingOrRestoringTheRead(): void
+    {
+        $this->stall();
+        $llm = $this->createMock(LlmService::class);
+        $step = 0;
+        $llm->expects(self::exactly(3))->method('generateResponse')->willReturnCallback(
+            function (string $prompt, array $tools, array $messages) use (&$step): array {
+                ++$step;
+                if ($step === 1) {
+                    self::assertNotContains('inspect', array_column($tools, 'name'));
+                    return $this->call('inspect', []);
+                }
+                if ($step === 2) {
+                    self::assertSame(0, $this->executions);
+                    self::assertNotContains('inspect', array_column($tools, 'name'));
+                    self::assertStringStartsWith('Progress recovery:', $messages[array_key_last($messages)]['content']);
+                    return $this->call('materialize', []);
+                }
+                self::assertContains('inspect', array_column($tools, 'name'));
+                return ['role' => 'assistant', 'content' => 'The fixture acted after receiving the refusal.'];
+            },
+        );
+        (new AgentOrchestrator($llm, $this->bridge, maxSteps: 3))->run('Exercise refusal feedback');
+        self::assertSame(1, $this->executions);
+        $reads = array_values(array_filter(
+            $this->store->stream('offer'),
+            static fn ($event) => $event->type === 'session.tool_called' && $event->payload['tool'] === 'inspect'
+        ));
+        self::assertCount(1, $reads);
+        self::assertFalse($reads[0]->payload['ok']);
+    }
+
+    public function testRepeatedRefusalsKeepTheSterileFailureLimit(): void
+    {
+        $this->stall();
+        $read = new Operation('inspect', 'Read', static fn () => [], effects: EffectProfile::readOnly());
+        $gate = new SessionToolGate(
+            $this->store,
+            $this->store->load('offer'),
+            [$read],
+            vigiaDeBucle: new \Milpa\AppRuntime\Agent\SterileLoopGuard()
+        );
+        $door = new ConsentBridge(
+            $this->registry,
+            gate: $gate,
+            recorder: $gate,
+            authority: new ToolContext(principal: 'fixture', scopes: ['work:write'])
+        );
+        for ($i = 0; $i < 3; ++$i) {
+            try {
+                $door->callTool('inspect', []);
+                self::fail('A repeated hidden read executed');
+            } catch (ToolCallRefused $error) {
+                self::assertSame($i < 2, $error->optionRemoved);
+            }
+        }
+        self::assertFalse($gate->recoveryRefusalWasHidden('inspect'));
+        self::assertSame(0, $this->executions);
+    }
+
+    public function testAnEarlierOrderRefusalDoesNotBecomeRecoverableBecauseTheReadIsHidden(): void
+    {
+        $this->stall();
+        $read = new Operation('inspect', 'Read', static fn () => [], effects: EffectProfile::readOnly());
+        $gate = new SessionToolGate(
+            $this->store,
+            $this->store->load('offer'),
+            [$read],
+            compuertaPrevia: new \Milpa\AppRuntime\Agent\PrerequisiteGate(['required_first'])
+        );
+        $door = new ConsentBridge(
+            $this->registry,
+            gate: $gate,
+            recorder: $gate,
+            authority: new ToolContext(principal: 'fixture', scopes: ['work:write'])
+        );
+        self::assertNotContains('inspect', array_column($door->getToolSummaries(), 'name'));
+        try {
+            $door->callTool('inspect', []);
+            self::fail('The prerequisite was bypassed');
+        } catch (ToolCallRefused $error) {
+            self::assertFalse($error->optionRemoved);
+            self::assertStringContainsString('required_first', $error->getMessage());
+        }
+        self::assertSame(0, $this->executions);
+    }
+
+    public function testThePreviousRecoveryCauseDoesNotClassifyAnUnjudgeableCall(): void
+    {
+        $this->stall();
+        try {
+            $this->bridge->callTool('inspect', []);
+        } catch (ToolCallRefused $error) {
+            self::assertTrue($error->optionRemoved);
+        }
+        self::assertTrue($this->gate->recoveryRefusalWasHidden('inspect'));
+        try {
+            $this->bridge->callTool('unknown_contract', []);
+            self::fail('An unjudgeable call was accepted');
+        } catch (ToolCallRefused $error) {
+            self::assertFalse($error->optionRemoved);
+            self::assertStringContainsString(SessionToolGate::UNJUDGEABLE, $error->getMessage());
+        }
+        self::assertFalse($this->gate->recoveryRefusalWasHidden('inspect'));
+        self::assertSame(0, $this->executions);
+    }
+
+    public function testAHiddenReadStillRequiresItsScope(): void
+    {
+        $this->stall();
+        $door = new ConsentBridge(
+            $this->registry,
+            gate: $this->gate,
+            recorder: $this->gate,
+            authority: new ToolContext(principal: 'restricted', scopes: [])
+        );
+        try {
+            $door->callTool('inspect', []);
+            self::fail('The required scope was bypassed');
+        } catch (\Exception $error) {
+            self::assertNotInstanceOf(ToolCallRefused::class, $error);
+            self::assertStringContainsString('Missing required scope', $error->getMessage());
+        }
+        self::assertFalse($this->gate->recoveryRefusalWasHidden('inspect'));
+        self::assertSame(0, $this->executions);
+    }
+
+    public function testExplicitWithdrawalKeepsItsOwnRefusalAndExecutesNothing(): void
+    {
+        $this->stall();
+        $this->table->remove('inspect', 'caller withdrew the operation');
+        try {
+            $this->bridge->callTool('inspect', []);
+            self::fail('Explicitly withdrawn operation executed');
+        } catch (ToolCallRefused $error) {
+            self::assertTrue($error->optionRemoved);
+            self::assertStringContainsString('withdrawn from this session', $error->getMessage());
+        }
+        self::assertFalse($this->gate->recoveryRefusalWasHidden('inspect'));
+        self::assertSame(0, $this->executions);
     }
 
     /** @return list<string> */

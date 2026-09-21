@@ -133,6 +133,14 @@ force. Full and lazy discovery use this current offer, including previously disc
 Offering a mutation does not authorize it: scopes and argument-dependent effects are still judged
 when it is called. Catalogue inspection does not execute that judgment or open consent questions.
 
+A call refused specifically because recovery hid that read returns its refusal to the model
+through the existing removed-option feedback channel. The read is not executed or restored,
+and its failed attempt is recorded once: repeating identical arguments still reaches the
+sterile-loop limit. Earlier prerequisite, contract, intent and sterile-loop refusals keep their
+classification, even when the requested read is also hidden. Missing scopes and explicit
+withdrawals retain their existing behavior. This feedback neither clears recovery nor extends
+its window or the invocation budget (Greenhouse decision0451, evidence0900).
+
 `SessionProgressProbe` opens recovery after four model calls without recorded growth. Successful
 `source_read`, `source_page`, and `skill_load` results may defer that first stall when the latest
 round returned previously unseen, nonempty content. This initial exploration allowance ends at

@@ -74,6 +74,9 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
     /** @var null|list<\Milpa\Command\Consent\ConsentGrant> the yeses the ledger holds, derived once */
     private ?array $recordedGrants = null;
 
+    /** Cause of the last synchronous refusal, cleared before every new judgment. */
+    private ?string $recoveryRefusedTool = null;
+
     /**
      * SUMMARY: The marker every UNJUDGEABLE refusal carries, so audit can tell «I cannot judge this»
      * apart from «I know this is forbidden» — both block the call, but they are NOT the same fact
@@ -157,6 +160,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      */
     public function refuse(string $tool, array $arguments): ?string
     {
+        $this->recoveryRefusedTool = null;
         $this->trialRouter?->beginInputCall($this->session->id, $tool, $arguments);
         // LA EXENCIÓN POR NOMBRE SE RETIRÓ AQUÍ, y lo que la sustituye es la regla.
         //
@@ -312,10 +316,19 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             && $this->recoveryState() === true
             && !$this->readsOwnRecordedCall($operacion, $arguments)
         ) {
-            return 'Progress recovery: the last window produced no evidence, no artifact and closed no '
+            $error = 'Progress recovery: the last window produced no evidence, no artifact and closed no '
                 . 'todo, so more reading is not on the table. Do one of these now: materialize an '
                 . 'artifact, recover recorded bytes with a reader available in the current tool offer, run a verification, close a todo with its evidence, ask the human a '
                 . 'decision, or declare framework debt. Recorded progress clears this.';
+            // Only this cause can report a currently hidden recovery option. Earlier obligation,
+            // intent and sterile-loop refusals retain their classification even for a hidden read.
+            // The failed call consumes its allowance without executing or creating progress.
+            if (in_array($tool, $this->recoveryHiddenTools([$tool]), true)) {
+                $this->recorded($tool, $arguments, $error, false);
+                $this->recoveryRefusedTool = $tool;
+            }
+
+            return $error;
         }
 
         $decision = $this->policy->decide(
@@ -587,6 +600,12 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             return $operation !== null && ! $operation->mutating && ! $this->esBitacoraPropia($operation)
                 && !$this->isRecordedReader($operation);
         }));
+    }
+
+    /** Classification for the bridge immediately after this gate refused the same call. */
+    public function recoveryRefusalWasHidden(string $tool): bool
+    {
+        return $this->recoveryRefusedTool === $tool;
     }
 
     /** A declared reader contract, never an exemption based on a coinciding tool name. */

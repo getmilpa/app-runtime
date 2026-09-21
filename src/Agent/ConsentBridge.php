@@ -392,10 +392,11 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
         return $this->table?->removed() ?? [];
     }
 
-    /** A refusal of an option the table already removed is a different fact from one never offered. */
+    /** Preserve historical withdrawal and the current refusal's explicit recovery cause. */
     protected function optionRemoved(string $tool): bool
     {
-        return $this->table?->wasRemoved($tool) ?? false;
+        return ($this->table?->wasRemoved($tool) ?? false)
+            || ($this->gate instanceof SessionToolGate && $this->gate->recoveryRefusalWasHidden($tool));
     }
 
     /**
