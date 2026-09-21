@@ -25,15 +25,15 @@
         "nyholm/psr7": "^1.8"
     },
     "conflict": {
-        "milpa/agent": "<0.46",
+        "milpa/agent": "<0.49",
         "milpa/command": "<0.25",
         "milpa/event-store": "<0.3",
         "milpa/ai-gateway": "<0.25.0"
     },
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.75",
-        "milpa/agent": ">=0.47 <1.0",
-        "milpa/ai-gateway": ">=0.30 <1.0",
+        "milpa/agent": ">=0.49 <1.0",
+        "milpa/ai-gateway": ">=0.32 <1.0",
         "milpa/auth": ">=0.9 <1.0",
         "milpa/data": ">=0.2.2 <1.0",
         "milpa/devtools": ">=0.34 <1.0",

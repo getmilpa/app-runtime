@@ -784,7 +784,11 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // LA COMPUERTA DE ORDEN SE ENTERA PRIMERO, antes del corte de abajo. Lo obligado casi siempre
         // es contabilidad, y si aprendiera después del `return` no vería nunca que se cumplió: la mesa
         // quedaría cerrada para siempre por el mismo hecho que venía a abrirla.
-        $this->compuertaPrevia?->anota($tool, $ok);
+        $this->compuertaPrevia?->anota($tool, \Milpa\Agent\PrerequisiteCompletion::of([
+            'ok' => $ok,
+            'result' => $result,
+            'awaitingConfirmation' => ToolResult::asksForConfirmation($result),
+        ]));
 
         if ($this->esContabilidad($tool)) {
             return;

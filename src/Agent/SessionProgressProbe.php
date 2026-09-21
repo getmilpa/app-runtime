@@ -166,6 +166,35 @@ final class SessionProgressProbe implements ProgressProbe
             return null;
         }
 
+        // Discovery has its own bounded receipt (greenhouse 0439/0826). It neither moves
+        // the material-progress checkpoint nor clears recovery. The complete stream fixes
+        // its allowance across new turns and context continuations, without new permissions.
+        $exploration = ExplorationReceipt::of($stream);
+        if (!$this->recovering && $exploration->permitsExploration()) {
+            $recorded = false;
+            foreach ($stream as $event) {
+                if ($event->type === 'session.exploration_observed'
+                    && ($event->payload['modelSeq'] ?? null) === $exploration->modelSeq) {
+                    $recorded = true;
+                    break;
+                }
+            }
+            if (!$recorded && $this->events !== null) {
+                try {
+                    $this->events->append(new Event(
+                        streamId: SessionStore::PREFIX . $this->sessionId,
+                        type: 'session.exploration_observed',
+                        payload: $exploration->toArray(),
+                        seq: $this->events->nextSeq(),
+                    ));
+                } catch (\Throwable) {
+                    // Telemetry cannot break the run; the allowance is derived, not stored here.
+                }
+            }
+
+            return null;
+        }
+
         $exhausted = false;
         if ($receipt->calls >= self::STALL_AFTER_CALLS) {
             // Preparation may use the next existing window. A second zero-growth window ends

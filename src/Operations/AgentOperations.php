@@ -2849,6 +2849,13 @@ class AgentOperations implements CommandProvider
     ): AgentOrchestrator {
         $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
         $contexto = AgentEndpoint::contextTokens($config instanceof Config ? $config : null) ?? 0;
+        $thinking = AgentEndpoint::miniMaxThinking($config instanceof Config ? $config : null);
+        if ($thinking !== null) {
+            if (!$this->miniMaxThinkingAvailable()) {
+                throw new \RuntimeException('Explicit MiniMax thinking requires a profile-aware gateway and agent intake.');
+            }
+            $modeloRemoto = $modeloRemoto->withMiniMaxThinking($thinking);
+        }
         $salida = AgentEndpoint::outputTokens($config instanceof Config ? $config : null);
         if ($salida !== null && (!$this->orchestratorAdmitsOutputTokens()
             || !property_exists(\Milpa\Agent\ModelCallIntake::class, 'outputBudget'))) {
@@ -2897,6 +2904,13 @@ class AgentOperations implements CommandProvider
         }
 
         return new AgentOrchestrator($modeloRemoto, $cliente, $pasos, new NullLogger());
+    }
+
+    /** Explicit generation profiles must be transmitted and observed, never silently ignored. */
+    protected function miniMaxThinkingAvailable(): bool
+    {
+        return (new \ReflectionClass(LlmService::class))->hasMethod('withMiniMaxThinking')
+            && property_exists(\Milpa\Agent\ModelCallIntake::class, 'thinking');
     }
 
     /** Whether the installed native loop can carry an explicitly declared output budget. */

@@ -133,7 +133,15 @@ force. Full and lazy discovery use this current offer, including previously disc
 Offering a mutation does not authorize it: scopes and argument-dependent effects are still judged
 when it is called. Catalogue inspection does not execute that judgment or open consent questions.
 
-`SessionProgressProbe` opens recovery after four model calls without recorded growth. It allows
+`SessionProgressProbe` opens recovery after four model calls without recorded growth. Successful
+`source_read`, `source_page`, and `skill_load` results may defer that first stall when the latest
+round returned previously unseen, nonempty content. This initial exploration allowance ends at
+the twelfth model call of the session, including calls before a continuation. Repeated content,
+changed paths or cursors, failures and confirmation requests do not extend it. Exploration is
+recorded separately as `session.exploration_observed`; it never counts as material progress or
+clears an existing recovery. This bounded exception follows Greenhouse 0439/0826.
+
+Once recovery opens, the probe allows
 one further window of the same size for preparation, then reports exhaustion if growth is still
 absent. A successful artifact-producing operation, recorded evidence or a completed todo resets
 the window, including on its last call. New validated diagnostics are tracked separately from positive
@@ -1125,3 +1133,14 @@ provenance. Replacing any of those three methods yields `unknown`, even if a pre
 left an observation. A reused producer must emit a new observation in the current invocation.
 Older stale vendors without the API also yield `unknown`; Composer requires gateway >=0.25
 when that optional capability is installed. Early refusals before `ask()` emit no run observation.
+
+### Explicit MiniMax-M3 generation mode
+
+Set `agent.minimaxThinking` to `disabled` or `adaptive` to select the corresponding
+MiniMax-M3 mode. Omit the key to retain provider defaults. Invalid modes and unsupported
+models/providers fail before generation. Explicit configuration also refuses an older
+gateway or agent intake that cannot transport and record it. Both ordinary work and
+structured diagnostic loops apply the same profile. This does not change authority,
+tool availability, token limits or acceptance criteria. See Greenhouse evidence 0831.
+
+Ordering prerequisites complete only after a successful dispatch and an affirmative `ok` when the operation declares one. Failed results, pending confirmation and known incomplete results remain pending across session reloads. Legacy complete results without an `ok` declaration retain their dispatch outcome; this does not judge the quality of a plan or guide (Greenhouse 0833–0834).
