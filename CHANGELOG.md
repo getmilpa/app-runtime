@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.175.7](https://github.com/getmilpa/app-runtime/compare/v0.175.6...v0.175.7) (2026-09-21)
+
+
+### Bug Fixes
+
+* **agent:** project native references for recorded tool results ([0dde2cd](https://github.com/getmilpa/app-runtime/commit/0dde2cd0b8081ab12b1ae450f8615a9879844166))
+* **agent:** project native references for recorded tool results ([9afd20f](https://github.com/getmilpa/app-runtime/commit/9afd20f0e00d8112a9f12eceb34af608450bd433))
+
 ## [0.175.6](https://github.com/getmilpa/app-runtime/compare/v0.175.5...v0.175.6) (2026-09-21)
 
 
