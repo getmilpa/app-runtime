@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.175.8](https://github.com/getmilpa/app-runtime/compare/v0.175.7...v0.175.8) (2026-09-21)
+
+
+### Bug Fixes
+
+* Return refusals for reads hidden by progress recovery through the existing correction channel, without executing or restoring the read. Record each rejected attempt once, preserving identical-failure limits and recovery budgets. Earlier prerequisite, contract, intent and sterile-loop refusals retain their classification; scope and explicit-withdrawal behavior remain unchanged. Measured in Greenhouse decision 0451 and evidence 0900 ([4c87120](https://github.com/getmilpa/app-runtime/commit/4c8712041f73627403fba49346dc7e481491f437)).
+
 ## [0.175.7](https://github.com/getmilpa/app-runtime/compare/v0.175.6...v0.175.7) (2026-09-21)
 
 
