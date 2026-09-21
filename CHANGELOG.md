@@ -6,6 +6,8 @@
 
 ### Bug Fixes
 
+Preserve the optional gateway compatibility check while allowing static analysis with both ai-gateway 0.32.0 and 0.33.0. Runtime PHP is unchanged. With ai-gateway 0.33.0, skill-loading instructions follow each outgoing executable tool offer; update both packages for this behavior. The previous v0.175.4 release remains a draft after its tagged CI failed; its tag is unchanged.
+
 * retain optional gateway detection across analysis vendors ([ce0d9cd](https://github.com/getmilpa/app-runtime/commit/ce0d9cd21811caa09a9c0c980bacb5869ef749bd))
 * retain optional gateway detection across analysis vendors ([b6bd45b](https://github.com/getmilpa/app-runtime/commit/b6bd45bb8d55456f9af583cc2632eda977fa685c))
 
