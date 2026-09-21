@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.175.0](https://github.com/getmilpa/app-runtime/compare/v0.174.0...v0.175.0) (2026-09-21)
+
+
+### Features
+
+* bound discovery and preserve resident execution contracts ([2a4beac](https://github.com/getmilpa/app-runtime/commit/2a4beacdd8efae2fa3421eca0a76a17c383a5a03))
+
 ## [0.174.0](https://github.com/getmilpa/app-runtime/compare/v0.173.0...v0.174.0) (2026-09-20)
 
 
