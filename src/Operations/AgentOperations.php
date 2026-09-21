@@ -41,6 +41,7 @@ use Milpa\AppRuntime\Agent\ClosureVerdict;
 use Milpa\AppRuntime\Agent\DeliveryScope;
 use Milpa\AppRuntime\Agent\DeliveryExpectation;
 use Milpa\AppRuntime\Agent\DeliveryContext;
+use Milpa\AppRuntime\Agent\RunContext;
 use Milpa\AppRuntime\Agent\DeliveryClosure;
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Auth\PresentedToken;
@@ -2786,20 +2787,20 @@ class AgentOperations implements CommandProvider
             && (new \ReflectionMethod($orquestador, 'termination'))->getDeclaringClass()->getName() === AgentOrchestrator::class;
         $before = $proven ? $orquestador->termination() : null;
         try {
+            $available = array_values(array_filter(array_column($cliente->getToolSummaries(), 'name'), 'is_string'));
+            $system = $this->systemPrompt($available, $this->promptSession);
+            if ($this->promptSession !== null && ($store = $this->sessions()) !== null) {
+                $system .= "\n\n" . RunContext::section(
+                    $store->stream($this->promptSession->id),
+                    $this->promptSession->id,
+                    $pasos,
+                    $available,
+                    $gate instanceof SessionToolGate ? $gate->recoveryContext($available) : ['active' => null, 'result_readers' => []],
+                );
+            }
             return $orquestador->run(
                 $prompt,
-                // LO QUE VIAJA DE VERDAD, no lo que el catálogo cree: el prompt se arma con los nombres
-                // que este registro va a mandar, para que no ordene lo que no dio.
-                $this->systemPrompt(
-                    array_map(
-                        static fn (\Milpa\ToolRuntime\ToolDefinition $d): string => $d->name,
-                        $registry->getToolDefinitions(),
-                    ),
-                    // The session as `run()` captured it for this run — held on the instance for the same
-                    // reason the decisions are: `ask()` is protected and overridden, so nothing new may
-                    // travel in its signature (greenhouse decisions/0202).
-                    $this->promptSession,
-                ),
+                $system,
                 $history,
                 $onStep,
             );
