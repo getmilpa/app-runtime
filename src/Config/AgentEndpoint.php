@@ -126,6 +126,19 @@ final class AgentEndpoint
         return $declared;
     }
 
+    /** Explicit MiniMax-M3 thinking mode; absence retains the provider's default. */
+    public static function miniMaxThinking(?Config $config): ?string
+    {
+        if ($config === null || !$config->has('agent.minimaxThinking')) {
+            return null;
+        }
+        $mode = $config->get('agent.minimaxThinking');
+        if (!\is_string($mode) || !in_array($mode, ['disabled', 'adaptive'], true)) {
+            throw new \InvalidArgumentException('agent.minimaxThinking must be disabled or adaptive.');
+        }
+        return $mode;
+    }
+
     /**
      * The context window this app's agent runs under, or `null` when nothing produced one.
      *

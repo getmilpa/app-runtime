@@ -91,6 +91,10 @@ final class AgentKeys
     private static function declarations(): array
     {
         return [
+            'agent.minimaxThinking' => [
+                'type' => DeclaredType::union(DeclaredType::literal('disabled'), DeclaredType::literal('adaptive')),
+                'does' => 'Explicit MiniMax-M3 thinking mode; omission retains provider defaults. Requires a compatible gateway and intake.',
+            ],
             'agent.instructions' => [
                 'type' => DeclaredType::text(),
                 'does' => 'The app\'s own instructions, prepended to what the agent already knows',

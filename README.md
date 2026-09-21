@@ -1133,3 +1133,12 @@ provenance. Replacing any of those three methods yields `unknown`, even if a pre
 left an observation. A reused producer must emit a new observation in the current invocation.
 Older stale vendors without the API also yield `unknown`; Composer requires gateway >=0.25
 when that optional capability is installed. Early refusals before `ask()` emit no run observation.
+
+### Explicit MiniMax-M3 generation mode
+
+Set `agent.minimaxThinking` to `disabled` or `adaptive` to select the corresponding
+MiniMax-M3 mode. Omit the key to retain provider defaults. Invalid modes and unsupported
+models/providers fail before generation. Explicit configuration also refuses an older
+gateway or agent intake that cannot transport and record it. Both ordinary work and
+structured diagnostic loops apply the same profile. This does not change authority,
+tool availability, token limits or acceptance criteria. See Greenhouse evidence 0831.
