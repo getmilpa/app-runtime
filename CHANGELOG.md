@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.175.1](https://github.com/getmilpa/app-runtime/compare/v0.175.0...v0.175.1) (2026-09-21)
+
+
+### Bug Fixes
+
+* retain own recorded-result access during recovery ([1b166f8](https://github.com/getmilpa/app-runtime/commit/1b166f86b15ad401ba700bae7165801f425e7272))
+* retain own recorded-result access during recovery ([4cf629f](https://github.com/getmilpa/app-runtime/commit/4cf629fa02e36bae0b6e7bf08719feffc20f3196))
+
 ## [0.175.0](https://github.com/getmilpa/app-runtime/compare/v0.174.0...v0.175.0) (2026-09-21)
 
 
