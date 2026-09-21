@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.175.7](https://github.com/getmilpa/app-runtime/compare/v0.175.6...v0.175.7) (2026-09-21)
+
+
+### Bug Fixes
+
+* Expose bounded native references for results recorded during the current agent invocation, composing with skill instructions before context budgeting. References identify stored bytes and preserve scope checks, storage status and progress recovery; they do not authorize reads or prove repair. Requires a gateway supporting `setSystemPromptProjection` (ai-gateway 0.33+). ([#519](https://github.com/getmilpa/app-runtime/pull/519))
+
 ## [0.175.6](https://github.com/getmilpa/app-runtime/compare/v0.175.5...v0.175.6) (2026-09-21)
 
 
