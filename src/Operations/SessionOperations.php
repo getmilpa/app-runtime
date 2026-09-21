@@ -340,7 +340,7 @@ final class SessionOperations implements CommandProvider
                 // tendría que volver a fabricarse un proxy.
                 surfaces: ['cli', 'tui', 'mcp', 'http'],
             ),
-            new Operation(
+            new SessionArgumentOperation(
                 name: 'agent:argument',
                 scopes: ['agent:read', 'agent:answer'],
                 effects: EffectProfile::readOnly(),

@@ -16,6 +16,7 @@ use Milpa\Agent\SessionStore;
 use Milpa\AiGateway\RunEnd;
 use Milpa\AppRuntime\Agent\RunContext;
 use Milpa\AppRuntime\Agent\SessionToolGate;
+use Milpa\AppRuntime\Operations\SessionArgumentOperation;
 use Milpa\AppRuntime\Operations\SessionResultOperation;
 use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Operation;
@@ -108,14 +109,39 @@ final class RunContextTest extends TestCase
         $fake = new Operation('agent:result', 'Same name, different contract', static fn () => [], effects: EffectProfile::readOnly());
         $gate = new SessionToolGate($store, $store->load('s'), [$reader, $fake]);
         $before = $store->stream('s');
-        self::assertSame(['active' => true, 'result_readers' => ['history_read']], $gate->recoveryContext(['history_read', 'agent_result']));
+        self::assertSame(['active' => true, 'result_readers' => ['history_read'], 'argument_readers' => []], $gate->recoveryContext(['history_read', 'agent_result']));
         self::assertSame($before, $store->stream('s'));
-        self::assertSame(['active' => true, 'result_readers' => []], $gate->recoveryContext([]));
+        self::assertSame(['active' => true, 'result_readers' => [], 'argument_readers' => []], $gate->recoveryContext([]));
         self::assertNull($gate->refuse('history_read', ['session' => 's', 'seq' => $seq]));
         self::assertNotNull($gate->refuse('agent_result', ['session' => 's', 'seq' => $seq]));
         self::assertNotNull($gate->refuse('history_read', ['session' => 'other', 'seq' => $seq]));
         $store->recordToolCall('s', 'history_read', ['session' => 's', 'seq' => $seq], 'retained', true, false);
         self::assertTrue($gate->recoveryContext(['history_read'])['active']);
+    }
+
+    public function testArgumentAndResultReadersRemainDistinctAndFollowTheVisibleOffer(): void
+    {
+        $events = new InMemoryEventStore();
+        $store = new SessionStore($events);
+        $store->start('s', 'Build', AutonomyMode::Auto);
+        $events->append(new Event('agent-session:s', SessionToolGate::PROGRESS_STALLED, [], $events->nextSeq()));
+        $argument = new SessionArgumentOperation('input:read', 'Recorded argument', static fn () => [], effects: EffectProfile::readOnly());
+        $result = new SessionResultOperation('output:read', 'Recorded result', static fn () => [], effects: EffectProfile::readOnly());
+        $fake = new Operation('agent:argument', 'Name without contract', static fn () => [], effects: EffectProfile::readOnly());
+        $gate = new SessionToolGate($store, $store->load('s'), [$argument, $result, $fake]);
+        $visible = ['input_read', 'output_read', 'agent_argument'];
+        $before = $store->stream('s');
+        $recovery = $gate->recoveryContext($visible);
+        self::assertSame(['active' => true, 'result_readers' => ['output_read'], 'argument_readers' => ['input_read']], $recovery);
+        $section = RunContext::section($before, 's', 8, $visible, $recovery);
+        self::assertSame(['input_read'], $this->data($section)['recorded_argument_readers']);
+        self::assertSame(['output_read'], $this->data($section)['recorded_result_readers']);
+        self::assertStringContainsString('Choose the call that recorded that argument', $section);
+        $hidden = RunContext::section($before, 's', 8, ['output_read'], $recovery);
+        self::assertSame([], $this->data($hidden)['recorded_argument_readers']);
+        self::assertStringNotContainsString('Choose the call that recorded that argument', $hidden);
+        self::assertSame(['active' => true, 'result_readers' => ['output_read'], 'argument_readers' => []], $gate->recoveryContext(['output_read', 'agent_argument']));
+        self::assertSame($before, $store->stream('s'));
     }
 
     public function testAnUnobservableStoreDoesNotClaimRecoveryIsInactive(): void
