@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.175.2](https://github.com/getmilpa/app-runtime/compare/v0.175.1...v0.175.2) (2026-09-21)
+
+
+### Bug Fixes
+
+* expose native invocation state to resumed agents ([a7974dd](https://github.com/getmilpa/app-runtime/commit/a7974dd6a3eb6946fb8e8b7fd55dd77b579f100e))
+
 ## [0.175.1](https://github.com/getmilpa/app-runtime/compare/v0.175.0...v0.175.1) (2026-09-21)
 
 
