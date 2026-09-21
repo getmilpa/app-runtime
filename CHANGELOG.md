@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [0.175.4](https://github.com/getmilpa/app-runtime/compare/v0.175.3...v0.175.4) (2026-09-21)
+
+
+### Bug Fixes
+
+With ai-gateway 0.33.0 or later, the default agent removes and restores its captured skill-loading section as `skill_load` leaves or returns to the executable offer. The initial session snapshot, history and permissions are preserved. Older gateways retain the initial-offer behavior; update both packages to receive the within-invocation correction.
+
+* refresh skill instructions within an invocation (Greenhouse 0867) ([9ffb384](https://github.com/getmilpa/app-runtime/commit/9ffb3842c9523d4ba67bb20d1c075f24d377ea90))
+
 ## [0.175.3](https://github.com/getmilpa/app-runtime/compare/v0.175.2...v0.175.3) (2026-09-21)
 
 
