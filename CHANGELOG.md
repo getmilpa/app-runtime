@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.175.6](https://github.com/getmilpa/app-runtime/compare/v0.175.5...v0.175.6) (2026-09-21)
+
+
+### Bug Fixes
+
+* preserve access to own recorded arguments during recovery ([85e375c](https://github.com/getmilpa/app-runtime/commit/85e375c0eab8c46a45f87a50b92d8a727f362f94))
+* preserve own recorded arguments during progress recovery ([203f0ee](https://github.com/getmilpa/app-runtime/commit/203f0ee9c02bddbc2efee585b9b59c8b7d06e3c5))
+
 ## [0.175.5](https://github.com/getmilpa/app-runtime/compare/v0.175.4...v0.175.5) (2026-09-21)
 
 
