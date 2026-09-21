@@ -1142,3 +1142,5 @@ models/providers fail before generation. Explicit configuration also refuses an 
 gateway or agent intake that cannot transport and record it. Both ordinary work and
 structured diagnostic loops apply the same profile. This does not change authority,
 tool availability, token limits or acceptance criteria. See Greenhouse evidence 0831.
+
+Ordering prerequisites complete only after a successful dispatch and an affirmative `ok` when the operation declares one. Failed results, pending confirmation and known incomplete results remain pending across session reloads. Legacy complete results without an `ok` declaration retain their dispatch outcome; this does not judge the quality of a plan or guide (Greenhouse 0833–0834).
