@@ -415,6 +415,24 @@ This read-only operation uses `agent:read` or `agent:answer` on CLI, TUI and MCP
 no authority. An unknown or ambiguous sequence, a non-call event, invalid text or metadata, and
 a mismatched cursor return an error. `agent:argument` remains the reader for submitted arguments.
 
+With a gateway supporting `setSystemPromptProjection`, each request also receives a bounded
+`milpa.recorded-results/v1` section for tool results recorded during the current invocation.
+It supplies the native session and sequence, tool name, a limited argument preview, the stored
+bytes' SHA-256, and explicit call/storage status. Use that identity with `agent_result`; a
+provider tool-call ID is not a native sequence. Omit the first cursor and reuse each returned
+`next_cursor` unchanged. The section appears only while `agent_result` is offered.
+
+The section keeps at most 16 recent references and 8,192 encoded characters, including its
+instructions and delimiters; argument previews keep at most 192 characters and report whether
+they are complete. Omitted references are counted. Only unambiguous records from the same session
+after the invocation's starting sequence qualify. The existing gateway budgets this projection
+before sending the request. Older gateways continue without this section.
+
+References and previews are quoted data, not permissions or verification. A stored hash identifies
+bytes without endorsing them; failed calls and partial or unknown storage remain explicit. This
+section composes with skill instructions and does not change the reader's gates, recovery state,
+result budget, or the requirement to produce and verify an implementation.
+
 **The surfaces — where you drive it from**
 
 `Console\Application` is the single door of the CLI: `coa` on its own, a named command, the TUI, a
