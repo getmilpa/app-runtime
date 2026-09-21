@@ -1,4 +1,14 @@
+# Apache-2.0 · (c) Rodrigo Vicente - TeamX Agency
 parameters:
     level: 6
     paths:
         - src
+    # ai-gateway is optional and older supported installations lack this method.
+    # A newer analysis vendor makes the intentional compatibility check constant.
+    ignoreErrors:
+        -
+            identifier: function.alreadyNarrowedType
+            message: '#^Call to function method_exists\(\).* \x27setSystemPromptProj(?:ection|…)\x27 will always evaluate to true\.$#'
+            path: src/Operations/AgentOperations.php
+            count: 1
+            reportUnmatched: false
