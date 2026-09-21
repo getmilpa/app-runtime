@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.175.3](https://github.com/getmilpa/app-runtime/compare/v0.175.2...v0.175.3) (2026-09-21)
+
+
+### Bug Fixes
+
+* align skill instructions with the governed tool offer ([9687181](https://github.com/getmilpa/app-runtime/commit/96871811992fcb3d0dda2cbeedbc8c7ffb79828a))
+
 ## [0.175.2](https://github.com/getmilpa/app-runtime/compare/v0.175.1...v0.175.2) (2026-09-21)
 
 
