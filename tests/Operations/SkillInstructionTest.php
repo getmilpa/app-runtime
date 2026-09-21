@@ -102,6 +102,31 @@ final class SkillInstructionTest extends TestCase
         self::assertStringNotContainsString('<available_skills>', $this->prompt(['skill_load']));
     }
 
+    /** The pure projection changes only the emitted slot and keeps invocation facts intact. */
+    public function testOneInvocationCanWithdrawAndRestoreTheInstruction(): void
+    {
+        $available = $this->prompt(['skill_load']);
+        $project = (new \ReflectionProperty($this->operations, 'skillInstructionProjection'))->getValue($this->operations);
+        $snapshot = "\n\n<run-context>initial facts</run-context>\nTOOLBOX: preserved";
+        $restricted = $this->prompt(['agent_result']);
+        self::assertSame($available . $snapshot, $project($available . $snapshot, [['name' => 'skill_load']]));
+        self::assertSame($restricted . $snapshot, $project($available . $snapshot, [['name' => 'agent_result']]));
+        self::assertSame($available . $snapshot, $project($available . $snapshot, [['name' => 'skill_load']]));
+        self::assertSame('Custom prompt.', $project('Custom prompt.', [['name' => 'skill_load']]));
+    }
+
+    /** A loader first offered later gains exactly the original slot, not an appended duplicate. */
+    public function testInitiallyAbsentLoaderCanBecomeAvailableWithoutRereadingState(): void
+    {
+        $available = $this->prompt(['skill_load']);
+        $restricted = $this->prompt(['agent_result']);
+        $project = (new \ReflectionProperty($this->operations, 'skillInstructionProjection'))->getValue($this->operations);
+        unlink($this->root . '/skills/alpha/SKILL.md');
+        self::assertSame($available, $project($restricted, [['name' => 'skill_load']]));
+        self::assertSame($restricted, $project($restricted, [['name' => 'describe_tool', 'description' => 'skill_load']]));
+        self::assertSame($restricted, $project($restricted, []));
+    }
+
     /** @param list<string> $offer */
     private function prompt(array $offer): string
     {

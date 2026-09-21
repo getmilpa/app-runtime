@@ -437,6 +437,14 @@ model's own door, `skill:load`, refuses. All three are deliberately **off the mo
 a skill the human kept. And none of them pre-consents anything: a call that requires a signature, or
 reaches a third party, still stops in every mode, whatever the goal names.
 
+The default agent's skill-loading instruction follows the executable tool offer on each
+request when the installed gateway supports `setSystemPromptProjection`. Withdrawing
+`skill_load` removes that section; offering it again restores it in the same position.
+The skill list is captured when the invocation starts and still excludes human-only skills.
+The projection preserves the named `invocation_start` snapshot, conversation, scopes and
+recovery notices. Older gateways retain the initial-offer behavior. An application override
+that replaces the generated system prompt keeps responsibility for its own instructions.
+
 **Growing the app — `capabilities`, `capabilities:refresh`, `capabilities:enable`**
 
 The capability→package index is **derived from what the registry publishes**, never written by
