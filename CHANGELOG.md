@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.175.5](https://github.com/getmilpa/app-runtime/compare/v0.175.4...v0.175.5) (2026-09-21)
+
+
+### Bug Fixes
+
+* retain optional gateway detection across analysis vendors ([ce0d9cd](https://github.com/getmilpa/app-runtime/commit/ce0d9cd21811caa09a9c0c980bacb5869ef749bd))
+* retain optional gateway detection across analysis vendors ([b6bd45b](https://github.com/getmilpa/app-runtime/commit/b6bd45bb8d55456f9af583cc2632eda977fa685c))
+
 ## [0.175.4](https://github.com/getmilpa/app-runtime/compare/v0.175.3...v0.175.4) (2026-09-21)
 
 
