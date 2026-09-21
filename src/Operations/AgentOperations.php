@@ -4527,8 +4527,9 @@ class AgentOperations implements CommandProvider
         // Skills — non-deterministic guidance the agent reaches for by judgment, not tools it runs.
         // Only the model-invocable ones are advertised: a skill barred from the model
         // (`disable-model-invocation`) is withheld here so the agent never reaches for it.
+        // The executor's current offer also governs the instruction to load a skill.
         $kernelSkills = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
-        if ($kernelSkills instanceof Kernel) {
+        if ($kernelSkills instanceof Kernel && \in_array('skill_load', $herramientas, true)) {
             $skills = (new SkillRegistry($kernelSkills->root()))->modelInvocable();
             if ($skills !== []) {
                 $lineas = array_map(static fn (Skill $s): string => "- {$s->name}: {$s->description}", $skills);
