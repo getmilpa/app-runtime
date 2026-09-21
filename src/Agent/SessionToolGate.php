@@ -308,7 +308,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // passed as self-log above, so narrowing the plan under recovery is never blocked.
         if (
             ($composicion === null || $composicion->effective->mutation === Mutation::None)
-            && $this->enRecuperacion()
+            && $this->recoveryState() === true
             && !$this->readsOwnRecordedResult($operacion, $arguments)
         ) {
             return 'Progress recovery: the last window produced no evidence, no artifact and closed no '
@@ -497,12 +497,12 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      * the fact, never the emitter's class), and silent on a store that cannot answer — a recovery it
      * cannot prove is one it does not impose.
      */
-    private function enRecuperacion(): bool
+    private function recoveryState(): ?bool
     {
         try {
             $stream = $this->sessions->stream($this->session->id);
         } catch (\Throwable) {
-            return false;
+            return null;
         }
 
         $stalled = 0;
@@ -516,6 +516,22 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
 
         return $stalled > 0
             && ProgressReceipt::of($stream, $stalled, $last)->progress !== ProgressReceipt::ADVANCING;
+    }
+
+    /**
+     * Observe the same state as admission, and identify only visible readers with the native contract.
+     *
+     * @param list<string> $offered
+     *
+     * @return array{active: bool|null, result_readers: list<string>}
+     */
+    public function recoveryContext(array $offered): array
+    {
+        return [
+            'active' => $this->recoveryState(),
+            'result_readers' => array_values(array_filter($offered, fn (string $tool): bool =>
+                $this->operationFor($tool) instanceof SessionResultOperation)),
+        ];
     }
 
     /**
@@ -558,7 +574,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      */
     public function recoveryHiddenTools(array $tools): array
     {
-        if (! $this->enRecuperacion()) {
+        if ($this->recoveryState() !== true) {
             return [];
         }
 
