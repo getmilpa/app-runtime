@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Agent;
 
 use Milpa\ToolRuntime\ToolResult;
 use Milpa\AppRuntime\Support\ContratoInstalado;
+use Milpa\AppRuntime\Operations\SessionResultOperation;
 use Milpa\Agent\PolicyDecision;
 use Milpa\Agent\Principal;
 use Milpa\Agent\ProgressReceipt;
@@ -308,10 +309,11 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         if (
             ($composicion === null || $composicion->effective->mutation === Mutation::None)
             && $this->enRecuperacion()
+            && !$this->readsOwnRecordedResult($operacion, $arguments)
         ) {
             return 'Progress recovery: the last window produced no evidence, no artifact and closed no '
                 . 'todo, so more reading is not on the table. Do one of these now: materialize an '
-                . 'artifact, run a verification, close a todo with its evidence, ask the human a '
+                . 'artifact, recover a stored result from this session with agent:result, run a verification, close a todo with its evidence, ask the human a '
                 . 'decision, or declare framework debt. Recorded progress clears this.';
         }
 
@@ -517,6 +519,31 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
     }
 
     /**
+     * Recovering a result already recorded here is continuity, not another producer invocation.
+     * This only exempts the recovery restriction; all earlier and later checks still apply.
+     * The producer validates result metadata, immutable cursors and the transport budget.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function readsOwnRecordedResult(Operation $operation, array $arguments): bool
+    {
+        if (!$operation instanceof SessionResultOperation || ($arguments['session'] ?? null) !== $this->session->id
+            || !\is_int($arguments['seq'] ?? null) || $arguments['seq'] < 1) {
+            return false;
+        }
+        try {
+            $selected = array_values(array_filter(
+                $this->sessions->stream($this->session->id),
+                static fn ($event): bool => $event->seq === $arguments['seq'],
+            ));
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return \count($selected) === 1 && $selected[0]->type === 'session.tool_called';
+    }
+
+    /**
      * Reads certainly unavailable under the current recovery state (greenhouse decisions/0340).
      *
      * This is a pure catalogue projection, not a speculative call to refuse(): that path may ask
@@ -538,7 +565,8 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         return array_values(array_filter($tools, function (string $tool): bool {
             $operation = $this->operationFor($tool);
 
-            return $operation !== null && ! $operation->mutating && ! $this->esBitacoraPropia($operation);
+            return $operation !== null && ! $operation->mutating && ! $this->esBitacoraPropia($operation)
+                && !$operation instanceof SessionResultOperation;
         }));
     }
 
