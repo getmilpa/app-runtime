@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.175.6](https://github.com/getmilpa/app-runtime/compare/v0.175.5...v0.175.6) (2026-09-21)
+
+
+### Bug Fixes
+
+* Preserve access to arguments already recorded in the current session during progress recovery through the declared reader contract. Scopes, withdrawals, argument and cursor validation still apply; reading does not clear recovery. ([#517](https://github.com/getmilpa/app-runtime/pull/517))
+
 ## [0.175.5](https://github.com/getmilpa/app-runtime/compare/v0.175.4...v0.175.5) (2026-09-21)
 
 
