@@ -2803,7 +2803,23 @@ class AgentOperations implements CommandProvider
                 );
             }
             if (method_exists($orquestador, 'setSystemPromptProjection')) {
-                $orquestador->setSystemPromptProjection($this->skillInstructionProjection);
+                $skillProjection = $this->skillInstructionProjection;
+                $referenceSession = $this->promptSession?->id;
+                $referenceStore = $referenceSession === null ? null : $this->sessions();
+                $referenceEvents = $referenceStore?->stream($referenceSession) ?? [];
+                $referenceStart = $referenceEvents === [] ? 0 : max(array_map(static fn ($event): int => $event->seq, $referenceEvents));
+                $orquestador->setSystemPromptProjection(static function (string $base, array $tools) use ($skillProjection, $referenceStore, $referenceSession, $referenceStart): string {
+                    $projected = $skillProjection === null ? $base : $skillProjection($base, $tools);
+                    if ($referenceStore !== null) {
+                        $projected .= \Milpa\AppRuntime\Agent\RecordedResultReferences::section(
+                            $referenceStore->stream($referenceSession),
+                            $referenceSession,
+                            $referenceStart,
+                            array_values(array_filter(array_column($tools, 'name'), 'is_string')),
+                        );
+                    }
+                    return $projected;
+                });
             }
             return $orquestador->run(
                 $prompt,
@@ -4438,6 +4454,10 @@ class AgentOperations implements CommandProvider
 
     /**
      * The system prompt of one leg, assembled from what this app is and what this session stands on.
+     *
+     * This also replaces the skill projection captured by the current invocation.
+     *
+     * @phpstan-impure
      *
      * @param list<string> $herramientas the tool names that really travel in this run
      * @param Session|null $session      the session as captured for this run — its goal and mode
