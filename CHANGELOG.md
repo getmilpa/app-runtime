@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.175.4](https://github.com/getmilpa/app-runtime/compare/v0.175.3...v0.175.4) (2026-09-21)
+
+
+### Bug Fixes
+
+* refresh skill instructions within an invocation (Greenhouse 0867) ([9ffb384](https://github.com/getmilpa/app-runtime/commit/9ffb3842c9523d4ba67bb20d1c075f24d377ea90))
+
 ## [0.175.3](https://github.com/getmilpa/app-runtime/compare/v0.175.2...v0.175.3) (2026-09-21)
 
 
