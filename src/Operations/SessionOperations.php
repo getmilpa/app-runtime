@@ -361,7 +361,7 @@ final class SessionOperations implements CommandProvider
                 mutating: false,
                 surfaces: ['cli', 'tui', 'mcp'],
             ),
-            new Operation(
+            new SessionResultOperation(
                 name: 'agent:result',
                 scopes: ['agent:read', 'agent:answer'],
                 effects: EffectProfile::readOnly(),

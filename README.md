@@ -395,6 +395,12 @@ cut, and null when completeness is unknown. A null `next_cursor` ends the stored
 upgrading unknown or partial storage to complete. Reading a diagnostic neither repairs the code
 nor proves that an implementation was accepted.
 
+During progress recovery, the native agent still offers this reader for results recorded in its
+own session. A concrete call must name that session and an existing `session.tool_called` sequence;
+other reads remain restricted. Recovering pages does not clear recovery, count as new exploration
+or reset the progress window. Prerequisites, authorization and cursor validation still apply.
+The producer declares this behavior through `SessionResultOperation`, not a tool-name exception.
+
 This read-only operation uses `agent:read` or `agent:answer` on CLI, TUI and MCP. Its cursor grants
 no authority. An unknown or ambiguous sequence, a non-call event, invalid text or metadata, and
 a mismatched cursor return an error. `agent:argument` remains the reader for submitted arguments.
