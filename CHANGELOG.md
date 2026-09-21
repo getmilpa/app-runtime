@@ -6,8 +6,7 @@
 
 ### Bug Fixes
 
-* return recovery-hidden read refusals within existing limits ([8b90716](https://github.com/getmilpa/app-runtime/commit/8b90716c329400a6b46f6f66d1371b64039ca82d))
-* return recovery-hidden read refusals within existing limits ([4c87120](https://github.com/getmilpa/app-runtime/commit/4c8712041f73627403fba49346dc7e481491f437))
+* Return refusals for reads hidden by progress recovery through the existing correction channel, without executing or restoring the read. Record each rejected attempt once, preserving identical-failure limits and recovery budgets. Earlier prerequisite, contract, intent and sterile-loop refusals retain their classification; scope and explicit-withdrawal behavior remain unchanged. Measured in Greenhouse decision 0451 and evidence 0900 ([4c87120](https://github.com/getmilpa/app-runtime/commit/4c8712041f73627403fba49346dc7e481491f437)).
 
 ## [0.175.7](https://github.com/getmilpa/app-runtime/compare/v0.175.6...v0.175.7) (2026-09-21)
 
