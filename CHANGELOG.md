@@ -6,8 +6,7 @@
 
 ### Bug Fixes
 
-* **agent:** project native references for recorded tool results ([0dde2cd](https://github.com/getmilpa/app-runtime/commit/0dde2cd0b8081ab12b1ae450f8615a9879844166))
-* **agent:** project native references for recorded tool results ([9afd20f](https://github.com/getmilpa/app-runtime/commit/9afd20f0e00d8112a9f12eceb34af608450bd433))
+* Expose bounded native references for results recorded during the current agent invocation, composing with skill instructions before context budgeting. References identify stored bytes and preserve scope checks, storage status and progress recovery; they do not authorize reads or prove repair. Requires a gateway supporting `setSystemPromptProjection` (ai-gateway 0.33+). ([#519](https://github.com/getmilpa/app-runtime/pull/519))
 
 ## [0.175.6](https://github.com/getmilpa/app-runtime/compare/v0.175.5...v0.175.6) (2026-09-21)
 
