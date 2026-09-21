@@ -2681,6 +2681,9 @@ class AgentOperations implements CommandProvider
      */
     private ?Session $promptSession = null;
 
+    /** @var (\Closure(string, list<array<string, mixed>>): string)|null */
+    private ?\Closure $skillInstructionProjection = null;
+
     /** @var list<array{role: string, content: string, class: string}>|null */
     private ?array $declaredWindow = null;
 
@@ -2788,6 +2791,7 @@ class AgentOperations implements CommandProvider
         $before = $proven ? $orquestador->termination() : null;
         try {
             $available = array_values(array_filter(array_column($cliente->getToolSummaries(), 'name'), 'is_string'));
+            $this->skillInstructionProjection = null;
             $system = $this->systemPrompt($available, $this->promptSession);
             if ($this->promptSession !== null && ($store = $this->sessions()) !== null) {
                 $system .= "\n\n" . RunContext::section(
@@ -2797,6 +2801,9 @@ class AgentOperations implements CommandProvider
                     $available,
                     $gate instanceof SessionToolGate ? $gate->recoveryContext($available) : ['active' => null, 'result_readers' => []],
                 );
+            }
+            if (method_exists($orquestador, 'setSystemPromptProjection')) {
+                $orquestador->setSystemPromptProjection($this->skillInstructionProjection);
             }
             return $orquestador->run(
                 $prompt,
@@ -4529,16 +4536,23 @@ class AgentOperations implements CommandProvider
         // (`disable-model-invocation`) is withheld here so the agent never reaches for it.
         // The executor's current offer also governs the instruction to load a skill.
         $kernelSkills = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
-        if ($kernelSkills instanceof Kernel && \in_array('skill_load', $herramientas, true)) {
+        $skillOffset = \strlen(implode("\n\n", $partes));
+        $skillSection = '';
+        $initialSkillSection = '';
+        if ($kernelSkills instanceof Kernel) {
             $skills = (new SkillRegistry($kernelSkills->root()))->modelInvocable();
             if ($skills !== []) {
                 $lineas = array_map(static fn (Skill $s): string => "- {$s->name}: {$s->description}", $skills);
-                $partes[] = "<system-reminder> A skill is a reusable set of task-specific instructions. "
+                $skillSection = "<system-reminder> A skill is a reusable set of task-specific instructions. "
                     . "The following skills are available in this session:\n<available_skills>\n"
                     . implode("\n", $lineas)
                     . "\n</available_skills>\n"
                     . "When a skill matches the task, call `skill:load` with its name, read its instructions, "
                     . "and follow them before you act. </system-reminder>";
+                if (\in_array('skill_load', $herramientas, true)) {
+                    $partes[] = $skillSection;
+                    $initialSkillSection = "\n\n" . $skillSection;
+                }
             }
         }
 
@@ -4584,7 +4598,18 @@ class AgentOperations implements CommandProvider
             }
         }
 
-        return implode("\n\n", $partes);
+        $basePrompt = implode("\n\n", $partes);
+        $this->skillInstructionProjection = $skillSection === '' ? null :
+            static function (string $system, array $tools) use ($basePrompt, $skillOffset, $skillSection, $initialSkillSection): string {
+                // Only the section emitted by this builder is ours to project. A custom
+                // override that replaces the base prompt retains its own instructions.
+                if (!str_starts_with($system, $basePrompt)) {
+                    return $system;
+                }
+                $section = \in_array('skill_load', array_column($tools, 'name'), true) ? "\n\n" . $skillSection : '';
+                return substr_replace($system, $section, $skillOffset, \strlen($initialSkillSection));
+            };
+        return $basePrompt;
     }
 
     /**
