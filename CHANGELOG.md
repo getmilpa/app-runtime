@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.175.10](https://github.com/getmilpa/app-runtime/compare/v0.175.9...v0.175.10) (2026-09-22)
+
+
+### Bug Fixes
+
+* clarify case-sensitive plugin permission mismatches ([#526](https://github.com/getmilpa/app-runtime/issues/526)) ([2bcfc17](https://github.com/getmilpa/app-runtime/commit/2bcfc1797bd3eaf518b8fc1e4ff470667bfa3edf))
+
 ## [0.175.9](https://github.com/getmilpa/app-runtime/compare/v0.175.8...v0.175.9) (2026-09-22)
 
 
