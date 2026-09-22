@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.175.12](https://github.com/getmilpa/app-runtime/compare/v0.175.11...v0.175.12) (2026-09-22)
+
+
+### Bug Fixes
+
+* **agent:** keep final answer incomplete while first tool is pending ([#530](https://github.com/getmilpa/app-runtime/issues/530)) ([18f000b](https://github.com/getmilpa/app-runtime/commit/18f000be7f63d88ecddbb75cdd85529e3e36f218))
+
 ## [0.175.11](https://github.com/getmilpa/app-runtime/compare/v0.175.10...v0.175.11) (2026-09-22)
 
 
