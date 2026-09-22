@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.175.13](https://github.com/getmilpa/app-runtime/compare/v0.175.12...v0.175.13) (2026-09-22)
+
+
+### Bug Fixes
+
+* **agent:** advertise pending multipart promotion exactly ([d44d25c](https://github.com/getmilpa/app-runtime/commit/d44d25ccbcd2ea75d706366eec5a18b164bff3eb))
+* **agent:** advertise pending multipart promotion exactly ([ca5b01d](https://github.com/getmilpa/app-runtime/commit/ca5b01d9a3d3d53bc1b9102ccac31be2797510a2))
+
 ## [0.175.12](https://github.com/getmilpa/app-runtime/compare/v0.175.11...v0.175.12) (2026-09-22)
 
 
