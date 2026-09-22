@@ -209,7 +209,44 @@ final class TrialAwareRegistry extends ToolRegistry
             $ws,
         );
 
+        $partial = self::partialTrialNote($executionName, $executionInput, $run->output, $run->report);
+        if ($partial !== null) {
+            // Preserve the producer output. Its directions describe the trial's filesystem;
+            // the next agent invocation starts from the app and needs explicit promotion first.
+            $data['note'] = $partial . ' ' . $data['note'];
+        }
+
         return ToolResult::success($data, 'ran in a trial — call sandbox:promote to apply it, or sandbox:discard to throw it away', $meta);
+    }
+
+    /** Describe an unverified part only when one producer hash matches the whole diff.
+     *
+     * @param array<string, mixed>                $input
+     * @param array<string, mixed>|null           $output
+     * @param array<string, array<string, mixed>> $report
+     */
+    private static function partialTrialNote(string $operation, array $input, ?array $output, array $report): ?string
+    {
+        if ($operation !== 'implement' || !in_array($input['mode'] ?? null, ['start', 'append', 'amend'], true)
+            || ($output['ok'] ?? null) !== true || !is_string($output['partial'] ?? null)
+            || trim($output['partial']) === '' || isset($output['verified'])
+            || !is_string($output['file'] ?? null) || !str_ends_with($output['file'], '.php')
+            || ($output['staging'] ?? null) !== $output['file'] . '.milpa-part'
+            || !is_string($output['sha256'] ?? null) || !preg_match('/^[a-f0-9]{64}$/D', $output['sha256'])
+            || count($report) !== 1) {
+            return null;
+        }
+        $entry = $report[$output['staging']] ?? null;
+        if (!is_array($entry) || !in_array($entry['status'] ?? null, ['added', 'modified'], true)
+            || $entry !== ['status' => $entry['status'], 'sha256' => $output['sha256']]) {
+            return null;
+        }
+
+        return 'The accepted part exists only in this trial. Before another append, amend or finish, '
+            . 'call the returned to_apply operation and check that its domain result succeeded. '
+            . 'That promotion transfers staging only: the PHP class remains unchanged and unverified. '
+            . 'candidate:state describes producer-verified candidates, so it cannot verify this partial. '
+            . 'The producer output describes work inside the trial, not a change already applied to the app.';
     }
 
     /** Forwards to the wrapped registry. */
