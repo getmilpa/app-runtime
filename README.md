@@ -106,7 +106,19 @@ Greenhouse decisions/0351 and evidence/0668.
 
 Hosts that compose a `TrialRunner` directly can also pass `inputObserver`.
 Its `before(TrialInputAttempt)` and `after(TrialInputAttempt, int $exit)` hooks surround the native
-test execution. The observer runs outside the tested process; tool output is never this channel.
+test or implement execution. The observer runs outside the executed process; tool output is never
+this channel. `TestInputWitness` retains its requested-test-path contract. `AuthoringInputWitness`
+admits only assembly continuation (`append`, `amend`, `finish`) with a correlated observation of
+exactly one staging sibling in the named plugin. Both use `TrialInputWitness`'s existing bounded
+file-state vocabulary and comparison. A producer's known claim without the required consultation
+is unknown to the consumer.
+
+Known failure histories follow their observed inputs: creating the missing staging file can
+permit the same continuation, while an unrelated promotion cannot clear its failures. Returning
+to the old state finds its old failure history. Missing, partial or invalid observations preserve
+the conservative fallback. Observing a partial write does not verify the PHP class, promote it,
+change authorization, or waive the code judge. The host must supply a compatible observer; this
+package does not enable a tracer by default.
 The returned record binds `id`, `copy`, `operation`, and `arguments` to that attempt and declares
 `scope: copied-app-file-content-presence-and-directory-members/v1`, `complete_execution_inputs:
 false`, `status: known|partial|unknown`, and `inputs`. Each relative input carries `facets`

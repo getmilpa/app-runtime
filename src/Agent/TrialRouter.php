@@ -52,7 +52,7 @@ final class TrialRouter
     /** @var array<string, ?TrialPlan> memoised by operation name + argument digest */
     private array $plans = [];
 
-    /** @var array<string, array{tool: string, arguments: array<string, mixed>, witness: ?TestInputWitness, recorded: bool}> */
+    /** @var array<string, array{tool: string, arguments: array<string, mixed>, witness: ?TrialInputWitness, recorded: bool}> */
     private array $inputCalls = [];
 
     public function __construct(
@@ -74,7 +74,7 @@ final class TrialRouter
     /** Only the native executor supplies this channel; payloads and session text do not.
      * @param array<string, mixed> $arguments
      */
-    public function recordInputCall(string $session, string $tool, array $arguments, ?TestInputWitness $witness): void
+    public function recordInputCall(string $session, string $tool, array $arguments, ?TrialInputWitness $witness): void
     {
         $call = $this->inputCalls[$session] ?? null;
         if ($call === null || $call['tool'] !== $tool || $call['arguments'] !== $arguments) {
@@ -88,7 +88,7 @@ final class TrialRouter
     /** Consume exactly once, including when the caller does not match the pending observation.
      * @param array<string, mixed> $arguments
      */
-    public function takeInputCall(string $session, string $tool, array $arguments): ?TestInputWitness
+    public function takeInputCall(string $session, string $tool, array $arguments): ?TrialInputWitness
     {
         $call = $this->inputCalls[$session] ?? null;
         unset($this->inputCalls[$session]);

@@ -145,7 +145,8 @@ final class TrialRunner
         $cmd = implode(' ', array_map('escapeshellarg', $command));
 
         $attempt = new TrialInputAttempt(bin2hex(random_bytes(16)), $workspace->root, $workspace->copy, $operation, $input);
-        $observing = $this->inputObserver !== null && $operation === 'test';
+        $witnessType = $operation === 'test' ? TestInputWitness::class : AuthoringInputWitness::class;
+        $observing = $this->inputObserver !== null && \in_array($operation, ['test', 'implement'], true);
         $prepared = false;
         if ($observing) {
             try {
@@ -156,10 +157,10 @@ final class TrialRunner
             }
         }
         [$exit, $stdout, $stderr] = $this->exec($cmd);
-        $witness = $observing ? TestInputWitness::unknown($attempt) : null;
+        $witness = $observing ? $witnessType::unknown($attempt) : null;
         if ($prepared) {
             try {
-                $witness = TestInputWitness::fromObservation($attempt, $this->inputObserver->after($attempt, $exit));
+                $witness = $witnessType::fromObservation($attempt, $this->inputObserver->after($attempt, $exit));
             } catch (\Throwable) {
                 // Preserve the execution verdict, but do not credit an incomplete observation.
             }

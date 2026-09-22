@@ -32,7 +32,7 @@ final readonly class TrialRun
         public string $stderr,
         public array $bounds,
         public array $report,
-        public ?TestInputWitness $inputWitness = null,
+        public ?TrialInputWitness $inputWitness = null,
     ) {
     }
 
