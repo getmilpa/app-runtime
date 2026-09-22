@@ -751,7 +751,11 @@ meaning to the experimental `plugin:Owned` string. Activation still needs its ow
   Each section still runs in a confined trial and must be promoted before the next call can use
   it. Parts remain beside the scaffold as `.php.milpa-part`, inside the same plugin write set;
   they never replace executable PHP until `finish` passes the existing verification gate and its
-  trial is promoted. Revocation also blocks promotion of pending parts.
+  trial is promoted. After a successful multipart stage changes only that part, the resident's
+  next tool offer contains only `sandbox_promote`; the full catalogue returns only after that
+  exact workspace reports domain success. Transport success alone, a failed promotion, or a
+  different workspace leaves the offer narrowed. Revocation also blocks promotion of pending
+  parts.
 - `test` requires a relative path under `tests/Plugins/<Plugin>/`. Tests and verifier subprocesses
   run in the same write boundary, with read-only root/vendor, private trial state and temporary
   storage, an ephemeral PHPUnit cache, and unshared network/PID namespaces. Missing confinement
