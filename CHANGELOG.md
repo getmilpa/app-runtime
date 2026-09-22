@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.175.11](https://github.com/getmilpa/app-runtime/compare/v0.175.10...v0.175.11) (2026-09-22)
+
+
+### Bug Fixes
+
+* bind assembly retries to observed file inputs ([#528](https://github.com/getmilpa/app-runtime/issues/528)) ([cfd8579](https://github.com/getmilpa/app-runtime/commit/cfd8579693813b23356ad9742b0c9fe3a4252bca))
+
 ## [0.175.10](https://github.com/getmilpa/app-runtime/compare/v0.175.9...v0.175.10) (2026-09-22)
 
 
