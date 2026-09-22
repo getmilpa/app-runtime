@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Agent;
 
 use Milpa\Agent\SessionStore;
+use Milpa\Console\McpProjector;
 use Milpa\EventStore\Event;
 
 /** Observational metadata only: neither a reader nor a grant or acceptance receipt. */
@@ -41,6 +42,7 @@ final class RecordedResultReferences
         }
         ksort($grouped, SORT_NUMERIC);
         $references = [];
+        $nativeReaders = [McpProjector::toolName('agent:result'), McpProjector::toolName('agent:argument')];
         foreach ($grouped as $seq => $rows) {
             // A duplicated sequence is ambiguous even if one row has the expected event type.
             if (\count($rows) !== 1 || $rows[0]->type !== 'session.tool_called') {
@@ -51,6 +53,7 @@ final class RecordedResultReferences
             $tool = $call['tool'] ?? null;
             if (!\is_string($result) || !mb_check_encoding($result, 'UTF-8')
                 || !\is_string($tool) || $tool === '' || !mb_check_encoding($tool, 'UTF-8')
+                || \in_array($tool, $nativeReaders, true)
                 || mb_strlen($tool, 'UTF-8') > 128 || !\is_bool($call['ok'] ?? null)
                 || !\is_array($call['arguments'] ?? null)) {
                 continue;
