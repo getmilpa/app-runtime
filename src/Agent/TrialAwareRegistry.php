@@ -45,6 +45,9 @@ use Psr\Log\NullLogger;
  */
 final class TrialAwareRegistry extends ToolRegistry
 {
+    /** A staged multipart part whose native trial result still needs its explicit promotion. */
+    private ?string $pendingMultipartPromotion = null;
+
     /**
      * @param list<Operation>                  $operations
      * @param (\Closure(): ?ScreenDrafts)|null $screenDrafts
@@ -107,6 +110,10 @@ final class TrialAwareRegistry extends ToolRegistry
             $result = $this->inner->call($name, $args, $ctx);
             $after = $workspace === null ? null : FileEffectObserver::hostSnapshot($workspace->root, $paths);
             $this->recordEffect($name, $args, FileEffectObserver::compare($before, $after, 'applied'));
+            if ($result->success && ($result->data['ok'] ?? null) === true
+                && ($args['workspace'] ?? null) === $this->pendingMultipartPromotion) {
+                $this->pendingMultipartPromotion = null;
+            }
             return $result;
         }
 
@@ -203,6 +210,12 @@ final class TrialAwareRegistry extends ToolRegistry
 
         $data['to_apply'] = ['operation' => 'sandbox:promote', 'arguments' => ['workspace' => $ws]];
         $data['to_discard'] = ['operation' => 'sandbox:discard', 'arguments' => ['workspace' => $ws]];
+        if ($operation->name === 'implement' && in_array($args['mode'] ?? null, ['start', 'append'], true)
+            && is_string($run->output['file'] ?? null) && is_string($run->output['staging'] ?? null)
+            && $run->output['staging'] === $run->output['file'] . '.milpa-part'
+            && array_keys($changed) === [$run->output['staging']]) {
+            $this->pendingMultipartPromotion = $ws;
+        }
         $data['note'] = sprintf(
             'This ran in a disposable TRIAL and is NOT applied to the app yet. To apply the change, '
             . 'call sandbox:promote with {"workspace":"%s"}. To throw it away, call sandbox:discard.',
@@ -255,10 +268,19 @@ final class TrialAwareRegistry extends ToolRegistry
         $this->inner->register($name, $description, $inputSchema, $callback, $options);
     }
 
-    /** Forwards to the wrapped registry. */
+    /**
+     * Give the next step one actionable transition while a multipart part remains in a trial.
+     * This narrows the model's offer only; the existing gate still judges the exact workspace,
+     * authority and domain result. Without an offered promotion tool, preserve the catalogue.
+     */
     public function getToolSummaries(): array
     {
-        return $this->inner->getToolSummaries();
+        $tools = $this->inner->getToolSummaries();
+        if ($this->pendingMultipartPromotion === null) {
+            return $tools;
+        }
+        $promotion = array_values(array_filter($tools, static fn (array $tool): bool => $tool['name'] === 'sandbox_promote'));
+        return count($promotion) === 1 ? $promotion : $tools;
     }
 
     /** Forwards to the wrapped registry. */
