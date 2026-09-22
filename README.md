@@ -1209,4 +1209,11 @@ gateway or agent intake that cannot transport and record it. Both ordinary work 
 structured diagnostic loops apply the same profile. This does not change authority,
 tool availability, token limits or acceptance criteria. See Greenhouse evidence 0831.
 
+### Explicit Ollama Cloud reasoning effort
+
+Set `agent.ollamaReasoningEffort` to `low`, `medium` or `high` to send Ollama Cloud's
+OpenAI-compatible `reasoning_effort` option. Omit the key to retain the model's default.
+Invalid values and gateways without the profile refuse before generation. The setting changes
+generation effort only; it does not change tools, authority, token limits or acceptance criteria.
+
 Ordering prerequisites complete only after a successful dispatch and an affirmative `ok` when the operation declares one. Failed results, pending confirmation and known incomplete results remain pending across session reloads. Legacy complete results without an `ok` declaration retain their dispatch outcome; this does not judge the quality of a plan or guide (Greenhouse 0833–0834).

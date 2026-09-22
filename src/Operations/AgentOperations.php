@@ -2895,6 +2895,13 @@ class AgentOperations implements CommandProvider
             }
             $modeloRemoto = $modeloRemoto->withMiniMaxThinking($thinking);
         }
+        $reasoningEffort = AgentEndpoint::ollamaReasoningEffort($config instanceof Config ? $config : null);
+        if ($reasoningEffort !== null) {
+            if (!$this->ollamaReasoningEffortAvailable()) {
+                throw new \RuntimeException('Explicit Ollama reasoning effort requires a profile-aware gateway.');
+            }
+            $modeloRemoto = $modeloRemoto->withOllamaReasoningEffort($reasoningEffort);
+        }
         $salida = AgentEndpoint::outputTokens($config instanceof Config ? $config : null);
         if ($salida !== null && (!$this->orchestratorAdmitsOutputTokens()
             || !property_exists(\Milpa\Agent\ModelCallIntake::class, 'outputBudget'))) {
@@ -2950,6 +2957,12 @@ class AgentOperations implements CommandProvider
     {
         return (new \ReflectionClass(LlmService::class))->hasMethod('withMiniMaxThinking')
             && property_exists(\Milpa\Agent\ModelCallIntake::class, 'thinking');
+    }
+
+    /** Whether the installed gateway can transmit Ollama Cloud's explicit reasoning profile. */
+    protected function ollamaReasoningEffortAvailable(): bool
+    {
+        return (new \ReflectionClass(LlmService::class))->hasMethod('withOllamaReasoningEffort');
     }
 
     /** Whether the installed native loop can carry an explicitly declared output budget. */
