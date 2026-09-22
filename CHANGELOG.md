@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.175.9](https://github.com/getmilpa/app-runtime/compare/v0.175.8...v0.175.9) (2026-09-22)
+
+
+### Bug Fixes
+
+* clarify promotion before continuing a trial part ([d0f71cd](https://github.com/getmilpa/app-runtime/commit/d0f71cdbc854d91f11c712961e4b27c870654a3f))
+* clarify promotion before continuing a trial part ([f6b5a0b](https://github.com/getmilpa/app-runtime/commit/f6b5a0b1e1ee2684279afe2afe9edf6335a2e7e6))
+
 ## [0.175.8](https://github.com/getmilpa/app-runtime/compare/v0.175.7...v0.175.8) (2026-09-21)
 
 
