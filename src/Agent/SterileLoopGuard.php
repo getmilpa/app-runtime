@@ -54,7 +54,7 @@ final class SterileLoopGuard
     /** @var array<string, array{veces: int, error: string}> huella de la llamada → cuántas veces falló y con qué */
     private array $fallos = [];
 
-    /** @var array<string, array<string, array{veces: int, error: string, witness: TestInputWitness}>> */
+    /** @var array<string, array<string, array{veces: int, error: string, witness: TrialInputWitness}>> */
     private array $inputFailures = [];
 
     /**
@@ -72,12 +72,12 @@ final class SterileLoopGuard
      * @param array<string, mixed> $arguments
      * @param bool                 $ok        si el runtime pudo ejecutar la herramienta
      */
-    public function anota(string $tool, array $arguments, string $result, bool $ok, ?TestInputWitness $inputWitness = null): void
+    public function anota(string $tool, array $arguments, string $result, bool $ok, ?TrialInputWitness $inputWitness = null): void
     {
         $huella = $this->huella($tool, $arguments);
         $error = $this->errorDeclarado($result, $ok);
-        if ($inputWitness !== null && ($tool !== 'test' || $arguments !== $inputWitness->attempt->arguments)) {
-            $inputWitness = TestInputWitness::unknown($inputWitness->attempt);
+        if ($inputWitness !== null && ($tool !== $inputWitness->attempt->operation || $arguments !== $inputWitness->attempt->arguments)) {
+            $inputWitness = $inputWitness::unknown($inputWitness->attempt);
         }
 
         // A known input has its own history. Success on repaired bytes cannot clear the earlier

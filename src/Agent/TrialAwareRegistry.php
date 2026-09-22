@@ -387,7 +387,7 @@ final class TrialAwareRegistry extends ToolRegistry
             ...($execution === null ? [] : ['execution' => $execution]),
             ...($run->inputWitness === null ? [] : ['input_witness' => [
                 'attempt' => $run->inputWitness->attempt->id,
-                'scope' => TestInputWitness::SCOPE,
+                'scope' => TrialInputWitness::SCOPE,
                 'status' => $run->inputWitness->status,
                 'identity' => $run->inputWitness->status === 'known' ? $run->inputWitness->identity() : null,
                 'complete_execution_inputs' => false,
