@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.176.0](https://github.com/getmilpa/app-runtime/compare/v0.175.13...v0.176.0) (2026-09-22)
+
+
+### Features
+
+* **agent:** configure Ollama reasoning effort ([91f922d](https://github.com/getmilpa/app-runtime/commit/91f922d293b1f9fe4edd0b9442ec4247991eabb3))
+* **agent:** configure Ollama reasoning effort ([95641f8](https://github.com/getmilpa/app-runtime/commit/95641f8cdcd3b091ee81d351384e13308863827c))
+
 ## [0.175.13](https://github.com/getmilpa/app-runtime/compare/v0.175.12...v0.175.13) (2026-09-22)
 
 
