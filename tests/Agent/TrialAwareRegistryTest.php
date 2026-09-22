@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Tests\Agent;
 
 use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\SessionStore;
+use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Agent\TrialAwareRegistry;
 use Milpa\AppRuntime\Agent\TrialRouter;
 use Milpa\AppRuntime\Agent\TrialRunner;
@@ -120,6 +121,66 @@ final class TrialAwareRegistryTest extends TestCase
         self::assertSame(1, $llamadas, 'no sandbox, no plan: the tool itself ran');
         self::assertSame('a', $result->data['written']['key'], 'the registered tool ran on the host with the call args');
         self::assertArrayNotHasKey('trial', $result->meta);
+    }
+
+    public function testStagedMultipartPartNarrowsTheOfferUntilPromotionReturnsDomainSuccess(): void
+    {
+        $root = $this->root();
+        $sessions = new SessionStore(new InMemoryEventStore());
+        $sessions->start('s-1', 'goal', AutonomyMode::Ask);
+        $inner = new ToolRegistry(new NullLogger());
+        $inner->register('implement', 'stages a part', ['type' => 'object'], static fn (): array => ['unexpected' => true]);
+        $promotions = [];
+        $inner->register(
+            'sandbox_promote',
+            'promotes a trial',
+            ['type' => 'object'],
+            static function (array $args) use (&$promotions): array {
+                $promotions[] = $args['workspace'];
+                return ['ok' => count($promotions) > 1, 'promoted' => count($promotions) > 1 ? ['src/Plugins/Owned/Services/TodoItemRenderer.php.milpa-part'] : []];
+            }
+        );
+        $inner->register('source_read', 'reads source', ['type' => 'object'], static fn (): array => ['ok' => true]);
+        $implement = new Operation(
+            name: 'implement',
+            description: 'stages a part',
+            handler: static fn (): array => ['unexpected' => true],
+            mutating: true,
+            effects: new EffectProfile(
+                mutation: Mutation::Persistent,
+                externality: Externality::None,
+                reversibility: Reversibility::Compensatable,
+                authority: Authority::WriteAsUser,
+                subject: Subject::Executable,
+            ),
+        );
+        $promote = new Operation(
+            name: 'sandbox:promote',
+            description: 'promotes a trial',
+            handler: static fn (): array => ['unexpected' => true],
+            mutating: true
+        );
+        $router = new TrialRouter(
+            $root,
+            new TrialRunner(bwrap: $this->fakeExecBwrap()),
+            dirname(__DIR__) . '/Fixtures/trial-staged-part-runner.php'
+        );
+        $door = new TrialAwareRegistry($inner, $router, [$implement, $promote], $sessions, 's-1');
+        $offer = new ConsentBridge($door);
+
+        self::assertSame(['implement', 'sandbox_promote', 'source_read'], array_column($offer->getToolSummaries(), 'name'));
+        $part = $door->call('implement', ['plugin' => 'Owned', 'class' => 'TodoItemRenderer', 'mode' => 'start']);
+        self::assertTrue($part->success, (string) $part->error);
+        self::assertSame(['src/Plugins/Owned/Services/TodoItemRenderer.php.milpa-part' => 'added'], $part->data['changed']);
+        self::assertSame(['sandbox_promote'], array_column($offer->getToolSummaries(), 'name'));
+
+        $workspace = $part->data['to_apply']['arguments']['workspace'];
+        $rejected = $door->call('sandbox_promote', ['workspace' => $workspace]);
+        self::assertSame(false, $rejected->data['ok']);
+        self::assertSame(['sandbox_promote'], array_column($offer->getToolSummaries(), 'name'), 'a domain failure leaves the part pending');
+        $accepted = $door->call('sandbox_promote', ['workspace' => $workspace]);
+        self::assertSame(true, $accepted->data['ok']);
+        self::assertSame(['implement', 'sandbox_promote', 'source_read'], array_column($offer->getToolSummaries(), 'name'));
     }
 
     public function testTheDecoratorForwardsEveryPublicMethodOfTheRegistry(): void
