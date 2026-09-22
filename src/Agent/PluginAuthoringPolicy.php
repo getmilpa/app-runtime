@@ -251,7 +251,22 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         }
         $permission = 'plugins.' . $plugin . ':write';
         if (!$context->hasScope($permission)) {
-            throw new \RuntimeException("Missing required permission '{$permission}' for plugin '{$plugin}'.");
+            $message = "Missing required permission '{$permission}' for plugin '{$plugin}'.";
+            $matching = [];
+            foreach (array_filter($context->scopes, 'is_string') as $scope) {
+                if (preg_match('/^plugins\.([A-Za-z_][A-Za-z0-9_]*):write$/D', $scope, $parts) !== 1) {
+                    continue;
+                }
+                if ($parts[1] !== $plugin && strcasecmp($parts[1], $plugin) === 0) {
+                    $matching[$scope] = true;
+                }
+            }
+            if (count($matching) === 1) {
+                $scope = array_key_first($matching);
+                $message .= " Plugin identifiers and grants are case-sensitive. The current grant is '{$scope}'."
+                    . ' Verify the installed plugin identifier before requesting a different permission.';
+            }
+            throw new \RuntimeException($message);
         }
         return $plugin;
     }
