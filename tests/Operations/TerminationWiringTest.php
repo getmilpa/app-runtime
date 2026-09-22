@@ -38,14 +38,14 @@ final class TerminationWiringTest extends TestCase
         $kernel = Kernel::boot(['root' => dirname(__DIR__, 2),'container' => $this->container,'toolRegistry' => new ToolRegistry(new NullLogger()),'plugins' => []]);
         $this->container->registerService(Kernel::class, $kernel);
     }
-    private function invoke(AgentOperations $ops): array
+    private function invoke(AgentOperations $ops, string $first = ''): array
     {
         $previous = getenv('OPENAI_API_KEY');
         putenv('OPENAI_API_KEY=fixture-key');
         try {
             foreach ($ops->operations() as $op) {
                 if ($op->name === 'agent') {
-                    return ($op->handler)(['prompt' => 'Continue','session' => 's','first' => '']);
+                    return ($op->handler)(['prompt' => 'Continue','session' => 's','first' => $first]);
                 }
             }
         } finally {
@@ -106,6 +106,27 @@ final class TerminationWiringTest extends TestCase
         self::assertSame('final_answer', $r['termination']['reason']);
         self::assertArrayNotHasKey('closure', $r);
         self::assertSame($r['termination'], $this->terminalEvents()[0]->payload);
+    }
+
+    public function testFinalAnswerCannotCloseWhileRequiredFirstToolIsPending(): void
+    {
+        $r = $this->invoke($this->ops(new AgentOrchestrator(
+            $this->llm(['role' => 'assistant', 'content' => self::ANSWER]),
+            $this->tools(),
+        )), 'skill_load');
+
+        self::assertSame('final_answer', $r['termination']['reason'], 'preserve the producer cause');
+        self::assertSame(['skill_load'], $r['prerequisitePending']);
+        self::assertTrue($r['incomplete']);
+        self::assertStringContainsString('skill_load', $r['answer']);
+        self::assertSame(['skill_load'], $this->sessions->load('s')?->runFirst);
+        self::assertArrayNotHasKey('closure', $r);
+        self::assertCount(0, array_filter($this->sessions->stream('s'), static fn ($e) => $e->type === 'session.closure_derived'));
+        self::assertSame($r['termination'], $this->terminalEvents()[0]->payload);
+        self::assertContains(self::ANSWER, array_map(
+            static fn ($e) => $e->payload['content'],
+            array_filter($this->sessions->stream('s'), static fn ($e) => $e->type === 'session.turn'),
+        ), 'the model text remains in the auditable journal');
     }
     public function testAReusedProducerCannotLendItsOldCauseToAnArgumentFailure(): void
     {

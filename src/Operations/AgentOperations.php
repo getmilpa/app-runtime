@@ -2541,6 +2541,21 @@ class AgentOperations implements CommandProvider
             $resultado['question'] = self::preguntaPausada($pausada->question);
         }
 
+        // The producer may return a natural final answer without calling any tool. That does not
+        // satisfy an operator's standing --first obligation: the gate protects other tool calls,
+        // while this branch protects the result shown to the caller. Keep the producer's exact
+        // termination in the stream and its original text as a recorded turn; report the missing
+        // action explicitly instead of presenting that text as completed work.
+        if ($pausada !== null && $pausada->question === null && $pausada->runFirst !== []
+            && $this->runTermination?->reason === RunEnd::FinalAnswer
+        ) {
+            $resultado['prerequisitePending'] = $pausada->runFirst;
+            $resultado['incomplete'] = true;
+            $resultado['answer'] = 'The model stopped before running the required first tool: '
+                . implode(', ', $pausada->runFirst) . '.';
+            $resultado['hint'] = 'Continue the same session; the first-tool obligation remains in force.';
+        }
+
         // AGOTAR EL TECHO NO ES CONTESTAR. Se nombra para que la superficie no lo pinte como respuesta.
         if ($this->runTermination !== null && $this->runTermination->reason === RunEnd::StepsExhausted) {
             $resultado['exhausted'] = true;
@@ -2586,7 +2601,7 @@ class AgentOperations implements CommandProvider
 
         // A current base-loop final answer and a question-free session are both required.
         // The cause only makes this observation eligible; recorded work still decides its verdict.
-        if ($pausada !== null && $pausada->question === null
+        if ($pausada !== null && $pausada->question === null && $pausada->runFirst === []
             && $this->runTermination !== null && $this->runTermination->reason === RunEnd::FinalAnswer
         ) {
             $closure = $this->deliveryClosure($store, $pausada);
