@@ -62,7 +62,9 @@ final class TerminationWiringTest extends TestCase
     private function tools(bool $refused = false): GatedToolCalls
     {
         $tools = $this->createMock(GatedToolCalls::class);
-        $tools->method('getToolSummaries')->willReturn([]);
+        $tools->method('getToolSummaries')->willReturn([[
+            'name' => 'read', 'description' => 'Read the fixture', 'inputSchema' => ['type' => 'object'],
+        ]]);
         if ($refused) {
             $tools->method('callTool')->willThrowException(new ToolCallRefused(self::ANSWER));
         }

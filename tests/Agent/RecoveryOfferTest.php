@@ -298,7 +298,7 @@ final class RecoveryOfferTest extends TestCase
                 if ($step === 2) {
                     self::assertSame(0, $this->executions);
                     self::assertNotContains('inspect', array_column($tools, 'name'));
-                    self::assertStringStartsWith('Progress recovery:', $messages[array_key_last($messages)]['content']);
+                    self::assertStringStartsWith("Tool 'inspect' was not offered in this step.", $messages[array_key_last($messages)]['content']);
                     return $this->call('materialize', []);
                 }
                 self::assertContains('inspect', array_column($tools, 'name'));
@@ -311,8 +311,7 @@ final class RecoveryOfferTest extends TestCase
             $this->store->stream('offer'),
             static fn ($event) => $event->type === 'session.tool_called' && $event->payload['tool'] === 'inspect'
         ));
-        self::assertCount(1, $reads);
-        self::assertFalse($reads[0]->payload['ok']);
+        self::assertSame([], $reads, 'the exact-offer guard refuses before the app executor and its recorder');
     }
 
     public function testRepeatedRefusalsKeepTheSterileFailureLimit(): void
