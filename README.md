@@ -1211,7 +1211,7 @@ tool availability, token limits or acceptance criteria. See Greenhouse evidence 
 
 ### Explicit Ollama Cloud reasoning effort
 
-Set `agent.ollamaReasoningEffort` to `low`, `medium` or `high` to send Ollama Cloud's
+Set `agent.ollamaReasoningEffort` to `low`, `medium`, `high` or `max` to send Ollama Cloud's
 OpenAI-compatible `reasoning_effort` option. Omit the key to retain the model's default.
 Invalid values and gateways without the profile refuse before generation. The setting changes
 generation effort only; it does not change tools, authority, token limits or acceptance criteria.

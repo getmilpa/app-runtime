@@ -22,13 +22,13 @@ final class OllamaReasoningWiringTest extends TestCase
         self::assertTrue(AgentKeys::conocida('agent.ollamaReasoningEffort'));
         self::assertNull(AgentEndpoint::ollamaReasoningEffort(null));
         self::assertNull(AgentEndpoint::ollamaReasoningEffort(new Config([])));
-        foreach (['low', 'medium', 'high'] as $effort) {
+        foreach (['low', 'medium', 'high', 'max'] as $effort) {
             self::assertSame($effort, AgentEndpoint::ollamaReasoningEffort(
                 new Config(['agent' => ['ollamaReasoningEffort' => $effort]])
             ));
             self::assertSame($effort, AgentKeys::coerceDeclaredValue('agent.ollamaReasoningEffort', $effort));
         }
-        foreach ([null, true, false, 1, [], '', 'disabled', 'max'] as $value) {
+        foreach ([null, true, false, 1, [], '', 'disabled', 'maximum'] as $value) {
             try {
                 AgentEndpoint::ollamaReasoningEffort(new Config(['agent' => ['ollamaReasoningEffort' => $value]]));
                 self::fail('Invalid effort accepted.');
@@ -38,20 +38,20 @@ final class OllamaReasoningWiringTest extends TestCase
         }
     }
 
-    public function testTheNativeOrchestratorSendsLowEffortToOllamaCloud(): void
+    public function testTheNativeOrchestratorSendsMaxEffortToOllamaCloud(): void
     {
         $container = new DIContainer();
         $container->registerService(Config::class, new Config(['agent' => [
             'baseUrl' => 'https://ollama.com/v1',
             'model' => 'glm-5.3-flash',
             'outputTokens' => 16384,
-            'ollamaReasoningEffort' => 'low',
+            'ollamaReasoningEffort' => 'max',
         ]]));
         $http = $this->createMock(ClientInterface::class);
         $http->expects(self::once())->method('sendRequest')->willReturnCallback(
             static function (RequestInterface $request): Response {
                 $wire = json_decode((string) $request->getBody(), true);
-                self::assertSame('low', $wire['reasoning_effort']);
+                self::assertSame('max', $wire['reasoning_effort']);
                 self::assertSame('glm-5.3-flash', $wire['model']);
                 self::assertSame(16384, $wire['max_tokens']);
                 return new Response(200, [], json_encode(['choices' => [[

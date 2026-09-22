@@ -92,7 +92,7 @@ final class AgentKeys
     {
         return [
             'agent.ollamaReasoningEffort' => [
-                'type' => DeclaredType::union(DeclaredType::literal('low'), DeclaredType::literal('medium'), DeclaredType::literal('high')),
+                'type' => DeclaredType::union(DeclaredType::literal('low'), DeclaredType::literal('medium'), DeclaredType::literal('high'), DeclaredType::literal('max')),
                 'does' => 'Explicit Ollama Cloud reasoning effort; omission retains provider defaults. Requires a compatible gateway.',
             ],
             'agent.minimaxThinking' => [
