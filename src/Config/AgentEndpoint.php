@@ -139,6 +139,19 @@ final class AgentEndpoint
         return $mode;
     }
 
+    /** Explicit Ollama Cloud reasoning effort; absence retains the model's default. */
+    public static function ollamaReasoningEffort(?Config $config): ?string
+    {
+        if ($config === null || !$config->has('agent.ollamaReasoningEffort')) {
+            return null;
+        }
+        $effort = $config->get('agent.ollamaReasoningEffort');
+        if (!\is_string($effort) || !in_array($effort, ['low', 'medium', 'high'], true)) {
+            throw new \InvalidArgumentException('agent.ollamaReasoningEffort must be low, medium or high.');
+        }
+        return $effort;
+    }
+
     /**
      * The context window this app's agent runs under, or `null` when nothing produced one.
      *
