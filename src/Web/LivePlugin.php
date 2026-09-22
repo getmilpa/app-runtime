@@ -207,6 +207,10 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 ? $this->autocompleteFor($props)
                 : ($components->registry->has($type) ? $components->registry->get($type) : null),
         );
+        // GET and POST are one live wire. They must resolve presentation through the same authorized
+        // override ledger and language, otherwise the first action silently reverts the page's look or words.
+        $locale = \is_string($live['locale'] ?? null) ? (string) $live['locale'] : ComponentMessages::DEFAULT_LOCALE;
+        $assets = new ComponentAssetOrchestrator(overrides: $this->overrideStore());
         $endpoint = new LiveEndpoint(
             components: $screens,
             codec: $codec,
@@ -215,6 +219,8 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
             route: $route,
             renderers: $registeredRenderers,
             renderProps: $renderProps,
+            assetOrchestrator: $assets,
+            locale: $locale,
         );
 
         $this->container->registerService(StateTransferCodecInterface::class, $codec);
@@ -254,8 +260,8 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 // The language this house's live pages are read in. Declared, not sniffed from the
                 // request: a house serves the language it chose, and a component that has not been
                 // translated into it falls back per key rather than per page.
-                \is_string($this->config()['locale'] ?? null) ? (string) $this->config()['locale'] : ComponentMessages::DEFAULT_LOCALE,
-                new ComponentAssetOrchestrator(overrides: $this->overrideStore()),
+                $locale,
+                $assets,
             ),
         );
         ScreenDraftFeature::boot($this->container, $screens, $this->root(), $route, $secret);
