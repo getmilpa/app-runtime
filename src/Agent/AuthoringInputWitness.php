@@ -7,17 +7,17 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Agent;
 
 /**
- * File consultations for an assembly continuation must include one staging sibling in its plugin.
- * The observer identifies the consulted path; this class does not guess a class filename or grant
- * authority. Inline content, new assemblies and unobserved staging retain the unknown fallback.
+ * File consultations for an assembly continuation or reset must include one staging sibling in its
+ * plugin. The observer identifies the consulted path; this class does not guess a class filename or
+ * grant authority. Inline content, new assemblies and unobserved staging retain the unknown fallback.
  */
 final readonly class AuthoringInputWitness extends TrialInputWitness
 {
-    /** Limit observation admission to continuation of an existing assembly. */
+    /** Limit observation admission to operations whose result depends on multipart state. */
     protected static function supports(TrialInputAttempt $attempt): bool
     {
         return $attempt->operation === 'implement'
-            && in_array($attempt->arguments['mode'] ?? null, ['append', 'amend', 'finish'], true);
+            && in_array($attempt->arguments['mode'] ?? null, ['append', 'amend', 'reset', 'finish'], true);
     }
 
     /** @param array<array-key, mixed> $inputs */

@@ -129,7 +129,7 @@ final class AuthoringInputWitnessTest extends TestCase
     /** @return iterable<string, array{string, string}> */
     public static function continuations(): iterable
     {
-        foreach (['append', 'amend', 'finish'] as $mode) {
+        foreach (['append', 'amend', 'reset', 'finish'] as $mode) {
             foreach (['src', 'tests'] as $tree) {
                 yield $mode . '-' . $tree => [$mode, $tree];
             }

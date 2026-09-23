@@ -46,7 +46,7 @@ final class PluginAuthoringPolicyTest extends TestCase
         $owned = new ToolContext(scopes: ['plugins.Owned:write']);
         self::assertSame(['src/Plugins/Owned', 'tests/Plugins/Owned'], $policy->writePaths($owned, 'make', ['plugin' => 'Owned']));
         self::assertSame(['src/Plugins/Owned', 'tests/Plugins/Owned'], $policy->writePaths($owned, 'test', ['path' => 'tests/Plugins/Owned/Test.php']));
-        foreach (['start', 'append', 'finish'] as $mode) {
+        foreach (['start', 'append', 'reset', 'finish'] as $mode) {
             self::assertSame(['src/Plugins/Owned', 'tests/Plugins/Owned'], $policy->writePaths($owned, 'implement', ['plugin' => 'Owned', 'mode' => $mode]));
         }
         $policy->authorizePaths($owned, ['src/Plugins/Owned/Service.php'], sys_get_temp_dir());

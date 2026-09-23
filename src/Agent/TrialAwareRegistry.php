@@ -212,7 +212,7 @@ final class TrialAwareRegistry extends ToolRegistry
 
         $data['to_apply'] = ['operation' => 'sandbox:promote', 'arguments' => ['workspace' => $ws]];
         $data['to_discard'] = ['operation' => 'sandbox:discard', 'arguments' => ['workspace' => $ws]];
-        if ($operation->name === 'implement' && in_array($args['mode'] ?? null, ['start', 'append', 'amend'], true)
+        if ($operation->name === 'implement' && in_array($args['mode'] ?? null, ['start', 'append', 'amend', 'reset'], true)
             && is_string($run->output['file'] ?? null) && is_string($run->output['staging'] ?? null)
             && $run->output['staging'] === $run->output['file'] . '.milpa-part'
             && array_keys($changed) === [$run->output['staging']]) {
@@ -242,7 +242,7 @@ final class TrialAwareRegistry extends ToolRegistry
      */
     private static function partialTrialNote(string $operation, array $input, ?array $output, array $report): ?string
     {
-        if ($operation !== 'implement' || !in_array($input['mode'] ?? null, ['start', 'append', 'amend'], true)
+        if ($operation !== 'implement' || !in_array($input['mode'] ?? null, ['start', 'append', 'amend', 'reset'], true)
             || ($output['ok'] ?? null) !== true || !is_string($output['partial'] ?? null)
             || trim($output['partial']) === '' || isset($output['verified'])
             || !is_string($output['file'] ?? null) || !str_ends_with($output['file'], '.php')
@@ -257,7 +257,7 @@ final class TrialAwareRegistry extends ToolRegistry
             return null;
         }
 
-        return 'The accepted part exists only in this trial. Before another append, amend or finish, '
+        return 'The accepted part exists only in this trial. Before another reset, append, amend or finish, '
             . 'call the returned to_apply operation and check that its domain result succeeded. '
             . 'That promotion transfers staging only: the PHP class remains unchanged and unverified. '
             . 'candidate:state describes producer-verified candidates, so it cannot verify this partial. '
@@ -318,7 +318,7 @@ final class TrialAwareRegistry extends ToolRegistry
             }
             $tool = $event->payload['tool'] ?? null;
             $arguments = is_array($event->payload['arguments'] ?? null) ? $event->payload['arguments'] : [];
-            if ($tool === 'implement' && in_array($arguments['mode'] ?? null, ['start', 'append', 'amend'], true)
+            if ($tool === 'implement' && in_array($arguments['mode'] ?? null, ['start', 'append', 'amend', 'reset'], true)
                 && ($result['ran_in_trial'] ?? null) === true && ($result['applied'] ?? null) === false
                 && ($result['to_apply']['operation'] ?? null) === 'sandbox:promote'
                 && is_string($result['to_apply']['arguments']['workspace'] ?? null)
