@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.178.1](https://github.com/getmilpa/app-runtime/compare/v0.178.0...v0.178.1) (2026-09-23)
+
+
+### Bug Fixes
+
+* **agent:** surface bounded trial failure summaries ([563277b](https://github.com/getmilpa/app-runtime/commit/563277b996f090b5017d36f2999ff1f73fb8cb82))
+* **agent:** surface bounded trial failure summaries ([eb606c6](https://github.com/getmilpa/app-runtime/commit/eb606c604562ef2f85d48922a5e324a43e2bcb2e))
+
 ## [0.178.0](https://github.com/getmilpa/app-runtime/compare/v0.177.0...v0.178.0) (2026-09-23)
 
 
