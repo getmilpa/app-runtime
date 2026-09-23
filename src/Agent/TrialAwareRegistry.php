@@ -280,7 +280,7 @@ final class TrialAwareRegistry extends ToolRegistry
         $tools = $this->inner->getToolSummaries();
         if ($this->pendingMultipartPromotion !== null) {
             $workspace = $this->router->workspace($this->pendingMultipartPromotion);
-            if ($workspace === null || !$workspace->hasCurrentInputs()) {
+            if ($workspace === null || $workspace->stale() !== []) {
                 $this->pendingMultipartPromotion = null;
             }
         }
@@ -336,7 +336,7 @@ final class TrialAwareRegistry extends ToolRegistry
 
         $workspace = $pending === null ? null : $this->router->workspace($pending);
 
-        return $workspace !== null && $workspace->hasCurrentInputs() ? $pending : null;
+        return $workspace !== null && $workspace->stale() === [] ? $pending : null;
     }
 
     /** Forwards to the wrapped registry. */
