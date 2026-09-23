@@ -175,6 +175,7 @@ final class TrialAwareRegistry extends ToolRegistry
                     'applied' => false,
                     'workspace' => $plan->workspace->id,
                     'trial_exit' => $run->exit,
+                    'summary' => TrialFailureSummary::from($executionName, $run->output, $run->stderr, $executionInput),
                     'output' => $run->output,
                     'stderr' => $run->stderr,
                     ...($prepared === null ? [] : ['repair' => $prepared['provenance']]),

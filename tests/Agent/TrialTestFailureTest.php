@@ -79,10 +79,19 @@ final class TrialTestFailureTest extends TestCase
         self::assertTrue($envelope['ran_in_trial']);
         self::assertFalse($envelope['applied']);
         self::assertSame($exit, $envelope['trial_exit']);
+        self::assertSame('milpa.trial-failure-summary/v1', $envelope['summary']['schema']);
+        self::assertTrue($envelope['summary']['complete']);
+        self::assertSame('test', $envelope['summary']['operation']);
+        self::assertStringContainsString('before running this test again', $envelope['summary']['next']);
         self::assertSame($output, $envelope['output']);
         self::assertSame("incidental diagnostic\n", $envelope['stderr']);
         self::assertSame($direct->meta['trial']['workspace'], $envelope['workspace']);
         self::assertArrayNotHasKey('to_apply', $envelope);
+        self::assertLessThan(
+            strpos((string) $direct->error, '"output"'),
+            strpos((string) $direct->error, '"summary"'),
+            'The bounded actionable summary precedes the complete native diagnostic.'
+        );
 
         $recorder = new SessionToolGate($sessions, $sessions->load('s-1'), [$operation]);
         $channel = new GatedToolCalls($registry, recorder: $recorder);
