@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.179.0](https://github.com/getmilpa/app-runtime/compare/v0.178.4...v0.179.0) (2026-09-23)
+
+
+### Features
+
+* **agent:** govern staging resets ([#549](https://github.com/getmilpa/app-runtime/issues/549)) ([1d30641](https://github.com/getmilpa/app-runtime/commit/1d306410fcd041f598b6e8546ca6af503fb5c3ed))
+
 ## [0.178.4](https://github.com/getmilpa/app-runtime/compare/v0.178.3...v0.178.4) (2026-09-23)
 
 
