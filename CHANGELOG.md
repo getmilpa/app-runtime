@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.178.2](https://github.com/getmilpa/app-runtime/compare/v0.178.1...v0.178.2) (2026-09-23)
+
+
+### Bug Fixes
+
+* **agent:** point rejected proposals to recorded edit ([bcfdf20](https://github.com/getmilpa/app-runtime/commit/bcfdf20307b0282e9ad8172b87e15dd835b68142))
+* **agent:** point rejected proposals to recorded edit ([ff36b47](https://github.com/getmilpa/app-runtime/commit/ff36b472c4df7e3d9b5dc816ba0209a108cdd928))
+
 ## [0.178.1](https://github.com/getmilpa/app-runtime/compare/v0.178.0...v0.178.1) (2026-09-23)
 
 
