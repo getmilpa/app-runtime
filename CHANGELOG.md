@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.178.3](https://github.com/getmilpa/app-runtime/compare/v0.178.2...v0.178.3) (2026-09-23)
+
+
+### Bug Fixes
+
+* **agent:** resume pending multipart promotion ([d0d2fbb](https://github.com/getmilpa/app-runtime/commit/d0d2fbbcd003485428cbf8fc8e157987fbe4a3ab))
+* **agent:** resume pending multipart promotion ([00174f0](https://github.com/getmilpa/app-runtime/commit/00174f060ffa30e1377c2d27737f797bbf731141))
+
 ## [0.178.2](https://github.com/getmilpa/app-runtime/compare/v0.178.1...v0.178.2) (2026-09-23)
 
 
