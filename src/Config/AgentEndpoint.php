@@ -152,6 +152,19 @@ final class AgentEndpoint
         return $effort;
     }
 
+    /** Explicit thinking switch for a compatible OpenAI chat template. */
+    public static function openAiThinking(?Config $config): ?bool
+    {
+        if ($config === null || !$config->has('agent.openAiThinking')) {
+            return null;
+        }
+        $enabled = $config->get('agent.openAiThinking');
+        if (!\is_bool($enabled)) {
+            throw new \InvalidArgumentException('agent.openAiThinking must be a boolean.');
+        }
+        return $enabled;
+    }
+
     /**
      * The context window this app's agent runs under, or `null` when nothing produced one.
      *

@@ -2902,6 +2902,13 @@ class AgentOperations implements CommandProvider
             }
             $modeloRemoto = $modeloRemoto->withOllamaReasoningEffort($reasoningEffort);
         }
+        $openAiThinking = AgentEndpoint::openAiThinking($config instanceof Config ? $config : null);
+        if ($openAiThinking !== null) {
+            if (!$this->openAiThinkingAvailable()) {
+                throw new \RuntimeException('Explicit OpenAI chat-template thinking requires a compatible gateway.');
+            }
+            $modeloRemoto = $modeloRemoto->withOpenAiThinking($openAiThinking);
+        }
         $salida = AgentEndpoint::outputTokens($config instanceof Config ? $config : null);
         if ($salida !== null && (!$this->orchestratorAdmitsOutputTokens()
             || !property_exists(\Milpa\Agent\ModelCallIntake::class, 'outputBudget'))) {
@@ -2963,6 +2970,12 @@ class AgentOperations implements CommandProvider
     protected function ollamaReasoningEffortAvailable(): bool
     {
         return (new \ReflectionClass(LlmService::class))->hasMethod('withOllamaReasoningEffort');
+    }
+
+    /** Whether the installed gateway can transmit an explicit local chat-template thinking switch. */
+    protected function openAiThinkingAvailable(): bool
+    {
+        return (new \ReflectionClass(LlmService::class))->hasMethod('withOpenAiThinking');
     }
 
     /** Whether the installed native loop can carry an explicitly declared output budget. */
