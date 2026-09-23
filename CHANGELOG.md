@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.178.0](https://github.com/getmilpa/app-runtime/compare/v0.177.0...v0.178.0) (2026-09-23)
+
+
+### Features
+
+* configure local chat template thinking ([51e7b2e](https://github.com/getmilpa/app-runtime/commit/51e7b2e21f2eb77f39971effe01d3f8981a9150f))
+
 ## [0.177.0](https://github.com/getmilpa/app-runtime/compare/v0.176.0...v0.177.0) (2026-09-23)
 
 
