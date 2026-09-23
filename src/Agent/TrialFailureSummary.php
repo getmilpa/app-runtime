@@ -80,7 +80,11 @@ final class TrialFailureSummary
                 . '; promote the accepted amendment, then call finish again. Do not repeat finish unchanged.';
         }
         if ($operation === 'implement') {
-            return 'Repair the named failure and resubmit the complete file; do not repeat unchanged content.';
+            $sha = \is_string($diagnostic['submitted_sha256'] ?? null) ? $diagnostic['submitted_sha256'] : '<candidate_sha256>';
+
+            return 'Repair the recorded proposal with edit instead of reconstructing it: use source.session=current '
+                . 'session, source.seq=this failed implement tool-call seq, source.sha256=' . $sha
+                . ', and exact find/replace edits. Do not resubmit the complete file.';
         }
 
         return 'Repair the named failure before running this test again.';
