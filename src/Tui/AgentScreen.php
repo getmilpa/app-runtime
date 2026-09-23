@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tui;
 
+use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\Agent\Session;
 use Milpa\Agent\TodoStatus;
 use Milpa\Live\Tui\NodeRenderers\BoxRenderer;
@@ -1282,7 +1283,7 @@ final class AgentScreen implements SurfaceBroadcaster
             new TuiNode('sep-2', 'text', props: ['text' => str_repeat('─', 44)]),
             new TuiNode('ayuda-1', 'text', props: ['text' => '  escribe y Enter para preguntar']),
             new TuiNode('ayuda-2', 'text', props: ['text' => '  /sessions  elegir otra sesión y continuarla']),
-            new TuiNode('ayuda-3', 'text', props: ['text' => '  coa chat --continue  retoma la última al abrir']),
+            new TuiNode('ayuda-3', 'text', props: ['text' => '  ' . Capabilities::CLI . 'chat --continue  retoma la última al abrir']),
         ];
 
         // La M germinando: cinco filas de granos que crecen de las esquinas de abajo al centro. Es

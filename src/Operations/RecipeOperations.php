@@ -106,21 +106,62 @@ final class RecipeOperations implements CommandProvider
                 scopes: ['recipe:apply'],
                 surfaces: ['cli', 'tui', 'mcp'],
             ),
+            // 🚨 THE PLAN IS A READ, AND ASKING FOR IT MUST NOT COST A CEREMONY.
+            //
+            // Measured on fresh cattle: Rod spent two signatures and each one bought a PREREQUISITE —
+            // «unknown capability», then «no session store». A physical touch is the most expensive
+            // thing this house can ask of a person, and it was being spent to learn what the
+            // operation needed before it could even start.
+            //
+            // A DESCENT WAS THE WRONG ANSWER, and trying it is what proved it: `Descent` exists for
+            // exactly «a rehearsal is not the act» (decisions/0029), but `holds()` requires a SIGNED
+            // certificate, bound to the handler digest, for every axis below `authority` — because
+            // whoever declares a descent badly is not punished, they are EXEMPTED (decisions/0053,
+            // 0054). Declared without one it never holds: shipping it would have been a promise that
+            // reads as a feature and lowers nothing.
+            //
+            // So this asks for no exemption. It is a read that only reads: the recipe file, what
+            // Composer says is installed, and the foundation verdict. Nothing to certify, nothing to
+            // sign, and the answer is free every time (greenhouse decisions/0457).
+            new Operation(
+                name: 'recipe:plan',
+                effects: EffectProfile::readOnly(),
+                description: 'What a recipe would do and what it needs first — free, before any signature',
+                handler: fn (array $input): array => $this->planFor($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'recipe' => [
+                            'type' => 'string',
+                            'description' => 'The recipe to read — from recipes/<recipe>.json under the app root',
+                        ],
+                    ],
+                    'required' => ['recipe'],
+                ],
+                // The same surfaces its sibling opts into, and for the same reason: the plan names
+                // which packages are missing, which is a map of what this app is not yet — read by a
+                // stranger it is a hint about the host, so it stays where `recipe:apply` stays.
+                scopes: ['recipe:plan'],
+                surfaces: ['cli', 'tui', 'mcp'],
+            ),
         ];
     }
 
     /**
-     * Reads the named recipe, opens (or resumes) its governed session, and drives it.
+     * The refusal a name earns on its own, or null when the name is a name.
      *
-     * @param array<string, mixed> $input
+     * 🚨 ASKED BEFORE THE FILESYSTEM AND BEFORE THE KERNEL, and a test says so in its own title:
+     * `testANameThatIsAPathIsRefusedBeforeTheFilesystemIsTouched`. Folding this into the shared
+     * reader put the kernel lookup first and the suite caught it in seven data sets — «no kernel» is
+     * a true sentence about the app and the WRONG answer about the argument: it sends the caller to
+     * go boot something instead of to stop naming a path.
      *
-     * @return array<string, mixed>
+     * @return array<string, mixed>|null
      */
-    private function apply(array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array
+    private function refuseUnlessNamed(string $name): ?array
     {
-        $name = \is_string($input['recipe'] ?? null) ? trim($input['recipe']) : '';
         if ($name === '') {
-            return ['ok' => false, 'error' => 'name a recipe: recipe:apply reads recipes/<recipe>.json'];
+            return ['ok' => false, 'error' => 'name a recipe: a recipe is read from recipes/<recipe>.json'];
         }
 
         // A RECIPE NAME IS NOT A PATH, and this concatenated one into a filename.
@@ -137,12 +178,24 @@ final class RecipeOperations implements CommandProvider
             return ['ok' => false, 'error' => "«{$name}» is not a recipe name: a recipe is named, not located"];
         }
 
+        return null;
+    }
 
-        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
-        if (! $kernel instanceof Kernel) {
-            return ['ok' => false, 'error' => 'no kernel: recipe:apply needs a booted app'];
+    /**
+     * The named recipe, or the refusal that says why it could not be read.
+     *
+     * ONE READER FOR TWO DOORS: `recipe:apply` runs what `recipe:plan` reports, so both ask this.
+     * Two readers would be two answers to «what does this recipe say», and the one that drifts is
+     * the one nobody runs.
+     *
+     * @return Recipe|array<string, mixed> the recipe, or the answer to return as-is
+     */
+    private function load(string $name, string $root): Recipe|array
+    {
+        $refusal = $this->refuseUnlessNamed($name);
+        if ($refusal !== null) {
+            return $refusal;
         }
-        $root = $kernel->root();
 
         $file = $root . '/recipes/' . $name . '.json';
         if (! is_file($file)) {
@@ -158,13 +211,125 @@ final class RecipeOperations implements CommandProvider
             return ['ok' => false, 'error' => "recipes/{$name}.json must be a JSON object"];
         }
 
-        $recipe = Recipe::fromArray($name, $decoded);
+        return Recipe::fromArray($name, $decoded);
+    }
+
+    /**
+     * `recipe:plan` — what the named recipe would do, and what it needs first.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function planFor(array $input): array
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (! $kernel instanceof Kernel) {
+            return ['ok' => false, 'error' => 'no kernel: recipe:plan needs a booted app'];
+        }
+        $root = $kernel->root();
+
+        $loaded = $this->load(\is_string($input['recipe'] ?? null) ? trim($input['recipe']) : '', $root);
+
+        return $loaded instanceof Recipe ? $this->plan($loaded, $root) : $loaded;
+    }
+
+    /**
+     * The plan: the steps, the capabilities, what is missing, and the exact command for each.
+     *
+     * Every line is derivable without authority — the recipe declares its work, Composer knows what
+     * is installed, `Foundation` knows whether the house is founded, and the session store is either
+     * wired or not. Nothing here mutates, so nothing here is worth a signature.
+     *
+     * @return array<string, mixed>
+     */
+    private function plan(Recipe $recipe, string $root): array
+    {
+        $missing = [];
+        $capabilities = [];
+        foreach ($recipe->capabilities as $package) {
+            $installed = class_exists(\Composer\InstalledVersions::class)
+                && \Composer\InstalledVersions::isInstalled($package);
+            $capabilities[] = [
+                'package' => $package,
+                'state' => $installed ? 'installed' : 'missing',
+                // THE COMMAND COMES FROM THE AUTHORITY, never typed: `coa` is not on the PATH after a
+                // `create-project`, so a typed one names something the reader cannot run
+                // (greenhouse decisions/0305).
+                'command' => $installed ? '' : Capabilities::ENABLE_COMMAND . $package,
+            ];
+            if (! $installed) {
+                $missing[] = $package;
+            }
+        }
+
+        // THE PREREQUISITE THAT IS NOT ONE OF THE RECIPE'S OWN: a governed sequence pauses for
+        // consent on each STEP — a signature on the apply call cannot be presented for a different
+        // target — and a pause is recorded where sessions already live. Said HERE, for free, instead
+        // of after a ceremony.
+        $needsStore = (new AgentOperations($this->container))->sessionStore() === null;
+        if ($needsStore) {
+            $missing[] = 'milpa/agent';
+        }
+
+        $verdict = Foundation::verdict($root);
+
+        return [
+            'ok' => true,
+            'recipe' => $recipe->name,
+            'founds' => $recipe->foundation === null ? null : [
+                'domain' => $recipe->foundation['domain'],
+                'objective' => $recipe->foundation['objective'],
+                'already_founded' => $verdict['verdict'] === 'founded',
+            ],
+            'capabilities' => $capabilities,
+            'work' => array_map(
+                static fn (array $step): string => $step['op'],
+                $recipe->work,
+            ),
+            'needs' => array_values(array_unique($missing)),
+            'next' => $missing === []
+                ? Capabilities::CLI . 'recipe:apply --recipe=' . $recipe->name . ' --sign'
+                : Capabilities::ENABLE_COMMAND . $missing[0],
+        ];
+    }
+
+    /**
+     * Reads the named recipe, opens (or resumes) its governed session, and drives it.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function apply(array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array
+    {
+        $name = \is_string($input['recipe'] ?? null) ? trim($input['recipe']) : '';
+        $refusal = $this->refuseUnlessNamed($name);
+        if ($refusal !== null) {
+            return $refusal;
+        }
+
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (! $kernel instanceof Kernel) {
+            return ['ok' => false, 'error' => 'no kernel: recipe:apply needs a booted app'];
+        }
+        $root = $kernel->root();
+
+        // ONE READER FOR BOTH DOORS. `recipe:plan` reads the same file this applies, so the reading
+        // lives in one place: two readers would be two answers to «what does this recipe say».
+        $loaded = $this->load($name, $root);
+        if (! $loaded instanceof Recipe) {
+            return $loaded;
+        }
+        $recipe = $loaded;
 
         // THE SAME STORE agent sessions live in, so a pause is recorded where a session already is —
         // never a second truth about what happened (mirrors SessionOperations exactly).
         $store = (new AgentOperations($this->container))->sessionStore();
         if ($store === null) {
-            return ['ok' => false, 'error' => 'no session store: install milpa/agent so a pause can be recorded (coa capabilities:enable milpa/agent)'];
+            return ['ok' => false, 'error' => 'no session store: a governed sequence records its pause where sessions live ('
+                . Capabilities::ENABLE_COMMAND . 'milpa/agent). What this recipe needs, free: '
+                . Capabilities::CLI . 'recipe:plan --recipe=' . $name];
         }
 
         $sessionId = \is_string($input['session'] ?? null) && trim($input['session']) !== ''

@@ -72,6 +72,10 @@ final class EveryCommandItPrintsCanBeTypedTest extends TestCase
             "'coa · agent'",
             '"coa chat"',
             '`coa doctor` names in its `action`',
+            // `coa` AS THE PROGRAM'S NAME, not a command to type: «so coa cannot hand its
+            // process to the server». Rewriting it as `php bin/coa` would make the sentence
+            // claim the invocation is what lacks pcntl, which is not what happened.
+            'so coa cannot hand its process',
         ];
 
         $offenders = [];
@@ -91,7 +95,17 @@ final class EveryCommandItPrintsCanBeTypedTest extends TestCase
                 // remedy at the end of an error, a usage line, and a comment written into the reader's
                 // own `config/app.php`. A guard that only sees one shape of the defect certifies the
                 // others (greenhouse decisions/0306).
-                if (!preg_match('/[\'"`]coa /', $line)) {
+                // 🚨 AND THE SECOND HOLE WAS THE POSITION, NOT THE WORD. This required the quote or
+                // backtick to be ADJACENT — `'coa `, `` `coa `` — so a bare `coa` deeper inside a
+                // string walked past it. Two refusals did exactly that, with the command in
+                // parentheses at the end of a sentence: «install milpa/agent so a pause can be
+                // recorded (coa capabilities:enable milpa/agent)». A guard that matches where the
+                // defect sat last time certifies every other place it can sit
+                // (greenhouse decisions/0457).
+                //
+                // Now: a bare `coa ` ANYWHERE on a code line, except the one spelling that runs —
+                // `bin/coa `, which is what Capabilities::CLI composes.
+                if (!preg_match('/(?<!bin\/)(?<![a-zA-Z])coa /', $line)) {
                     continue;
                 }
                 foreach ($allowed as $exempt) {
