@@ -242,6 +242,15 @@ final class TrialAwareRegistryTest extends TestCase
             'the session receipt restores the transition after a new agent invocation'
         );
 
+        file_put_contents($root . '/unrelated.txt', "dependency metadata changed\n");
+        $unrelated = new TrialAwareRegistry($inner, $router, [$implement, $promote, $discard], $sessions, 's-1');
+        self::assertSame(
+            ['sandbox_promote'],
+            array_column($unrelated->getToolSummaries(), 'name'),
+            'an unrelated host change does not invalidate a still-promotable proposal'
+        );
+        unlink($root . '/unrelated.txt');
+
         $staging = $root . '/src/Plugins/Owned/Services/TodoItemRenderer.php.milpa-part';
         mkdir(dirname($staging), 0o777, true);
         file_put_contents($staging, "<?php // independently changed\n");
