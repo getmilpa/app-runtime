@@ -123,6 +123,33 @@ final class RecipeDriver
     }
 
     /**
+     * Every step's own `guidance`, verbatim, for the steps that left one.
+     *
+     * The ONE field read, and deliberately: `guidance` is where an operation puts what a human
+     * still has to do, so relaying it needs no knowledge of any producer's result shape. Anything
+     * that is not a non-empty string is skipped rather than coerced — a driver guessing at a
+     * result's meaning is how two components end up disagreeing about what happened.
+     *
+     * @return list<array{operation: string, guidance: string}>
+     */
+    private static function whatTheStepsSaidRemains(SequenceResult $result): array
+    {
+        $said = [];
+        foreach ($result->outcomes as $outcome) {
+            if (! \is_array($outcome->result)) {
+                continue;
+            }
+            $guidance = $outcome->result['guidance'] ?? null;
+            if (! \is_string($guidance) || trim($guidance) === '') {
+                continue;
+            }
+            $said[] = ['operation' => $outcome->step->operation, 'guidance' => trim($guidance)];
+        }
+
+        return $said;
+    }
+
+    /**
      * Turns a run's outcome into the self-describing result, persisting a fresh pause fail-closed.
      *
      * @param list<SequenceStep> $steps
@@ -187,13 +214,38 @@ final class RecipeDriver
                 $store->recordSequenceResumed($sessionId, $sequenceId);
             }
 
-            return [
-                'ok' => true,
-                'applied' => true,
-                'paused' => false,
-                'executed_count' => $result->executedCount(),
-                'steps_total' => \count($steps),
-            ];
+            // WHAT THE STEPS SAID IS STILL YOURS — or this answer's last word is `applied: yes`
+            // over work that is not done.
+            //
+            // Measured (greenhouse `evidence/0989`): a recipe founded a domain, installed two
+            // capabilities and scaffolded a resource, answered exactly five keys, and what it built
+            // was unreachable. The scaffolding step had reported the reason precisely — «plugin not
+            // yet listed in config/plugins.php … make leaves this activation to you» — and this
+            // payload dropped it, so every signature the run cost ended in a verdict that HID the
+            // one remaining step.
+            //
+            // Relayed, never interpreted: this driver reads no producer's postcondition shape and
+            // does not decide what «done» means. It passes a named string through verbatim, exactly
+            // as `pending_reason` above passes a refusal through. Absent when no step left one, so
+            // a clean run keeps its short answer.
+            $remaining = self::whatTheStepsSaidRemains($result);
+
+            return $remaining === []
+                ? [
+                    'ok' => true,
+                    'applied' => true,
+                    'paused' => false,
+                    'executed_count' => $result->executedCount(),
+                    'steps_total' => \count($steps),
+                ]
+                : [
+                    'ok' => true,
+                    'applied' => true,
+                    'paused' => false,
+                    'executed_count' => $result->executedCount(),
+                    'steps_total' => \count($steps),
+                    'remaining' => $remaining,
+                ];
         }
 
         $frontier = $result->frontier();
