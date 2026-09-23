@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.178.4](https://github.com/getmilpa/app-runtime/compare/v0.178.3...v0.178.4) (2026-09-23)
+
+
+### Bug Fixes
+
+* **agent:** retain fresh pending promotion ([cf924df](https://github.com/getmilpa/app-runtime/commit/cf924df007634b07d1a6619769218d99e852fd33))
+* **agent:** retain fresh pending promotion ([61e09eb](https://github.com/getmilpa/app-runtime/commit/61e09eba2f8bf35f2cfe80b41f7c3756f1019e50))
+
 ## [0.178.3](https://github.com/getmilpa/app-runtime/compare/v0.178.2...v0.178.3) (2026-09-23)
 
 
