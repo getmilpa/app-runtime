@@ -91,6 +91,10 @@ final class AgentKeys
     private static function declarations(): array
     {
         return [
+            'agent.openAiThinking' => [
+                'type' => DeclaredType::boolean(),
+                'does' => 'Explicit thinking switch for compatible OpenAI chat templates; omission retains provider defaults. Requires a compatible gateway.',
+            ],
             'agent.ollamaReasoningEffort' => [
                 'type' => DeclaredType::union(DeclaredType::literal('low'), DeclaredType::literal('medium'), DeclaredType::literal('high'), DeclaredType::literal('max')),
                 'does' => 'Explicit Ollama Cloud reasoning effort; omission retains provider defaults. Requires a compatible gateway.',
