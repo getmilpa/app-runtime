@@ -51,4 +51,26 @@ final class TrialFailureSummaryTest extends TestCase
         self::assertStringEndsWith('final verdict', $summary['error_excerpt']);
         self::assertArrayNotHasKey('stderr', $summary);
     }
+
+    public function testInlineFailurePointsToTheRecordedProposalInsteadOfRequestingTheWholeFileAgain(): void
+    {
+        $sha = str_repeat('b', 64);
+        $summary = TrialFailureSummary::from('implement', [
+            'error' => 'RenderResult received the wrong target',
+            'diagnostic' => [
+                'phase' => 'behavior',
+                'subject' => 'src/Plugins/Owned/Services/TodoItemRenderer.php',
+                'submitted_sha256' => $sha,
+                'selector' => 'tests/Plugins/Owned/TodoItemRendererTest.php',
+                'result' => ['exit' => 2, 'tests' => 3, 'assertions' => 0, 'failures' => 0, 'errors' => 3],
+            ],
+        ], '', []);
+
+        self::assertStringContainsString('Repair the recorded proposal with edit', $summary['next']);
+        self::assertStringContainsString('source.session=current session', $summary['next']);
+        self::assertStringContainsString('source.seq=this failed implement tool-call seq', $summary['next']);
+        self::assertStringContainsString('source.sha256=' . $sha, $summary['next']);
+        self::assertStringContainsString('exact find/replace edits', $summary['next']);
+        self::assertStringContainsString('Do not resubmit the complete file', $summary['next']);
+    }
 }
