@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [0.177.0](https://github.com/getmilpa/app-runtime/compare/v0.176.0...v0.177.0) (2026-09-23)
+
+
+### Features
+
+* expose maximum Ollama reasoning effort ([b7513f1](https://github.com/getmilpa/app-runtime/commit/b7513f17e7f236257730c84c3b2c6eb412793e24))
+
+
+### Bug Fixes
+
+* keep live presentation stable across actions ([a72e88e](https://github.com/getmilpa/app-runtime/commit/a72e88e30e02988bdc3d17dbb0a3d3fdd370c993))
+* stop recorded result reader recursion ([43679e5](https://github.com/getmilpa/app-runtime/commit/43679e5cc6a4ce8bbc2ace6f12d171397b7dc588))
+
 ## [0.176.0](https://github.com/getmilpa/app-runtime/compare/v0.175.13...v0.176.0) (2026-09-22)
 
 
