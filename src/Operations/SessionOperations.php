@@ -1061,6 +1061,26 @@ final class SessionOperations implements CommandProvider
     }
 
     /**
+     * How THIS session continues — the agent's loop, or the sequence that opened it.
+     *
+     * 🚨 IT USED TO SAY «agent "continue"» ALWAYS, AND THAT IS A MODEL TURN. Rod answered a pause
+     * that `recipe:apply` had opened and was told to spend provider requests continuing a sequence
+     * that resumes with one signed call. A hint that names the wrong next step costs more than no
+     * hint at all, because it is followed (greenhouse decisions/0457).
+     *
+     * The recipe's own convention answers it — {@see RecipeOperations::recipeInSession()} — so the
+     * shape of a recipe's session has ONE owner instead of two readers who both guess.
+     */
+    private static function comoSeRetoma(string $id): string
+    {
+        $recipe = RecipeOperations::recipeInSession($id);
+
+        return $recipe === null
+            ? 'pick it up with `' . Capabilities::CLI . 'agent "continue" --session=' . $id . '`'
+            : 'the recipe resumes where it paused: `' . Capabilities::CLI . 'recipe:apply --recipe=' . $recipe . ' --sign`';
+    }
+
+    /**
      * Quién está contestando, con su origen y su nivel de confianza.
      *
      * ── LAS DOS FUENTES NO VALEN LO MISMO, Y POR ESO NO SE MEZCLAN ──────────────────────────────
@@ -1308,7 +1328,7 @@ final class SessionOperations implements CommandProvider
                 'answered' => $pregunta->id,
                 'countered' => $contra,
                 'granted' => null,
-                'hint' => 'pick it up with `php bin/coa agent "continue" --session=' . $id . '`',
+                'hint' => self::comoSeRetoma($id),
             ];
         }
 
@@ -1340,7 +1360,7 @@ final class SessionOperations implements CommandProvider
             'session' => $id,
             'answered' => $pregunta->id,
             'granted' => $otorgado,
-            'hint' => 'pick it up with `php bin/coa agent "continue" --session=' . $id . '`',
+            'hint' => self::comoSeRetoma($id),
         ];
     }
 
@@ -1434,7 +1454,7 @@ final class SessionOperations implements CommandProvider
             'envelope' => $sobreEfectivo->toArray(),
             'base' => $base->toArray(),
             'tightened' => $apretadas,
-            'hint' => 'pick it up with `php bin/coa agent "continue" --session=' . $id . '`',
+            'hint' => self::comoSeRetoma($id),
         ];
     }
 

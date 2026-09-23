@@ -2536,7 +2536,7 @@ class AgentOperations implements CommandProvider
         $pausada = $sessionId !== '' && $store !== null ? $store->load($sessionId) : null;
         if ($pausada?->question !== null) {
             $resultado['paused'] = true;
-            $resultado['hint'] = 'contesta con: coa agent:answer --session=' . $sessionId
+            $resultado['hint'] = 'contesta con: ' . Capabilities::CLI . 'agent:answer --session=' . $sessionId
                 . ' --answer=<' . implode('|', $pausada->question->options ?: ['tu respuesta']) . '>';
             $resultado['question'] = self::preguntaPausada($pausada->question);
         }

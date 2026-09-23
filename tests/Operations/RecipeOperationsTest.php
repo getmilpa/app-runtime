@@ -30,13 +30,95 @@ final class RecipeOperationsTest extends TestCase
         return new RecipeOperations($this->createStub(DIContainerInterface::class));
     }
 
-    private function recipeApply(): Operation
+    private function byName(string $name): Operation
     {
         $ops = $this->provider()->operations();
-        self::assertCount(1, $ops);
-        self::assertSame('recipe:apply', $ops[0]->name);
+        // BOTH DOORS, NAMED — and still counted, so a third one cannot arrive unnoticed: this file
+        // pins what a reader of `coa list` depends on.
+        self::assertSame(['recipe:apply', 'recipe:plan'], array_map(static fn (Operation $o): string => $o->name, $ops));
 
-        return $ops[0];
+        foreach ($ops as $op) {
+            if ($op->name === $name) {
+                return $op;
+            }
+        }
+
+        self::fail("no operation named {$name}");
+    }
+
+    private function recipeApply(): Operation
+    {
+        return $this->byName('recipe:apply');
+    }
+
+    /**
+     * 🚨 THE PLAN IS A READ, SO ASKING WHAT A RECIPE WOULD DO COSTS NO CEREMONY.
+     *
+     * This is the regression guard for what cost Rod two YubiKey touches: each signature bought a
+     * PREREQUISITE — «unknown capability», then «no session store» — because the only way to ask
+     * this sequence anything was to authorize it first. Rule S2 demands consent when subject is
+     * Executable or above AND authority is Privileged or above; a read at None/Read cannot trip it,
+     * for any arguments, which is why the contrast below is the whole fix (greenhouse decisions/0457).
+     *
+     * A descent was tried first and refused itself: `Descent` exists for «a rehearsal is not the
+     * act», but `holds()` wants a SIGNED certificate bound to the handler digest for every axis under
+     * `authority`, because a badly declared descent EXEMPTS instead of punishing. A read asks for no
+     * exemption.
+     */
+    public function testThePlanIsAReadSoAskingWhatItWouldDoCostsNoCeremony(): void
+    {
+        $plan = $this->byName('recipe:plan');
+        $ceiling = $plan->ceilingForCall(['recipe' => 'blog']);
+
+        self::assertSame(Mutation::None, $ceiling->mutation);
+        self::assertSame(Authority::Read, $ceiling->authority);
+        self::assertSame(Subject::None, $ceiling->subject);
+        self::assertFalse($plan->mutating);
+        self::assertSame(['cli', 'tui', 'mcp'], $plan->surfaces);
+
+        // AND THE CONTRAST, which is what a reader needs to see: the same recipe, the same app, one
+        // door that must be authorized and one that answers.
+        $apply = $this->recipeApply()->ceilingForCall(['recipe' => 'blog']);
+        self::assertSame(Authority::Privileged, $apply->authority);
+        self::assertSame(Subject::Executable, $apply->subject);
+
+        if (class_exists(\Milpa\Console\Consent::class)) {
+            self::assertFalse(
+                \Milpa\Console\Consent::demanded($plan, ['recipe' => 'blog']),
+                'a plan that demands consent is a plan nobody can read for free',
+            );
+            self::assertTrue(\Milpa\Console\Consent::demanded($this->recipeApply(), ['recipe' => 'blog']));
+        }
+    }
+
+    /**
+     * 🚨 A RECIPE'S SESSION NAMES ITSELF, so whoever resumes it asks here instead of guessing.
+     *
+     * The shape `recipe:<name>` was built as a string in one place and read nowhere, so `agent:answer`
+     * — printing the hint after Rod answered a pause this operation had opened — told him to continue
+     * with `agent "continue"`: a MODEL turn, spending provider requests on a sequence that resumes
+     * with one signed call. A hint that names the wrong next step costs more than no hint, because it
+     * is followed (greenhouse decisions/0457).
+     */
+    public function testARecipeSessionNamesItselfSoWhoeverResumesItDoesNotGuess(): void
+    {
+        self::assertSame('recipe:blog', RecipeOperations::sessionIdFor('blog'));
+        self::assertSame('blog', RecipeOperations::recipeInSession('recipe:blog'));
+        self::assertSame('blog', RecipeOperations::recipeInSession(RecipeOperations::sessionIdFor('blog')));
+
+        // A session that belongs to no recipe says so, and the hint falls back to the agent's loop.
+        self::assertNull(RecipeOperations::recipeInSession('agent:anything'));
+        self::assertNull(RecipeOperations::recipeInSession('recipe:'));
+    }
+
+    /** The plan names the recipe it reads, like its sibling. */
+    public function testThePlanRequiresARecipeName(): void
+    {
+        $schema = $this->byName('recipe:plan')->inputSchema;
+
+        self::assertIsArray($schema);
+        self::assertSame(['recipe'], $schema['required']);
+        self::assertSame('string', $schema['properties']['recipe']['type']);
     }
 
     public function testItDeclaresTheCeilingOfWhatARecipeCanOriginate(): void
