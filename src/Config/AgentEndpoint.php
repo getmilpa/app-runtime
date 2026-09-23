@@ -146,8 +146,8 @@ final class AgentEndpoint
             return null;
         }
         $effort = $config->get('agent.ollamaReasoningEffort');
-        if (!\is_string($effort) || !in_array($effort, ['low', 'medium', 'high'], true)) {
-            throw new \InvalidArgumentException('agent.ollamaReasoningEffort must be low, medium or high.');
+        if (!\is_string($effort) || !in_array($effort, ['low', 'medium', 'high', 'max'], true)) {
+            throw new \InvalidArgumentException('agent.ollamaReasoningEffort must be low, medium, high or max.');
         }
         return $effort;
     }

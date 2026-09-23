@@ -7,6 +7,7 @@ namespace Milpa\AppRuntime\Web\Controllers;
 
 use Milpa\AppRuntime\Auth\LivePrincipal;
 use Milpa\AppRuntime\Web\{ScreenDrafts,ScreenPreviewRegistry,ScreenBuild,CompositeHtmlRenderer,RegisteredHtmlRenderer,LivePageProvider};
+use Milpa\Live\Assets\{ComponentAssetOrchestrator,ComponentMessages};
 use Milpa\Live\Security\{SignedXhtmlStateTransferCodec,HmacStateSigner,FileNonceStore,HmacCsrfGuard,ContractInteractionAuthorizer};
 use Milpa\Live\Transport\XhtmlStateTransferCodec;
 use Milpa\Live\Http\LiveEndpoint;
@@ -16,7 +17,7 @@ use Psr\Http\Message\{ServerRequestInterface,ResponseInterface};
 /** An isolated live wire per immutable revision; production signatures never authorize preview actions or vice versa. */
 final readonly class ScreenPreviewController
 {
-    public function __construct(private ScreenDrafts $drafts, private ScreenPreviewRegistry $previews, private ScreenBuild $build, private string $secret, private string $root, private string $route)
+    public function __construct(private ScreenDrafts $drafts, private ScreenPreviewRegistry $previews, private ScreenBuild $build, private string $secret, private string $root, private string $route, private string $locale = ComponentMessages::DEFAULT_LOCALE)
     {
     }
     /** GET mounts and POST handles the same isolated graph with normal live authorization. */
@@ -46,8 +47,12 @@ final readonly class ScreenPreviewController
             $endpointRoute = $this->route . '/preview?revision=' . $id;
             $component = $env->components->get($definition['type']);
             $env->components->register($draft['name'], $component);
+            $locale = is_string($definition['props']['locale'] ?? null) && $definition['props']['locale'] !== ''
+                ? $definition['props']['locale']
+                : $this->locale;
+            $assets = new ComponentAssetOrchestrator();
             if ($request->getMethod() === 'POST') {
-                $endpoint = new LiveEndpoint($env->components, $codec, new ContractInteractionAuthorizer($env->components), $csrf, $endpointRoute, renderers:$env->renderers);
+                $endpoint = new LiveEndpoint($env->components, $codec, new ContractInteractionAuthorizer($env->components), $csrf, $endpointRoute, renderers:$env->renderers, assetOrchestrator:$assets, locale:$locale);
                 return (new LiveController($endpoint))->handle($request);
             }
             $provider = new class ($draft['name'], $definition['props']) implements LivePageProvider {
@@ -61,7 +66,7 @@ final readonly class ScreenPreviewController
                 }
             };
             $renderer = new CompositeHtmlRenderer(new RegisteredHtmlRenderer($env->renderers), fn (string $type, array $props) => $env->components->has($type) ? $env->components->get($type) : null);
-            $page = new LiveComponentPageController($env->components, $renderer, $csrf, $endpointRoute, $provider, assetsRoute:$this->route);
+            $page = new LiveComponentPageController($env->components, $renderer, $csrf, $endpointRoute, $provider, locale:$locale, assets:$assets, assetsRoute:$this->route);
             return $page->show($request->withQueryParams(['component' => $draft['name']]));
         } catch (\DomainException $e) {
             return new Response(409, ['Content-Type' => 'application/json','Cache-Control' => 'no-store'], json_encode(['error' => $e->getMessage()]));

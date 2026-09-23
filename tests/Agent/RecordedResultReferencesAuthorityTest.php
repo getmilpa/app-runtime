@@ -46,6 +46,19 @@ final class RecordedResultReferencesAuthorityTest extends TestCase
         self::assertSame('', References::section([$this->call(11)], 's', -1, ['agent_result']));
     }
 
+    public function testNativeReadersDoNotRecursivelyBecomeResultsToRecover(): void
+    {
+        $data = $this->data(References::section([
+            $this->call(11),
+            $this->call(12, changes: ['tool' => 'agent_result']),
+            $this->call(13, changes: ['tool' => 'agent_argument']),
+        ], 's', 10, ['agent_result']));
+
+        self::assertSame([11], array_column($data['references'], 'seq'));
+        self::assertSame(['source_read'], array_column($data['references'], 'tool'));
+        self::assertSame(0, $data['omitted']);
+    }
+
     public function testFailedResultsAndUnknownOrPartialStorageStayExplicit(): void
     {
         $data = $this->data(References::section([

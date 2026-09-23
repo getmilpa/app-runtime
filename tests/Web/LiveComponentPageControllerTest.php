@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Web;
 
 use Milpa\AppRuntime\Web\Controllers\LiveComponentPageController;
+use Milpa\AppRuntime\Web\Controllers\LiveController;
 use Milpa\AppRuntime\Web\LivePageProvider;
 use Milpa\AppRuntime\Web\LivePlugin;
 use Milpa\Auth\Actor;
@@ -15,6 +16,7 @@ use Milpa\Container\DIContainer;
 use Milpa\Live\Http\LiveEndpoint;
 use Milpa\Runtime\Config;
 use Nyholm\Psr7\ServerRequest;
+use Nyholm\Psr7\Stream;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -66,6 +68,34 @@ final class LiveComponentPageControllerTest extends TestCase
         return (new ServerRequest('GET', '/live/page?component=data-table'))
             ->withQueryParams(['component' => 'data-table'])
             ->withAttribute(AuthenticateMiddleware::ATTRIBUTE, AuthContext::authenticated(new Actor($id, ActorType::Service, ['milpa:component:data-table:*'])));
+    }
+
+    /** @return array<string, mixed> */
+    private function wire(string $html, string $componentId): array
+    {
+        preg_match('#id="milpa-live-boot"[^>]*>(.*?)</script>#s', $html, $boot);
+        preg_match('#data-milpa-state="' . preg_quote($componentId, '#') . '"[^>]*>(.*?)</script>#s', $html, $state);
+        self::assertNotEmpty($boot, 'the page omitted its live boot');
+        self::assertNotEmpty($state, 'the page omitted its signed component state');
+
+        return json_decode($boot[1], true, flags: \JSON_THROW_ON_ERROR) + ['state' => html_entity_decode($state[1])];
+    }
+
+    /**
+     * @param array<string, mixed> $wire
+     * @param array<string, mixed> $payload
+     *
+     * @return array<string, mixed>
+     */
+    private function act(DIContainer $container, array $wire, string $action, array $payload): array
+    {
+        $request = (new ServerRequest('POST', '/live'))
+            ->withAttribute(AuthenticateMiddleware::ATTRIBUTE, AuthContext::authenticated(new Actor('rod', ActorType::Service, ['milpa:component:data-table:*'])))
+            ->withBody(Stream::create((string) json_encode($wire + ['action' => $action, 'payload' => $payload])));
+        $response = $container->get(LiveController::class)->handle($request);
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+
+        return json_decode((string) $response->getBody(), true, flags: \JSON_THROW_ON_ERROR);
     }
 
     public function testTheStateIsBornOwnedByTheRequestActor(): void
@@ -147,7 +177,7 @@ final class LiveComponentPageControllerTest extends TestCase
 
         $container = $this->containerRootedAt($root);
         (new LivePlugin($container))->boot();
-        $request = (new ServerRequest('GET', '/live/page'))->withQueryParams(['component' => 'data-table']);
+        $request = $this->asActor('rod');
 
         $before = (string) $container->get(LiveComponentPageController::class)->show($request)->getBody();
         self::assertStringContainsString('"data-table.selected":"selected"', $before, 'nothing is overridden before anybody said so');
@@ -161,6 +191,14 @@ final class LiveComponentPageControllerTest extends TestCase
 
         self::assertStringContainsString('"data-table.selected":"picked"', $after, 'the authorized override never reached the page');
         self::assertStringNotContainsString('"data-table.selected":"selected"', $after);
+
+        $acted = $this->act($afterContainer, $this->wire($after, 'data-table'), 'sort', ['key' => 'n']);
+        $dynamicAssets = array_values($acted['assets']['components'] ?? []);
+        self::assertSame(
+            'picked',
+            $dynamicAssets[0]['messages']['data-table.selected'] ?? null,
+            'the authorized override disappeared after the first live action',
+        );
 
         array_map('unlink', (array) glob($root . '/{,*/}*.{php,json}', \GLOB_BRACE));
         array_map('rmdir', [$root . '/resources', $root . '/var', $root]);

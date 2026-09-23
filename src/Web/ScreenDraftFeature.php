@@ -7,6 +7,7 @@ namespace Milpa\AppRuntime\Web;
 
 use Milpa\AppRuntime\Web\Controllers\{ScreenPreviewController,ScreenReviewController,LiveComponentPageController,LiveController};
 use Milpa\Interfaces\Di\DIContainerInterface;
+use Milpa\Live\Assets\{ComponentAssetOrchestrator,ComponentMessages};
 use Milpa\Live\Security\{SignedXhtmlStateTransferCodec,HmacStateSigner,FileNonceStore,HmacCsrfGuard,ContractInteractionAuthorizer};
 use Milpa\Live\Transport\XhtmlStateTransferCodec;
 use Milpa\Live\Runtime\InMemoryComponentRegistry;
@@ -22,8 +23,10 @@ final class ScreenDraftFeature
     {
         $previews = new ScreenPreviewRegistry();
         $build = new ScreenBuild($root);
+        $live = $container->get(\Milpa\Runtime\Config::class)->get('live', []);
+        $locale = is_string($live['locale'] ?? null) ? (string) $live['locale'] : ComponentMessages::DEFAULT_LOCALE;
         $drafts = new ScreenDrafts(
-            ScreenStore::fromConfig(($container->get(\Milpa\Runtime\Config::class))->get('live', []), $root),
+            ScreenStore::fromConfig($live, $root),
             $root . '/var/screen-drafts',
             static function (string $name, string $type, array $props) use ($screens, $previews): void {
                 if ($screens->conflicts($name, $type)) {
@@ -40,7 +43,7 @@ final class ScreenDraftFeature
         $container->registerService(ScreenPreviewRegistry::class, $previews);
         $container->registerService(ScreenDrafts::class, $drafts);
         $container->registerService(ScreenDraftOperations::class, new ScreenDraftOperations($drafts, $route));
-        $container->registerService(ScreenPreviewController::class, new ScreenPreviewController($drafts, $previews, $build, $secret, $root, $route));
+        $container->registerService(ScreenPreviewController::class, new ScreenPreviewController($drafts, $previews, $build, $secret, $root, $route, $locale));
         $key = hash_hmac('sha256', 'screen-review', $secret);
         $codec = new SignedXhtmlStateTransferCodec(new XhtmlStateTransferCodec(), new HmacStateSigner($key), new FileNonceStore($root . '/var/screen-review/nonces.json'));
         $csrf = new HmacCsrfGuard($key);
@@ -56,8 +59,9 @@ final class ScreenDraftFeature
                 return $component === 'screen-review' ? ['revision' => is_string($id) ? $id : ''] : null;
             }
         };
-        $page = new LiveComponentPageController($registry, new RegisteredHtmlRenderer($renderers), $csrf, $wire, $provider, assetsRoute:$route);
-        $endpoint = new LiveEndpoint($registry, $codec, new ContractInteractionAuthorizer($registry), $csrf, $wire, renderers:$renderers);
+        $assets = new ComponentAssetOrchestrator();
+        $page = new LiveComponentPageController($registry, new RegisteredHtmlRenderer($renderers), $csrf, $wire, $provider, locale:$locale, assets:$assets, assetsRoute:$route);
+        $endpoint = new LiveEndpoint($registry, $codec, new ContractInteractionAuthorizer($registry), $csrf, $wire, renderers:$renderers, assetOrchestrator:$assets, locale:$locale);
         $container->registerService(ScreenReviewController::class, new ScreenReviewController($page, new LiveController($endpoint)));
     }
 }
