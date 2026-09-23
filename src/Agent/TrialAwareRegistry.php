@@ -61,6 +61,7 @@ final class TrialAwareRegistry extends ToolRegistry
         private readonly ?\Closure $screenDrafts = null,
     ) {
         parent::__construct(new NullLogger());
+        $this->pendingMultipartPromotion = $this->recordedMultipartPromotion();
     }
 
     /**
@@ -211,7 +212,7 @@ final class TrialAwareRegistry extends ToolRegistry
 
         $data['to_apply'] = ['operation' => 'sandbox:promote', 'arguments' => ['workspace' => $ws]];
         $data['to_discard'] = ['operation' => 'sandbox:discard', 'arguments' => ['workspace' => $ws]];
-        if ($operation->name === 'implement' && in_array($args['mode'] ?? null, ['start', 'append'], true)
+        if ($operation->name === 'implement' && in_array($args['mode'] ?? null, ['start', 'append', 'amend'], true)
             && is_string($run->output['file'] ?? null) && is_string($run->output['staging'] ?? null)
             && $run->output['staging'] === $run->output['file'] . '.milpa-part'
             && array_keys($changed) === [$run->output['staging']]) {
@@ -277,11 +278,65 @@ final class TrialAwareRegistry extends ToolRegistry
     public function getToolSummaries(): array
     {
         $tools = $this->inner->getToolSummaries();
+        if ($this->pendingMultipartPromotion !== null) {
+            $workspace = $this->router->workspace($this->pendingMultipartPromotion);
+            if ($workspace === null || !$workspace->hasCurrentInputs()) {
+                $this->pendingMultipartPromotion = null;
+            }
+        }
         if ($this->pendingMultipartPromotion === null) {
             return $tools;
         }
         $promotion = array_values(array_filter($tools, static fn (array $tool): bool => $tool['name'] === 'sandbox_promote'));
         return count($promotion) === 1 ? $promotion : $tools;
+    }
+
+    /**
+     * Recover the last unconsumed multipart promotion from the durable session ledger.
+     *
+     * A model may create an accepted part on its final step. The next `agent` invocation builds a
+     * new registry, so the in-memory pointer above cannot be the source of truth across that
+     * boundary. `session.tool_called` already records both the exact trial receipt and every later
+     * promote/discard result; folding those facts restores only a still-actionable workspace.
+     */
+    private function recordedMultipartPromotion(): ?string
+    {
+        if ($this->sessions === null || $this->sessionId === null) {
+            return null;
+        }
+
+        $pending = null;
+        foreach ($this->sessions->stream($this->sessionId) as $event) {
+            if ($event->type !== 'session.tool_called' || ($event->payload['ok'] ?? null) !== true
+                || ($event->payload['awaitingConfirmation'] ?? false) === true
+                || !is_string($event->payload['result'] ?? null)) {
+                continue;
+            }
+            $result = json_decode($event->payload['result'], true);
+            if (!is_array($result)) {
+                continue;
+            }
+            $tool = $event->payload['tool'] ?? null;
+            $arguments = is_array($event->payload['arguments'] ?? null) ? $event->payload['arguments'] : [];
+            if ($tool === 'implement' && in_array($arguments['mode'] ?? null, ['start', 'append', 'amend'], true)
+                && ($result['ran_in_trial'] ?? null) === true && ($result['applied'] ?? null) === false
+                && ($result['to_apply']['operation'] ?? null) === 'sandbox:promote'
+                && is_string($result['to_apply']['arguments']['workspace'] ?? null)
+                && is_string($result['output']['file'] ?? null)
+                && ($result['output']['staging'] ?? null) === $result['output']['file'] . '.milpa-part'
+                && is_string($result['output']['partial'] ?? null) && trim($result['output']['partial']) !== '') {
+                $pending = $result['to_apply']['arguments']['workspace'];
+                continue;
+            }
+            if (in_array($tool, ['sandbox_promote', 'sandbox_discard'], true)
+                && ($arguments['workspace'] ?? null) === $pending && ($result['ok'] ?? null) === true) {
+                $pending = null;
+            }
+        }
+
+        $workspace = $pending === null ? null : $this->router->workspace($pending);
+
+        return $workspace !== null && $workspace->hasCurrentInputs() ? $pending : null;
     }
 
     /** Forwards to the wrapped registry. */
