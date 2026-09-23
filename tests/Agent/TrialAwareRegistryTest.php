@@ -183,6 +183,95 @@ final class TrialAwareRegistryTest extends TestCase
         self::assertSame(['implement', 'sandbox_promote', 'source_read'], array_column($offer->getToolSummaries(), 'name'));
     }
 
+    public function testAnAcceptedAmendmentRemainsTheOnlyOfferAfterTheAgentIsReopened(): void
+    {
+        $root = $this->root();
+        $sessions = new SessionStore(new InMemoryEventStore());
+        $sessions->start('s-1', 'goal', AutonomyMode::Ask);
+        $inner = new ToolRegistry(new NullLogger());
+        $inner->register('implement', 'stages a part', ['type' => 'object'], static fn (): array => ['unexpected' => true]);
+        $inner->register('sandbox_promote', 'promotes a trial', ['type' => 'object'], static fn (): array => ['ok' => true]);
+        $inner->register('sandbox_discard', 'discards a trial', ['type' => 'object'], static fn (): array => ['ok' => true]);
+        $inner->register('source_read', 'reads source', ['type' => 'object'], static fn (): array => ['ok' => true]);
+        $implement = new Operation(
+            name: 'implement',
+            description: 'stages a part',
+            handler: static fn (): array => ['unexpected' => true],
+            mutating: true,
+            effects: new EffectProfile(
+                mutation: Mutation::Persistent,
+                externality: Externality::None,
+                reversibility: Reversibility::Compensatable,
+                authority: Authority::WriteAsUser,
+                subject: Subject::Executable,
+            ),
+        );
+        $promote = new Operation(
+            name: 'sandbox:promote',
+            description: 'promotes a trial',
+            handler: static fn (): array => ['unexpected' => true],
+            mutating: true
+        );
+        $discard = new Operation(
+            name: 'sandbox:discard',
+            description: 'discards a trial',
+            handler: static fn (): array => ['unexpected' => true],
+            mutating: true
+        );
+        $router = new TrialRouter(
+            $root,
+            new TrialRunner(bwrap: $this->fakeExecBwrap()),
+            dirname(__DIR__) . '/Fixtures/trial-staged-part-runner.php'
+        );
+        $first = new TrialAwareRegistry($inner, $router, [$implement, $promote, $discard], $sessions, 's-1');
+        $arguments = ['plugin' => 'Owned', 'class' => 'TodoItemRenderer', 'mode' => 'amend'];
+        $part = $first->call('implement', $arguments);
+        self::assertTrue($part->success, (string) $part->error);
+        self::assertSame(
+            ['sandbox_promote'],
+            array_column($first->getToolSummaries(), 'name'),
+            'amend has the same mandatory promotion transition as start and append'
+        );
+
+        $raw = json_encode($part->data, JSON_THROW_ON_ERROR);
+        $sessions->recordToolCall('s-1', 'implement', $arguments, $raw, true, true, strlen($raw), false);
+        $reopened = new TrialAwareRegistry($inner, $router, [$implement, $promote, $discard], $sessions, 's-1');
+        self::assertSame(
+            ['sandbox_promote'],
+            array_column($reopened->getToolSummaries(), 'name'),
+            'the session receipt restores the transition after a new agent invocation'
+        );
+
+        $staging = $root . '/src/Plugins/Owned/Services/TodoItemRenderer.php.milpa-part';
+        mkdir(dirname($staging), 0o777, true);
+        file_put_contents($staging, "<?php // independently changed\n");
+        $stale = new TrialAwareRegistry($inner, $router, [$implement, $promote, $discard], $sessions, 's-1');
+        self::assertSame(
+            ['implement', 'sandbox_promote', 'sandbox_discard', 'source_read'],
+            array_column($stale->getToolSummaries(), 'name'),
+            'a stale workspace cannot monopolize the offer'
+        );
+        unlink($staging);
+
+        $workspace = $part->data['to_apply']['arguments']['workspace'];
+        $failed = json_encode(['ok' => false, 'promoted' => []], JSON_THROW_ON_ERROR);
+        $sessions->recordToolCall('s-1', 'sandbox_promote', ['workspace' => $workspace], $failed, true, true, strlen($failed), false);
+        $afterFailure = new TrialAwareRegistry($inner, $router, [$implement, $promote, $discard], $sessions, 's-1');
+        self::assertSame(
+            ['sandbox_promote'],
+            array_column($afterFailure->getToolSummaries(), 'name'),
+            'a domain failure does not consume the recorded transition'
+        );
+
+        $accepted = json_encode(['ok' => true, 'promoted' => ['src/Plugins/Owned/Services/TodoItemRenderer.php.milpa-part']], JSON_THROW_ON_ERROR);
+        $sessions->recordToolCall('s-1', 'sandbox_promote', ['workspace' => $workspace], $accepted, true, true, strlen($accepted), false);
+        $afterSuccess = new TrialAwareRegistry($inner, $router, [$implement, $promote, $discard], $sessions, 's-1');
+        self::assertSame(
+            ['implement', 'sandbox_promote', 'sandbox_discard', 'source_read'],
+            array_column($afterSuccess->getToolSummaries(), 'name')
+        );
+    }
+
     public function testTheDecoratorForwardsEveryPublicMethodOfTheRegistry(): void
     {
         $propios = [];
