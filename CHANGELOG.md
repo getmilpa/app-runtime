@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.179.1](https://github.com/getmilpa/app-runtime/compare/v0.179.0...v0.179.1) (2026-09-23)
+
+
+### Bug Fixes
+
+* **dx:** asking what a recipe would do no longer costs a signature ([#551](https://github.com/getmilpa/app-runtime/issues/551)) ([35e3f78](https://github.com/getmilpa/app-runtime/commit/35e3f784a428d68532263e08aba9ab87d1fe6c9b))
+
 ## [0.179.0](https://github.com/getmilpa/app-runtime/compare/v0.178.4...v0.179.0) (2026-09-23)
 
 
