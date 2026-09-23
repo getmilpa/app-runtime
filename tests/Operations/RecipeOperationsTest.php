@@ -91,6 +91,26 @@ final class RecipeOperationsTest extends TestCase
         }
     }
 
+    /**
+     * 🚨 A RECIPE'S SESSION NAMES ITSELF, so whoever resumes it asks here instead of guessing.
+     *
+     * The shape `recipe:<name>` was built as a string in one place and read nowhere, so `agent:answer`
+     * — printing the hint after Rod answered a pause this operation had opened — told him to continue
+     * with `agent "continue"`: a MODEL turn, spending provider requests on a sequence that resumes
+     * with one signed call. A hint that names the wrong next step costs more than no hint, because it
+     * is followed (greenhouse decisions/0457).
+     */
+    public function testARecipeSessionNamesItselfSoWhoeverResumesItDoesNotGuess(): void
+    {
+        self::assertSame('recipe:blog', RecipeOperations::sessionIdFor('blog'));
+        self::assertSame('blog', RecipeOperations::recipeInSession('recipe:blog'));
+        self::assertSame('blog', RecipeOperations::recipeInSession(RecipeOperations::sessionIdFor('blog')));
+
+        // A session that belongs to no recipe says so, and the hint falls back to the agent's loop.
+        self::assertNull(RecipeOperations::recipeInSession('agent:anything'));
+        self::assertNull(RecipeOperations::recipeInSession('recipe:'));
+    }
+
     /** The plan names the recipe it reads, like its sibling. */
     public function testThePlanRequiresARecipeName(): void
     {

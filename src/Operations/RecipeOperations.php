@@ -148,6 +148,36 @@ final class RecipeOperations implements CommandProvider
     }
 
     /**
+     * The session a recipe governs itself in.
+     *
+     * 🚨 IT IS A METHOD BECAUSE THE SHAPE HAD TWO READERS AND NO OWNER. `agent:answer` printed «pick
+     * it up with `agent "continue"`» to a session this operation had opened — a MODEL turn offered as
+     * the way to continue something a human was driving, which would have spent provider requests on
+     * a sequence that resumes with one signed call. It could not know better: the id was built here
+     * as a string and read nowhere (greenhouse decisions/0457).
+     */
+    public static function sessionIdFor(string $recipe): string
+    {
+        return 'recipe:' . $recipe;
+    }
+
+    /**
+     * The recipe a session belongs to, or null when it belongs to no recipe.
+     *
+     * The inverse of {@see sessionIdFor()}, and the reason both exist: whoever needs to name how a
+     * paused session continues asks HERE instead of rebuilding the convention.
+     */
+    public static function recipeInSession(string $sessionId): ?string
+    {
+        if (! str_starts_with($sessionId, 'recipe:')) {
+            return null;
+        }
+        $name = substr($sessionId, \strlen('recipe:'));
+
+        return $name === '' ? null : $name;
+    }
+
+    /**
      * The refusal a name earns on its own, or null when the name is a name.
      *
      * 🚨 ASKED BEFORE THE FILESYSTEM AND BEFORE THE KERNEL, and a test says so in its own title:
@@ -334,7 +364,7 @@ final class RecipeOperations implements CommandProvider
 
         $sessionId = \is_string($input['session'] ?? null) && trim($input['session']) !== ''
             ? trim($input['session'])
-            : 'recipe:' . $name;
+            : self::sessionIdFor($name);
 
         $petition = "apply recipe {$name}";
 
