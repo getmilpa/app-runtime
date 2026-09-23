@@ -29,6 +29,7 @@ use Milpa\Command\Effect\Subject;
 use Milpa\Command\Operation;
 use Milpa\EventStore\InMemoryEventStore;
 use Milpa\ToolRuntime\ToolRegistry;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 
@@ -183,7 +184,15 @@ final class TrialAwareRegistryTest extends TestCase
         self::assertSame(['implement', 'sandbox_promote', 'source_read'], array_column($offer->getToolSummaries(), 'name'));
     }
 
-    public function testAnAcceptedAmendmentRemainsTheOnlyOfferAfterTheAgentIsReopened(): void
+    /** @return iterable<string, array{string}> */
+    public static function multipartContinuationModes(): iterable
+    {
+        yield 'amend' => ['amend'];
+        yield 'reset from live' => ['reset'];
+    }
+
+    #[DataProvider('multipartContinuationModes')]
+    public function testAnAcceptedMultipartChangeRemainsTheOnlyOfferAfterTheAgentIsReopened(string $mode): void
     {
         $root = $this->root();
         $sessions = new SessionStore(new InMemoryEventStore());
@@ -224,13 +233,13 @@ final class TrialAwareRegistryTest extends TestCase
             dirname(__DIR__) . '/Fixtures/trial-staged-part-runner.php'
         );
         $first = new TrialAwareRegistry($inner, $router, [$implement, $promote, $discard], $sessions, 's-1');
-        $arguments = ['plugin' => 'Owned', 'class' => 'TodoItemRenderer', 'mode' => 'amend'];
+        $arguments = ['plugin' => 'Owned', 'class' => 'TodoItemRenderer', 'mode' => $mode];
         $part = $first->call('implement', $arguments);
         self::assertTrue($part->success, (string) $part->error);
         self::assertSame(
             ['sandbox_promote'],
             array_column($first->getToolSummaries(), 'name'),
-            'amend has the same mandatory promotion transition as start and append'
+            "{$mode} has the same mandatory promotion transition as start and append"
         );
 
         $raw = json_encode($part->data, JSON_THROW_ON_ERROR);

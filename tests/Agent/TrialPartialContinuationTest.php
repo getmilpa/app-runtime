@@ -52,7 +52,7 @@ SH
     /** @return iterable<string, array{string, bool}> */
     public static function cases(): iterable
     {
-        foreach (['start', 'append', 'amend'] as $mode) {
+        foreach (['start', 'append', 'amend', 'reset'] as $mode) {
             yield $mode => [$mode, true];
         }
         foreach (['other-operation', 'inline', 'finish', 'empty-partial', 'missing-partial', 'verified',
@@ -67,12 +67,12 @@ SH
     {
         $file = 'src/Plugins/Owned/Services/Renderer.php';
         $staging = $file . '.milpa-part';
-        if (in_array($case, ['append', 'amend', 'deleted'], true)) {
+        if (in_array($case, ['append', 'amend', 'reset', 'deleted'], true)) {
             file_put_contents($this->root . '/' . $staging, 'Earlier part');
         }
         $before = is_file($this->root . '/' . $staging) ? file_get_contents($this->root . '/' . $staging) : null;
         $operation = $case === 'other-operation' ? 'edit' : 'implement';
-        $input = ['fixture' => $case, 'mode' => in_array($case, ['append', 'amend', 'finish'], true) ? $case : 'start'];
+        $input = ['fixture' => $case, 'mode' => in_array($case, ['append', 'amend', 'reset', 'finish'], true) ? $case : 'start'];
         if ($case === 'inline') {
             unset($input['mode']);
         }
@@ -95,7 +95,7 @@ SH
         if ($expected) {
             self::assertSame(['ok' => true, 'file' => $file, 'staging' => $staging,
                 'sha256' => hash('sha256', "<?php // Partial renderer\n"), 'partial' => 'Producer says append next'], $result->data['output']);
-            self::assertStringContainsString('Before another append, amend or finish', $note);
+            self::assertStringContainsString('Before another reset, append, amend or finish', $note);
             self::assertStringContainsString('check that its domain result succeeded', $note);
             self::assertStringContainsString('unchanged and unverified', $note);
             self::assertStringContainsString('producer-verified candidates', $note);
