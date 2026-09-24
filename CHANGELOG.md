@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.179.2](https://github.com/getmilpa/app-runtime/compare/v0.179.1...v0.179.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* **recipe:** a finished recipe says what its steps left for a human ([#553](https://github.com/getmilpa/app-runtime/issues/553)) ([3ce99ec](https://github.com/getmilpa/app-runtime/commit/3ce99ec9e059b61dfeeb69cca87cfe095362233c))
+
 ## [0.179.1](https://github.com/getmilpa/app-runtime/compare/v0.179.0...v0.179.1) (2026-09-23)
 
 
