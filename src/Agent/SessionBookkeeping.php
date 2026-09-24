@@ -626,8 +626,12 @@ final readonly class SessionBookkeeping implements ContractProducer
                 'a recorded artifact-producing result (make/implement) materialising «%s»',
                 $reference,
             ),
+            // A receipt earned in a trial never covers the house (decisions/0463); the verb that earns
+            // one here is named, so the agent observes instead of re-declaring (decisions/0466).
             EvidenceKind::ScreenServed => sprintf(
-                'a recorded call whose result declares the served predicate for «%s» (a served screen)',
+                'a recorded call whose result declares the served predicate for «%s» (a served screen). '
+                . 'If it was promoted from a trial, observe it in the house with screen:observe {"name":"%s"}',
+                $reference,
                 $reference,
             ),
         };

@@ -127,6 +127,17 @@ final class ScreenOperations implements CommandProvider
                 ),
             ),
             new Operation(
+                name: 'screen:observe',
+                description: 'Observe a declared screen IN THIS HOUSE: request its page the way a browser does and, only if it answers 200, record that it is served here. Use it after a trial was promoted — what a trial observed was observed in its copy, not in the house. Read-only.',
+                handler: fn (array $input): array => $this->observe($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'required' => ['name'],
+                    'properties' => ['name' => ['type' => 'string', 'description' => 'the declared screen to observe']],
+                ],
+                effects: EffectProfile::readOnly(),
+            ),
+            new Operation(
                 name: 'screen:list',
                 description: 'List the live screens declared at runtime — name, where each is served, and its shape. Read-only.',
                 handler: fn (array $input): array => ['screens' => $this->store->catalogue()],
@@ -367,6 +378,52 @@ final class ScreenOperations implements CommandProvider
         }
 
         return $registry->has($type) ? $registry->get($type)::contract()->propsSchema : [];
+    }
+
+    /**
+     * Observe a declared screen in the house and, only on a 200, declare it served HERE
+     * (greenhouse decisions/0466).
+     *
+     * The verb the chain was missing: declared → rehearsed (served@trial) → promoted → observed in the
+     * house (served@house). It is read-only, so it never runs in a trial — what it sees is the house. The
+     * receipt says so (`environment: house`); nothing is inherited from the trial that produced the
+     * screen, and a judge closes a screen claim on this and not on a copy.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function observe(array $input): array
+    {
+        $name = trim((string) ($input['name'] ?? ''));
+        if ($this->store->screen($name) === null) {
+            return ['ok' => false, 'error' => "this house has no declared screen «{$name}»", 'screens' => array_column($this->store->catalogue(), 'name')];
+        }
+        $status = $this->serve !== null ? ($this->serve)($name) : null;
+        $servedAt = '/live/page?component=' . $name;
+        if ($status !== 200) {
+            return [
+                'ok' => false,
+                'screen' => $name,
+                'status' => $status,
+                'error' => $status === null
+                    ? 'the page cannot be requested here, so nothing was observed'
+                    : "its page answered HTTP {$status} in this house; open {$servedAt} to see why",
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'screen' => $name,
+            'status' => 200,
+            'servedAt' => $servedAt,
+            'evidence' => [
+                'predicate' => 'served',
+                'subject' => $name,
+                'servedAt' => $servedAt,
+                'environment' => ['kind' => 'house'],
+            ],
+        ];
     }
 
     /**

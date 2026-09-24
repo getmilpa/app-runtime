@@ -2408,6 +2408,11 @@ class AgentOperations implements CommandProvider
             }
 
         } catch (RunInterrupted $e) {
+            // THE EXCEPTION IS THE PROOF (greenhouse decisions/0466): an orchestrator that does not report
+            // its own termination left the fact as `unknown`, while the interruption was never in doubt.
+            if ($this->runTermination === null || $this->runTermination->reason !== RunEnd::Interrupted) {
+                $this->runTermination = new RunTermination(RunEnd::Interrupted, null);
+            }
             // INTERRUMPIR NO ES FALLAR. El trabajo hecho hasta aquí ya está en el stream —cada llamada
             // se apenda al ocurrir— así que la sesión sigue viva y retomable. Decirlo como error
             // sugeriría que hay algo que arreglar, y lo que hay es una decisión del humano.
@@ -2444,13 +2449,13 @@ class AgentOperations implements CommandProvider
         } finally {
             // One observation for each attempt that reached ask, including exceptional exits.
             // The host's pending question remains independent of the producer's return cause.
-            if ($sessionId !== '' && $store !== null && $this->sessionEvents !== null) {
-                $this->sessionEvents->append(new \Milpa\EventStore\Event(
-                    streamId: SessionStore::PREFIX . $sessionId,
-                    type: 'session.run_terminated',
-                    payload: $this->terminationObservation(),
-                    seq: $this->sessionEvents->nextSeq(),
-                ));
+            //
+            // THE STORE WRITES IT, because the store is the one writer that always reaches the session's
+            // log (greenhouse decisions/0466). A host that registers its own store without exposing the
+            // event log used to lose this fact — and with the assistant-voice line gone (0996), an
+            // interrupted run left no trace at all.
+            if ($sessionId !== '' && $store !== null) {
+                $store->recordRunTermination($sessionId, $this->terminationObservation());
             }
         }
 
