@@ -92,7 +92,7 @@ use Milpa\Runtime\Http\RouteProviderInterface;
  *       'route'      => '/live',                // optional
  *       'nonce_path' => 'var/live-nonces.json', // optional, relative to the app root
  *       'components' => [ 'data-table' => \Milpa\Live\Components\Dashboard\DataTableComponent::class, … ], // optional; the dashboard set by default
- *       'screens_path' => 'var/screens.json',  // optional; where `screen:declare` stores runtime-declared screens
+ *       'screens_path' => 'config/screens.json',  // optional (this is the default); versioned, so a trial promotes it (decisions/0463)
  *   ]
  */
 #[PluginMetadata(version: '0.1.0', author: 'Rodrigo Vicente - TeamX Agency', site: 'https://teamx.agency', name: 'Live', type: 'Web')]

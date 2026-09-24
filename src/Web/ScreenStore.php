@@ -33,25 +33,55 @@ final class ScreenStore
     /** A declaration with no `type` is a data-table — the shape the store shipped with (decisions/0159). */
     public const DEFAULT_TYPE = 'data-table';
 
-    public function __construct(private readonly string $path)
-    {
+    /**
+     * Where a house keeps its declared screens by default: in the VERSIONED tree, beside the rest of its
+     * configuration (greenhouse decisions/0463). A screen is authorship. There it is copied into a trial
+     * with what the house already declared, seen by the trial's diff, carried by `sandbox:promote`,
+     * guarded by `stale()` and returned by `sandbox:undo`, the same as code.
+     */
+    public const DEFAULT_PATH = 'config/screens.json';
+
+    /**
+     * Where screens lived before 0463. `var/` is the house's STATE: a trial starts with it empty and
+     * never diffs it, so a screen declared there could not be promoted, and promoting it would have
+     * erased the house's other screens (measured, greenhouse evidence/0997).
+     */
+    public const LEGACY_PATH = 'var/screens.json';
+
+    /**
+     * @param string      $path       the declarations file
+     * @param string|null $lockPath   where writers serialise; `<path>.lock` when null. A lock is machinery and
+     *                                never result, so the default store keeps it under `var/`, out of any diff
+     * @param string|null $legacyPath a pre-0463 `var/screens.json` still read, merged under this one, and
+     *                                retired by the first write
+     */
+    public function __construct(
+        private readonly string $path,
+        private readonly ?string $lockPath = null,
+        private readonly ?string $legacyPath = null,
+    ) {
     }
 
     /**
      * Resolve the store from the app's `live` config: `live.screens_path` (relative paths are taken
-     * under the app root), or `var/screens.json` under the root by default.
+     * under the app root), or {@see self::DEFAULT_PATH} under the root by default — with its lock under
+     * `var/` and any pre-0463 {@see self::LEGACY_PATH} still read until the first write retires it.
      *
      * @param array<string, mixed> $live
      */
     public static function fromConfig(array $live, string $root): self
     {
+        $root = rtrim($root, '/');
         $declared = $live['screens_path'] ?? null;
-        $path = \is_string($declared) && $declared !== '' ? $declared : 'var/screens.json';
-        if (! str_starts_with($path, '/')) {
-            $path = rtrim($root, '/') . '/' . $path;
+        if (\is_string($declared) && $declared !== '') {
+            return new self(str_starts_with($declared, '/') ? $declared : $root . '/' . $declared);
         }
 
-        return new self($path);
+        return new self(
+            $root . '/' . self::DEFAULT_PATH,
+            $root . '/var/screens.lock',
+            $root . '/' . self::LEGACY_PATH,
+        );
     }
 
     /**
@@ -248,7 +278,11 @@ final class ScreenStore
         if (!is_dir(dirname($this->path))) {
             mkdir(dirname($this->path), 0755, true);
         }
-        $lock = fopen($this->path . '.lock', 'c');
+        $path = $this->lockPath ?? $this->path . '.lock';
+        if (!is_dir(dirname($path))) {
+            mkdir(dirname($path), 0755, true);
+        }
+        $lock = fopen($path, 'c');
         if ($lock === false || !flock($lock, LOCK_EX)) {
             throw new \RuntimeException('Cannot lock screen declarations');
         }
@@ -258,10 +292,18 @@ final class ScreenStore
     /** @return array<string, mixed> */
     private function all(): array
     {
-        if (! is_file($this->path)) {
+        // A pre-0463 house reads BOTH, the versioned file winning: a promotion that created it inside a
+        // trial (where `var/` is empty) must not hide the screens the house still keeps in `var/`.
+        return [...self::read($this->legacyPath), ...self::read($this->path)];
+    }
+
+    /** @return array<string, mixed> */
+    private static function read(?string $path): array
+    {
+        if ($path === null || ! is_file($path)) {
             return [];
         }
-        $decoded = json_decode((string) file_get_contents($this->path), true, 512, JSON_THROW_ON_ERROR);
+        $decoded = json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
         if (!is_array($decoded)) {
             throw new \RuntimeException('Invalid screen store');
         }
@@ -280,6 +322,11 @@ final class ScreenStore
             $json = json_encode($screens, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
             if (file_put_contents($temporary, $json) !== strlen($json) || !rename($temporary, $this->path)) {
                 throw new \RuntimeException('Cannot activate screen declaration');
+            }
+            // What was read from the legacy file is now IN the versioned one (all() merged it), so the
+            // old file retires — otherwise a screen forgotten here would come back from `var/`.
+            if ($this->legacyPath !== null && is_file($this->legacyPath)) {
+                unlink($this->legacyPath);
             }
         } finally {
             if (is_file($temporary)) {

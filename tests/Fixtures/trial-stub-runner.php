@@ -24,6 +24,15 @@ if ($operation === 'fail') {
     exit(1);
 }
 
+// A producer that DEMONSTRATES something in the copy and says so in a receipt, the way
+// screen:declare does (greenhouse decisions/0463): the wrapper must seal where it was observed.
+if ($operation === 'serve') {
+    @mkdir(__DIR__ . '/config', 0o777, true);
+    file_put_contents(__DIR__ . '/config/screens.json', json_encode(['blog' => ['type' => 'data-table', 'props' => []]]));
+    echo json_encode(['ok' => true, 'screen' => 'blog', 'evidence' => ['predicate' => 'served', 'subject' => 'blog', 'servedAt' => '/live/page?component=blog']]), "\n";
+    exit(0);
+}
+
 if ($operation === 'sleep') {
     sleep(30);
 }
