@@ -106,6 +106,10 @@ final class LiveComponentPageController
             );
         } catch (InvalidScreenTree $error) {
             return $this->json(422, ['error' => 'live_screen_invalid', 'path' => $error->path, 'reason' => $error->getMessage()]);
+        } catch (\Milpa\Live\Components\InvalidComponentProps $error) {
+            // A component that cannot paint the props it was declared with says where and why
+            // (greenhouse decisions/0464) — a 422 with the reason, never a 500 or an empty page.
+            return $this->json(422, ['error' => 'live_screen_invalid', 'path' => $error->path, 'reason' => $error->getMessage()]);
         }
 
         $authorization = $request->getHeaderLine('Authorization');

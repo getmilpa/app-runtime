@@ -57,7 +57,9 @@ final class DeclaredScreensPageProvider implements LivePageProvider
         // spec, whatever the component's contract declares. The type is fixed at registration (LivePlugin
         // registers the screen under the class for its type); here the framework only supplies the data.
         $props = $screen['props'];
-        if (! \array_key_exists('source', $props)) {
+        // A binding is an OBJECT; a string `source` is the component's own prop (autocomplete's data
+        // source name), passed through untouched (greenhouse decisions/0464).
+        if (! \is_array($props['source'] ?? null)) {
             return $props;
         }
 

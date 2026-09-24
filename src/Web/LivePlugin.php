@@ -32,6 +32,7 @@ use Milpa\Live\Components\Form\SelectComponent;
 use Milpa\Live\Components\Form\TextareaComponent;
 use Milpa\Live\Components\Dashboard\DashboardGridComponent;
 use Milpa\Live\Components\Dashboard\DataTableComponent;
+use Milpa\Live\Components\ContentComponent;
 use Milpa\Live\Components\StateMachineComponent;
 use Milpa\Live\Components\Dashboard\MetricCardComponent;
 use Milpa\Live\Contracts\Component\ComponentDefinitionInterface;
@@ -52,6 +53,7 @@ use Milpa\Live\Rendering\ComponentRendererRegistry;
 use Milpa\Live\ValueObjects\RenderTarget;
 use Milpa\Live\Rendering\DashboardHtmlRenderer;
 use Milpa\Live\Rendering\FormPrimitiveHtmlRenderer;
+use Milpa\Live\Rendering\ContentHtmlRenderer;
 use Milpa\Live\Rendering\StateMachineHtmlRenderer;
 use Milpa\Live\Runtime\InMemoryComponentRegistry;
 use Milpa\Live\Security\ContractInteractionAuthorizer;
@@ -124,6 +126,8 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         'select' => SelectComponent::class,
         'checkbox' => CheckboxComponent::class,
         'dashboard-grid' => DashboardGridComponent::class,
+        // Readable entries (greenhouse decisions/0464) — registered only where live-web ships it (≥ 0.31).
+        'content' => ContentComponent::class,
     ];
 
     private ?string $route = null;
@@ -183,6 +187,14 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         if ($stateMachine !== null) {
             $byContract['state-machine'] = $stateMachine;
         }
+        // GET and POST are one live wire. They must resolve presentation through the same authorized
+        // override ledger and language, otherwise the first action silently reverts the page's look or words.
+        $locale = \is_string($live['locale'] ?? null) ? (string) $live['locale'] : ComponentMessages::DEFAULT_LOCALE;
+        // `content` ships in milpa/live-web from 0.31 (decisions/0464); an older live-web still boots, and a
+        // content screen simply has no renderer there — the same degradation as state-machine above.
+        if (class_exists(ContentHtmlRenderer::class)) {
+            $byContract['content'] = new ContentHtmlRenderer($locale);
+        }
         $registeredRenderers = $this->container->has(ComponentRendererRegistry::class)
             ? $this->container->get(ComponentRendererRegistry::class)
             : new ComponentRendererRegistry();
@@ -212,9 +224,6 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 ? $this->autocompleteFor($props)
                 : ($components->registry->has($type) ? $components->registry->get($type) : null),
         );
-        // GET and POST are one live wire. They must resolve presentation through the same authorized
-        // override ledger and language, otherwise the first action silently reverts the page's look or words.
-        $locale = \is_string($live['locale'] ?? null) ? (string) $live['locale'] : ComponentMessages::DEFAULT_LOCALE;
         $assets = new ComponentAssetOrchestrator(overrides: $this->overrideStore());
         $endpoint = new LiveEndpoint(
             components: $screens,

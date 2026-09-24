@@ -86,7 +86,7 @@ final class ScreenOperations implements CommandProvider
             )]),
             new Operation(
                 name: 'screen:declare',
-                description: 'Declare a live screen by name and component type (default data-table) with its props. It is served at /live/page?component=<name> with no code deploy. A data-table may pass columns/rows at the top level, or bind to a public entity with source instead of rows; any type passes its props under "props".',
+                description: 'Declare a live screen by name and component type (default data-table) with its props. It is served at /live/page?component=<name> with no code deploy. A data-table may pass columns/rows at the top level. A type whose contract has rows (data-table, content) may bind to a public entity with source instead of rows. Any type passes its props under "props".',
                 handler: fn (array $input): array => $this->declare($input),
                 inputSchema: [
                     'type' => 'object',
@@ -103,10 +103,10 @@ final class ScreenOperations implements CommandProvider
                         'rows' => ['type' => 'array', 'description' => 'data-table convenience: list of row objects keyed by column key'],
                         'source' => [
                             'type' => 'object',
-                            'description' => 'data-table only, instead of rows: bind the table to an entity that declares PUBLIC_WHEN; the runtime serves its public rows per request, projected to the named fields',
+                            'description' => 'instead of rows, for a type whose contract has rows (data-table, content): bind to an entity that declares PUBLIC_WHEN; the runtime serves its public rows per request, projected to the named fields',
                             'required' => ['entity', 'columns'],
                             'properties' => [
-                                'entity' => ['type' => 'string', 'description' => 'the entity class, e.g. App\\Plugins\\Blog\\Entities\\Post'],
+                                'entity' => ['type' => 'string', 'description' => 'the entity class: App\\Plugins\\<Plugin>\\Entities\\<Entity>'],
                                 'columns' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'the entity fields to show'],
                                 'limit' => ['type' => 'integer', 'description' => 'rows served, 1 to 200; default 50'],
                             ],
@@ -259,12 +259,20 @@ final class ScreenOperations implements CommandProvider
         }
 
         // A BOUND screen (greenhouse decisions/0462) is refused here, by name, rather than stored and
-        // answered 422 later: only a data-table binds, the rows come from the source and not from the
-        // caller, and the entity must already declare what of it is public.
+        // answered 422 later: the rows come from the source and not from the caller, and the entity must
+        // already declare what of it is public.
+        //
+        // 🚨 A BINDING IS AN OBJECT. `autocomplete` already names its data source with a string
+        // `props.source`, and reading every `source` as a binding refused every autocomplete declaration
+        // from 0.180.0 on (greenhouse decisions/0464). A string stays the component's own prop.
         $source = \array_key_exists('source', $input) ? $input['source'] : ($props['source'] ?? null);
-        if ($source !== null) {
-            if ($type !== ScreenStore::DEFAULT_TYPE) {
-                return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'source', 'reason' => 'only a data-table binds to an entity'];
+        if (\is_array($source) || (\array_key_exists('source', $input) && $source !== null)) {
+            // WHO MAY BIND IS THE CONTRACT'S, NOT THE NAME'S (decisions/0464): a type binds when its contract
+            // declares the `rows` prop a binding fills. Without a registry the contract cannot be read, and
+            // only the default table is assumed.
+            $schema = $this->propsSchemaOf($registry, $type);
+            if (! \array_key_exists('rows', $schema)) {
+                return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'source', 'reason' => "«{$type}» declares no rows prop, so it cannot bind to an entity"];
             }
             if (\array_key_exists('rows', $input) || \array_key_exists('rows', $props)) {
                 return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'rows', 'reason' => 'a bound screen reads its rows from its source; declare either rows or source'];
@@ -274,8 +282,8 @@ final class ScreenOperations implements CommandProvider
             } catch (InvalidScreenTree $error) {
                 return ['ok' => false, 'error' => 'invalid screen tree', 'path' => $error->path, 'reason' => $error->getMessage()];
             }
-            // The columns the table shows are the columns the binding reads, unless the caller labelled them.
-            if (! \array_key_exists('columns', $input) && ! \array_key_exists('columns', $props)) {
+            // A contract that shows columns shows the ones the binding reads, unless the caller labelled them.
+            if (\array_key_exists('columns', $schema) && ! \array_key_exists('columns', $input) && ! \array_key_exists('columns', $props)) {
                 $input['columns'] = array_map(
                     static fn (string $key): array => ['key' => $key, 'label' => ucfirst(str_replace('_', ' ', $key))],
                     $binding['columns'],
@@ -323,6 +331,21 @@ final class ScreenOperations implements CommandProvider
         }
 
         return $result;
+    }
+
+    /**
+     * The props a type's contract declares, read from the live registry — or, with no registry, the
+     * default table's `rows`/`columns`, the one shape a standalone caller can rely on.
+     *
+     * @return array<string, mixed>
+     */
+    private function propsSchemaOf(?ScreenComponents $registry, string $type): array
+    {
+        if ($registry === null) {
+            return $type === ScreenStore::DEFAULT_TYPE ? ['rows' => [], 'columns' => []] : [];
+        }
+
+        return $registry->has($type) ? $registry->get($type)::contract()->propsSchema : [];
     }
 
     /**
