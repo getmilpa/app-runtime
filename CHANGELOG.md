@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.179.5](https://github.com/getmilpa/app-runtime/compare/v0.179.4...v0.179.5) (2026-09-24)
+
+
+### Bug Fixes
+
+* promote plugin configuration, and keep runtime outcomes out of the model's voice ([#560](https://github.com/getmilpa/app-runtime/issues/560)) ([9ab43f1](https://github.com/getmilpa/app-runtime/commit/9ab43f1c32fcd81cfc0c816532052dbf5baf03b8))
+
 ## [0.179.4](https://github.com/getmilpa/app-runtime/compare/v0.179.3...v0.179.4) (2026-09-24)
 
 
