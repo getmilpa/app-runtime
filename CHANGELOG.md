@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.183.0](https://github.com/getmilpa/app-runtime/compare/v0.182.0...v0.183.0) (2026-09-24)
+
+
+### Features
+
+* **components:** a house learns a word ([#568](https://github.com/getmilpa/app-runtime/issues/568)) ([7c0853c](https://github.com/getmilpa/app-runtime/commit/7c0853c2a1ee0755a269ef7662a9d8674e987a93))
+
 ## [0.182.0](https://github.com/getmilpa/app-runtime/compare/v0.181.0...v0.182.0) (2026-09-24)
 
 
