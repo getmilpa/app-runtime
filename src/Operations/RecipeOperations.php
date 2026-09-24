@@ -277,18 +277,26 @@ final class RecipeOperations implements CommandProvider
     {
         $missing = [];
         $capabilities = [];
+        $manifests = Capabilities::declaredBy();
         foreach ($recipe->capabilities as $package) {
             $installed = class_exists(\Composer\InstalledVersions::class)
                 && \Composer\InstalledVersions::isInstalled($package);
+            // THE SAME QUESTION `apply` ASKS (greenhouse evidence/0995): the plan used to call a capability
+            // done when composer had it, while `apply` then skipped enabling it — the free read agreeing
+            // with the step that failed. Installed-but-undeclared is its own state, and it needs the
+            // same enable, which now declares instead of answering «nothing to do».
+            $undeclared = $installed ? Capabilities::unwired($root, $manifests[$package] ?? []) : [];
+            $ready = $installed && $undeclared === [];
             $capabilities[] = [
                 'package' => $package,
-                'state' => $installed ? 'installed' : 'missing',
+                'state' => ! $installed ? 'missing' : ($ready ? 'installed' : 'installed, not declared'),
                 // THE COMMAND COMES FROM THE AUTHORITY, never typed: `coa` is not on the PATH after a
                 // `create-project`, so a typed one names something the reader cannot run
                 // (greenhouse decisions/0305).
-                'command' => $installed ? '' : Capabilities::ENABLE_COMMAND . $package,
+                'command' => $ready ? '' : Capabilities::ENABLE_COMMAND . $package,
+                ...($undeclared === [] ? [] : ['undeclared' => $undeclared]),
             ];
-            if (! $installed) {
+            if (! $ready) {
                 $missing[] = $package;
             }
         }
@@ -393,7 +401,21 @@ final class RecipeOperations implements CommandProvider
 
             return ['verdict' => $v['verdict'], 'domain' => $v['foundation']['domain'] ?? null];
         };
-        $installed = static fn (): array => array_keys(Capabilities::declaredBy());
+        // SATISFIED MEANS USABLE, not merely on disk (greenhouse evidence/0993, 0995). This listed every
+        // installed package, so a recipe requiring `milpa/devtools` skipped enabling it when composer had
+        // landed it undeclared — and failed three steps later on «make resolves to no Operation». A
+        // capability counts as done only when nothing its manifest names is still undeclared; one that is
+        // installed but not declared gets its enable step, which now declares it.
+        $installed = static function () use ($root): array {
+            $usable = [];
+            foreach (Capabilities::declaredBy() as $package => $manifest) {
+                if (Capabilities::unwired($root, $manifest) === []) {
+                    $usable[] = $package;
+                }
+            }
+
+            return $usable;
+        };
 
         return $driver->apply($recipe, $executor, $store, $sessionId, $verdict, $installed);
     }

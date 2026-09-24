@@ -383,6 +383,89 @@ final class Capabilities
     }
 
     /**
+     * The providers and plugins a capability's manifest names that this app does NOT declare yet.
+     *
+     * INSTALLED IS NOT WIRED. `composer require` lands the code; it does not write the provider into
+     * `config/operations.php` nor the plugin into `config/plugins.php` — only this class does, on
+     * enable. So a package that arrived by composer, or whose declaration somebody removed, is present
+     * and unusable at once: its operations are simply absent from the catalogue. Measured on cattle
+     * (greenhouse evidence/0993): `make` did not exist as an operation, and a recipe that required
+     * `milpa/devtools` skipped enabling it because the package was installed.
+     *
+     * Pure: it reads, never writes. The same presence rule as the two writers ({@see self::names()}),
+     * so «is it declared» cannot be answered two ways.
+     *
+     * @param array<string, mixed> $manifest the package's `extra.milpa.capability`
+     *
+     * @return list<string> the classes still to declare, operations first
+     */
+    public static function unwired(string $root, array $manifest): array
+    {
+        $root = rtrim($root, '/');
+        $missing = [];
+        foreach ([
+            [$root . '/config/operations.php', self::providersFor($manifest)],
+            [$root . '/config/plugins.php', self::pluginsFor($manifest)],
+        ] as [$file, $classes]) {
+            // A list file that is not there is not invented — and not reported as missing either,
+            // which is the writers' rule too: nothing can be declared into a file that does not exist.
+            if (!is_file($file)) {
+                continue;
+            }
+            $src = (string) file_get_contents($file);
+            foreach ($classes as $class) {
+                if (!self::names($src, $class)) {
+                    $missing[] = $class;
+                }
+            }
+        }
+
+        return $missing;
+    }
+
+    /**
+     * Whether a config list already names a class. The ONE rule — both writers and {@see self::unwired()}
+     * ask it, so the answer to «is it declared» has a single author.
+     */
+    private static function names(string $source, string $class): bool
+    {
+        return str_contains($source, trim($class, " \\"));
+    }
+
+    /**
+     * The operation providers a capability's manifest declares.
+     *
+     * @param array<string, mixed> $manifest
+     *
+     * @return list<string>
+     */
+    private static function providersFor(array $manifest): array
+    {
+        return array_values(array_filter(
+            (array) ($manifest['operations'] ?? []),
+            static fn ($c): bool => \is_string($c) && trim($c, " \\") !== '',
+        ));
+    }
+
+    /**
+     * The plugins enabling a capability declares — the SAME list the fresh-install path writes, so
+     * enabling something already installed and enabling it the first time end in the same app.
+     *
+     * @param array<string, mixed> $manifest
+     *
+     * @return list<string>
+     */
+    private static function pluginsFor(array $manifest): array
+    {
+        $id = \is_string($manifest['id'] ?? null) ? $manifest['id'] : '';
+
+        return array_values(array_unique([
+            ...self::pluginsUnlockedBy($id),
+            ...self::pluginsDeclaredBy($manifest)['plugins'],
+        ]));
+    }
+
+    /**
      * Declare a third-party capability's operation providers in `config/operations.php`, so its
      * operations project after install. The app DECLARES what it runs (a versioned decision written
      * into config), it does NOT scan the vendor directory — the same law `config/plugins.php` lives
@@ -404,7 +487,7 @@ final class Capabilities
         $escritas = [];
         foreach ($classes as $clase) {
             $clase = trim((string) $clase, " \\");
-            if ($clase === '' || str_contains($src, $clase)) {
+            if ($clase === '' || self::names($src, $clase)) {
                 continue;
             }
             $pos = strrpos($src, '];');
@@ -465,7 +548,7 @@ final class Capabilities
         $written = [];
         foreach ($classes as $class) {
             $class = trim($class, " \\");
-            if ($class === '' || str_contains($src, $class)) {
+            if ($class === '' || self::names($src, $class)) {
                 continue;
             }
             $pos = strrpos($src, '];');
@@ -766,9 +849,44 @@ final class Capabilities
         // ALREADY THERE IS NOT AN ERROR. Someone who asks twice is told it is done, not that it
         // failed — a failure reads as "this cannot be had" and sends them looking for another way.
         foreach ($estado['installed'] as $puesta) {
-            if ($puesta['package'] === $pedido || $puesta['id'] === $pedido) {
-                return ['ok' => true, 'capability' => $puesta['package'], 'hint' => 'already installed — nothing to do'];
+            if ($puesta['package'] !== $pedido && $puesta['id'] !== $pedido) {
+                continue;
             }
+
+            // INSTALLED IS NOT WIRED (greenhouse evidence/0993, 0995). This used to answer «already
+            // installed — nothing to do» for a package composer had landed and nobody had declared,
+            // so its operations stayed absent from the catalogue while the one command whose job is
+            // to make a capability usable reported it was done. A `composer require` followed by
+            // `capabilities:enable` ended with no `make`.
+            //
+            // So enabling what is already on disk DECLARES what is missing, through the same two
+            // idempotent writers and the same lists the fresh install uses — and says what it wrote.
+            // It never runs composer: that is the part that was already true.
+            $manifest = self::declaredBy($vendor)[$puesta['package']] ?? [];
+            if ($dryRun) {
+                $pending = self::unwired($root ?? self::raizDeLaApp(), $manifest);
+
+                return $pending === []
+                    ? ['ok' => true, 'capability' => $puesta['package'], 'hint' => 'already installed and declared — nothing to do']
+                    : ['ok' => true, 'capability' => $puesta['package'], 'would_declare' => $pending,
+                        'hint' => 'installed but not declared: enabling it declares what is listed, and runs no composer'];
+            }
+
+            $root ??= self::raizDeLaApp();
+            $registered = self::registerOperations($root, self::providersFor($manifest));
+            $pluginsDeclared = self::registerPlugins($root, self::pluginsFor($manifest));
+            if ($registered === [] && $pluginsDeclared === []) {
+                return ['ok' => true, 'capability' => $puesta['package'], 'hint' => 'already installed and declared — nothing to do'];
+            }
+
+            return [
+                'ok' => true,
+                'capability' => $puesta['package'],
+                'command' => '',
+                'registered' => $registered,
+                'plugins_declared' => $pluginsDeclared,
+                'hint' => 'it was installed but not declared — declared now; run `' . self::CLI . 'list` to see its operations',
+            ];
         }
 
         $objetivo = null;
@@ -884,19 +1002,13 @@ final class Capabilities
         // (greenhouse decisions/0226, measured on cattle). A fresh loader over the new maps, prepended.
         self::teachTheRunningLoader($vendorAfter ?? self::raizDeLaApp() . '/vendor');
         $root ??= self::raizDeLaApp();
-        $registered = self::registerOperations($root, array_values(array_filter(
-            (array) ($delivered0['operations'] ?? []),
-            static fn ($c): bool => \is_string($c) && $c !== '',
-        )));
+        $registered = self::registerOperations($root, self::providersFor($delivered0));
         // THE DOOR, DECLARED: a capability that brings one of this package's plugins gets it named in
         // config/plugins.php, and identity gets its relying party declared — the enable that leaves the
         // human three hand edits away from the door has not enabled anything (decisions/0216, F6).
         $deliveredId = \is_string($delivered0['id'] ?? null) ? $delivered0['id'] : '';
         $announced = self::pluginsDeclaredBy($delivered0);
-        $pluginsDeclared = self::registerPlugins($root, [
-            ...self::pluginsUnlockedBy($deliveredId),
-            ...$announced['plugins'],
-        ]);
+        $pluginsDeclared = self::registerPlugins($root, self::pluginsFor($delivered0));
         $relyingParty = $deliveredId === 'identity' ? self::declareRelyingParty($root) : null;
 
         $okOut = [
