@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.181.0](https://github.com/getmilpa/app-runtime/compare/v0.180.0...v0.181.0) (2026-09-24)
+
+
+### Features
+
+* **screens:** a rehearsed screen is promoted like any other work ([#564](https://github.com/getmilpa/app-runtime/issues/564)) ([624e544](https://github.com/getmilpa/app-runtime/commit/624e5446b77134dc8a5ff96cd4600013595c15aa))
+
 ## [0.180.0](https://github.com/getmilpa/app-runtime/compare/v0.179.5...v0.180.0) (2026-09-24)
 
 
