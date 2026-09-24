@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.182.0](https://github.com/getmilpa/app-runtime/compare/v0.181.0...v0.182.0) (2026-09-24)
+
+
+### Features
+
+* **screens:** content binds to public entities, and a type binds by its contract ([#566](https://github.com/getmilpa/app-runtime/issues/566)) ([7e838cb](https://github.com/getmilpa/app-runtime/commit/7e838cb20059daffb372a5d5d1e0fdb5cb2a73c3))
+
 ## [0.181.0](https://github.com/getmilpa/app-runtime/compare/v0.180.0...v0.181.0) (2026-09-24)
 
 
