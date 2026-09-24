@@ -192,6 +192,11 @@ final class ScreenStore
         if (\array_key_exists('rows', $input)) {
             $props['rows'] = \is_array($input['rows']) ? $input['rows'] : [];
         }
+        // A bound data-table (greenhouse decisions/0462): the binding is stored, the rows are not —
+        // the runtime reads them per request through PublicSource.
+        if (\array_key_exists('source', $input)) {
+            $props['source'] = $input['source'];
+        }
         $props['name'] ??= $name;
 
         $lock = $this->lock();

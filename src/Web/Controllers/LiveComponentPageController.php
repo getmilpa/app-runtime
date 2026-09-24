@@ -71,7 +71,12 @@ final class LiveComponentPageController
             return $this->json(404, ['error' => 'live_component_unknown', 'message' => 'No such live component is registered.']);
         }
 
-        $props = $this->provider?->propsFor($name, $request);
+        try {
+            $props = $this->provider?->propsFor($name, $request);
+        } catch (InvalidScreenTree $error) {
+            // A bound screen whose source cannot be read (greenhouse decisions/0462) — named, not painted.
+            return $this->json(422, ['error' => 'live_screen_invalid', 'path' => $error->path, 'reason' => $error->getMessage()]);
+        }
         if ($props === null) {
             return $this->json(404, [
                 'error' => 'live_no_page_provider',
