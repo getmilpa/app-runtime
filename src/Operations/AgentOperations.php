@@ -2030,7 +2030,7 @@ class AgentOperations implements CommandProvider
                     ) use ($store, $kernel, $pasos, $proveedor, $llave, $modelo, $presupuestoDelArbol): array {
                         $hijo = $store->load($hijoId);
                         if ($hijo === null) {
-                            return ['answer' => 'la sesión hija no se pudo abrir', 'steps' => 0];
+                            return ['answer' => 'la sesión hija no se pudo abrir', 'steps' => 0, 'termination' => RunEnd::Blocked->value];
                         }
 
                         // The SAME builder as the main session (greenhouse decisions/0059): the
@@ -2065,7 +2065,7 @@ class AgentOperations implements CommandProvider
                             registroPropio: true,
                         );
                         if ($registroHijo === null) {
-                            return ['answer' => 'esta app no expuso ninguna operación como herramienta', 'steps' => 0];
+                            return ['answer' => 'esta app no expuso ninguna operación como herramienta', 'steps' => 0, 'termination' => RunEnd::Blocked->value];
                         }
 
                         $vistosHijo = 0;
@@ -2114,9 +2114,29 @@ class AgentOperations implements CommandProvider
                             $this->intakeSession = $parentIntakeSession;
                             $this->declaredWindow = $parentDeclaredWindow;
                             $this->promptSession = $parentPromptSession;
+                            // THE CHILD'S OWN TERMINATION FACT. The parent's is appended by run()'s
+                            // finally, and a child never passes through run() — it enters ask() from
+                            // here. So until now the only record of how a child's run ended was the
+                            // assistant turn the spawner wrote with the runtime's notice in it, which
+                            // is exactly the channel that must hold model prose only. The typed fact
+                            // goes first, for every attempt that reached ask — exceptional exits
+                            // included, the same rule the parent follows.
+                            if ($this->sessionEvents !== null) {
+                                $this->sessionEvents->append(new \Milpa\EventStore\Event(
+                                    streamId: SessionStore::PREFIX . $hijoId,
+                                    type: 'session.run_terminated',
+                                    payload: $this->terminationObservation(),
+                                    seq: $this->sessionEvents->nextSeq(),
+                                ));
+                            }
                         }
 
-                        return ['answer' => $respuestaHijo, 'steps' => $vistosHijo];
+                        // HOW IT ENDED travels with WHAT IT SAID, so the spawner can keep a runtime
+                        // outcome out of the assistant channel exactly as the parent loop does. Read
+                        // right after ask(), whose finally set it to THIS child's termination; the
+                        // parent re-sets its own when its loop ends. Null when the gateway did not
+                        // observe one — the spawner then keeps its previous behaviour.
+                        return ['answer' => $respuestaHijo, 'steps' => $vistosHijo, 'termination' => $this->runTermination?->reason->value];
                     },
                     $presupuestoDelArbol,
                     // THE CHILD IS BORN KNOWING (decisions/0007): the unearned transition's
@@ -2391,10 +2411,6 @@ class AgentOperations implements CommandProvider
             // INTERRUMPIR NO ES FALLAR. El trabajo hecho hasta aquí ya está en el stream —cada llamada
             // se apenda al ocurrir— así que la sesión sigue viva y retomable. Decirlo como error
             // sugeriría que hay algo que arreglar, y lo que hay es una decisión del humano.
-            if ($sessionId !== '' && $store !== null) {
-                $store->recordTurn($sessionId, 'assistant', 'La vuelta se interrumpió.');
-            }
-
             return [
                 'ok' => true,
                 'answer' => 'La vuelta se interrumpió.',
@@ -2438,7 +2454,19 @@ class AgentOperations implements CommandProvider
             }
         }
 
-        if ($sessionId !== '' && $store !== null) {
+        // Only model-authored prose belongs in the assistant channel. Step exhaustion, a progress
+        // stall, a gate refusal and a context pause are runtime outcomes already recorded by the
+        // typed session.run_terminated fact (and questions have their own structured event). When
+        // those strings were appended as assistant turns, a resumed local model learned them as its
+        // own previous answer and repeated the error instead of continuing the work. Unknown keeps
+        // the pre-termination-seam behavior for an older gateway; HOUSE_DEBT is deliberately model
+        // authored and its full declaration remains the audit source for the bounded debt signal.
+        if ($sessionId !== '' && $store !== null
+            && ($this->runTermination === null || \in_array(
+                $this->runTermination->reason,
+                [RunEnd::FinalAnswer, RunEnd::HouseDebt],
+                true,
+            ))) {
             $store->recordTurn($sessionId, 'assistant', $respuesta);
         }
 

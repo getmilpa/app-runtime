@@ -157,6 +157,10 @@ final class ProgressWiringTest extends TestCase
         self::assertSame(DebtSignal::FRAMEWORK_GAP, $signals[0]->payload['signal']);
         $summary = (string) $signals[0]->payload['context']['summary'];
         self::assertSame('the judge cannot verify a target that boots the judge', $summary, 'first line only: a digest, never the prose');
+        self::assertContains($declaration, array_map(
+            static fn (array $turn): string => $turn['content'],
+            array_filter($this->store->load('s1')?->turns ?? [], static fn (array $turn): bool => $turn['role'] === 'assistant'),
+        ), 'HOUSE_DEBT remains model-authored evidence even though runtime notices do not');
     }
 
     /**
