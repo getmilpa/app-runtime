@@ -196,12 +196,25 @@ final class TrialAwareRegistry extends ToolRegistry
         $changed = array_map(static fn (array $info): string => $info['status'], $run->report);
         $ws = $plan->workspace->id;
 
+        // A RECEIPT EARNED IN A TRIAL SAYS WHERE (greenhouse decisions/0463). A producer that
+        // demonstrated something — a screen served, say — demonstrated it in the COPY: served@trial,
+        // and served@house does NOT follow. Sealed here, for every producer, with the world it was
+        // observed in and whether that world is durable yet, so the fact cannot be read later with more
+        // authority than it earned (evidence/0997: «served» with a servedAt while the house answered
+        // 404). Promotion does not upgrade it: sandbox:promote leaves its own receipt, and a fact about
+        // the house is observed in the house.
+        $output = $run->output;
+        if (\is_array($output) && \is_array($output['evidence'] ?? null)) {
+            $output['evidence']['environment'] = ['kind' => 'trial', 'workspace' => $ws];
+            $output['evidence']['promoted'] = false;
+        }
+
         $data = [
             'ran_in_trial' => true,
             'applied' => false,
             'workspace' => $ws,
             'changed' => $changed,
-            'output' => $run->output,
+            'output' => $output,
             ...($prepared === null ? [] : ['repair' => $prepared['provenance']]),
         ];
         if ($changed === []) {

@@ -213,7 +213,22 @@ final class TrialOperations implements CommandProvider
         // is spent. Collapse it — free the ~656 KB, keep the tiny pre-image for manual undo (0069).
         $ws->collapse();
 
-        return ['ok' => true, 'promoted' => $paths];
+        // THE PROMOTION EARNS ITS OWN VERB (greenhouse decisions/0463). Its receipt says what crossed
+        // and where from; it does NOT carry forward what the trial observed. «Served in the copy» stays
+        // a fact about the copy, and a fact about the house is observed in the house.
+        return [
+            'ok' => true,
+            'promoted' => $paths,
+            'evidence' => [
+                'predicate' => 'promoted',
+                'subject' => $id,
+                'environment' => ['kind' => 'house'],
+                'from' => ['kind' => 'trial', 'workspace' => $id],
+                'paths' => $paths,
+            ],
+            'note' => 'Promoted into the house. What the trial observed (served, passed) was observed in the '
+                . 'copy; observe it here before claiming it about the house.',
+        ];
     }
 
     /** @return array<string, mixed> */

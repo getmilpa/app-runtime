@@ -25,6 +25,9 @@ use Milpa\ToolRuntime\ToolDefinition;
 /** The house's authoring policy: current permission, concrete write set, and full export. */
 final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
 {
+    /** The scope `screen:declare` requires — the only authority that may promote the declared screens. */
+    private const SCREEN_SCOPE = 'milpa:component:data-table:*';
+
     public const BUILD = ['make', 'implement', 'edit', 'test'];
 
     /** @param (\Closure(): ?\Milpa\Agent\SessionStore)|null $sessions */
@@ -231,6 +234,16 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             if ($path === 'config/plugins.php') {
                 if (!$context->hasScope('plugins.config:write')) {
                     throw new \RuntimeException("Missing required permission 'plugins.config:write' for plugin configuration.");
+                }
+
+                continue;
+            }
+            // The same shape for the house's declared screens (greenhouse decisions/0463): a screen is
+            // rehearsed in a trial like any work and crosses on promotion — with the authority of the
+            // operation that writes it, and nothing else under config/.
+            if ($path === \Milpa\AppRuntime\Web\ScreenStore::DEFAULT_PATH) {
+                if (!$context->hasScope(self::SCREEN_SCOPE)) {
+                    throw new \RuntimeException("Missing required permission '" . self::SCREEN_SCOPE . "' for declared screens.");
                 }
 
                 continue;

@@ -20,8 +20,12 @@ final readonly class ScreenBuild
                 continue;
             }
             foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($this->root . '/' . $dir, \FilesystemIterator::SKIP_DOTS)) as $file) {
-                if ($file->isFile()) {
-                    $files[substr($file->getPathname(), strlen($this->root) + 1)] = hash_file('sha256', $file->getPathname());
+                $relative = substr($file->getPathname(), strlen($this->root) + 1);
+                // The declared screens are what a draft CHANGES, not the build it was reviewed against:
+                // counting them made every promotion invalidate its own rollback (decisions/0463). Their
+                // concurrency is compareAndSwap's, against the declaration's own hash.
+                if ($file->isFile() && $relative !== ScreenStore::DEFAULT_PATH) {
+                    $files[$relative] = hash_file('sha256', $file->getPathname());
                 }
             }
         }
