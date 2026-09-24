@@ -50,6 +50,22 @@ final class ScreenOperations implements CommandProvider
         private readonly ?LayoutStateStore $layout = null,
         /** @var \Closure(): ?ScreenComponents|null live registry resolver; null preserves standalone callers */
         private readonly ?\Closure $registry = null,
+        /**
+         * WHY the registry is absent, when the host knows — so the refusal names the fix instead of the
+         * symptom. «The registry is not mounted» is true and useless: the reader cannot mount a registry,
+         * but can set a secret (greenhouse evidence/0995).
+         *
+         * @var \Closure(): ?string|null
+         */
+        private readonly ?\Closure $unmountedBecause = null,
+        /**
+         * Serves a declared screen through the REAL page path and answers its HTTP status — or null when
+         * it cannot be asked. When the host wires it, the «served» receipt is EARNED rather than assumed.
+         * Standalone callers leave it null and keep the previous behaviour.
+         *
+         * @var \Closure(string): ?int|null
+         */
+        private readonly ?\Closure $serve = null,
     ) {
     }
 
@@ -208,7 +224,10 @@ final class ScreenOperations implements CommandProvider
     {
         $registry = $this->registry !== null ? ($this->registry)() : null;
         if ($this->registry !== null && $registry === null) {
-            return ['ok' => false, 'error' => 'live screen registry is not mounted'];
+            $because = $this->unmountedBecause !== null ? ($this->unmountedBecause)() : null;
+
+            return ['ok' => false, 'error' => 'live screen registry is not mounted'
+                . ($because !== null ? ': ' . $because : '')];
         }
         $types = $registry?->types() ?? $this->types;
         $type = trim((string) ($input['type'] ?? ScreenStore::DEFAULT_TYPE)) ?: ScreenStore::DEFAULT_TYPE;
@@ -241,6 +260,24 @@ final class ScreenOperations implements CommandProvider
             && \is_string($result['screen'] ?? null)
             && \is_string($result['servedAt'] ?? null)
         ) {
+            // 🚨 THE RECEIPT IS EARNED, NOT ASSUMED (greenhouse evidence/0995). This emitted «served» for
+            // having STORED the screen, and a judge closes a work claim on that predicate (decisions/0187).
+            // Measured: it answered `predicate: served` for a screen whose page answered 500 — so an agent
+            // could have closed «I delivered the screen» over a broken page. Where the host can serve it,
+            // the page is requested through the same controller a browser reaches, and only a 200 earns
+            // the receipt. Anything else leaves the screen declared, and says it was not served.
+            $status = $this->serve !== null ? ($this->serve)($result['screen']) : null;
+            if ($this->serve !== null && $status !== 200) {
+                $result['served'] = false;
+                $result['status'] = $status;
+                $result['note'] = $status === null
+                    ? 'declared, but the page could not be requested here — no served evidence was recorded'
+                    : "declared, but its page answered HTTP {$status} — no served evidence was recorded; "
+                        . 'open ' . $result['servedAt'] . ' to see why';
+
+                return $result;
+            }
+
             $result['evidence'] = [
                 'predicate' => 'served',
                 'subject' => $result['screen'],

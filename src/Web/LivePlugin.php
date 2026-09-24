@@ -78,8 +78,13 @@ use Milpa\Runtime\Http\RouteProviderInterface;
  * of being rebuilt by hand per host — the shape decisions/0059 chose for the gate.
  *
  * FAIL CLOSED WITHOUT A SECRET. The HMAC secret signs the state the client echoes back; an app that
- * has not set `live.secret` in `config/app.php` gets NO live routes and a boot-time notice, never a
- * generated or default secret: a secret nobody chose is a secret nobody can rotate.
+ * has not set `live.secret` in `config/app.php` gets NO live routes, never a generated or default
+ * secret: a secret nobody chose is a secret nobody can rotate.
+ *
+ * This used to promise «a boot-time notice» as well, and there was none: `boot()` returned in silence,
+ * while the screen operations were still offered and refused with «the registry is not mounted» — the
+ * symptom, not the fix. The notice is now delivered where someone reads it: the refusal of any screen
+ * operation names the missing secret ({@see self::whyUnmounted()}, greenhouse evidence/0995).
  *
  * Config (`config/app.php`):
  *   'live' => [
@@ -352,6 +357,60 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
      *
      * @return list<\Milpa\Command\Operation>
      */
+    /**
+     * The HTTP status a declared screen's page answers, requested through the REAL page controller —
+     * the one a browser reaches at `/live/page?component=<name>` — or null when that controller is not
+     * mounted. What `screen:declare` needs before it may claim «served».
+     *
+     * In-process and anonymous on purpose: a screen that serves only to a signed-in caller has not been
+     * shown to serve, and the receipt a judge reads must hold for the reader the claim is about.
+     */
+    private function statusOfScreen(string $name): ?int
+    {
+        if (! $this->container->has(LiveComponentPageController::class)) {
+            return null;
+        }
+        $controller = $this->container->get(LiveComponentPageController::class);
+        if (! $controller instanceof LiveComponentPageController) {
+            return null;
+        }
+
+        try {
+            $response = $controller->show(
+                (new \Nyholm\Psr7\ServerRequest('GET', ($this->route ?? self::DEFAULT_ROUTE) . '/page?component=' . rawurlencode($name)))
+                    ->withQueryParams(['component' => $name]),
+            );
+        } catch (\Throwable) {
+            // A page that throws is a 500 to whoever opens it — and that is the answer, not a gap.
+            return 500;
+        }
+
+        return $response->getStatusCode();
+    }
+
+    /**
+     * Why the live wire did not mount, in the words of the fix — or null when it did.
+     *
+     * The same two conditions {@see self::boot()} fails closed on, asked in the same order, so the
+     * reason given can never be a different one from the reason that happened. `boot()` itself stays
+     * silent on purpose — it runs on every request — so this is where the class docblock's promised
+     * «boot-time notice» is actually delivered: to the operation a person runs and the refusal they
+     * read, instead of to nobody (greenhouse evidence/0995).
+     */
+    private function whyUnmounted(): ?string
+    {
+        if (! class_exists(LiveEndpoint::class)) {
+            return 'milpa/live-web is not installed — `composer require milpa/live-web`';
+        }
+        $secret = $this->config()['secret'] ?? null;
+        if (! \is_string($secret) || \strlen($secret) < 16) {
+            return "the live wire has no secret, so it stayed closed on purpose — set 'live' => ['secret' => '…'] "
+                . '(32 or more random bytes, chosen by you, never generated) in config/app.php';
+        }
+
+        return null;
+    }
+
     public function operations(): array
     {
         return [
@@ -360,6 +419,8 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 array_keys(self::DECLARABLE_TYPES),
                 $this->layoutStateStore(),
                 fn (): ?ScreenComponents => $this->container->has(ScreenComponents::class) ? $this->container->get(ScreenComponents::class) : null,
+                $this->whyUnmounted(...),
+                $this->statusOfScreen(...),
             ))->operations(),
             ...($this->container->has(ScreenDrafts::class) ? $this->container->get(ScreenDraftOperations::class)->operations() : []),
             ...(new PresentationOverrideOperations($this->overrideStore()))->operations(),
