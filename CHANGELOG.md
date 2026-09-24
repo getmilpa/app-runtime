@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.180.0](https://github.com/getmilpa/app-runtime/compare/v0.179.5...v0.180.0) (2026-09-24)
+
+
+### Features
+
+* **screens:** a declared data-table may bind to an entity that is already public ([#562](https://github.com/getmilpa/app-runtime/issues/562)) ([bda0381](https://github.com/getmilpa/app-runtime/commit/bda0381650561bdcbcc39a0976ab7a00d08f3dab))
+
 ## [0.179.5](https://github.com/getmilpa/app-runtime/compare/v0.179.4...v0.179.5) (2026-09-24)
 
 
