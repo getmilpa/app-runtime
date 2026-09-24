@@ -15,7 +15,6 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Auth;
 
 use Milpa\Auth\AuthContext;
-use Milpa\Auth\Http\AuthenticateMiddleware;
 use Milpa\Live\ValueObjects\SecurityPrincipal;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -32,10 +31,25 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 final class LivePrincipal
 {
+    /**
+     * The request attribute the authentication middleware writes, by NAME.
+     *
+     * `AuthenticateMiddleware::ATTRIBUTE` is the same string — and reading it THROUGH the class was
+     * the defect. `milpa/auth` is opt-in, so in an app without it that constant fetch threw
+     * «Class "Milpa\Auth\Http\AuthenticateMiddleware" not found» and every live surface answered
+     * 500: the four controllers below all enter here. Measured on fresh cattle serving a declared
+     * screen (greenhouse `evidence/0993`).
+     *
+     * A constant fetch on an absent class throws; `instanceof` on one answers false. So the name is
+     * read as a literal and the narrowing below stays exactly as it was — the same seam, and the
+     * same reason, as the framework's own HTTP projector: «se lee el ATRIBUTO, no la clase».
+     */
+    private const ATTRIBUTE = 'milpa.auth';
+
     /** The principal of this request — `actor:<id>` with the actor's scopes — or null for an anonymous caller. */
     public static function fromRequest(ServerRequestInterface $request): ?SecurityPrincipal
     {
-        $context = $request->getAttribute(AuthenticateMiddleware::ATTRIBUTE);
+        $context = $request->getAttribute(self::ATTRIBUTE);
         if (! $context instanceof AuthContext || ! $context->isAuthenticated() || $context->actor === null) {
             return null;
         }
