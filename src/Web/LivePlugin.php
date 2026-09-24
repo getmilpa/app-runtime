@@ -241,7 +241,11 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         // The shipped interactive render path: a page that carries ownership by construction (decisions/0092).
         // The app owns DATA via a registered LivePageProvider; the framework owns OWNERSHIP via LiveRender.
         $appProvider = $this->container->has(LivePageProvider::class) ? $this->container->get(LivePageProvider::class) : null;
-        $declaredScreens = new DeclaredScreensPageProvider(ScreenStore::fromConfig($live, $this->root()));
+        $declaredScreens = new DeclaredScreensPageProvider(
+            ScreenStore::fromConfig($live, $this->root()),
+            // Resolved per request, not at boot: the plugin that owns a bound entity may boot after this one.
+            fn (string $id): ?object => $this->container->has($id) ? $this->serviceObject($id) : null,
+        );
         // The runtime always serves the screens the agent declared at runtime (decisions/0158). When the app
         // owns no provider, that IS the provider (registered, so `screen:declare`'d screens are served with
         // zero wiring). When the app DID register one, the container forbids replacing it (decisions/0157), so
@@ -377,6 +381,14 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         }
 
         return $response->getStatusCode();
+    }
+
+    /** A container service as an object, or null when the id resolves to something that is not one. */
+    private function serviceObject(string $id): ?object
+    {
+        $service = $this->container->get($id);
+
+        return \is_object($service) ? $service : null;
     }
 
     /**

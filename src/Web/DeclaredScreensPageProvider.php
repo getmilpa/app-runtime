@@ -29,8 +29,16 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 final class DeclaredScreensPageProvider implements LivePageProvider
 {
-    public function __construct(private readonly ScreenStore $store)
-    {
+    public function __construct(
+        private readonly ScreenStore $store,
+        /**
+         * Resolves a container service by id, or null when absent — how a BOUND screen finds its
+         * entity's repository (greenhouse decisions/0462). Null: a bound screen answers 422, never rows.
+         *
+         * @var \Closure(string): ?object|null
+         */
+        private readonly ?\Closure $service = null,
+    ) {
     }
 
     /**
@@ -48,6 +56,21 @@ final class DeclaredScreensPageProvider implements LivePageProvider
         // The stored props pass through verbatim — a data-table's columns/rows, a state-machine's `machine`
         // spec, whatever the component's contract declares. The type is fixed at registration (LivePlugin
         // registers the screen under the class for its type); here the framework only supplies the data.
-        return $screen['props'];
+        $props = $screen['props'];
+        if (! \array_key_exists('source', $props)) {
+            return $props;
+        }
+
+        // A BOUND screen (greenhouse decisions/0462): its rows are read NOW, through the entity's own
+        // declared visibility, and the binding itself never reaches the component. Anything that cannot
+        // be satisfied throws InvalidScreenTree — the page answers 422, never an empty or leaked table.
+        $source = $props['source'];
+        unset($props['source']);
+        $props['rows'] = PublicSource::rows(
+            $source,
+            $this->service ?? static fn (string $id): ?object => null,
+        );
+
+        return $props;
     }
 }

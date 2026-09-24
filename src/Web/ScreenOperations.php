@@ -86,7 +86,7 @@ final class ScreenOperations implements CommandProvider
             )]),
             new Operation(
                 name: 'screen:declare',
-                description: 'Declare a live screen by name and component type (default data-table) with its props. It is served at /live/page?component=<name> with no code deploy. A data-table may pass columns/rows at the top level; any type passes its props under "props".',
+                description: 'Declare a live screen by name and component type (default data-table) with its props. It is served at /live/page?component=<name> with no code deploy. A data-table may pass columns/rows at the top level, or bind to a public entity with source instead of rows; any type passes its props under "props".',
                 handler: fn (array $input): array => $this->declare($input),
                 inputSchema: [
                     'type' => 'object',
@@ -101,6 +101,16 @@ final class ScreenOperations implements CommandProvider
                         'props' => ['type' => 'object', 'description' => 'the component-type props (e.g. state-machine: { machine: { initial, transitions } })'],
                         'columns' => ['type' => 'array', 'description' => 'data-table convenience: list of { key, label }'],
                         'rows' => ['type' => 'array', 'description' => 'data-table convenience: list of row objects keyed by column key'],
+                        'source' => [
+                            'type' => 'object',
+                            'description' => 'data-table only, instead of rows: bind the table to an entity that declares PUBLIC_WHEN; the runtime serves its public rows per request, projected to the named fields',
+                            'required' => ['entity', 'columns'],
+                            'properties' => [
+                                'entity' => ['type' => 'string', 'description' => 'the entity class, e.g. App\\Plugins\\Blog\\Entities\\Post'],
+                                'columns' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'the entity fields to show'],
+                                'limit' => ['type' => 'integer', 'description' => 'rows served, 1 to 200; default 50'],
+                            ],
+                        ],
                     ],
                 ],
                 mutating: true,
@@ -246,6 +256,33 @@ final class ScreenOperations implements CommandProvider
             ScreenTree::validate($type, $props, $types);
         } catch (InvalidScreenTree $error) {
             return ['ok' => false, 'error' => 'invalid screen tree', 'path' => $error->path, 'reason' => $error->getMessage()];
+        }
+
+        // A BOUND screen (greenhouse decisions/0462) is refused here, by name, rather than stored and
+        // answered 422 later: only a data-table binds, the rows come from the source and not from the
+        // caller, and the entity must already declare what of it is public.
+        $source = \array_key_exists('source', $input) ? $input['source'] : ($props['source'] ?? null);
+        if ($source !== null) {
+            if ($type !== ScreenStore::DEFAULT_TYPE) {
+                return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'source', 'reason' => 'only a data-table binds to an entity'];
+            }
+            if (\array_key_exists('rows', $input) || \array_key_exists('rows', $props)) {
+                return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'rows', 'reason' => 'a bound screen reads its rows from its source; declare either rows or source'];
+            }
+            try {
+                $binding = PublicSource::validate($source);
+            } catch (InvalidScreenTree $error) {
+                return ['ok' => false, 'error' => 'invalid screen tree', 'path' => $error->path, 'reason' => $error->getMessage()];
+            }
+            // The columns the table shows are the columns the binding reads, unless the caller labelled them.
+            if (! \array_key_exists('columns', $input) && ! \array_key_exists('columns', $props)) {
+                $input['columns'] = array_map(
+                    static fn (string $key): array => ['key' => $key, 'label' => ucfirst(str_replace('_', ' ', $key))],
+                    $binding['columns'],
+                );
+            }
+            $input['source'] = $binding;
+            unset($input['props']['source']);
         }
 
         $result = $this->store->declare($input);
