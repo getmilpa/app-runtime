@@ -45,6 +45,10 @@ final class AgentWindowRecordingTest extends TestCase
 
         $container = new DIContainer();
         $container->registerService(SessionStore::class, $store);
+        // The event sink the runtime appends typed session facts to. Without it `sessionEvents` is null
+        // and NEITHER session can record how its run ended — an assertion about termination facts here
+        // would be measuring an absent sink, not the code.
+        $container->registerService(\Milpa\EventStore\EventStoreInterface::class, $events);
         $kernel = Kernel::boot([
             'root' => \dirname(__DIR__, 2),
             'container' => $container,
@@ -98,6 +102,24 @@ final class AgentWindowRecordingTest extends TestCase
             static fn (object $event): bool => $event->type === 'session.model_called',
         ));
         self::assertCount(1, $childCalls, 'the child intake belongs to the child stream');
+
+        // THE CHILD'S OWN TERMINATION FACT (greenhouse evidence/0996). The parent's is appended by
+        // run(); a child enters ask() from the spawner's closure and never passed through run(), so
+        // the only record of how its run ended used to be the runtime's notice written as the child's
+        // assistant turn. That channel now holds model prose only — the typed fact carries the rest.
+        $childTerminations = array_values(array_filter(
+            $events->replay(SessionStore::PREFIX . $children[0]),
+            static fn (object $event): bool => $event->type === 'session.run_terminated',
+        ));
+        self::assertCount(1, $childTerminations, 'the child records how its own run ended, as a typed fact');
+
+        // THE POSITIVE CONTROL on the sink: the parent records its own through run(), so a zero for the
+        // child cannot be the harness simply lacking somewhere to write.
+        $parentTerminations = array_values(array_filter(
+            $events->replay(SessionStore::PREFIX . 's1'),
+            static fn (object $event): bool => $event->type === 'session.run_terminated',
+        ));
+        self::assertCount(1, $parentTerminations, 'the parent still records its own');
         self::assertSame([], $childCalls[0]->payload['window'], 'a fresh child receives an empty session window');
     }
 }

@@ -222,6 +222,19 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             if ($context->hasScope('*')) {
                 continue;
             }
+            // `plugins:register` is rehearsed like every other reversible local mutation, but its
+            // artifact is the house's explicit plugin list rather than a file below one plugin's
+            // source tree. Promotion must preserve that operation's own narrow authority: the
+            // principal that may write plugin configuration may export this one file, and nothing
+            // else under config/. Without this branch the trial truthfully returned a
+            // sandbox:promote next step that could never cross the same boundary.
+            if ($path === 'config/plugins.php') {
+                if (!$context->hasScope('plugins.config:write')) {
+                    throw new \RuntimeException("Missing required permission 'plugins.config:write' for plugin configuration.");
+                }
+
+                continue;
+            }
             if (!preg_match('~^(?:src|tests)/Plugins/([A-Za-z_][A-Za-z0-9_]*)/~D', $path, $match)) {
                 throw new \RuntimeException("Export '{$path}' is outside a plugin write set.");
             }

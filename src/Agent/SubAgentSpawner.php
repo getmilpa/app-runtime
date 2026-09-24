@@ -59,7 +59,7 @@ use Milpa\Console\McpProjector;
 final class SubAgentSpawner implements ContractProducer
 {
     /**
-     * @param \Closure(string, string, array<int, array{role: string, content: string}>, list<string>, list<array{role: string, content: string, class: string}>): array{answer: string, steps: int} $runChild Runs one child turn with its brief, id, provider history, prerequisites, and the composer-owned declaration of that history. Fresh children receive two empty windows; resumed children receive both projections of their own Session.
+     * @param \Closure(string, string, array<int, array{role: string, content: string}>, list<string>, list<array{role: string, content: string, class: string}>): array{answer: string, steps: int, termination?: string|null} $runChild Runs one child turn with its brief, id, provider history, prerequisites, and the composer-owned declaration of that history. Fresh children receive two empty windows; resumed children receive both projections of their own Session.
      */
     public function __construct(
         private readonly SessionStore $sessions,
@@ -713,6 +713,34 @@ final class SubAgentSpawner implements ContractProducer
     }
 
     /**
+     * Whether a child's answer is prose the MODEL wrote, and so belongs in its assistant channel.
+     *
+     * The same rule the parent loop applies: a final answer and a HOUSE_DEBT declaration are the
+     * model's; step exhaustion, a progress stall, a gate refusal, a context pause or a child that
+     * could not even be opened are runtime outcomes, recorded by their typed fact. Written as
+     * assistant turns, those strings were read back by a resumed child as its own previous answer and
+     * repeated instead of continuing the work. An answer with no termination observed keeps the
+     * previous behaviour — an older gateway that does not report one is not silently muted.
+     *
+     * Compared by VALUE, never through `Milpa\AiGateway\RunEnd`: milpa/ai-gateway is not a hard
+     * dependency of this package, and a constant fetch on an absent class throws — the defect of
+     * `LivePrincipal` (greenhouse evidence/0993). These strings are the wire contract every
+     * `session.run_terminated` payload already carries, so naming them is not a copy of a decision.
+     *
+     * @param array{answer: string, steps: int, termination?: string|null} $run
+     */
+    private static function authoredByTheModel(array $run): bool
+    {
+        return \in_array($run['termination'] ?? null, [null, self::FINAL_ANSWER, self::HOUSE_DEBT], true);
+    }
+
+    /** The `RunEnd` value of a model that answered. */
+    private const FINAL_ANSWER = 'final_answer';
+
+    /** The `RunEnd` value of a model that declared a house debt — its own words, kept as evidence. */
+    private const HOUSE_DEBT = 'house_debt';
+
+    /**
      * La vuelta del hijo y su reporte: una sola verdad para spawn y resume.
      *
      * @param array<int, array{role: string, content: string}>          $history
@@ -741,8 +769,11 @@ final class SubAgentSpawner implements ContractProducer
             throw $e;
         } catch (\Throwable $e) {
             // Un hijo que truena produce un reporte explícito, nunca una desaparición (ADR-0029/0033).
-            $this->sessions->recordTurn($childId, 'assistant', 'La vuelta falló: ' . $e->getMessage());
-
+            // The report is the result below, which the parent's model reads and the parent's session
+            // records. It is NOT written into the child's assistant channel any more: «La vuelta
+            // falló: …» there was read back by a resumed child as its own previous answer — the same
+            // defect the parent loop stopped committing (greenhouse evidence/0996). A child whose run
+            // reached ask() also carries its typed session.run_terminated fact.
             return [
                 'ok' => false,
                 'error' => 'el sub-agente falló: ' . $e->getMessage(),
@@ -751,7 +782,9 @@ final class SubAgentSpawner implements ContractProducer
         }
 
         $answer = $run['answer'];
-        $this->sessions->recordTurn($childId, 'assistant', $answer);
+        if (self::authoredByTheModel($run)) {
+            $this->sessions->recordTurn($childId, 'assistant', $answer);
+        }
 
         // SE DESCUENTA LO QUE GASTÓ, no lo que se le autorizó: un hijo que terminó en dos pasos deja
         // los otros diez para sus hermanos. Reservar por adelantado acotaría el árbol al número de
@@ -819,7 +852,9 @@ final class SubAgentSpawner implements ContractProducer
                 $declaredChildWindow = $child?->classifiedWindow() ?? [];
                 $secondTry = ($this->runChild)($discrepancy, $childId, $childWindow, [], $declaredChildWindow);
                 $this->budget?->anota($secondTry['steps']);
-                $this->sessions->recordTurn($childId, 'assistant', $secondTry['answer']);
+                if (self::authoredByTheModel($secondTry)) {
+                    $this->sessions->recordTurn($childId, 'assistant', $secondTry['answer']);
+                }
                 $report['steps'] += $secondTry['steps'];
                 $report['report'] = $secondTry['answer'];
                 $answer = $secondTry['answer'];

@@ -95,6 +95,11 @@ final class TerminationWiringTest extends TestCase
         self::assertSame($final['termination'], $events[0]->payload);
         self::assertSame($refused['termination'], $events[1]->payload);
         self::assertCount(1, array_filter($this->sessions->stream('s'), static fn ($e) => $e->type === 'session.closure_derived'));
+        self::assertSame([self::ANSWER], array_values(array_map(
+            static fn ($e): string => $e->payload['content'],
+            array_filter($this->sessions->stream('s'), static fn ($e): bool =>
+                $e->type === 'session.turn' && $e->payload['role'] === 'assistant'),
+        )), 'the gate refusal is a runtime outcome, not a previous model answer');
     }
     public function testPendingQuestionStillPausesAnActualFinalAnswer(): void
     {
@@ -209,6 +214,10 @@ final class TerminationWiringTest extends TestCase
         self::assertArrayNotHasKey('paused', $r);
         self::assertSame($r['termination'], $this->terminalEvents()[0]->payload);
         self::assertCount(0, array_filter($this->sessions->stream('s'), static fn ($e) => $e->type === 'session.closure_derived'));
+        self::assertSame([], array_values(array_filter(
+            $this->sessions->load('s')?->turns ?? [],
+            static fn (array $turn): bool => $turn['role'] === 'assistant',
+        )), 'the runtime pause must not enter the next model window as assistant speech');
         $next = $this->invoke($this->ops(new AgentOrchestrator($this->llm(['role' => 'assistant', 'content' => self::ANSWER]), $this->tools())));
         self::assertSame('final_answer', $next['termination']['reason']);
         self::assertArrayNotHasKey('contextExhausted', $next);
