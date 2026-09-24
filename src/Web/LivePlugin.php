@@ -349,15 +349,6 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
     }
 
     /**
-     * The operations the live door contributes to the command table (greenhouse decisions/0158):
-     * `screen:declare`, the primitive that lets the agent author a live screen MATERIALLY. Because
-     * LivePlugin is a booted {@see CommandProvider}, enabling the door in `config/plugins.php` enables
-     * the author-material loop too — the operation, the component registration and the store-backed
-     * serving arrive as ONE capability, with no per-app wiring.
-     *
-     * @return list<\Milpa\Command\Operation>
-     */
-    /**
      * The HTTP status a declared screen's page answers, requested through the REAL page controller —
      * the one a browser reaches at `/live/page?component=<name>` — or null when that controller is not
      * mounted. What `screen:declare` needs before it may claim «served».
@@ -411,6 +402,15 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         return null;
     }
 
+    /**
+     * The operations the live door contributes to the command table (greenhouse decisions/0158):
+     * `screen:declare`, the primitive that lets the agent author a live screen MATERIALLY. Because
+     * LivePlugin is a booted {@see CommandProvider}, enabling the door in `config/plugins.php` enables
+     * the author-material loop too — the operation, the component registration and the store-backed
+     * serving arrive as ONE capability, with no per-app wiring.
+     *
+     * @return list<\Milpa\Command\Operation>
+     */
     public function operations(): array
     {
         return [
