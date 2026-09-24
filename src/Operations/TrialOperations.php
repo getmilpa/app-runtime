@@ -18,6 +18,7 @@ use Milpa\Agent\SessionStore;
 use Milpa\Command\InvocationContext;
 use Milpa\ToolRuntime\Contracts\ToolContext;
 use Milpa\AppRuntime\Agent\PluginAuthoringPolicy;
+use Milpa\AppRuntime\Agent\KeyedDeclarations;
 use Milpa\AppRuntime\Agent\TrialWorkspace;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Effect\Authority;
@@ -158,12 +159,36 @@ final class TrialOperations implements CommandProvider
             return ['ok' => false, 'error' => "no trial «{$id}» to promote"];
         }
 
-        $stale = $ws->stale();
-        if ($stale !== []) {
-            return ['ok' => false, 'error' => 'the target moved since the trial; this is a new proposal', 'stale' => $stale];
+        $diff = $ws->diff();
+
+        // NO MERGE OF WHAT ACTUALLY COLLIDES (greenhouse decisions/0467, refining 0068). A moved keyed
+        // declaration store is judged per key: the keys this trial touched merge into the house when the
+        // house did not move them; a key both sides changed is a conflict, named. Any other moved file is
+        // a new proposal, exactly as before.
+        $merges = [];
+        $conflicts = [];
+        $stale = [];
+        foreach ($ws->stale() as $rel) {
+            $merge = KeyedDeclarations::handles($rel) && ($diff[$rel]['status'] ?? null) !== 'deleted'
+                ? KeyedDeclarations::merge($root, $ws->baseDirectory(), $ws->copy, $rel, $ws->manifest())
+                : null;
+            if ($merge === null) {
+                $stale[] = $rel;
+            } elseif ($merge['conflicts'] !== []) {
+                $conflicts[$rel] = $merge['conflicts'];
+            } else {
+                $merges[$rel] = $merge;
+            }
+        }
+        if ($stale !== [] || $conflicts !== []) {
+            return [
+                'ok' => false,
+                'error' => 'the target moved since the trial; this is a new proposal',
+                ...($stale !== [] ? ['stale' => $stale] : []),
+                ...($conflicts !== [] ? ['conflicts' => $conflicts] : []),
+            ];
         }
 
-        $diff = $ws->diff();
         if ($diff === []) {
             return ['ok' => false, 'error' => 'nothing changed in this trial; there is nothing to promote'];
         }
@@ -180,8 +205,17 @@ final class TrialOperations implements CommandProvider
                 $payload[$path] = $bytes;
             }
         }
-        if ($ws->stale() !== []) {
-            return ['ok' => false, 'error' => 'the target moved while preparing its promotion'];
+        // What a merged store writes is the house plus the keys this trial touched — and that is what
+        // the promotion record carries, so sandbox:undo checks the bytes that actually landed.
+        foreach ($merges as $rel => $merge) {
+            $payload[$rel] = $merge['bytes'];
+            $diff[$rel]['sha256'] = hash('sha256', $merge['bytes']);
+        }
+        foreach ($ws->stale() as $rel) {
+            $current = is_file($root . '/' . $rel) ? (hash_file('sha256', $root . '/' . $rel) ?: null) : null;
+            if (! isset($merges[$rel]) || $merges[$rel]['houseSha'] !== $current) {
+                return ['ok' => false, 'error' => 'the target moved while preparing its promotion'];
+            }
         }
         $preDir = $ws->baseDirectory() . '/pre';
         $paths = array_keys($diff);
@@ -219,6 +253,8 @@ final class TrialOperations implements CommandProvider
         return [
             'ok' => true,
             'promoted' => $paths,
+            // Which keys of a moved declaration store were joined into the house (decisions/0467).
+            ...($merges !== [] ? ['merged' => array_map(static fn (array $merge): array => $merge['touched'], $merges)] : []),
             'evidence' => [
                 'predicate' => 'promoted',
                 'subject' => $id,
