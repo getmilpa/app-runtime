@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.179.4](https://github.com/getmilpa/app-runtime/compare/v0.179.3...v0.179.4) (2026-09-24)
+
+
+### Bug Fixes
+
+* **capabilities:** enabling what is installed declares what it lacks ([#557](https://github.com/getmilpa/app-runtime/issues/557)) ([c306a42](https://github.com/getmilpa/app-runtime/commit/c306a4293dc07da362837a4e71cea7cc65312614))
+* **screens:** a served receipt is earned, and an unmounted wire names its fix ([#558](https://github.com/getmilpa/app-runtime/issues/558)) ([8af711c](https://github.com/getmilpa/app-runtime/commit/8af711c71c529132162e3044d150f15b4a3f6914))
+
 ## [0.179.3](https://github.com/getmilpa/app-runtime/compare/v0.179.2...v0.179.3) (2026-09-24)
 
 
