@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.179.3](https://github.com/getmilpa/app-runtime/compare/v0.179.2...v0.179.3) (2026-09-24)
+
+
+### Bug Fixes
+
+* **live:** an app without milpa/auth has an anonymous caller, not a 500 ([#555](https://github.com/getmilpa/app-runtime/issues/555)) ([4e03306](https://github.com/getmilpa/app-runtime/commit/4e03306b4267ca4912b5437d648366003d395952))
+
 ## [0.179.2](https://github.com/getmilpa/app-runtime/compare/v0.179.1...v0.179.2) (2026-09-24)
 
 
