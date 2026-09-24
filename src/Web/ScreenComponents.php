@@ -31,6 +31,8 @@ final readonly class ScreenComponents implements ComponentRegistryInterface, Lis
         private ComponentRegistryInterface $components,
         private ComponentRendererRegistry $renderers,
         private ScreenStore $screens,
+        /** The words this house added to its language (decisions/0465); discovered beside the primitives. */
+        private ?ComponentWords $words = null,
     ) {
     }
 
@@ -76,7 +78,7 @@ final readonly class ScreenComponents implements ComponentRegistryInterface, Lis
      * Types that can both mount and re-render after an action. An opaque registry remains usable by
      * name but cannot advertise names it does not enumerate; a descriptive class catalogue is not a factory.
      *
-     * @return array{types: list<array{name: string, contractVersion: string}>, unavailable: list<array{name: string, reason: string}>}
+     * @return array{types: list<array<string, mixed>>, unavailable: list<array{name: string, reason: string}>}
      */
     public function catalogue(): array
     {
@@ -97,7 +99,32 @@ final readonly class ScreenComponents implements ComponentRegistryInterface, Lis
             }
         }
 
+        // THE HOUSE'S WORDS, beside the primitives they compose (greenhouse decisions/0465): the same list
+        // `screen:declare` points at, so a later session discovers a word where it discovers everything
+        // else. A word whose primitives this house cannot render would be a promise nobody can keep.
+        foreach ($this->words?->catalogue() ?? [] as $word) {
+            $missing = array_values(array_diff($word['composes'], array_column($types, 'name')));
+            if ($missing === []) {
+                $types[] = $word;
+            } else {
+                $unavailable[] = ['name' => $word['name'], 'reason' => 'composes what this house cannot render: ' . implode(', ', $missing)];
+            }
+        }
+
         return ['types' => $types, 'unavailable' => $unavailable];
+    }
+
+    /**
+     * The registered components a word may compose — the catalogue without the house's own words.
+     *
+     * @return list<string>
+     */
+    public function primitives(): array
+    {
+        return array_column(array_filter(
+            $this->catalogue()['types'],
+            static fn (array $row): bool => ($row['providedBy'] ?? null) !== 'house',
+        ), 'name');
     }
 
     /**
