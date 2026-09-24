@@ -248,6 +248,15 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
 
                 continue;
             }
+            // The house's visual language crosses the same way (decisions/0465), with the authority of
+            // the operation that writes it.
+            if ($path === \Milpa\AppRuntime\Web\ComponentWords::PATH) {
+                if (!$context->hasScope(\Milpa\AppRuntime\Web\ComponentWordOperations::SCOPE)) {
+                    throw new \RuntimeException("Missing required permission '" . \Milpa\AppRuntime\Web\ComponentWordOperations::SCOPE . "' for the house's words.");
+                }
+
+                continue;
+            }
             if (!preg_match('~^(?:src|tests)/Plugins/([A-Za-z_][A-Za-z0-9_]*)/~D', $path, $match)) {
                 throw new \RuntimeException("Export '{$path}' is outside a plugin write set.");
             }

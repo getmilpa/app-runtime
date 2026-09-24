@@ -144,6 +144,7 @@ final class ScreenStore
                 'type' => $screen['type'],
                 'servedAt' => '/live/page?component=' . $name,
                 'props' => \count($screen['props']),
+                ...(\is_array($entry['word'] ?? null) ? ['word' => $entry['word']['name'] ?? null, 'wordVersion' => $entry['word']['version'] ?? null] : []),
             ];
         }
 
@@ -233,6 +234,10 @@ final class ScreenStore
         try {
             $screens = $this->all();
             $screens[$name] = ['type' => $type, 'props' => $props];
+            // Which word of the house produced this screen, and which version (decisions/0465).
+            if (\is_array($input['word'] ?? null)) {
+                $screens[$name]['word'] = $input['word'];
+            }
             $this->write($screens);
         } finally {
             fclose($lock);

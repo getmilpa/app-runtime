@@ -66,6 +66,8 @@ final class ScreenOperations implements CommandProvider
          * @var \Closure(string): ?int|null
          */
         private readonly ?\Closure $serve = null,
+        /** The words this house added to its visual language (decisions/0465); null: no words. */
+        private readonly ?ComponentWords $words = null,
     ) {
     }
 
@@ -252,6 +254,25 @@ final class ScreenOperations implements CommandProvider
         if (! \is_array($props) || ($props !== [] && array_is_list($props))) {
             return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'props', 'reason' => 'props must be an object'];
         }
+
+        // A WORD OF THIS HOUSE (greenhouse decisions/0465) is compiled here to the tree it stands for,
+        // and from this line on the screen is that tree — validated, stored and served by the path every
+        // screen takes. The screen remembers which word and which version produced it.
+        $word = $this->words?->word($type);
+        if ($word !== null && ! \in_array($type, $registry?->primitives() ?? [], true)) {
+            if (\array_key_exists('source', $input)) {
+                return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'source', 'reason' => "«{$type}» takes its inputs as props, not a source"];
+            }
+            try {
+                $compiled = $this->words->compile($type, $props);
+            } catch (InvalidScreenTree $error) {
+                return ['ok' => false, 'error' => 'invalid screen tree', 'path' => $error->path, 'reason' => $error->getMessage()];
+            }
+            $type = $compiled['type'];
+            $props = $compiled['props'];
+            $input = ['name' => $input['name'] ?? '', 'type' => $type, 'props' => $props, 'word' => $compiled['word']];
+        }
+
         try {
             ScreenTree::validate($type, $props, $types);
         } catch (InvalidScreenTree $error) {

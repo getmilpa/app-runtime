@@ -214,7 +214,9 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         if (! $this->container->has(ComponentRendererRegistry::class)) {
             $this->container->registerService(ComponentRendererRegistry::class, $registeredRenderers);
         }
-        $screens = new ScreenComponents($components->registry, $registeredRenderers, $this->screenStore());
+        $words = ComponentWords::forRoot($this->root());
+        $this->container->registerService(ComponentWords::class, $words);
+        $screens = new ScreenComponents($components->registry, $registeredRenderers, $this->screenStore(), $words);
         $this->container->registerService(ScreenComponents::class, $screens);
         $pageRenderer = new CompositeHtmlRenderer(
             new RegisteredHtmlRenderer($registeredRenderers),
@@ -442,6 +444,12 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 fn (): ?ScreenComponents => $this->container->has(ScreenComponents::class) ? $this->container->get(ScreenComponents::class) : null,
                 $this->whyUnmounted(...),
                 $this->statusOfScreen(...),
+                ComponentWords::forRoot($this->root()),
+            ))->operations(),
+            // How the house learns a word (decisions/0465).
+            ...(new ComponentWordOperations(
+                ComponentWords::forRoot($this->root()),
+                fn (): ?ScreenComponents => $this->container->has(ScreenComponents::class) ? $this->container->get(ScreenComponents::class) : null,
             ))->operations(),
             ...($this->container->has(ScreenDrafts::class) ? $this->container->get(ScreenDraftOperations::class)->operations() : []),
             ...(new PresentationOverrideOperations($this->overrideStore()))->operations(),

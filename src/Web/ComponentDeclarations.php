@@ -92,6 +92,24 @@ final class ComponentDeclarations
             }
         }
 
+        // THE HOUSE'S OWN WORDS (greenhouse decisions/0465), read from the one store `screen:types` reads
+        // too. A word's props ARE its inputs; it declares nothing it does not have.
+        $words = $this->container->has(ComponentWords::class) ? $this->container->get(ComponentWords::class) : null;
+        foreach ($words instanceof ComponentWords ? $words->catalogue() : [] as $word) {
+            if ($only !== null && $word['name'] !== $only) {
+                continue;
+            }
+            $rows[$word['name']] ??= [
+                'name' => $word['name'],
+                'contractVersion' => $word['contractVersion'],
+                'summary' => $word['summary'],
+                'propsSchema' => $word['inputs'],
+                'composes' => $word['composes'],
+                'declaredBy' => 'house (' . ComponentWords::PATH . ')',
+                'cannotSay' => ['stateSchema', 'actions', 'dataSources', 'designContract', 'defaultTemplate'],
+            ];
+        }
+
         ksort($rows);
 
         return new ComponentCatalogue(
