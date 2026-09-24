@@ -80,6 +80,48 @@ final class TerminationWiringTest extends TestCase
     {
         return array_values(array_filter($this->sessions->stream('s'), static fn ($e) => $e->type === 'session.run_terminated'));
     }
+    /**
+     * An interrupted run is REMEMBERED as a typed fact even where AgentOperations cannot reach the event
+     * log — a host that registers its own SessionStore and no EventStoreInterface (greenhouse
+     * decisions/0466). Measured first on the framework template's harness: the stream kept `started`
+     * and the user's turn, and nothing else. And it is never put in the assistant's mouth.
+     */
+    public function testAnInterruptedRunIsATypedFactEvenWithoutTheEventLog(): void
+    {
+        $events = new InMemoryEventStore();
+        $sessions = new SessionStore($events);
+        $sessions->start('s', 'Build everything');
+        $container = new DIContainer();
+        $container->registerService(SessionStore::class, $sessions);
+        $kernel = Kernel::boot(['root' => dirname(__DIR__, 2),'container' => $container,'toolRegistry' => new ToolRegistry(new NullLogger()),'plugins' => []]);
+        $container->registerService(Kernel::class, $kernel);
+
+        $llm = $this->createMock(LlmService::class);
+        $llm->method('generateResponse')->willThrowException(\Milpa\AiGateway\RunInterrupted::porElHumano(0));
+        $ops = new TerminationFixtureOperations($container);
+        $ops->loop = new AgentOrchestrator($llm, $this->tools());
+
+        $previous = getenv('OPENAI_API_KEY');
+        putenv('OPENAI_API_KEY=fixture-key');
+        try {
+            $agent = array_values(array_filter($ops->operations(), static fn ($op) => $op->name === 'agent'))[0];
+            $r = ($agent->handler)(['prompt' => 'Build everything','session' => 's']);
+        } finally {
+            $previous === false ? putenv('OPENAI_API_KEY') : putenv('OPENAI_API_KEY=' . $previous);
+        }
+
+        self::assertTrue($r['interrupted'] ?? false);
+        self::assertSame('interrupted', $r['termination']['reason']);
+        $terminal = array_values(array_filter($sessions->stream('s'), static fn ($e) => $e->type === 'session.run_terminated'));
+        self::assertCount(1, $terminal, 'the stream remembers the interruption');
+        self::assertSame('interrupted', $terminal[0]->payload['reason']);
+        self::assertSame([], array_values(array_filter(
+            $sessions->load('s')?->turns ?? [],
+            static fn (array $turn): bool => $turn['role'] === 'assistant',
+        )), 'as a fact of the run, never as something the model said');
+        self::assertTrue($sessions->load('s')?->isRunnable(), 'and the session can go on');
+    }
+
     public function testIdenticalFinalAndRefusalHaveDifferentClosureEligibility(): void
     {
         $final = $this->invoke($this->ops(new AgentOrchestrator($this->llm(['role' => 'assistant','content' => self::ANSWER]), $this->tools())));

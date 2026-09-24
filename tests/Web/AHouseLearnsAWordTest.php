@@ -164,6 +164,27 @@ final class AHouseLearnsAWordTest extends TestCase
         self::assertContains('evidence-balance', array_column($this->call($this->session($house), 'screen:types', [])['types'], 'name'));
     }
 
+    public function testObservingAScreenInTheHouseEarnsServedHereAndOnlyOnA200(): void
+    {
+        $house = $this->session($this->house());
+        $this->call($house, 'screen:declare', ['name' => 'kpi', 'type' => 'metric-card', 'props' => ['title' => 'Open', 'value' => '3']]);
+
+        $seen = $this->call($house, 'screen:observe', ['name' => 'kpi']);
+        self::assertTrue($seen['ok'], json_encode($seen) ?: '');
+        self::assertSame(['predicate' => 'served', 'subject' => 'kpi', 'servedAt' => '/live/page?component=kpi', 'environment' => ['kind' => 'house']], $seen['evidence']);
+
+        $missing = $this->call($house, 'screen:observe', ['name' => 'nope']);
+        self::assertFalse($missing['ok']);
+        self::assertArrayNotHasKey('evidence', $missing);
+
+        // A screen whose page cannot paint earns nothing, and says what it answered.
+        $this->call($house, 'screen:declare', ['name' => 'broken', 'type' => 'content', 'props' => ['roles' => ['title' => 'title', 'body' => 'body'], 'rows' => [['title' => 'x']]]]);
+        $broken = $this->call($house, 'screen:observe', ['name' => 'broken']);
+        self::assertFalse($broken['ok']);
+        self::assertSame(422, $broken['status']);
+        self::assertArrayNotHasKey('evidence', $broken);
+    }
+
     /** @return array<string, mixed> */
     private static function evidenceBalance(): array
     {

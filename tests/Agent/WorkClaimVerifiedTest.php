@@ -368,6 +368,40 @@ final class WorkClaimVerifiedTest extends TestCase
     }
 
     /**
+     * served@trial is not served@house (greenhouse decisions/0463/0466). A receipt a trial earned rides
+     * inside the trial's result and does not close a screen claim; the refusal NAMES the verb that
+     * observes the house, and once that observation is recorded the claim closes. Measured before: with
+     * nothing to observe the house, a resident redeclared three times chasing this claim (evidence/0999).
+     */
+    public function testATrialReceiptDoesNotCloseAScreenClaimAndObservingTheHouseDoes(): void
+    {
+        $this->llamar('todo', ['text' => 'serve the blog page']);
+        $this->almacen->recordToolCall('s1', 'screen:declare', ['name' => 'blog'], (string) json_encode([
+            'ran_in_trial' => true,
+            'applied' => false,
+            'workspace' => 'w1',
+            'changed' => ['config/screens.json' => 'modified'],
+            'output' => ['ok' => true, 'screen' => 'blog', 'evidence' => [
+                'predicate' => 'served', 'subject' => 'blog', 'servedAt' => '/live/page?component=blog',
+                'environment' => ['kind' => 'trial', 'workspace' => 'w1'], 'promoted' => false,
+            ]],
+        ]), true, true);
+
+        $refused = $this->llamar('work:claim-verified', ['todo' => 't1', 'kind' => 'screen-served', 'reference' => 'blog']);
+        self::assertFalse($refused['ok'], 'a copy is not the house');
+        self::assertStringContainsString('screen:observe {"name":"blog"}', (string) $refused['error'], 'the refusal names the verb that observes the house');
+
+        $this->almacen->recordToolCall('s1', 'screen:observe', ['name' => 'blog'], (string) json_encode([
+            'ok' => true, 'screen' => 'blog', 'status' => 200, 'servedAt' => '/live/page?component=blog',
+            'evidence' => ['predicate' => 'served', 'subject' => 'blog', 'servedAt' => '/live/page?component=blog', 'environment' => ['kind' => 'house']],
+        ]), true, true);
+
+        $closed = $this->llamar('work:claim-verified', ['todo' => 't1', 'kind' => 'screen-served', 'reference' => 'blog']);
+        self::assertTrue($closed['ok'], (string) ($closed['error'] ?? ''));
+        self::assertSame('screen:observe', $closed['evidence']['coveredBy']['operation'] ?? null);
+    }
+
+    /**
      * THE RUN-8 DEFECT CLOSES (greenhouse decisions/0187): screen:declare served «tareas-preview»
      * (ok, a served address), and a `screen-served` claim now closes the preview todo — the fourth
      * authority, EVIDENCE read by predicate, covers work the three producer-shaped kinds could not.
