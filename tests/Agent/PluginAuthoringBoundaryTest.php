@@ -212,4 +212,31 @@ PHP);
             self::assertFalse($this->policy->authorize($this->context, $undo, ['workspace' => $id])->allowed);
         }
     }
+
+    public function testPluginConfigurationCanBePromotedOnlyWithItsOwnNarrowScope(): void
+    {
+        file_put_contents($this->root . '/config/plugins.php', "<?php\nreturn [];\n");
+        $workspace = TrialWorkspace::materialize(
+            $this->root,
+            'plugin-config',
+            dirname(__DIR__, 2) . '/resources/trial-run.php',
+        );
+        file_put_contents($workspace->copy . '/config/plugins.php', "<?php\nreturn [App\\Plugins\\Owned\\Owned::class];\n");
+        $promote = new ToolDefinition('sandbox_promote', '', [], static fn (): null => null, mutating: true);
+
+        $allowed = new ToolContext(principal: 'worker', channel: 'http', scopes: ['plugins.config:write']);
+        self::assertTrue($this->policy->authorize($allowed, $promote, ['workspace' => $workspace->id])->allowed);
+
+        $pluginOnly = $this->policy->authorize($this->context, $promote, ['workspace' => $workspace->id]);
+        self::assertFalse($pluginOnly->allowed);
+        self::assertSame(
+            "Missing required permission 'plugins.config:write' for plugin configuration.",
+            $pluginOnly->reason,
+        );
+
+        file_put_contents($workspace->copy . '/config/app.php', "<?php\nreturn ['debug' => true];\n");
+        $mixed = $this->policy->authorize($allowed, $promote, ['workspace' => $workspace->id]);
+        self::assertFalse($mixed->allowed, 'The config scope names the plugin list, not all configuration.');
+        self::assertStringContainsString("Export 'config/app.php' is outside", (string) $mixed->reason);
+    }
 }
