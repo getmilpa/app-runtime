@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.183.1](https://github.com/getmilpa/app-runtime/compare/v0.183.0...v0.183.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **agent:** remember interruptions, observe the house, name the verb ([#570](https://github.com/getmilpa/app-runtime/issues/570)) ([cb0482c](https://github.com/getmilpa/app-runtime/commit/cb0482c9038df45213f9ef800cd59b380353914f))
+
 ## [0.183.0](https://github.com/getmilpa/app-runtime/compare/v0.182.0...v0.183.0) (2026-09-24)
 
 
