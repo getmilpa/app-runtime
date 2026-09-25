@@ -231,6 +231,65 @@ final class AHouseLearnsAWordTest extends TestCase
         self::assertStringContainsString('already binds its own source', (string) ($twice['reason'] ?? ''));
     }
 
+    public function testAWordThatPromisesWhatItsRootCannotReceiveIsRefused(): void
+    {
+        // Measured (greenhouse evidence/1006): the resident taught the house its rule as this word, byte
+        // for byte. `$rows` (a string) where `content` takes its rows as an array was accepted, and every
+        // later session that used it was refused at use and rebuilt the page by hand (decisions/0470).
+        $house = $this->session($this->house());
+        $articles = new \Milpa\Data\InMemoryRepository(WordArticle::class);
+        $articles->save(WordArticle::fromArray(['id' => 1, 'title' => 'Out now', 'body' => 'read me', 'published' => true]));
+        $articles->save(WordArticle::fromArray(['id' => 2, 'title' => 'Secret draft', 'body' => 'no', 'published' => false]));
+        $house->registerService(WordArticle::class . 'Repository', $articles);
+
+        $measured = json_decode((string) file_get_contents(__DIR__ . '/Fixtures/reader-page-1006.json'), true)['reader-page'];
+        $refused = $this->call($house, 'component:define', $measured);
+        self::assertFalse($refused['ok'], json_encode($refused) ?: '');
+        self::assertSame('composition.props.rows', $refused['path'] ?? null);
+        foreach (['«$rows» is a string', 'as array', 'bind it with source in screen:declare'] as $said) {
+            self::assertStringContainsString($said, (string) ($refused['reason'] ?? ''), 'the refusal names the input, the contract, and the way that exists');
+        }
+        self::assertFalse(is_file($house->get(Kernel::class)->root() . '/' . ComponentWords::PATH), 'nothing refused was written');
+
+        // The same word without the promise it could not keep is defined, and used with a source it keeps
+        // the house's rule: the heading it fixes, the public rows only.
+        $kept = $measured;
+        unset($kept['inputs']['rows'], $kept['composition']['props']['rows']);
+        $kept['inputs']['subtitle'] = ['type' => 'string', 'required' => false];
+        $kept['composition']['props']['roles']['lead'] = '$subtitle';
+        $defined = $this->call($house, 'component:define', $kept);
+        self::assertTrue($defined['ok'], 'an input nested inside an object prop says nothing the contract can judge: not refused by this rule');
+        unset($kept['inputs']['subtitle'], $kept['composition']['props']['roles']['lead']);
+        $kept['inputs']['title'] = ['type' => 'string', 'required' => false];
+        $kept['composition']['props']['heading'] = '$title';
+        $defined = $this->call($house, 'component:define', $kept);
+        self::assertTrue($defined['ok'], json_encode($defined) ?: '');
+        $declared = $this->call($house, 'screen:declare', [
+            'name' => 'blog', 'type' => 'reader-page', 'props' => ['title' => 'Cuaderno de campo'],
+            'source' => ['entity' => WordArticle::class, 'columns' => ['title', 'body']],
+        ]);
+        self::assertTrue($declared['ok'], json_encode($declared) ?: '');
+        $html = $this->html($house, 'blog');
+        self::assertStringContainsString('Cuaderno de campo', $html);
+        self::assertStringContainsString('Out now', $html);
+        self::assertStringNotContainsString('Secret draft', $html);
+
+        // Nested, the list has no source to arrive through — refused, and the refusal does not point there.
+        $nested = $this->call($house, 'component:define', [
+            'name' => 'two-lists', 'summary' => 'a grid holding a list',
+            'inputs' => ['entries' => ['type' => 'string']],
+            'composition' => ['type' => 'dashboard-grid', 'props' => ['children' => [
+                ['type' => 'content', 'props' => ['rows' => '$entries', 'roles' => ['title' => 'title', 'body' => 'body']]],
+            ]]],
+        ]);
+        self::assertSame('composition.props.children.0.props.rows', $nested['path'] ?? null, json_encode($nested) ?: '');
+        self::assertStringNotContainsString('source', (string) ($nested['reason'] ?? ''), 'only the root is bound at use');
+
+        // Between scalars nothing is judged: an integer into metric-card's string `value` is how a living
+        // word (evidence-balance, served by Surco) reads, and it stays defined.
+        self::assertTrue($this->call($house, 'component:define', self::evidenceBalance())['ok']);
+    }
+
     /** @return array<string, mixed> */
     private static function evidenceBalance(): array
     {

@@ -1,0 +1,25 @@
+{
+    "reader-page": {
+        "name": "reader-page",
+        "summary": "The page a READER of this blog sees. Built from the `content` word with the blog's heading fixed to «Cuaderno de campo» and roles naming only the reader-safe fields (title, body). Rule of this house, held by this word so a future page keeps it without anyone saying it again: (1) the heading is always «Cuaderno de campo» — do not override it; (2) a reader NEVER sees editorial state — `published` (and any other draft/published flag) is for editors and must not appear in the rows, the roles, or any reader-facing field. Use this word for any page a reader will read; feed it rows with only the safe columns.",
+        "inputs": {
+            "rows": {
+                "type": "string",
+                "required": true,
+                "description": "The reader-safe entries, one object per post with ONLY the columns a reader may see — title and body. Never pass editorial state (published, drafts, any editor flag) here: a binding to App\\Plugins\\Blog\\Entities\\Post projects only title and body."
+            }
+        },
+        "composition": {
+            "props": {
+                "heading": "Cuaderno de campo",
+                "rows": "$rows",
+                "roles": {
+                    "title": "title",
+                    "body": "body"
+                }
+            },
+            "type": "content"
+        },
+        "version": 1
+    }
+}
