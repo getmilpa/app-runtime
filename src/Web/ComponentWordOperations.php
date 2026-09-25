@@ -110,6 +110,15 @@ final class ComponentWordOperations implements CommandProvider
             return ['ok' => false, 'error' => 'the live screen registry is not mounted, so no component can be composed'];
         }
 
-        return $this->words->define($input, $registry->primitives());
+        // Each primitive's contract travels with the definition, so a word is judged against what its
+        // components actually receive (greenhouse decisions/0470).
+        $schemas = [];
+        foreach ($registry->primitives() as $type) {
+            if ($registry->has($type)) {
+                $schemas[$type] = $registry->get($type)::contract()->propsSchema;
+            }
+        }
+
+        return $this->words->define($input, $registry->primitives(), $schemas);
     }
 }

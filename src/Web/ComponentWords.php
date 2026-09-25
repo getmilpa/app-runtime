@@ -93,15 +93,17 @@ final class ComponentWords
     /**
      * Add a word — or a new version of it — after checking every rule; refused by name and path.
      *
-     * @param array<string, mixed> $input      name, summary, inputs, composition
-     * @param list<string>         $primitives the component types this house registers
+     * @param array<string, mixed>                $input      name, summary, inputs, composition
+     * @param list<string>                        $primitives the component types this house registers
+     * @param array<string, array<string, mixed>> $schemas    each primitive's propsSchema, when known:
+     *                                                        what lets a word be judged against its root
      *
      * @return array<string, mixed>
      */
-    public function define(array $input, array $primitives): array
+    public function define(array $input, array $primitives, array $schemas = []): array
     {
         try {
-            $word = self::validate($input, $primitives);
+            $word = self::validate($input, $primitives, $schemas);
         } catch (InvalidScreenTree $error) {
             return ['ok' => false, 'error' => 'invalid word', 'path' => $error->path, 'reason' => $error->getMessage()];
         }
@@ -210,12 +212,13 @@ final class ComponentWords
     }
 
     /**
-     * @param array<string, mixed> $input
-     * @param list<string>         $primitives
+     * @param array<string, mixed>                $input
+     * @param list<string>                        $primitives
+     * @param array<string, array<string, mixed>> $schemas
      *
      * @return array{name: string, summary: string, inputs: array<string, array<string, mixed>>, composition: array<string, mixed>}
      */
-    private static function validate(array $input, array $primitives): array
+    private static function validate(array $input, array $primitives, array $schemas = []): array
     {
         $name = trim((string) ($input['name'] ?? ''));
         if (! preg_match(self::NAME, $name)) {
@@ -272,8 +275,52 @@ final class ComponentWords
                 throw new InvalidScreenTree('inputs.' . $inputName, "nothing in the composition reads «\${$inputName}»; an input the word ignores is a contract that lies");
             }
         }
+        self::refuseWhatTheRootCannotReceive($composition, 'composition', $clean, $schemas);
 
         return ['name' => $name, 'summary' => $summary, 'inputs' => $clean, 'composition' => $composition];
+    }
+
+    /**
+     * An input placed where its component takes a list or an object is a contract that lies too
+     * (greenhouse decisions/0470): an input is one scalar value, so it can never fill that prop. Measured
+     * in evidence/1006 — a word put `$rows (string)` where `content` takes its rows as an array, was
+     * accepted, and every later session that used it was refused at use and rebuilt the page by hand.
+     *
+     * Only scalar against list/object is judged. Between scalars a component converts (`metric-card`
+     * takes `value` as a string and is given integers by words that already live), and a prop the
+     * contract gives no type, or an input nested inside an object prop, says nothing to judge by.
+     *
+     * @param array<array-key, mixed>             $node
+     * @param array<string, array<string, mixed>> $inputs
+     * @param array<string, array<string, mixed>> $schemas
+     */
+    private static function refuseWhatTheRootCannotReceive(array $node, string $path, array $inputs, array $schemas): void
+    {
+        $type = (string) ($node['type'] ?? '');
+        $props = \is_array($node['props'] ?? null) ? $node['props'] : [];
+        foreach ($props as $prop => $value) {
+            if (! \is_string($value) || ! preg_match('/^\$([a-zA-Z0-9_]+)$/', $value, $match) || ! isset($inputs[$match[1]])) {
+                continue;
+            }
+            $declared = \is_string($schemas[$type][$prop]['type'] ?? null) ? $schemas[$type][$prop]['type'] : '';
+            $kinds = array_values(array_diff(explode('|', $declared), ['null', '']));
+            if ($kinds === [] || array_diff($kinds, ['array', 'object']) !== []) {
+                continue;
+            }
+            // Only the ROOT is bound at use; a nested list has no source to arrive through.
+            $way = $prop === 'rows' && $path === 'composition'
+                ? "a word's rows arrive where it is used: leave «rows» out of the word and bind it with source in screen:declare"
+                : 'put that value in the composition itself';
+            throw new InvalidScreenTree(
+                "{$path}.props.{$prop}",
+                "«\${$match[1]}» is a {$inputs[$match[1]]['type']}, but «{$type}» takes «{$prop}» as {$declared}: an input is one value and can never fill it; {$way}",
+            );
+        }
+        foreach (\is_array($props['children'] ?? null) ? $props['children'] : [] as $index => $child) {
+            if (\is_array($child)) {
+                self::refuseWhatTheRootCannotReceive($child, "{$path}.props.children.{$index}", $inputs, $schemas);
+            }
+        }
     }
 
     /** @param array<array-key, mixed> $node */
