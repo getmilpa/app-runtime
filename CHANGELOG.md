@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.185.4](https://github.com/getmilpa/app-runtime/compare/v0.185.3...v0.185.4) (2026-09-25)
+
+
+### Bug Fixes
+
+* **agent:** the house asks the question the model put in prose ([#586](https://github.com/getmilpa/app-runtime/issues/586)) ([add7635](https://github.com/getmilpa/app-runtime/commit/add76356d29d8dc48c5751382238fa5e8acd0050))
+
 ## [0.185.3](https://github.com/getmilpa/app-runtime/compare/v0.185.2...v0.185.3) (2026-09-25)
 
 
