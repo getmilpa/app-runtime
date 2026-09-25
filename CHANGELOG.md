@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.184.2](https://github.com/getmilpa/app-runtime/compare/v0.184.1...v0.184.2) (2026-09-25)
+
+
+### Bug Fixes
+
+* **components:** a word binds where its root can ([#576](https://github.com/getmilpa/app-runtime/issues/576)) ([a5545f7](https://github.com/getmilpa/app-runtime/commit/a5545f7ee4c89be37bc3cfe15da205c1fe927fde))
+
 ## [0.184.1](https://github.com/getmilpa/app-runtime/compare/v0.184.0...v0.184.1) (2026-09-25)
 
 
