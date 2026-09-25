@@ -28,6 +28,35 @@ final class AcceptanceEvidence
      */
     public static function read(string $root, array $events, string $workspace, array $scope, array $screen, ?ScreenDrafts $drafts): array
     {
+        $native = self::native($root, $events, $workspace, $scope, $screen, $drafts);
+        // ACCEPTANCE FOLLOWS THE PROMOTION (greenhouse decisions/0469). When the native reader has
+        // nothing to say about a workspace the stream shows was promoted, the chain is read in the house
+        // instead of answering `indeterminate` over evidence that exists. Invalid inputs stay invalid.
+        if (($native['state'] ?? null) === 'indeterminate'
+            && ! \in_array($native['reason'] ?? null, ['invalid_location', 'invalid_requested_scope', 'invalid_stream'], true)) {
+            $rows = array_map(static fn (Event $e): array => ['seq' => $e->seq, 'type' => $e->type, 'payload' => $e->payload], array_values(array_filter($events, static fn ($e): bool => $e instanceof Event)));
+            $house = PromotedEvidence::read($rows, $workspace, ['path' => trim((string) $scope['path']), 'filter' => trim((string) $scope['filter'])], $screen);
+            if ($house !== null) {
+                return ['schema' => 'milpa.acceptance-evidence/v1', 'authorization' => 'not_evaluated', 'humanApproval' => 'not_recorded',
+                    'scope' => ['test' => $scope, 'screen' => $screen, 'coverage' => 'requested_test_scope', 'inputs' => 'promoted_into_the_house'],
+                    'candidate' => $native['candidate'] ?? null] + $house;
+            }
+        }
+
+        return $native;
+    }
+
+    /**
+     * The native reading: a candidate `implement` produced, tests confined in the trial.
+     *
+     * @param list<mixed>          $events
+     * @param array<string, mixed> $scope
+     * @param array<string, mixed> $screen
+     *
+     * @return array<string, mixed>
+     */
+    private static function native(string $root, array $events, string $workspace, array $scope, array $screen, ?ScreenDrafts $drafts): array
+    {
         $base = ['schema' => 'milpa.acceptance-evidence/v1', 'authorization' => 'not_evaluated', 'humanApproval' => 'not_recorded'];
         if (realpath($root) !== $root || !preg_match('/^w[a-f0-9]{12,32}$/D', $workspace)) {
             return $base + ['state' => 'indeterminate', 'reason' => 'invalid_location'];
