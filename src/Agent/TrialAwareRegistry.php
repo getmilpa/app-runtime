@@ -184,6 +184,21 @@ final class TrialAwareRegistry extends ToolRegistry
 
                 return ToolResult::error($error, $run->output, $meta);
             }
+            // A REFUSAL KEEPS ITS REASON. The native channel shows the agent only this error text, and
+            // for every other producer it used to be `error` alone: «invalid word», with the path and the
+            // reason the producer wrote dropped on the floor. Measured (greenhouse evidence/1002): the
+            // resident retried one definition four times blind. When the producer said more than a
+            // message, all of it travels, marked as a trial's.
+            // What a SUCCESS would have told the agent to do next never rides a failure: a failed
+            // producer's continuation note would read as guidance to go on (TrialPartialContinuationTest).
+            $output = array_diff_key(\is_array($run->output) ? $run->output : [], array_flip(['partial', 'note', 'to_apply', 'to_discard']));
+            if (array_diff(array_keys($output), ['ok', 'error']) !== []) {
+                return ToolResult::error(json_encode(
+                    ['ok' => false, 'ran_in_trial' => true, 'applied' => false, 'workspace' => $plan->workspace->id, ...$output],
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR,
+                ), $run->output, $meta);
+            }
+
             return ToolResult::error(\is_string($run->output['error'] ?? null) ? $run->output['error'] : ($run->stderr !== '' ? $run->stderr : 'the trial did not succeed'), $run->output, $meta);
         }
 

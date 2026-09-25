@@ -156,6 +156,32 @@ final class ARehearsedScreenIsPromotedLikeAnyWorkTest extends TestCase
         self::assertSame('sandbox:promote', $result->data['to_apply']['operation'] ?? null);
     }
 
+    public function testARefusalInATrialReachesTheAgentWithItsPathAndReason(): void
+    {
+        // Measured (evidence/1002): «invalid word» alone, four blind retries.
+        $sessions = new SessionStore(new InMemoryEventStore());
+        $sessions->start('s-1', 'goal', AutonomyMode::Ask);
+        $inner = new ToolRegistry(new NullLogger());
+        $inner->register('refuse', 'refuses', ['type' => 'object'], static fn (): array => ['ok' => true]);
+        $operation = new Operation(
+            name: 'refuse',
+            description: 'refuses with a reason',
+            handler: static fn (array $i): array => ['ok' => true],
+            mutating: true,
+            effects: new EffectProfile(Mutation::Persistent, Externality::None, Reversibility::Compensatable, Authority::WriteAsUser, subject: Subject::Configuration),
+        );
+        $router = new TrialRouter($this->root, new TrialRunner(bwrap: $this->fakeExecBwrap()), \dirname(__DIR__) . '/Fixtures/trial-stub-runner.php');
+        $result = (new TrialAwareRegistry($inner, $router, [$operation], $sessions, 's-1'))->call('refuse', []);
+
+        self::assertFalse($result->success);
+        $said = json_decode((string) $result->error, true);
+        self::assertIsArray($said, 'the refusal travels whole, not as one word');
+        self::assertSame('inputs.heading', $said['path']);
+        self::assertStringContainsString('$heading', $said['reason']);
+        self::assertTrue($said['ran_in_trial']);
+        self::assertFalse($said['applied']);
+    }
+
     public function testAHouseWithScreensInVarKeepsThemAndRetiresTheOldFileOnItsFirstWrite(): void
     {
         file_put_contents($this->root . '/var/screens.json', (string) json_encode(['old' => ['type' => 'data-table', 'props' => []]]));
