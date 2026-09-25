@@ -19,6 +19,12 @@ $operation = $argv[1] ?? '';
 $input = json_decode($argv[2] ?? '{}', true);
 $input = \is_array($input) ? $input : [];
 
+// A producer that refuses WITH its reason, the way component:define and screen:declare do.
+if ($operation === 'refuse') {
+    echo json_encode(['ok' => false, 'error' => 'invalid word', 'path' => 'inputs.heading', 'reason' => 'nothing in the composition reads «$heading»']), "\n";
+    exit(1);
+}
+
 if ($operation === 'fail') {
     echo json_encode(['ok' => false, 'error' => 'asked to fail']), "\n";
     exit(1);

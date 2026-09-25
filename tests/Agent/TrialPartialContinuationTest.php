@@ -109,7 +109,9 @@ SH
     {
         $result = $this->registry('implement')->call('implement', ['fixture' => 'failed', 'mode' => 'start']);
         self::assertFalse($result->success);
-        self::assertSame('Producer refused the part', $result->error);
+        // The refusal travels with its reason (evidence/1002), and the success note does not ride it.
+        self::assertStringContainsString('Producer refused the part', (string) $result->error);
+        self::assertStringNotContainsString('Producer says append next', (string) $result->error);
         self::assertArrayNotHasKey('note', $result->data);
         self::assertArrayNotHasKey('to_apply', $result->data);
         self::assertFileDoesNotExist($this->root . '/src/Plugins/Owned/Services/Renderer.php.milpa-part');
