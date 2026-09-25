@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.185.2](https://github.com/getmilpa/app-runtime/compare/v0.185.1...v0.185.2) (2026-09-25)
+
+
+### Bug Fixes
+
+* **screens:** an entity is named without backslashes ([#582](https://github.com/getmilpa/app-runtime/issues/582)) ([a0c5e45](https://github.com/getmilpa/app-runtime/commit/a0c5e4539798594c6328aec370e8e3f8ea1ba1b9))
+
 ## [0.185.1](https://github.com/getmilpa/app-runtime/compare/v0.185.0...v0.185.1) (2026-09-25)
 
 
