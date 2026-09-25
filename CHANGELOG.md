@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.185.1](https://github.com/getmilpa/app-runtime/compare/v0.185.0...v0.185.1) (2026-09-25)
+
+
+### Bug Fixes
+
+* **components:** a word does not promise what its root cannot receive ([#580](https://github.com/getmilpa/app-runtime/issues/580)) ([c8896b0](https://github.com/getmilpa/app-runtime/commit/c8896b037ad3fe150b41a8a174c694e11cf4bfa9))
+
 ## [0.185.0](https://github.com/getmilpa/app-runtime/compare/v0.184.2...v0.185.0) (2026-09-25)
 
 
