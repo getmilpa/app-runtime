@@ -1170,6 +1170,57 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      * does not descend — the gate behaves exactly as it did before this existed.
      */
     /**
+     * The question a final answer put in prose, asked by the house (greenhouse decisions/0473).
+     *
+     * Measured on the resident: after a served trial it sometimes ends its turn asking «shall I promote
+     * workspace w…?» in words — knowing, in the same sentence, that the call itself would pause for
+     * consent. A note explaining that did not move the rate. The question already exists in the house, so
+     * the house asks it: when the answer NAMES a trial that is still alive (neither promoted nor discarded)
+     * and that this session saw in a result, the gate is asked exactly what the model described —
+     * `sandbox_promote {workspace}` — and answers the way it always does. Nothing new decides: when the
+     * gate would not pause (the session already granted it, or the mode does not ask) nothing happens,
+     * and the house never promotes on its own.
+     *
+     * @return string|null the pause line when a question was raised
+     */
+    public function askWhatTheAnswerNames(string $answer): ?string
+    {
+        if ($this->trialRouter === null || ! preg_match_all('/\bw[0-9a-f]{12,20}\b/', $answer, $named)) {
+            return null;
+        }
+        $session = $this->sessions->load($this->session->id);
+        if ($session === null || $session->question !== null) {
+            return null;
+        }
+        foreach (array_unique($named[0]) as $workspace) {
+            if ($this->trialRouter->workspace($workspace) === null || ! self::sawInAResult($session, $workspace)) {
+                continue;
+            }
+
+            // ASKED means the question is now pending — not merely that the gate said something. A gate
+            // that cannot judge the promotion (no such operation here) answers with a refusal, and a
+            // refusal is not a question the human can answer.
+            $line = $this->refuse('sandbox_promote', ['workspace' => $workspace]);
+
+            return $this->sessions->load($this->session->id)?->question?->id === 'perm:sandbox:promote' ? $line : null;
+        }
+
+        return null;
+    }
+
+    /** Whether a tool result this session recorded names the workspace — a trial it produced or was shown. */
+    private static function sawInAResult(Session $session, string $workspace): bool
+    {
+        foreach ($session->turns as $turn) {
+            if ($turn['role'] === 'tool' && str_contains($turn['content'], $workspace)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * The diff a promotion would apply, or `null` when this pause is not a promotion.
      *
      * Read live from the trial named in the arguments (greenhouse decisions/0069): the human sees

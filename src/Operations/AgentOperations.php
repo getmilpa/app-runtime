@@ -163,6 +163,9 @@ class AgentOperations implements CommandProvider
 
     private ?RunTermination $runTermination = null;
 
+    /** The main session's gate for the run in progress — the one that can ask what an answer put in prose (0473). */
+    private ?SessionToolGate $compuertaDeLaVuelta = null;
+
     /** The current base-loop observation, or explicit absence of proven provenance.
      * @return array{reason: string, receipt: array<string, mixed>|null, answerVerdict?: array<string,mixed>}
      */
@@ -2009,6 +2012,7 @@ class AgentOperations implements CommandProvider
                 // it. What varies — the session, the human's petition, the ordering obligation —
                 // travels as an argument; everything else is the same producers for everyone.
                 $compuerta = $this->nuevaCompuerta($store, $kernel, $viva, $prompt, $runFirst);
+                $this->compuertaDeLaVuelta = $compuerta;
                 // ATADAS a esta sesión: el id se captura, no se le pide al modelo. Uno que el modelo
                 // pudiera nombrar es uno que puede errar, y escribirle el plan a otra sesión no es una
                 // equivocación recuperable — quien la lea mañana verá un plan que su agente no escribió.
@@ -2476,6 +2480,14 @@ class AgentOperations implements CommandProvider
             ))) {
             $store->recordTurn($sessionId, 'assistant', $respuesta);
         }
+
+        // THE QUESTION THE ANSWER PUT IN PROSE, ASKED BY THE HOUSE (greenhouse decisions/0473). A final
+        // answer that names a still-living trial of this session is the promotion question; the gate is
+        // asked exactly that, and pauses — or not — as it would for the call. Read below like any pause.
+        if ($this->runTermination?->reason === RunEnd::FinalAnswer && $this->compuertaDeLaVuelta !== null) {
+            $this->compuertaDeLaVuelta->askWhatTheAnswerNames($respuesta);
+        }
+        $this->compuertaDeLaVuelta = null;
 
         $resultado = [
             'ok' => true,
