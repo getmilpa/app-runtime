@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.184.1](https://github.com/getmilpa/app-runtime/compare/v0.184.0...v0.184.1) (2026-09-25)
+
+
+### Bug Fixes
+
+* **trials:** a refusal in a trial reaches the agent with its reason ([#574](https://github.com/getmilpa/app-runtime/issues/574)) ([0949711](https://github.com/getmilpa/app-runtime/commit/0949711553d57a92e7ae360ca5cc7e10a78e7c37))
+
 ## [0.184.0](https://github.com/getmilpa/app-runtime/compare/v0.183.1...v0.184.0) (2026-09-25)
 
 
