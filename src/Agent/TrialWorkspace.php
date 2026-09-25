@@ -71,6 +71,9 @@ final class TrialWorkspace
         }
 
         self::copyTree($root, $copy);
+        // THE BASE OF THE KEYED STORES (decisions/0467): what this trial saw of the house's declarations,
+        // so its promotion can be judged per key and not per file.
+        KeyedDeclarations::snapshot($root, $base . '/base');
         // THE COPY STARTS WITH AN EMPTY `var/`: the trial gets somewhere to write its own state
         // without inheriting — or forking — the host's session stream (0069 §B2).
         if (! is_dir($copy . '/var')) {
