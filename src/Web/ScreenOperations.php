@@ -271,17 +271,22 @@ final class ScreenOperations implements CommandProvider
         // screen takes. The screen remembers which word and which version produced it.
         $word = $this->words?->word($type);
         if ($word !== null && ! \in_array($type, $registry?->primitives() ?? [], true)) {
-            if (\array_key_exists('source', $input)) {
-                return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'source', 'reason' => "«{$type}» takes its inputs as props, not a source"];
-            }
             try {
                 $compiled = $this->words->compile($type, $props);
             } catch (InvalidScreenTree $error) {
                 return ['ok' => false, 'error' => 'invalid screen tree', 'path' => $error->path, 'reason' => $error->getMessage()];
             }
+            // A WORD BINDS WHERE ITS ROOT CAN (greenhouse evidence/1002). A word that composes a
+            // readable list without fixing its data is bound when it is USED, by the same rule as any
+            // type: the contract it compiles to must declare `rows` — checked below. One that already
+            // carries its own source is not bound twice.
+            $useSource = \array_key_exists('source', $input) ? $input['source'] : null;
+            if ($useSource !== null && \array_key_exists('source', $compiled['props'])) {
+                return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'source', 'reason' => "«{$type}» already binds its own source"];
+            }
             $type = $compiled['type'];
             $props = $compiled['props'];
-            $input = ['name' => $input['name'] ?? '', 'type' => $type, 'props' => $props, 'word' => $compiled['word']];
+            $input = ['name' => $input['name'] ?? '', 'type' => $type, 'props' => $props, 'word' => $compiled['word'], ...($useSource !== null ? ['source' => $useSource] : [])];
         }
 
         try {

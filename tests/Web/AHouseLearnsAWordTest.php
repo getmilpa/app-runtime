@@ -185,6 +185,52 @@ final class AHouseLearnsAWordTest extends TestCase
         self::assertArrayNotHasKey('evidence', $broken);
     }
 
+    public function testAWordBindsWhereItsRootCanAndOnlyThere(): void
+    {
+        // Measured (evidence/1002): the resident composed a readable list without data and tried to bind
+        // it at use; the house refused by a rule nobody had measured. The rule now is the type rule.
+        $house = $this->session($this->house());
+        $articles = new \Milpa\Data\InMemoryRepository(WordArticle::class);
+        $articles->save(WordArticle::fromArray(['id' => 1, 'title' => 'Out now', 'body' => 'read me', 'published' => true]));
+        $articles->save(WordArticle::fromArray(['id' => 2, 'title' => 'Secret draft', 'body' => 'no', 'published' => false]));
+        $house->registerService(WordArticle::class . 'Repository', $articles);
+
+        $this->call($house, 'component:define', [
+            'name' => 'post-list', 'summary' => 'the published posts, readable',
+            'inputs' => ['heading' => ['type' => 'string']],
+            'composition' => ['type' => 'content', 'props' => ['heading' => '$heading', 'roles' => ['title' => 'title', 'body' => 'body']]],
+        ]);
+        $declared = $this->call($house, 'screen:declare', [
+            'name' => 'blog', 'type' => 'post-list', 'props' => ['heading' => 'The blog'],
+            'source' => ['entity' => WordArticle::class, 'columns' => ['title', 'body']],
+        ]);
+        self::assertTrue($declared['ok'], json_encode($declared) ?: '');
+        $html = $this->html($house, 'blog');
+        self::assertStringContainsString('Out now', $html);
+        self::assertStringNotContainsString('Secret draft', $html, 'bound through the entity\'s own visibility');
+
+        // A word whose root has no rows cannot be bound — the same contract rule as any type.
+        $this->call($house, 'component:define', self::evidenceBalance());
+        $refused = $this->call($house, 'screen:declare', [
+            'name' => 'b2', 'type' => 'evidence-balance', 'props' => ['supports' => 1, 'contradicts' => 0],
+            'source' => ['entity' => WordArticle::class, 'columns' => ['title']],
+        ]);
+        self::assertSame('source', $refused['path'] ?? null);
+        self::assertStringContainsString('declares no rows prop', (string) ($refused['reason'] ?? ''));
+
+        // A word that already carries its source is not bound twice.
+        $this->call($house, 'component:define', [
+            'name' => 'post-feed', 'summary' => 'bound already', 'inputs' => ['heading' => ['type' => 'string']],
+            'composition' => ['type' => 'content', 'props' => ['heading' => '$heading', 'roles' => ['title' => 'title', 'body' => 'body'],
+                'source' => ['entity' => WordArticle::class, 'columns' => ['title', 'body']]]],
+        ]);
+        $twice = $this->call($house, 'screen:declare', [
+            'name' => 'b3', 'type' => 'post-feed', 'props' => ['heading' => 'x'],
+            'source' => ['entity' => WordArticle::class, 'columns' => ['title']],
+        ]);
+        self::assertStringContainsString('already binds its own source', (string) ($twice['reason'] ?? ''));
+    }
+
     /** @return array<string, mixed> */
     private static function evidenceBalance(): array
     {
@@ -282,5 +328,32 @@ final class AHouseLearnsAWordTest extends TestCase
             }
         }
         @rmdir($path);
+    }
+}
+
+/** A readable entity with a declared visibility, for the words that bind. */
+final readonly class WordArticle implements \Milpa\Data\EntityInterface
+{
+    public const PUBLIC_WHEN = 'published';
+
+    public function __construct(public int|string|null $id, public string $title, public string $body, public bool $published)
+    {
+    }
+
+    public function id(): int|string|null
+    {
+        return $this->id;
+    }
+
+    /** @return array<string, mixed> */
+    public function toArray(): array
+    {
+        return ['id' => $this->id, 'title' => $this->title, 'body' => $this->body, 'published' => $this->published];
+    }
+
+    /** @param array<string, mixed> $row */
+    public static function fromArray(array $row): static
+    {
+        return new self($row['id'] ?? null, $row['title'], $row['body'], $row['published']);
     }
 }
