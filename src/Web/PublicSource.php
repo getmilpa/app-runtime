@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Web;
 
+use Composer\Autoload\ClassLoader;
 use Milpa\Data\EntityInterface;
 use Milpa\Data\PagesResults;
 use Milpa\Data\RepositoryInterface;
@@ -22,7 +23,8 @@ use Milpa\Data\RepositoryInterface;
  * A declared screen BOUND to an entity: the runtime fills its rows on every request, and only with what
  * that entity already declared public (greenhouse decisions/0462).
  *
- * The binding is `{entity: <FQCN>, columns: [<field>, …], limit?: <1..200>}`. Three things make it safe
+ * The binding is `{entity: <name>, columns: [<field>, …], limit?: <1..200>}`, the entity named by its short
+ * name (`Post`), its class, or its class written with `/` — see {@see resolve()}. Three things make it safe
  * to hand to an agent, and none of them is the agent's to write:
  *
  * - **Only a public entity.** The entity must declare `PUBLIC_WHEN` — the same constant its generated
@@ -45,6 +47,44 @@ final class PublicSource
     public const MAX_LIMIT = 200;
 
     /**
+     * The class an entity name stands for (greenhouse decisions/0471).
+     *
+     * A PHP class inside a JSON string makes the model escape backslashes, and measured on the resident it
+     * failed there: 7 of 94 sessions died re-writing `App\Plugins\…` after a consent (`App\nginx\nginx…`
+     * until the output budget ran out), and others sent `App\x08log…` or `App");Plugins…`. So the name an
+     * agent writes needs no backslash: a short name resolves to the ONE entity of this app that carries it
+     * (`App\Plugins\<Plugin>\Entities\<Name>`, found through the autoloader's `App\` prefix), and a class
+     * written with `/` is read as the class. Two entities with that short name are refused by name — the
+     * house never picks one. What is stored is always the class.
+     */
+    public static function resolve(string $name): string
+    {
+        $name = ltrim(str_replace('/', '\\', trim($name)), '\\');
+        if (str_contains($name, '\\') || ! preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name)) {
+            return $name;
+        }
+        $found = [];
+        foreach (ClassLoader::getRegisteredLoaders() as $loader) {
+            foreach ($loader->getPrefixesPsr4()['App\\'] ?? [] as $dir) {
+                foreach (glob(rtrim($dir, '/') . '/Plugins/*/Entities/' . $name . '.php') ?: [] as $file) {
+                    $class = 'App\\Plugins\\' . basename(\dirname($file, 2)) . '\\Entities\\' . $name;
+                    if (class_exists($class) && is_subclass_of($class, EntityInterface::class)) {
+                        $found[$class] = true;
+                    }
+                }
+            }
+        }
+        if (\count($found) > 1) {
+            ksort($found);
+            // Listed the way they can be written back — with `/`, never asking for a backslash.
+            $written = array_map(static fn (string $class): string => str_replace('\\', '/', $class), array_keys($found));
+            throw new InvalidScreenTree('source.entity', "«{$name}» names more than one entity: " . implode(', ', $written) . '; name one of them');
+        }
+
+        return $found === [] ? $name : (string) array_key_first($found);
+    }
+
+    /**
      * The binding, checked and normalised — or {@see InvalidScreenTree} naming what is wrong.
      *
      * @return array{entity: class-string<EntityInterface>, columns: list<string>, limit: int}
@@ -58,7 +98,7 @@ final class PublicSource
         if (! \is_string($entity) || trim($entity) === '') {
             throw new InvalidScreenTree('source.entity', 'source.entity must name the entity class');
         }
-        $entity = ltrim(trim($entity), '\\');
+        $entity = self::resolve($entity);
         if (! class_exists($entity) || ! is_subclass_of($entity, EntityInterface::class)) {
             throw new InvalidScreenTree('source.entity', "{$entity} is not an entity this app can load");
         }
