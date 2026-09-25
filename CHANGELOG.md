@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.185.3](https://github.com/getmilpa/app-runtime/compare/v0.185.2...v0.185.3) (2026-09-25)
+
+
+### Bug Fixes
+
+* **entities:** one entity name, every door ([#584](https://github.com/getmilpa/app-runtime/issues/584)) ([71cf28a](https://github.com/getmilpa/app-runtime/commit/71cf28a42e41e7a98cbf393ee9346b71bdd37741))
+
 ## [0.185.2](https://github.com/getmilpa/app-runtime/compare/v0.185.1...v0.185.2) (2026-09-25)
 
 
