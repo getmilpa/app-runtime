@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.184.0](https://github.com/getmilpa/app-runtime/compare/v0.183.1...v0.184.0) (2026-09-25)
+
+
+### Features
+
+* **trials:** no merge of what actually collides ([#572](https://github.com/getmilpa/app-runtime/issues/572)) ([90275ea](https://github.com/getmilpa/app-runtime/commit/90275ea05644724bab8cc99d5fabac34e9af2306))
+
 ## [0.183.1](https://github.com/getmilpa/app-runtime/compare/v0.183.0...v0.183.1) (2026-09-24)
 
 
