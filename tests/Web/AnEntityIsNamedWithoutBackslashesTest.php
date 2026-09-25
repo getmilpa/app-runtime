@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Web;
 
 use Composer\Autoload\ClassLoader;
+use Milpa\AppRuntime\Operations\AgentOperations;
 use Milpa\AppRuntime\Web\Controllers\LiveComponentPageController;
 use Milpa\AppRuntime\Web\LivePlugin;
 use Milpa\Command\Operation;
@@ -32,8 +33,9 @@ use PHPUnit\Framework\TestCase;
  * Measured on the resident: re-writing `App\Plugins\…` inside a JSON string after a consent killed 7 of
  * 94 sessions (`App\nginx\nginx…` until the output budget ran out). A short name needs no backslash.
  *
- * @guards the short name resolving to the one entity that carries it, the `/`-written class, the class
- *         itself, and the stored binding staying the class
+ * @guards the short name resolving to the one entity that carries it, `Plugin/Entity`, the `/`-written
+ *         class, the class itself, the stored binding staying the class — and entity:contract reading the
+ *         same names (decisions/0472)
  *
  * @refuses a short name two entities carry (naming both, written with `/`), and a name nothing carries
  *
@@ -83,7 +85,7 @@ final class AnEntityIsNamedWithoutBackslashesTest extends TestCase
         $leaf = "App\\Plugins\\Shelf{$this->space}\\Entities\\Leaf{$this->space}";
         $this->rows($leaf);
 
-        foreach (["Leaf{$this->space}", str_replace('\\', '/', $leaf), $leaf] as $i => $written) {
+        foreach (["Leaf{$this->space}", "Shelf{$this->space}/Leaf{$this->space}", str_replace('\\', '/', $leaf), $leaf] as $i => $written) {
             $declared = $this->declare(['name' => "leaves-{$i}", 'type' => 'content', 'props' => ['roles' => ['title' => 'title', 'body' => 'body']],
                 'source' => ['entity' => $written, 'columns' => ['title', 'body']]]);
             self::assertTrue($declared['ok'], $written . ' ' . (json_encode($declared) ?: ''));
@@ -104,14 +106,38 @@ final class AnEntityIsNamedWithoutBackslashesTest extends TestCase
         self::assertFalse($refused['ok']);
         self::assertSame('source.entity', $refused['path'] ?? null);
         $reason = (string) ($refused['reason'] ?? '');
-        self::assertStringContainsString("App/Plugins/Desk{$this->space}/Entities/Twin{$this->space}", $reason);
-        self::assertStringContainsString("App/Plugins/Shelf{$this->space}/Entities/Twin{$this->space}", $reason);
+        self::assertStringContainsString("Desk{$this->space}/Twin{$this->space}, Shelf{$this->space}/Twin{$this->space}", $reason, 'named in the shortest form that tells them apart');
         self::assertStringNotContainsString('\\', $reason, 'the refusal never asks for a backslash');
         self::assertFileDoesNotExist($this->app . '/screens.json', 'nothing refused was stored');
 
         $nothing = $this->declare(['name' => 'nope', 'type' => 'content', 'props' => ['roles' => ['title' => 'title', 'body' => 'body']],
             'source' => ['entity' => 'Nobody', 'columns' => ['title']]]);
         self::assertStringContainsString('is not an entity this app can load', (string) ($nothing['reason'] ?? ''));
+    }
+
+    public function testEntityContractReadsTheSameNameEveryOtherDoorReads(): void
+    {
+        // Measured (greenhouse decisions/0472): once screen:declare taught `Post`, the model wrote it to
+        // entity:contract too, which asked for the class and refused it in 16 of 35 sessions.
+        $leaf = "App\\Plugins\\Shelf{$this->space}\\Entities\\Leaf{$this->space}";
+        $contract = null;
+        foreach ((new AgentOperations(new DIContainer()))->operations() as $operation) {
+            if ($operation->name === 'entity:contract') {
+                $contract = $operation;
+            }
+        }
+        self::assertNotNull($contract);
+
+        foreach (["Leaf{$this->space}", "Shelf{$this->space}/Leaf{$this->space}", str_replace('\\', '/', $leaf), $leaf] as $written) {
+            $read = ($contract->handler)(['class' => $written]);
+            self::assertTrue($read['ok'] ?? false, $written . ' ' . (json_encode($read) ?: ''));
+            self::assertSame($leaf, $read['class'], 'the contract names the class it proved');
+        }
+
+        $ambiguous = ($contract->handler)(['class' => "Twin{$this->space}"]);
+        self::assertFalse($ambiguous['ok']);
+        self::assertStringContainsString("Desk{$this->space}/Twin{$this->space}, Shelf{$this->space}/Twin{$this->space}", (string) $ambiguous['error']);
+        self::assertStringNotContainsString('\\', (string) $ambiguous['error']);
     }
 
     private function rows(string $class): void

@@ -108,7 +108,7 @@ final class ScreenOperations implements CommandProvider
                             'description' => 'instead of rows, for a type whose contract has rows (data-table, content): bind to an entity that declares PUBLIC_WHEN; the runtime serves its public rows per request, projected to the named fields',
                             'required' => ['entity', 'columns'],
                             'properties' => [
-                                'entity' => ['type' => 'string', 'description' => 'the entity by its short name, e.g. Post (its class also works)'],
+                                'entity' => ['type' => 'string', 'description' => 'the entity by its short name, e.g. Post — or Blog/Post when two plugins have one'],
                                 'columns' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'the entity fields to show'],
                                 'limit' => ['type' => 'integer', 'description' => 'rows served, 1 to 200; default 50'],
                             ],

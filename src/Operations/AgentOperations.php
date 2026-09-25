@@ -88,6 +88,8 @@ use Milpa\Agent\SessionEvent;
 use Milpa\Agent\SessionStore;
 use Milpa\Agent\WorkSnapshot;
 use Milpa\AppRuntime\Entity\EntityContract;
+use Milpa\AppRuntime\Entity\EntityName;
+use Milpa\AppRuntime\Entity\EntityNameIsAmbiguous;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\StderrLogger;
 use Milpa\Command\CommandProvider;
@@ -573,7 +575,7 @@ class AgentOperations implements CommandProvider
                     'properties' => [
                         'class' => [
                             'type' => 'string',
-                            'description' => 'The fully-qualified entity class to read the contract of',
+                            'description' => 'The entity by its short name, e.g. Post — or Blog/Post when two plugins have one (its class also works)',
                         ],
                     ],
                     'required' => ['class'],
@@ -3336,9 +3338,16 @@ class AgentOperations implements CommandProvider
     {
         $class = \is_string($input['class'] ?? null) ? trim($input['class']) : '';
         if ($class === '') {
-            return ['ok' => false, 'error' => 'which class? `class` is required — the fully-qualified entity class'];
+            return ['ok' => false, 'error' => 'which entity? `class` is required — its short name, e.g. Post'];
         }
 
+        // The same name every door reads (greenhouse decisions/0472): a short name taught at screen:declare
+        // is not refused here.
+        try {
+            $class = EntityName::resolve($class);
+        } catch (EntityNameIsAmbiguous $ambiguous) {
+            return ['ok' => false, 'error' => $ambiguous->getMessage()];
+        }
         $contract = EntityContract::of($class);
         if ($contract === null) {
             return [
