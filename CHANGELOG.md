@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.185.0](https://github.com/getmilpa/app-runtime/compare/v0.184.2...v0.185.0) (2026-09-25)
+
+
+### Features
+
+* **agent:** acceptance follows the promotion ([#578](https://github.com/getmilpa/app-runtime/issues/578)) ([91375a5](https://github.com/getmilpa/app-runtime/commit/91375a58f07ec2ebf03ccc66e26f960b315a20e3))
+
 ## [0.184.2](https://github.com/getmilpa/app-runtime/compare/v0.184.1...v0.184.2) (2026-09-25)
 
 
