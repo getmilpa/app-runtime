@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Web;
 
+use Milpa\AppRuntime\Auth\LivePrincipal;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -38,6 +39,8 @@ final class DeclaredScreensPageProvider implements LivePageProvider
          * @var \Closure(string): ?object|null
          */
         private readonly ?\Closure $service = null,
+        /** The house's words — what a reading bound to a word's inputs is compiled through (decisions/0484). */
+        private readonly ?ComponentWords $words = null,
     ) {
     }
 
@@ -69,6 +72,32 @@ final class DeclaredScreensPageProvider implements LivePageProvider
         $source = $props['source'];
         unset($props['source']);
         $service = $this->service ?? static fn (string $id): ?object => null;
+        // A READING THE HOUSE LENDS (greenhouse decisions/0484): its audience is judged against this request's
+        // principal BEFORE anything is read — a denied request raises ReadingDenied and carries no value.
+        if (ReadingSource::is($source)) {
+            $word = \is_array($source['word'] ?? null) ? $source['word'] : null;
+            unset($source['word']);
+            $readings = $service(HouseReadings::class);
+            $values = ReadingSource::fill(
+                $source,
+                $readings instanceof HouseReadings ? $readings : null,
+                LivePrincipal::fromRequest($request),
+            );
+            if ($word === null) {
+                return [...$props, ...$values];
+            }
+
+            // Bound through a WORD: the word is compiled again with what was read, and it must still be the
+            // word this screen was declared with — a word re-taught since is refused, never half-applied.
+            $name = (string) ($word['name'] ?? '');
+            $current = $this->words?->word($name);
+            if ($current === null || (int) $current['version'] !== (int) ($word['version'] ?? 0)) {
+                throw new InvalidScreenTree('type', "the word «{$name}» this screen was declared with has changed or is gone; declare the screen again");
+            }
+            $compiled = $this->words->compile($name, [...(\is_array($word['inputs'] ?? null) ? $word['inputs'] : []), ...$values]);
+
+            return [...$props, ...$compiled['props']];
+        }
         // A COUNT fills the value (greenhouse decisions/0478): how many public rows there are, read now.
         if (($source['count'] ?? null) === true) {
             $props['value'] = (string) PublicSource::count($source, $service);

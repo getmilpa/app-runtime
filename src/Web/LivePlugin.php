@@ -256,6 +256,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
             ScreenStore::fromConfig($live, $this->root()),
             // Resolved per request, not at boot: the plugin that owns a bound entity may boot after this one.
             fn (string $id): ?object => $this->container->has($id) ? $this->serviceObject($id) : null,
+            ComponentWords::forRoot($this->root()),
         );
         // The runtime always serves the screens the agent declared at runtime (decisions/0158). When the app
         // owns no provider, that IS the provider (registered, so `screen:declare`'d screens are served with
@@ -445,6 +446,9 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 $this->whyUnmounted(...),
                 $this->statusOfScreen(...),
                 ComponentWords::forRoot($this->root()),
+                // The readings the house lends (decisions/0484), resolved when asked: a plugin registers
+                // its readings in boot(), possibly after this one.
+                fn (): ?HouseReadings => $this->container->has(HouseReadings::class) && ($readings = $this->container->get(HouseReadings::class)) instanceof HouseReadings ? $readings : null,
             ))->operations(),
             // How the house learns a word (decisions/0465).
             ...(new ComponentWordOperations(
