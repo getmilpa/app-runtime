@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.187.0](https://github.com/getmilpa/app-runtime/compare/v0.186.0...v0.187.0) (2026-09-26)
+
+
+### Features
+
+* **screens:** a number read live ([#595](https://github.com/getmilpa/app-runtime/issues/595)) ([d795333](https://github.com/getmilpa/app-runtime/commit/d7953330dab6a4361cdd5b42c0d4440efbed13eb))
+
 ## [0.186.0](https://github.com/getmilpa/app-runtime/compare/v0.185.6...v0.186.0) (2026-09-26)
 
 
