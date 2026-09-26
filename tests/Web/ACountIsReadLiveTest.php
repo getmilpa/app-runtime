@@ -21,8 +21,11 @@ use Milpa\Container\DIContainer;
 use Milpa\Data\EntityInterface;
 use Milpa\Data\InMemoryRepository;
 use Milpa\Runtime\Config;
+use Milpa\Runtime\Kernel;
+use Milpa\ToolRuntime\ToolRegistry;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\NullLogger;
 
 /**
  * A number read live (greenhouse decisions/0478), through the real door.
@@ -53,13 +56,17 @@ final class ACountIsReadLiveTest extends TestCase
             'secret' => str_repeat('k', 32),
             'screens_path' => $this->dir . '/screens.json',
         ]]));
+        // The house root is THIS test's directory: a word defined here writes config/components.json under it,
+        // never under the repository the suite runs in (it did, before the Kernel was registered).
+        $kernel = Kernel::boot(['root' => $this->dir, 'container' => $this->container, 'toolRegistry' => new ToolRegistry(new NullLogger()), 'plugins' => []]);
+        $this->container->registerService(Kernel::class, $kernel);
         (new LivePlugin($this->container))->boot();
     }
 
     protected function tearDown(): void
     {
-        foreach (glob($this->dir . '/*') ?: [] as $left) {
-            @unlink($left);
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($this->dir, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::CHILD_FIRST) as $f) {
+            $f->isDir() ? @rmdir($f->getPathname()) : @unlink($f->getPathname());
         }
         @rmdir($this->dir);
     }
