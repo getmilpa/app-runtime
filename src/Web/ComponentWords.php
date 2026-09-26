@@ -263,6 +263,11 @@ final class ComponentWords
             }
         }
         ScreenTree::validate($composition['type'], \is_array($composition['props'] ?? null) ? $composition['props'] : [], $primitives, 'composition.');
+        // The same contract judge as screen:declare, root and children (greenhouse decisions/0479): an input
+        // fills its prop, and the root's rows or value may be bound where the word is used.
+        if ($schemas !== []) {
+            ContractJudge::judge($composition, $schemas, ['rows', 'value'], 'composition.props');
+        }
 
         $used = self::references($composition);
         foreach ($used as $reference => $path) {

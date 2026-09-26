@@ -356,37 +356,27 @@ final class ScreenOperations implements CommandProvider
         // name, a binding's rows or value, the table's top-level columns/rows — is not asked of the caller,
         // and children/source are structure, not props.
         $ignored = [];
-        $known = [];
         if ($registry !== null) {
-            $schema = $this->propsSchemaOf($registry, $type);
-            if ($schema !== []) {
-                $given = \is_array($input['props'] ?? null) ? $input['props'] : [];
-                $bound = \is_array($input['source'] ?? null) ? $input['source'] : null;
-                $filled = ['name', 'children', 'source', ...array_values(array_filter(['columns', 'rows'], static fn (string $k): bool => \array_key_exists($k, $input)))];
-                if ($bound !== null) {
-                    $filled[] = ($bound['count'] ?? null) === true ? 'value' : 'rows';
-                }
-                $known = array_keys($schema);
-                foreach (array_keys($given) as $prop) {
-                    if (! \array_key_exists((string) $prop, $schema) && ! \in_array($prop, $filled, true)) {
-                        $ignored[] = (string) $prop;
-                    }
-                }
-                foreach ($schema as $prop => $spec) {
-                    if (\is_array($spec) && ($spec['required'] ?? false) === true
-                        && ! \array_key_exists($prop, $given) && ! \in_array($prop, $filled, true)
-                    ) {
-                        return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'props.' . $prop,
-                            'reason' => "«{$type}» needs «{$prop}»" . (\is_string($spec['description'] ?? null) ? ': ' . $spec['description'] : '')];
-                    }
-                }
+            $filled = array_values(array_filter(['columns', 'rows'], static fn (string $k): bool => \array_key_exists($k, $input)));
+            if (\is_array($input['source'] ?? null)) {
+                $filled[] = ($input['source']['count'] ?? null) === true ? 'value' : 'rows';
+            }
+            $schemas = [];
+            foreach ($registry->primitives() as $primitive) {
+                $schemas[$primitive] = $this->propsSchemaOf($registry, $primitive);
+            }
+            try {
+                $ignored = ContractJudge::judge(['type' => $type, 'props' => \is_array($input['props'] ?? null) ? $input['props'] : []], $schemas, $filled);
+            } catch (InvalidScreenTree $error) {
+                return ['ok' => false, 'error' => 'invalid screen tree', 'path' => $error->path, 'reason' => $error->getMessage()];
             }
         }
 
         $result = $this->store->declare($input);
         if ($ignored !== [] && ($result['ok'] ?? false) === true) {
-            $result['ignoredProps'] = $ignored;
-            $result['note'] = "«{$type}» does not declare " . implode(', ', $ignored) . ' — ignored unless its renderer reads it; its props are: ' . implode(', ', $known);
+            $result['ignoredProps'] = array_map(static fn (string $at): string => (string) preg_replace('/^props\./', '', $at), $ignored);
+            $result['note'] = 'not declared by their component, so ignored unless its renderer reads them: ' . implode(', ', $ignored)
+                . '; «' . $type . '» declares: ' . implode(', ', array_keys($this->propsSchemaOf($registry, $type)));
         }
 
         // THE OPERATION DECLARES WHAT IT DEMONSTRATED (greenhouse decisions/0187). A served screen is

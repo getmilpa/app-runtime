@@ -21,8 +21,11 @@ use Milpa\Container\DIContainer;
 use Milpa\Data\EntityInterface;
 use Milpa\Data\InMemoryRepository;
 use Milpa\Runtime\Config;
+use Milpa\Runtime\Kernel;
+use Milpa\ToolRuntime\ToolRegistry;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\NullLogger;
 
 /**
  * A number read live (greenhouse decisions/0478), through the real door.
@@ -53,13 +56,17 @@ final class ACountIsReadLiveTest extends TestCase
             'secret' => str_repeat('k', 32),
             'screens_path' => $this->dir . '/screens.json',
         ]]));
+        // The house root is THIS test's directory: a word defined here writes config/components.json under it,
+        // never under the repository the suite runs in (it did, before the Kernel was registered).
+        $kernel = Kernel::boot(['root' => $this->dir, 'container' => $this->container, 'toolRegistry' => new ToolRegistry(new NullLogger()), 'plugins' => []]);
+        $this->container->registerService(Kernel::class, $kernel);
         (new LivePlugin($this->container))->boot();
     }
 
     protected function tearDown(): void
     {
-        foreach (glob($this->dir . '/*') ?: [] as $left) {
-            @unlink($left);
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($this->dir, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::CHILD_FIRST) as $f) {
+            $f->isDir() ? @rmdir($f->getPathname()) : @unlink($f->getPathname());
         }
         @rmdir($this->dir);
     }
@@ -117,10 +124,64 @@ final class ACountIsReadLiveTest extends TestCase
             'source' => ['entity' => CountedPost::class, 'count' => true]]);
         self::assertTrue($labelled['ok'], 'an undeclared prop is not refused: contracts are not complete');
         self::assertSame(['label'], $labelled['ignoredProps'] ?? null);
-        self::assertStringContainsString('its props are: title, value', (string) ($labelled['note'] ?? ''));
+        self::assertStringContainsString('«metric-card» declares: title, value', (string) ($labelled['note'] ?? ''));
 
         $novalue = $this->declare(['name' => 'kpi', 'type' => 'metric-card', 'props' => ['title' => 'Something']]);
         self::assertSame('props.value', $novalue['path'] ?? null, 'without a count, the value is the caller\'s to give');
+    }
+
+    /** The children obey the rule the root obeys — in a declared tree and in a word's composition. */
+    public function testAContainersChildrenAreJudgedByTheirOwnContract(): void
+    {
+        $grid = $this->declare(['name' => 'pulse', 'type' => 'dashboard-grid', 'props' => ['children' => [
+            ['type' => 'metric-card', 'props' => ['title' => 'Published', 'value' => '2']],
+            ['type' => 'metric-card', 'props' => ['value' => '1']],
+        ]]]);
+        self::assertSame('props.children.1.props.title', $grid['path'] ?? null, json_encode($grid) ?: '');
+
+        $labelled = $this->declare(['name' => 'pulse', 'type' => 'dashboard-grid', 'props' => ['children' => [
+            ['type' => 'metric-card', 'props' => ['title' => 'Published', 'value' => '2', 'label' => 'x']],
+        ]]]);
+        self::assertTrue($labelled['ok'], json_encode($labelled) ?: '');
+        self::assertSame(['children.0.props.label'], $labelled['ignoredProps'] ?? null);
+
+        foreach ((new LivePlugin($this->container))->operations() as $operation) {
+            if ($operation instanceof Operation && $operation->name === 'component:define') {
+                $word = ($operation->handler)(['name' => 'two-cards', 'summary' => 'two numbers', 'inputs' => ['a' => ['type' => 'string']],
+                    'composition' => ['type' => 'dashboard-grid', 'props' => ['children' => [
+                        ['type' => 'metric-card', 'props' => ['title' => 'A', 'value' => '$a']],
+                        ['type' => 'metric-card', 'props' => ['value' => '1']],
+                    ]]]]);
+                self::assertSame('composition.props.children.1.props.title', $word['path'] ?? null, json_encode($word) ?: '');
+            }
+        }
+    }
+
+    /**
+     * A WORD can carry a live count (the part of 0478's deferred word that the public boundary allows): its root
+     * card leaves `value` to the binding, and the count arrives where the word is used.
+     */
+    public function testAWordWhoseCardLeavesItsValueToTheBindingCountsLive(): void
+    {
+        $posts = new InMemoryRepository(CountedPost::class);
+        $posts->save(CountedPost::fromArray(['id' => 1, 'title' => 'a', 'body' => 'x', 'published' => true]));
+        $posts->save(CountedPost::fromArray(['id' => 2, 'title' => 'b', 'body' => 'x', 'published' => false]));
+        $this->container->registerService(CountedPost::class . 'Repository', $posts);
+
+        foreach ((new LivePlugin($this->container))->operations() as $operation) {
+            if ($operation instanceof Operation && $operation->name === 'component:define') {
+                $word = ($operation->handler)(['name' => 'published-count', 'summary' => 'how many posts readers can see, live',
+                    'inputs' => ['title' => ['type' => 'string']],
+                    'composition' => ['type' => 'metric-card', 'props' => ['title' => '$title']]]);
+                self::assertTrue($word['ok'], json_encode($word) ?: '');
+            }
+        }
+        $declared = $this->declare(['name' => 'post-count', 'type' => 'published-count', 'props' => ['title' => 'Publicados'],
+            'source' => ['entity' => CountedPost::class, 'count' => true]]);
+        self::assertTrue($declared['ok'], json_encode($declared) ?: '');
+        self::assertSame('1', $this->value());
+        $posts->save(CountedPost::fromArray(['id' => 3, 'title' => 'c', 'body' => 'x', 'published' => true]));
+        self::assertSame('2', $this->value(), 'read live through the word');
     }
 
     private function value(): string
