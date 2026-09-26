@@ -77,7 +77,8 @@ final class FrameworkReconciliation
      */
     public static function rows(string $root, array $ships): ?array
     {
-        $born = FrameworkStamp::born($root);
+        // Against what was last TAKEN, if anything was (greenhouse decisions/0483), else the birth bytes.
+        $born = FrameworkStamp::baseline($root);
         if ($born === null) {
             return null;
         }
