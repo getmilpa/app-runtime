@@ -348,7 +348,46 @@ final class ScreenOperations implements CommandProvider
             }
         }
 
+        // THE CONTRACT HOLDS AT DECLARATION (greenhouse decisions/0479). Measured: 11 of 94 declarations were
+        // accepted with a prop the component does not have (dropped in silence) or without one it requires
+        // (a card that says «2» without saying of what). A missing required prop is refused. An undeclared one
+        // is accepted and NAMED: contracts are not complete — autocomplete's renderer reads `options`, which
+        // its contract does not declare — so refusing it would break what works. What the house fills — the
+        // name, a binding's rows or value, the table's top-level columns/rows — is not asked of the caller,
+        // and children/source are structure, not props.
+        $ignored = [];
+        $known = [];
+        if ($registry !== null) {
+            $schema = $this->propsSchemaOf($registry, $type);
+            if ($schema !== []) {
+                $given = \is_array($input['props'] ?? null) ? $input['props'] : [];
+                $bound = \is_array($input['source'] ?? null) ? $input['source'] : null;
+                $filled = ['name', 'children', 'source', ...array_values(array_filter(['columns', 'rows'], static fn (string $k): bool => \array_key_exists($k, $input)))];
+                if ($bound !== null) {
+                    $filled[] = ($bound['count'] ?? null) === true ? 'value' : 'rows';
+                }
+                $known = array_keys($schema);
+                foreach (array_keys($given) as $prop) {
+                    if (! \array_key_exists((string) $prop, $schema) && ! \in_array($prop, $filled, true)) {
+                        $ignored[] = (string) $prop;
+                    }
+                }
+                foreach ($schema as $prop => $spec) {
+                    if (\is_array($spec) && ($spec['required'] ?? false) === true
+                        && ! \array_key_exists($prop, $given) && ! \in_array($prop, $filled, true)
+                    ) {
+                        return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'props.' . $prop,
+                            'reason' => "«{$type}» needs «{$prop}»" . (\is_string($spec['description'] ?? null) ? ': ' . $spec['description'] : '')];
+                    }
+                }
+            }
+        }
+
         $result = $this->store->declare($input);
+        if ($ignored !== [] && ($result['ok'] ?? false) === true) {
+            $result['ignoredProps'] = $ignored;
+            $result['note'] = "«{$type}» does not declare " . implode(', ', $ignored) . ' — ignored unless its renderer reads it; its props are: ' . implode(', ', $known);
+        }
 
         // THE OPERATION DECLARES WHAT IT DEMONSTRATED (greenhouse decisions/0187). A served screen is
         // real, verifiable evidence — a reader opens it at `servedAt` — but it is none of the three

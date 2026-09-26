@@ -34,7 +34,7 @@ use PHPUnit\Framework\TestCase;
  * @guards the public count, read per request (a new published row moves it, a draft does not)
  *
  * @refuses a type with no value prop, a value written beside a count, a count with columns, an entity that
- *          declares nothing public
+ *          declares nothing public — and (0479) a missing required prop; an undeclared one is named, not refused
  *
  * @subject-in milpa/app-runtime
  */
@@ -98,6 +98,29 @@ final class ACountIsReadLiveTest extends TestCase
             self::assertSame($path, $refused['path'] ?? null, json_encode($refused) ?: '');
         }
         self::assertStringContainsString('declares no value prop', $this->declare($cases['source'])['reason']);
+    }
+
+    /**
+     * The contract holds at declaration (greenhouse decisions/0479): measured with the count, a card declared
+     * without its title said «2» without saying of what, and `label` (not a prop) was dropped in silence.
+     */
+    public function testAMissingRequiredPropIsRefusedAndAnUnknownOneIsNamed(): void
+    {
+        $posts = new InMemoryRepository(CountedPost::class);
+        $this->container->registerService(CountedPost::class . 'Repository', $posts);
+
+        $untitled = $this->declare(['name' => 'post-count', 'type' => 'metric-card', 'source' => ['entity' => CountedPost::class, 'count' => true]]);
+        self::assertFalse($untitled['ok']);
+        self::assertSame('props.title', $untitled['path'] ?? null);
+
+        $labelled = $this->declare(['name' => 'post-count', 'type' => 'metric-card', 'props' => ['title' => 'Published posts', 'label' => 'x'],
+            'source' => ['entity' => CountedPost::class, 'count' => true]]);
+        self::assertTrue($labelled['ok'], 'an undeclared prop is not refused: contracts are not complete');
+        self::assertSame(['label'], $labelled['ignoredProps'] ?? null);
+        self::assertStringContainsString('its props are: title, value', (string) ($labelled['note'] ?? ''));
+
+        $novalue = $this->declare(['name' => 'kpi', 'type' => 'metric-card', 'props' => ['title' => 'Something']]);
+        self::assertSame('props.value', $novalue['path'] ?? null, 'without a count, the value is the caller\'s to give');
     }
 
     private function value(): string
