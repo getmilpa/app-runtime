@@ -105,11 +105,12 @@ final class ScreenOperations implements CommandProvider
                         'rows' => ['type' => 'array', 'description' => 'data-table convenience: list of row objects keyed by column key'],
                         'source' => [
                             'type' => 'object',
-                            'description' => 'instead of rows, for a type whose contract has rows (data-table, content): bind to an entity that declares PUBLIC_WHEN; the runtime serves its public rows per request, projected to the named fields',
-                            'required' => ['entity', 'columns'],
+                            'description' => 'bind to an entity that declares PUBLIC_WHEN, read per request. For a type whose contract has rows (data-table, content): {entity, columns} serves its public rows, projected to the named fields. For a type whose contract has a value (metric-card): {entity, count: true} shows how many public rows there are',
+                            'required' => ['entity'],
                             'properties' => [
                                 'entity' => ['type' => 'string', 'description' => 'the entity by its short name, e.g. Post — or Blog/Post when two plugins have one'],
-                                'columns' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'the entity fields to show'],
+                                'columns' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'the entity fields to show (rows)'],
+                                'count' => ['type' => 'boolean', 'description' => 'true: show how many public rows there are (value)'],
                                 'limit' => ['type' => 'integer', 'description' => 'rows served, 1 to 200; default 50'],
                             ],
                         ],
@@ -308,26 +309,43 @@ final class ScreenOperations implements CommandProvider
             // declares the `rows` prop a binding fills. Without a registry the contract cannot be read, and
             // only the default table is assumed.
             $schema = $this->propsSchemaOf($registry, $type);
-            if (! \array_key_exists('rows', $schema)) {
-                return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'source', 'reason' => "«{$type}» declares no rows prop, so it cannot bind to an entity"];
+            // A COUNT fills the contract's `value` (greenhouse decisions/0478), by the same rule: the type
+            // declares the prop the binding fills, and the caller does not write it too.
+            if (\is_array($source) && \array_key_exists('count', $source)) {
+                if (! \array_key_exists('value', $schema)) {
+                    return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'source', 'reason' => "«{$type}» declares no value prop, so it cannot show a count"];
+                }
+                if (\array_key_exists('value', $input) || \array_key_exists('value', $props)) {
+                    return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'value', 'reason' => 'a counted screen reads its value from its source; declare either value or a count source'];
+                }
+                try {
+                    $input['source'] = PublicSource::validate($source);
+                } catch (InvalidScreenTree $error) {
+                    return ['ok' => false, 'error' => 'invalid screen tree', 'path' => $error->path, 'reason' => $error->getMessage()];
+                }
+                unset($input['props']['source']);
+            } else {
+                if (! \array_key_exists('rows', $schema)) {
+                    return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'source', 'reason' => "«{$type}» declares no rows prop, so it cannot bind to an entity"];
+                }
+                if (\array_key_exists('rows', $input) || \array_key_exists('rows', $props)) {
+                    return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'rows', 'reason' => 'a bound screen reads its rows from its source; declare either rows or source'];
+                }
+                try {
+                    $binding = PublicSource::validate($source);
+                } catch (InvalidScreenTree $error) {
+                    return ['ok' => false, 'error' => 'invalid screen tree', 'path' => $error->path, 'reason' => $error->getMessage()];
+                }
+                // A contract that shows columns shows the ones the binding reads, unless the caller labelled them.
+                if (\array_key_exists('columns', $schema) && ! \array_key_exists('columns', $input) && ! \array_key_exists('columns', $props)) {
+                    $input['columns'] = array_map(
+                        static fn (string $key): array => ['key' => $key, 'label' => ucfirst(str_replace('_', ' ', $key))],
+                        $binding['columns'],
+                    );
+                }
+                $input['source'] = $binding;
+                unset($input['props']['source']);
             }
-            if (\array_key_exists('rows', $input) || \array_key_exists('rows', $props)) {
-                return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'rows', 'reason' => 'a bound screen reads its rows from its source; declare either rows or source'];
-            }
-            try {
-                $binding = PublicSource::validate($source);
-            } catch (InvalidScreenTree $error) {
-                return ['ok' => false, 'error' => 'invalid screen tree', 'path' => $error->path, 'reason' => $error->getMessage()];
-            }
-            // A contract that shows columns shows the ones the binding reads, unless the caller labelled them.
-            if (\array_key_exists('columns', $schema) && ! \array_key_exists('columns', $input) && ! \array_key_exists('columns', $props)) {
-                $input['columns'] = array_map(
-                    static fn (string $key): array => ['key' => $key, 'label' => ucfirst(str_replace('_', ' ', $key))],
-                    $binding['columns'],
-                );
-            }
-            $input['source'] = $binding;
-            unset($input['props']['source']);
         }
 
         $result = $this->store->declare($input);

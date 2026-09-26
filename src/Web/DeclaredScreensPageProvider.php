@@ -68,10 +68,14 @@ final class DeclaredScreensPageProvider implements LivePageProvider
         // be satisfied throws InvalidScreenTree — the page answers 422, never an empty or leaked table.
         $source = $props['source'];
         unset($props['source']);
-        $props['rows'] = PublicSource::rows(
-            $source,
-            $this->service ?? static fn (string $id): ?object => null,
-        );
+        $service = $this->service ?? static fn (string $id): ?object => null;
+        // A COUNT fills the value (greenhouse decisions/0478): how many public rows there are, read now.
+        if (($source['count'] ?? null) === true) {
+            $props['value'] = (string) PublicSource::count($source, $service);
+
+            return $props;
+        }
+        $props['rows'] = PublicSource::rows($source, $service);
 
         return $props;
     }

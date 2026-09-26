@@ -1,0 +1,184 @@
+<?php
+
+/**
+ * This file is part of Milpa App Runtime — the application runtime of the Milpa PHP framework.
+ *
+ * (c) Rodrigo Vicente - TeamX Agency — https://teamx.agency <hola@teamx.agency>
+ *
+ * @license Apache-2.0
+ *
+ * @link    https://github.com/getmilpa/app-runtime
+ */
+
+declare(strict_types=1);
+
+namespace Milpa\AppRuntime\Tests\Web;
+
+use Milpa\AppRuntime\Web\Controllers\LiveComponentPageController;
+use Milpa\AppRuntime\Web\LivePlugin;
+use Milpa\Command\Operation;
+use Milpa\Container\DIContainer;
+use Milpa\Data\EntityInterface;
+use Milpa\Data\InMemoryRepository;
+use Milpa\Runtime\Config;
+use Nyholm\Psr7\ServerRequest;
+use PHPUnit\Framework\TestCase;
+
+/**
+ * A number read live (greenhouse decisions/0478), through the real door.
+ *
+ * Measured: asked «how many posts are published», the resident read the data file and wrote «2» by hand —
+ * a snapshot the next post makes false — or bound a table and had no number. `source: {entity, count: true}`
+ * fills a `value` with how many PUBLIC rows there are, read on every request.
+ *
+ * @guards the public count, read per request (a new published row moves it, a draft does not)
+ *
+ * @refuses a type with no value prop, a value written beside a count, a count with columns, an entity that
+ *          declares nothing public
+ *
+ * @subject-in milpa/app-runtime
+ */
+final class ACountIsReadLiveTest extends TestCase
+{
+    private string $dir = '';
+
+    private DIContainer $container;
+
+    protected function setUp(): void
+    {
+        $this->dir = sys_get_temp_dir() . '/milpa-count-' . bin2hex(random_bytes(6));
+        mkdir($this->dir, 0o777, true);
+        $this->container = new DIContainer();
+        $this->container->registerService(Config::class, new Config(['live' => [
+            'secret' => str_repeat('k', 32),
+            'screens_path' => $this->dir . '/screens.json',
+        ]]));
+        (new LivePlugin($this->container))->boot();
+    }
+
+    protected function tearDown(): void
+    {
+        foreach (glob($this->dir . '/*') ?: [] as $left) {
+            @unlink($left);
+        }
+        @rmdir($this->dir);
+    }
+
+    public function testTheCountIsHowManyPublicRowsThereAreReadOnEveryRequest(): void
+    {
+        $posts = new InMemoryRepository(CountedPost::class);
+        $posts->save(CountedPost::fromArray(['id' => 1, 'title' => 'Hello', 'body' => 'x', 'published' => true]));
+        $posts->save(CountedPost::fromArray(['id' => 2, 'title' => 'Secret draft', 'body' => 'x', 'published' => false]));
+        $posts->save(CountedPost::fromArray(['id' => 3, 'title' => 'Also out', 'body' => 'x', 'published' => true]));
+        $this->container->registerService(CountedPost::class . 'Repository', $posts);
+
+        $declared = $this->declare(['name' => 'post-count', 'type' => 'metric-card', 'props' => ['title' => 'Published posts'],
+            'source' => ['entity' => CountedPost::class, 'count' => true]]);
+        self::assertTrue($declared['ok'], json_encode($declared) ?: '');
+        self::assertSame('2', $this->value(), 'the drafts are not counted');
+
+        $posts->save(CountedPost::fromArray(['id' => 4, 'title' => 'Fresh', 'body' => 'x', 'published' => true]));
+        self::assertSame('3', $this->value(), 'read now, not when it was declared');
+        $posts->save(CountedPost::fromArray(['id' => 5, 'title' => 'Another draft', 'body' => 'x', 'published' => false]));
+        self::assertSame('3', $this->value(), 'a draft never moves it');
+        self::assertStringNotContainsString(CountedPost::class, $this->page(), 'the binding never reaches the page');
+    }
+
+    public function testEachWrongShapeIsRefusedByName(): void
+    {
+        $cases = [
+            'source' => ['name' => 'a', 'type' => 'data-table', 'source' => ['entity' => CountedPost::class, 'count' => true]],
+            'value' => ['name' => 'b', 'type' => 'metric-card', 'props' => ['title' => 'P', 'value' => '9'], 'source' => ['entity' => CountedPost::class, 'count' => true]],
+            'source.columns' => ['name' => 'c', 'type' => 'metric-card', 'props' => ['title' => 'P'], 'source' => ['entity' => CountedPost::class, 'count' => true, 'columns' => ['title']]],
+            'source.entity' => ['name' => 'd', 'type' => 'metric-card', 'props' => ['title' => 'P'], 'source' => ['entity' => UncountedNote::class, 'count' => true]],
+        ];
+        foreach ($cases as $path => $input) {
+            $refused = $this->declare($input);
+            self::assertFalse($refused['ok'], $path);
+            self::assertSame($path, $refused['path'] ?? null, json_encode($refused) ?: '');
+        }
+        self::assertStringContainsString('declares no value prop', $this->declare($cases['source'])['reason']);
+    }
+
+    private function value(): string
+    {
+        preg_match('~<span class="mui-stat__value">(.*?)</span>~s', $this->page(), $m);
+
+        return trim(strip_tags($m[1] ?? ''));
+    }
+
+    /**
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function declare(array $input): array
+    {
+        foreach ((new LivePlugin($this->container))->operations() as $operation) {
+            if ($operation instanceof Operation && $operation->name === 'screen:declare') {
+                return ($operation->handler)($input);
+            }
+        }
+        self::fail('screen:declare is not offered');
+    }
+
+    private function page(): string
+    {
+        $response = $this->container->get(LiveComponentPageController::class)
+            ->show((new ServerRequest('GET', '/live/page'))->withQueryParams(['component' => 'post-count']));
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+
+        return (string) $response->getBody();
+    }
+}
+
+final readonly class CountedPost implements EntityInterface
+{
+    public const PUBLIC_WHEN = 'published';
+
+    public function __construct(public int|string|null $id, public string $title, public string $body, public bool $published)
+    {
+    }
+
+    public function id(): int|string|null
+    {
+        return $this->id;
+    }
+
+    /** @return array<string, mixed> */
+    public function toArray(): array
+    {
+        return ['id' => $this->id, 'title' => $this->title, 'body' => $this->body, 'published' => $this->published];
+    }
+
+    /** @param array<string, mixed> $row */
+    public static function fromArray(array $row): static
+    {
+        return new self($row['id'] ?? null, $row['title'], $row['body'], $row['published']);
+    }
+}
+
+/** An entity that declares nothing public: nothing about it may be counted. */
+final readonly class UncountedNote implements EntityInterface
+{
+    public function __construct(public int|string|null $id, public string $text)
+    {
+    }
+
+    public function id(): int|string|null
+    {
+        return $this->id;
+    }
+
+    /** @return array<string, mixed> */
+    public function toArray(): array
+    {
+        return ['id' => $this->id, 'text' => $this->text];
+    }
+
+    /** @param array<string, mixed> $row */
+    public static function fromArray(array $row): static
+    {
+        return new self($row['id'] ?? null, $row['text']);
+    }
+}
