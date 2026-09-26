@@ -82,6 +82,55 @@ final class FrameworkStamp
     }
 
     /**
+     * What each recorded file is compared against: the bytes it was BORN with, unless a later
+     * `framework:apply` took newer ones — then the bytes it TOOK (greenhouse decisions/0483). A file equal
+     * to what was taken is the skeleton's, not the house's; before this, a taken file read as customized
+     * and the next comparison saw a conflict nobody made. Files an apply ADDED are recorded here too.
+     *
+     * @return array{version: string, at: string, files: array<string, string>}|null
+     */
+    public static function baseline(string $root): ?array
+    {
+        $born = self::born($root);
+        if ($born === null) {
+            return null;
+        }
+        $taken = self::read($root)['taken'] ?? [];
+        foreach (\is_array($taken) ? $taken : [] as $path => $took) {
+            if (\is_string($path) && \is_array($took) && \is_string($took['sha256'] ?? null)) {
+                $born['files'][$path] = $took['sha256'];
+            }
+        }
+
+        return $born;
+    }
+
+    /**
+     * Writes what an apply took: per path, the release and the sha256 it arrived with — and the version the
+     * house now runs (greenhouse decisions/0483). The birth record is never rewritten: it says where the house
+     * came from, and that does not change.
+     *
+     * @param array<string, string> $hashes path => sha256 of the bytes written
+     */
+    public static function recordTaken(string $root, string $version, array $hashes): void
+    {
+        if ($hashes === []) {
+            return;
+        }
+        $record = self::read($root);
+        $record['version'] = $version;
+        $taken = \is_array($record['taken'] ?? null) ? $record['taken'] : [];
+        $at = gmdate('Y-m-d\\TH:i:s\\Z');
+        foreach ($hashes as $path => $sha256) {
+            $taken[$path] = ['version' => $version, 'sha256' => $sha256, 'at' => $at];
+        }
+        ksort($taken);
+        $record['taken'] = $taken;
+        @mkdir(\dirname($root . '/' . self::PATH), 0o775, true);
+        file_put_contents($root . '/' . self::PATH, json_encode($record, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE) . "\n");
+    }
+
+    /**
      * The record as written, or an empty array.
      *
      * @return array<string, mixed>

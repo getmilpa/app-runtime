@@ -55,7 +55,8 @@ final class FrameworkDivergence
      */
     public static function rows(string $root): array
     {
-        $born = FrameworkStamp::born($root);
+        // Against what was last TAKEN, if anything was (greenhouse decisions/0483), else the birth bytes.
+        $born = FrameworkStamp::baseline($root);
         if ($born === null) {
             return [];
         }

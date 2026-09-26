@@ -172,6 +172,13 @@ final class FrameworkUpdate
         }
 
         $applied = FrameworkApply::take($tree, $root, array_column($takeable, 'path'));
+        // WHAT IS TAKEN STAYS WRITTEN (greenhouse decisions/0483): measured on Surco, an apply that left no
+        // record made the taken file read as the house's own edit and the version never moved.
+        $hashes = [];
+        foreach ($applied as $path) {
+            $hashes[$path] = (string) hash_file('sha256', $root . '/' . $path);
+        }
+        FrameworkStamp::recordTaken($root, $version, $hashes);
         FrameworkRelease::discard($tree);
 
         return ['applied' => $applied, 'left' => $left];
