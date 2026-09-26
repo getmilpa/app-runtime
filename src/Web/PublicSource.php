@@ -63,7 +63,11 @@ final class PublicSource
     /**
      * The binding, checked and normalised — or {@see InvalidScreenTree} naming what is wrong.
      *
-     * @return array{entity: class-string<EntityInterface>, columns: list<string>, limit: int}
+     * Two shapes (greenhouse decisions/0478): `{entity, columns, limit?}` reads the public ROWS; `{entity,
+     * count: true}` reads HOW MANY public rows there are. A count inherits the whole boundary of 0462: only
+     * what the entity declared public is counted — counting drafts would tell a stranger they exist.
+     *
+     * @return array{entity: class-string<EntityInterface>, columns: list<string>, limit: int}|array{entity: class-string<EntityInterface>, count: true}
      */
     public static function validate(mixed $source): array
     {
@@ -84,6 +88,19 @@ final class PublicSource
                 'source.entity',
                 "{$entity} declares no PUBLIC_WHEN, so nothing about it is public; declare it with make:crud --public-when=<bool field>",
             );
+        }
+
+        if (\array_key_exists('count', $source)) {
+            if ($source['count'] !== true) {
+                throw new InvalidScreenTree('source.count', 'source.count is true, or absent for a binding of rows');
+            }
+            foreach (['columns', 'limit'] as $rowsOnly) {
+                if (\array_key_exists($rowsOnly, $source)) {
+                    throw new InvalidScreenTree("source.{$rowsOnly}", "a count reads no {$rowsOnly}: it is how many public rows there are");
+                }
+            }
+
+            return ['entity' => $entity, 'count' => true];
         }
 
         $fields = self::fields($entity);
@@ -120,11 +137,10 @@ final class PublicSource
     public static function rows(mixed $source, \Closure $service): array
     {
         $binding = self::validate($source);
-        $id = $binding['entity'] . 'Repository';
-        $repository = $service($id);
-        if (! $repository instanceof RepositoryInterface) {
-            throw new InvalidScreenTree('source.entity', "no repository is registered as {$id}; is the plugin that owns it enabled?");
+        if (isset($binding['count'])) {
+            throw new InvalidScreenTree('source.count', 'a count binding fills a value, not rows');
         }
+        $repository = self::repository($binding['entity'], $service);
 
         $criteria = [(string) self::publicWhen($binding['entity']) => true];
         $entities = $repository instanceof PagesResults
@@ -141,6 +157,38 @@ final class PublicSource
         }
 
         return $rows;
+    }
+
+    /**
+     * How many rows of the bound entity are public, read now (greenhouse decisions/0478). The repository
+     * contract has no count, so the public query is counted; never a number the house did not read.
+     *
+     * @param \Closure(string): ?object $service resolves a container service by id, or null when absent
+     */
+    public static function count(mixed $source, \Closure $service): int
+    {
+        $binding = self::validate($source);
+        if (! isset($binding['count'])) {
+            throw new InvalidScreenTree('source.count', 'a binding of rows fills rows, not a value');
+        }
+
+        return \count(self::repository($binding['entity'], $service)->query([(string) self::publicWhen($binding['entity']) => true]));
+    }
+
+    /**
+     * @param \Closure(string): ?object $service
+     *
+     * @return RepositoryInterface<EntityInterface>
+     */
+    private static function repository(string $entity, \Closure $service): RepositoryInterface
+    {
+        $id = $entity . 'Repository';
+        $repository = $service($id);
+        if (! $repository instanceof RepositoryInterface) {
+            throw new InvalidScreenTree('source.entity', "no repository is registered as {$id}; is the plugin that owns it enabled?");
+        }
+
+        return $repository;
     }
 
     /** The declared visibility field, or null when the entity declares none (or declares it badly). */
