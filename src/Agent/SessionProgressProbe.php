@@ -205,12 +205,58 @@ final class SessionProgressProbe implements ProgressProbe
             $this->checkpointSeq = $last;
         }
 
+        // FINISHING IS A WAY OUT (greenhouse decisions/0476). With every todo of the session closed
+        // with verifiable evidence, the forced choice would leave a model whose work is done only one
+        // way to obey — invent more work. Measured: 29% of all output spent after the work was done.
+        // The notice then asks for the final answer, and travels marked so the loop accepts it.
+        $complete = $this->workIsComplete();
+
         return [
             'stalled' => true,
-            'notice' => $this->notice($receipt),
+            'notice' => $complete ? $this->completeNotice($receipt) : $this->notice($receipt),
             'receipt' => $receipt->toArray(),
             'recovery' => $exhausted ? 'exhausted' : 'pending',
+            ...($complete ? ['complete' => true] : []),
         ];
+    }
+
+    /**
+     * Whether the session's RECORDED work is complete: it has todos, and every one is done AND backed
+     * by verifiable evidence ({@see \Milpa\Agent\Session::isDoneVerified()}). Read from the stream,
+     * never inferred from prose; a store that cannot answer says «not complete», the notice it had.
+     */
+    private function workIsComplete(): bool
+    {
+        if ($this->events === null) {
+            return false;
+        }
+        try {
+            $session = (new SessionStore($this->events))->load($this->sessionId);
+        } catch (\Throwable) {
+            return false;
+        }
+        if ($session === null || $session->todos === []) {
+            return false;
+        }
+        foreach ($session->todos as $todo) {
+            if (! $session->isDoneVerified($todo->id)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** The notice when the recorded work is complete: the way out it lacked is to answer. */
+    private function completeNotice(ProgressReceipt $receipt): string
+    {
+        return sprintf(
+            'House progress check: every todo of this session is closed with verifiable evidence, and your '
+            . 'last %d model calls added nothing to it. If that is the task, give your final answer NOW, in '
+            . 'this very answer — nothing else is needed. If something the human asked for is still missing, '
+            . 'open a todo for it and act on it.',
+            $receipt->calls,
+        );
     }
 
     /** The forced choice, worded with the receipt's numbers and the exact markers enforced upstream. */
