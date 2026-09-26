@@ -28,6 +28,8 @@ namespace Milpa\AppRuntime\Web;
 final class ContractJudge
 {
     /**
+     * Judge a tree against its components' contracts: refuse the first missing required prop, name the rest.
+     *
      * @param array<array-key, mixed>             $node       a screen tree: {type, props}
      * @param array<string, array<string, mixed>> $schemas    each type's propsSchema
      * @param list<string>                        $rootFilled what the door fills at the root
