@@ -55,6 +55,19 @@ final class SessionProgressProbe implements ProgressProbe
     public const STALL_AFTER_CALLS = 4;
 
     /**
+     * The model calls the EPILOGUE grants to write the output once the house verified the work phase
+     * closed (greenhouse decisions/0477). Two: the measured final answers take one; one more lets a model
+     * cite what it needs. What a finished session spends beyond this is temperament, not work.
+     */
+    public const EPILOGUE_CALLS = 2;
+
+    /** The fact appended when the epilogue opens: `{"atStep": int, "budget": int}` — closure_verified_at. */
+    public const EPILOGUE_OPENED = 'session.epilogue_opened';
+
+    /** The fact appended when an open todo breaks the closure and the work phase returns. */
+    public const EPILOGUE_REOPENED = 'session.epilogue_reopened';
+
+    /**
      * The additive event a detected stall appends, payload `{"atStep": int, "receipt": {...}}`.
      * Outside {@see \Milpa\Agent\SessionEvent} on purpose, precedent {@see DebtSignal::EVENT}:
      * the tolerant reducer skips it, projections read it back by this constant.
@@ -72,6 +85,9 @@ final class SessionProgressProbe implements ProgressProbe
 
     /** Whether a measured stall already opened this run's recovery window (0343/0660). */
     private bool $recovering = false;
+
+    /** The step at which this run's epilogue opened; `null` while the work phase stands. */
+    private ?int $epilogueFrom = null;
 
     /**
      * @param ?EventStoreInterface $events    the SAME captured event store the session writes
@@ -129,7 +145,7 @@ final class SessionProgressProbe implements ProgressProbe
     /**
      * Measures the window since the checkpoint and speaks only on a proven stall.
      *
-     * @return array{stalled: bool, notice: string, receipt: array<string, mixed>, recovery: 'pending'|'recovered'|'exhausted'}|null
+     * @return array{stalled: bool, notice: string, receipt: array<string, mixed>, recovery?: 'pending'|'recovered'|'exhausted', epilogue?: int}|null
      */
     public function afterStep(int $step): ?array
     {
@@ -152,6 +168,29 @@ final class SessionProgressProbe implements ProgressProbe
         if ($receipt->progress === ProgressReceipt::UNKNOWN) {
             // Missing observation neither clears pending recovery nor proves its window exhausted.
             return null;
+        }
+
+        // THE EPILOGUE (greenhouse decisions/0477). Terminating a task is the agent's judgement; verifying
+        // it is the house's — every todo done with verifiable evidence — and how much budget the output
+        // deserves after that is the house's policy. It outranks a stall, and an open todo reopens the work.
+        if ($this->workIsComplete()) {
+            if ($receipt->progress === ProgressReceipt::ADVANCING) {
+                $this->checkpointSeq = $last;
+                $this->recovering = false;
+            }
+            if ($this->epilogueFrom === null) {
+                $this->epilogueFrom = $step;
+                $this->recordFact(self::EPILOGUE_OPENED, ['atStep' => $step, 'budget' => self::EPILOGUE_CALLS]);
+
+                return ['stalled' => false, 'notice' => $this->epilogueNotice(), 'receipt' => $receipt->toArray(), 'epilogue' => self::EPILOGUE_CALLS];
+            }
+
+            return ['stalled' => false, 'notice' => '', 'receipt' => $receipt->toArray(),
+                'epilogue' => max(0, self::EPILOGUE_CALLS - ($step - $this->epilogueFrom))];
+        }
+        if ($this->epilogueFrom !== null) {
+            $this->recordFact(self::EPILOGUE_REOPENED, ['atStep' => $step]);
+            $this->epilogueFrom = null;
         }
 
         if ($receipt->progress === ProgressReceipt::ADVANCING) {
@@ -205,18 +244,11 @@ final class SessionProgressProbe implements ProgressProbe
             $this->checkpointSeq = $last;
         }
 
-        // FINISHING IS A WAY OUT (greenhouse decisions/0476). With every todo of the session closed
-        // with verifiable evidence, the forced choice would leave a model whose work is done only one
-        // way to obey — invent more work. Measured: 29% of all output spent after the work was done.
-        // The notice then asks for the final answer, and travels marked so the loop accepts it.
-        $complete = $this->workIsComplete();
-
         return [
             'stalled' => true,
-            'notice' => $complete ? $this->completeNotice($receipt) : $this->notice($receipt),
+            'notice' => $this->notice($receipt),
             'receipt' => $receipt->toArray(),
             'recovery' => $exhausted ? 'exhausted' : 'pending',
-            ...($complete ? ['complete' => true] : []),
         ];
     }
 
@@ -247,17 +279,40 @@ final class SessionProgressProbe implements ProgressProbe
         return true;
     }
 
-    /** The notice when the recorded work is complete: the way out it lacked is to answer. */
-    private function completeNotice(ProgressReceipt $receipt): string
+    /** What the house says once, when the epilogue opens: the semantic change, named. */
+    private function epilogueNotice(): string
     {
         return sprintf(
-            'House progress check: every todo of this session is closed with verifiable evidence, and your '
-            . 'last %d model calls added nothing to it. If that is the task, give your final answer NOW, in '
-            . 'this very answer — nothing else is needed. If something the human asked for is still missing, '
-            . 'open a todo for it and act on it.',
-            $receipt->calls,
+            'The work phase is closed: every todo of this session is closed with verifiable evidence. You are '
+            . 'writing the output now — %d model calls remain for your final answer. New work only by reopening '
+            . 'the closure: open a todo for it first.',
+            self::EPILOGUE_CALLS,
         );
     }
+
+    /**
+     * Appends an additive fact to the session's own stream — or nothing, the {@see DebtSignal} doctrine:
+     * the run being observed has priority over observing it.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function recordFact(string $type, array $payload): void
+    {
+        if ($this->events === null) {
+            return;
+        }
+        try {
+            $this->events->append(new Event(
+                streamId: SessionStore::PREFIX . $this->sessionId,
+                type: $type,
+                payload: $payload,
+                seq: $this->events->nextSeq(),
+            ));
+        } catch (\Throwable) {
+            // The fact is lost; the run is not.
+        }
+    }
+
 
     /** The forced choice, worded with the receipt's numbers and the exact markers enforced upstream. */
     private function notice(ProgressReceipt $receipt): string
