@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.186.0](https://github.com/getmilpa/app-runtime/compare/v0.185.6...v0.186.0) (2026-09-26)
+
+
+### Features
+
+* **agent:** the epilogue ([#593](https://github.com/getmilpa/app-runtime/issues/593)) ([1b17fcd](https://github.com/getmilpa/app-runtime/commit/1b17fcda258ddadab9787bb902c5a1854b663fc6))
+
 ## [0.185.6](https://github.com/getmilpa/app-runtime/compare/v0.185.5...v0.185.6) (2026-09-26)
 
 
