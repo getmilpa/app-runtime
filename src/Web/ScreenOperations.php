@@ -479,6 +479,15 @@ final class ScreenOperations implements CommandProvider
                     ? 'declared, but the page could not be requested here — no served evidence was recorded'
                     : "declared, but its page answered HTTP {$status} — no served evidence was recorded; "
                         . 'open ' . $result['servedAt'] . ' to see why';
+                // A LENT READING SAYS ITS AUDIENCE (greenhouse decisions/0484 §4). The check is anonymous on purpose,
+                // so a screen bound to a members-only reading answers it 401 — which is the reading working, not
+                // the page breaking. Say so, instead of sending the reader to find out why.
+                $audience = isset($boundByReading) ? $this->houseReadings()?->get($boundByReading['reading'])?->audience()->describe() : null;
+                if (\in_array($status, [401, 403], true) && $audience !== null && $audience !== 'public') {
+                    $result['audience'] = $audience;
+                    $result['note'] = "declared; its reading «{$boundByReading['reading']}» is shown only to {$audience}, so the anonymous check "
+                        . "answered HTTP {$status} and no served evidence was recorded — open {$result['servedAt']} signed in";
+                }
 
                 return $result;
             }
