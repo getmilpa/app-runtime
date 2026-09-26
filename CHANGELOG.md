@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.185.5](https://github.com/getmilpa/app-runtime/compare/v0.185.4...v0.185.5) (2026-09-26)
+
+
+### Bug Fixes
+
+* **agent:** the house's voice is not an answer ([#588](https://github.com/getmilpa/app-runtime/issues/588)) ([5f3b1d3](https://github.com/getmilpa/app-runtime/commit/5f3b1d33c6956d77e1d04edc845c1a0abad3f493))
+
 ## [0.185.4](https://github.com/getmilpa/app-runtime/compare/v0.185.3...v0.185.4) (2026-09-25)
 
 
