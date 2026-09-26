@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.187.2](https://github.com/getmilpa/app-runtime/compare/v0.187.1...v0.187.2) (2026-09-26)
+
+
+### Bug Fixes
+
+* **framework:** what is taken stays written ([#599](https://github.com/getmilpa/app-runtime/issues/599)) ([881bfbc](https://github.com/getmilpa/app-runtime/commit/881bfbcbd205fe9a77f78f0f6782d96b26cf0800))
+
 ## [0.187.1](https://github.com/getmilpa/app-runtime/compare/v0.187.0...v0.187.1) (2026-09-26)
 
 
