@@ -145,7 +145,7 @@ final class SessionProgressProbe implements ProgressProbe
     /**
      * Measures the window since the checkpoint and speaks only on a proven stall.
      *
-     * @return array{stalled: bool, notice: string, receipt: array<string, mixed>, recovery: 'pending'|'recovered'|'exhausted'}|null
+     * @return array{stalled: bool, notice: string, receipt: array<string, mixed>, recovery?: 'pending'|'recovered'|'exhausted', epilogue?: int}|null
      */
     public function afterStep(int $step): ?array
     {
