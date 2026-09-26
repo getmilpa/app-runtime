@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.188.1](https://github.com/getmilpa/app-runtime/compare/v0.188.0...v0.188.1) (2026-09-26)
+
+
+### Bug Fixes
+
+* **web:** a lent reading says its audience ([#603](https://github.com/getmilpa/app-runtime/issues/603)) ([3217d37](https://github.com/getmilpa/app-runtime/commit/3217d37189f59c78063d39cb62903cbac6722648))
+
 ## [0.188.0](https://github.com/getmilpa/app-runtime/compare/v0.187.2...v0.188.0) (2026-09-26)
 
 
