@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.185.6](https://github.com/getmilpa/app-runtime/compare/v0.185.5...v0.185.6) (2026-09-26)
+
+
+### Bug Fixes
+
+* **agent:** finishing is a way out ([#591](https://github.com/getmilpa/app-runtime/issues/591)) ([1e6dd99](https://github.com/getmilpa/app-runtime/commit/1e6dd993ff4692abc46704a9dfcce1819eb0b0a1))
+
 ## [0.185.5](https://github.com/getmilpa/app-runtime/compare/v0.185.4...v0.185.5) (2026-09-26)
 
 
