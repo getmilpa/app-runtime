@@ -422,7 +422,7 @@ final class ScreenOperations implements CommandProvider
         // THE CONTRACT HOLDS AT DECLARATION (greenhouse decisions/0479). Measured: 11 of 94 declarations were
         // accepted with a prop the component does not have (dropped in silence) or without one it requires
         // (a card that says «2» without saying of what). A missing required prop is refused. An undeclared one
-        // is accepted and NAMED: contracts are not complete — autocomplete's renderer reads `options`, which
+        // is accepted and NAMED: contracts are not complete — autocomplete's renderer read `staticItems`, which
         // its contract does not declare — so refusing it would break what works. What the house fills — the
         // name, a binding's rows or value, the table's top-level columns/rows — is not asked of the caller,
         // and children/source are structure, not props.

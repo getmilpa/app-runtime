@@ -381,7 +381,15 @@ final readonly class SessionBookkeeping implements ContractProducer
             }
         }
         if ($tarjeta === null) {
-            return ['ok' => false, 'error' => "there is no todo «{$todoId}» in this session to claim"];
+            // THE REFUSAL TEACHES (greenhouse decisions/0482): 27 claims named a todo that does not exist
+            // («screen», «turn:61»); the open ones are named so the next claim is exact.
+            $open = array_map(
+                static fn ($t): string => $t->id . ' «' . $t->text . '»',
+                array_values(array_filter($sesion->todos, static fn ($t): bool => $t->status !== TodoStatus::Done)),
+            );
+
+            return ['ok' => false, 'error' => "there is no todo «{$todoId}» in this session to claim"
+                . ($open === [] ? '; this session has no open todo' : '; its open todos are: ' . implode(', ', $open))];
         }
         if ($tarjeta->status === TodoStatus::Done) {
             return ['ok' => false, 'error' => "«{$todoId}» is already done: there is nothing left to claim"];
@@ -421,12 +429,19 @@ final readonly class SessionBookkeeping implements ContractProducer
                 return ['ok' => false, 'error' => $staleRefusal];
             }
 
+            // THE REFUSAL TEACHES THE REFERENCE (greenhouse decisions/0482). Measured: 63% of claims refused,
+            // most with a reference written as prose (a sentence about the screen instead of its name). The
+            // judge stays exact; what it would accept is named, so the model copies instead of guessing.
+            $candidates = $this->candidates($kind);
+
             return [
                 'ok' => false,
                 'error' => sprintf(
-                    'no recorded fact covers the claim: looked for %s and found none. Run the work '
-                    . 'through the governed tools first — the stream is what gets judged, not the word',
+                    'no recorded fact covers the claim: looked for %s and found none. %s',
                     $this->lookedFor($kind, $reference),
+                    $candidates === []
+                        ? 'Nothing in this session is of that kind yet: run the work through the governed tools first — the stream is what gets judged, not the word'
+                        : 'This session holds, exactly as a reference: ' . implode(', ', array_map(static fn (string $c): string => '«' . $c . '»', $candidates)) . ' — claim with one of them',
                 ),
             ];
         }
@@ -560,7 +575,94 @@ final readonly class SessionBookkeeping implements ContractProducer
             return ['fact' => 'work-state', 'state' => $reached, 'artifact' => $reference];
         }
 
+        // A PROMOTION MATERIALISES ITS PATHS (greenhouse decisions/0482, 0463): the promotion that carried a
+        // path into the house is the fact that put it there — only the paths it names, never any other.
+        foreach ($this->promotedPaths() as $path => $seq) {
+            if ($path === $reference) {
+                return ['fact' => 'promotion', 'artifact' => $reference, 'seq' => $seq];
+            }
+        }
+
         return null;
+    }
+
+    /**
+     * What this session's stream holds for a kind, spelled exactly as the judge accepts it as a reference
+     * (greenhouse decisions/0482) — the teaching half of a refusal.
+     *
+     * @return list<string>
+     */
+    private function candidates(EvidenceKind $kind): array
+    {
+        if ($this->events === null) {
+            return [];
+        }
+        $found = [];
+        foreach ($this->events->replay(SessionStore::PREFIX . $this->sessionId) as $event) {
+            if ($event->type !== 'session.tool_called' || ($event->payload['ok'] ?? null) !== true) {
+                continue;
+            }
+            $tool = \is_string($event->payload['tool'] ?? null) ? $event->payload['tool'] : '';
+            $result = json_decode(\is_string($event->payload['result'] ?? null) ? $event->payload['result'] : '', true);
+            $result = \is_array($result) ? $result : [];
+            $evidence = $result['evidence'] ?? ($result['output']['evidence'] ?? null);
+            $arguments = \is_array($event->payload['arguments'] ?? null) ? $event->payload['arguments'] : [];
+            match ($kind) {
+                EvidenceKind::ScreenServed => \is_array($evidence) && ($evidence['predicate'] ?? null) === 'served'
+                    && ($evidence['invalidates'] ?? false) !== true && \is_string($evidence['subject'] ?? null)
+                    ? $found[$evidence['subject']] = true : null,
+                EvidenceKind::OperationOk => ($result['ok'] ?? true) !== false && $tool !== '' ? $found[$tool] = true : null,
+                EvidenceKind::TestPassed => $tool === 'test' && \is_string($arguments['filter'] ?? $arguments['path'] ?? null)
+                    ? $found[(string) ($arguments['filter'] ?? $arguments['path'])] = true : null,
+                EvidenceKind::ArtifactCreated => null,
+            };
+        }
+        if ($kind === EvidenceKind::ArtifactCreated) {
+            foreach (array_keys($this->promotedPaths()) as $path) {
+                $found[$path] = true;
+            }
+        }
+        // Only what the judge would accept today: a served subject that went stale is not offered.
+        $facts = SessionFacts::of($this->events, $this->sessionId);
+        $accepted = [];
+        foreach (array_keys($found) as $candidate) {
+            $candidate = (string) $candidate;
+            $verdict = $facts->lastVerificationOf($candidate);
+            $refusal = null;
+            if ($this->coveringFact($facts, $kind, $candidate, $verdict, $refusal) !== null) {
+                $accepted[] = $candidate;
+            }
+        }
+
+        return \array_slice($accepted, 0, 12);
+    }
+
+    /**
+     * The paths each successful `sandbox:promote` of this session carried into the house, with its seq.
+     *
+     * @return array<string, int>
+     */
+    private function promotedPaths(): array
+    {
+        if ($this->events === null) {
+            return [];
+        }
+        $paths = [];
+        foreach ($this->events->replay(SessionStore::PREFIX . $this->sessionId) as $event) {
+            if ($event->type !== 'session.tool_called' || ($event->payload['tool'] ?? null) !== 'sandbox_promote') {
+                continue;
+            }
+            $result = json_decode(\is_string($event->payload['result'] ?? null) ? $event->payload['result'] : '', true);
+            if (\is_array($result) && ($result['ok'] ?? false) === true && \is_array($result['promoted'] ?? null)) {
+                foreach ($result['promoted'] as $path) {
+                    if (\is_string($path)) {
+                        $paths[$path] = $event->seq;
+                    }
+                }
+            }
+        }
+
+        return $paths;
     }
 
     /**

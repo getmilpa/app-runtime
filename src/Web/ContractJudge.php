@@ -20,7 +20,7 @@ namespace Milpa\AppRuntime\Web;
  * so the rule a root obeys is the rule its children obey.
  *
  * A required prop nobody gives is refused by path. An undeclared prop is NAMED, not refused: contracts are not
- * complete (autocomplete's renderer reads `options`, which its contract does not declare), so refusing it
+ * complete (a renderer can read a prop its contract omits — autocomplete's staticItems was one, decisions/0481), so refusing it
  * would break what works. What the house fills is not asked of the caller: `children` and `source` are
  * structure and `name` is the store's; the root's `filled` list adds what its door fills (a binding's rows or
  * value, the table's top-level columns/rows).
