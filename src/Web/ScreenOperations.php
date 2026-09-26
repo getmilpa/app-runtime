@@ -68,6 +68,13 @@ final class ScreenOperations implements CommandProvider
         private readonly ?\Closure $serve = null,
         /** The words this house added to its visual language (decisions/0465); null: no words. */
         private readonly ?ComponentWords $words = null,
+        /**
+         * The readings this house lends to its screens (greenhouse decisions/0484), resolved when asked —
+         * the plugin that registers one may boot after this runtime. Null: the house lends none.
+         *
+         * @var \Closure(): ?HouseReadings|null
+         */
+        private readonly ?\Closure $readings = null,
     ) {
     }
 
@@ -85,6 +92,13 @@ final class ScreenOperations implements CommandProvider
                 handler: fn (array $input): array => ($this->registry)()?->catalogue() ?? ['types' => [], 'unavailable' => []],
                 effects: EffectProfile::readOnly(),
                 outputSchema: ['type' => 'object', 'properties' => ['types' => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string']]]]]],
+            )]),
+            ...($this->readings === null ? [] : [new Operation(
+                name: 'screen:readings',
+                description: 'List the readings this house lends to its screens: live data a screen binds to with source {reading, arguments} — what each shows, the arguments it takes, the props (or word inputs) it fills, and who may see it. The house wrote them; a screen only names one.',
+                handler: fn (array $input): array => ['readings' => ($this->readings)()?->catalogue() ?? []],
+                effects: EffectProfile::readOnly(),
+                outputSchema: ['type' => 'object', 'properties' => ['readings' => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string']]]]]],
             )]),
             new Operation(
                 name: 'screen:declare',
@@ -105,9 +119,10 @@ final class ScreenOperations implements CommandProvider
                         'rows' => ['type' => 'array', 'description' => 'data-table convenience: list of row objects keyed by column key'],
                         'source' => [
                             'type' => 'object',
-                            'description' => 'bind to an entity that declares PUBLIC_WHEN, read per request. For a type whose contract has rows (data-table, content): {entity, columns} serves its public rows, projected to the named fields. For a type whose contract has a value (metric-card): {entity, count: true} shows how many public rows there are',
-                            'required' => ['entity'],
+                            'description' => 'bind to live data, read per request. An entity that declares PUBLIC_WHEN: for a type whose contract has rows (data-table, content), {entity, columns} serves its public rows, projected to the named fields; for a type whose contract has a value (metric-card), {entity, count: true} shows how many public rows there are. A reading this house lends (discover with screen:readings): {reading, arguments} fills the props — or the word inputs — the reading declares, shown only to its audience',
                             'properties' => [
+                                'reading' => ['type' => 'string', 'description' => 'a reading this house lends; discover with screen:readings'],
+                                'arguments' => ['type' => 'object', 'description' => 'the reading\'s arguments, by name'],
                                 'entity' => ['type' => 'string', 'description' => 'the entity by its short name, e.g. Post — or Blog/Post when two plugins have one'],
                                 'columns' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'the entity fields to show (rows)'],
                                 'count' => ['type' => 'boolean', 'description' => 'true: show how many public rows there are (value)'],
@@ -272,8 +287,10 @@ final class ScreenOperations implements CommandProvider
         // screen takes. The screen remembers which word and which version produced it.
         $word = $this->words?->word($type);
         if ($word !== null && ! \in_array($type, $registry?->primitives() ?? [], true)) {
+            $useSource = \array_key_exists('source', $input) ? $input['source'] : null;
             try {
-                $compiled = $this->words->compile($type, $props);
+                // A word bound to a reading is compiled below, with stand-ins for what the reading fills.
+                $compiled = ReadingSource::is($useSource) ? null : $this->words->compile($type, $props);
             } catch (InvalidScreenTree $error) {
                 return ['ok' => false, 'error' => 'invalid screen tree', 'path' => $error->path, 'reason' => $error->getMessage()];
             }
@@ -281,13 +298,45 @@ final class ScreenOperations implements CommandProvider
             // readable list without fixing its data is bound when it is USED, by the same rule as any
             // type: the contract it compiles to must declare `rows` — checked below. One that already
             // carries its own source is not bound twice.
-            $useSource = \array_key_exists('source', $input) ? $input['source'] : null;
-            if ($useSource !== null && \array_key_exists('source', $compiled['props'])) {
+            if ($compiled !== null && $useSource !== null && \array_key_exists('source', $compiled['props'])) {
                 return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'source', 'reason' => "«{$type}» already binds its own source"];
             }
-            $type = $compiled['type'];
-            $props = $compiled['props'];
-            $input = ['name' => $input['name'] ?? '', 'type' => $type, 'props' => $props, 'word' => $compiled['word'], ...($useSource !== null ? ['source' => $useSource] : [])];
+            // A READING FILLS A WORD'S INPUTS (greenhouse decisions/0484): the word is compiled NOW with a stand-in
+            // of each filled input's type — so the tree it stands for is validated here like any other — and
+            // again on every request with what the reading read. Nothing is read to declare it.
+            if (ReadingSource::is($useSource)) {
+                $wordName = $type;
+                try {
+                    $binding = ReadingSource::validate($useSource, $this->houseReadings());
+                } catch (InvalidScreenTree $error) {
+                    return ['ok' => false, 'error' => 'invalid screen tree', 'path' => $error->path, 'reason' => $error->getMessage()];
+                }
+                $inputs = $this->words->word($wordName)['inputs'] ?? [];
+                $given = $props;
+                foreach ($this->houseReadings()?->get($binding['reading'])?->fills() ?? [] as $fill) {
+                    if (! \array_key_exists($fill, $inputs)) {
+                        return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'source.reading', 'reason' => "«{$binding['reading']}» fills «{$fill}», which «{$wordName}» has no input for; its inputs are: " . implode(', ', array_keys($inputs))];
+                    }
+                    if (\array_key_exists($fill, $props)) {
+                        return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'props.' . $fill, 'reason' => "«{$fill}» is read from «{$binding['reading']}»; declare either the value or its source"];
+                    }
+                    $given[$fill] = self::standIn((string) ($inputs[$fill]['type'] ?? 'string'));
+                }
+                try {
+                    $compiled = $this->words->compile($wordName, $given);
+                } catch (InvalidScreenTree $error) {
+                    return ['ok' => false, 'error' => 'invalid screen tree', 'path' => $error->path, 'reason' => $error->getMessage()];
+                }
+                $binding['word'] = ['name' => $wordName, 'version' => $compiled['word']['version'], 'inputs' => $props];
+                $type = $compiled['type'];
+                $props = $compiled['props'];
+                $input = ['name' => $input['name'] ?? '', 'type' => $type, 'props' => $props, 'word' => $compiled['word'], 'source' => $binding];
+                $boundByReading = $binding;
+            } elseif ($compiled !== null) {
+                $type = $compiled['type'];
+                $props = $compiled['props'];
+                $input = ['name' => $input['name'] ?? '', 'type' => $type, 'props' => $props, 'word' => $compiled['word'], ...($useSource !== null ? ['source' => $useSource] : [])];
+            }
         }
 
         try {
@@ -304,7 +353,29 @@ final class ScreenOperations implements CommandProvider
         // `props.source`, and reading every `source` as a binding refused every autocomplete declaration
         // from 0.180.0 on (greenhouse decisions/0464). A string stays the component's own prop.
         $source = \array_key_exists('source', $input) ? $input['source'] : ($props['source'] ?? null);
-        if (\is_array($source) || (\array_key_exists('source', $input) && $source !== null)) {
+        if (isset($boundByReading)) {
+            // Bound above, through its word.
+        } elseif (ReadingSource::is($source)) {
+            // A READING THE HOUSE LENDS (greenhouse decisions/0484) fills what it declares, by the rule every
+            // binding follows: the type's contract declares each prop it fills, and the caller writes none.
+            try {
+                $binding = ReadingSource::validate($source, $this->houseReadings());
+            } catch (InvalidScreenTree $error) {
+                return ['ok' => false, 'error' => 'invalid screen tree', 'path' => $error->path, 'reason' => $error->getMessage()];
+            }
+            $schema = $this->propsSchemaOf($registry, $type);
+            foreach ($this->houseReadings()?->get($binding['reading'])?->fills() ?? [] as $fill) {
+                if (! \array_key_exists($fill, $schema)) {
+                    return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'source.reading', 'reason' => "«{$binding['reading']}» fills «{$fill}», which «{$type}» does not declare"];
+                }
+                if (\array_key_exists($fill, $input) || \array_key_exists($fill, $props)) {
+                    return ['ok' => false, 'error' => 'invalid screen tree', 'path' => $fill, 'reason' => "«{$fill}» is read from «{$binding['reading']}»; declare either the value or its source"];
+                }
+            }
+            $input['source'] = $binding;
+            unset($input['props']['source']);
+            $boundByReading = $binding;
+        } elseif (\is_array($source) || (\array_key_exists('source', $input) && $source !== null)) {
             // WHO MAY BIND IS THE CONTRACT'S, NOT THE NAME'S (decisions/0464): a type binds when its contract
             // declares the `rows` prop a binding fills. Without a registry the contract cannot be read, and
             // only the default table is assumed.
@@ -358,7 +429,12 @@ final class ScreenOperations implements CommandProvider
         $ignored = [];
         if ($registry !== null) {
             $filled = array_values(array_filter(['columns', 'rows'], static fn (string $k): bool => \array_key_exists($k, $input)));
-            if (\is_array($input['source'] ?? null)) {
+            if (isset($boundByReading)) {
+                // A word's stand-ins already fill its tree; a primitive's filled props are the reading's.
+                if (! isset($boundByReading['word'])) {
+                    array_push($filled, ...($this->houseReadings()?->get($boundByReading['reading'])?->fills() ?? []));
+                }
+            } elseif (\is_array($input['source'] ?? null)) {
                 $filled[] = ($input['source']['count'] ?? null) === true ? 'value' : 'rows';
             }
             $schemas = [];
@@ -415,6 +491,26 @@ final class ScreenOperations implements CommandProvider
         }
 
         return $result;
+    }
+
+    /** The readings this house lends, or null when it lends none (greenhouse decisions/0484). */
+    private function houseReadings(): ?HouseReadings
+    {
+        return $this->readings === null ? null : ($this->readings)();
+    }
+
+    /**
+     * A value of a word input's type that stands in for what a reading fills, so the word compiles at
+     * declaration without reading anything (greenhouse decisions/0484).
+     */
+    private static function standIn(string $type): mixed
+    {
+        return match ($type) {
+            'integer' => 0,
+            'number' => 0,
+            'boolean' => false,
+            default => '',
+        };
     }
 
     /**

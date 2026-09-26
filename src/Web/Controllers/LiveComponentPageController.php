@@ -18,6 +18,7 @@ use Milpa\AppRuntime\Web\LayoutStateStore;
 use Milpa\AppRuntime\Web\LivePageProvider;
 use Milpa\AppRuntime\Web\LiveRender;
 use Milpa\AppRuntime\Web\InvalidScreenTree;
+use Milpa\AppRuntime\Web\ReadingDenied;
 use Milpa\Live\Support\DesignTokens;
 use Milpa\Live\Support\ComponentStyles;
 use Milpa\Live\Support\Html;
@@ -76,6 +77,10 @@ final class LiveComponentPageController
         } catch (InvalidScreenTree $error) {
             // A bound screen whose source cannot be read (greenhouse decisions/0462) — named, not painted.
             return $this->json(422, ['error' => 'live_screen_invalid', 'path' => $error->path, 'reason' => $error->getMessage()]);
+        } catch (ReadingDenied $denied) {
+            // The reading's audience does not admit this request (greenhouse decisions/0484): the status and
+            // the reading's name — never a value of what it would have read.
+            return $this->json($denied->status, ['error' => 'live_reading_denied', 'reading' => $denied->reading, 'reason' => $denied->getMessage()]);
         }
         if ($props === null) {
             return $this->json(404, [
