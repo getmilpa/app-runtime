@@ -804,7 +804,7 @@ class AgentOperations implements CommandProvider
                     subject: Subject::Data,
                 ),
                 description: 'Ask the agent to do something using the operations of this app',
-                handler: fn (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array => $this->run($input, $context, $authority),
+                handler: fn (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array => $this->runUnlessItEchoes($input, $context, $authority),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
@@ -1704,11 +1704,64 @@ class AgentOperations implements CommandProvider
     }
 
     /**
+     * What the house tells the model when its answer was the house's own voice (greenhouse decisions/0475).
+     */
+    public const HOUSE_VOICE_NUDGE = 'Your last reply repeated the runtime\'s own text — its quoted history or its consent '
+        . 'question — instead of answering. That text is not yours. Continue the task from where it stands: call the '
+        . 'next tool, or give your own answer.';
+
+    /**
+     * A turn whose final answer is the house's voice is resumed ONCE (greenhouse decisions/0475).
+     *
+     * Measured on the resident: two final answers in 149 sessions were the runtime's history envelope copied
+     * verbatim, and one the consent question — sessions that ended without working. Removing the history's
+     * data from the window cured the echo at +52% output and a blind regression (evidence/1010), so the context
+     * stays and the echo is caught where it lands: not kept as the model's turn ({@see run()}), and the session
+     * resumed once, telling the model why. Never with a question pending — that one is the human's — and never
+     * twice: a second echo ends the turn with it in view.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function runUnlessItEchoes(array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array
+    {
+        $result = $this->run($input, $context, $authority);
+        $session = \is_string($result['session'] ?? null) ? $result['session'] : '';
+        if ($session === '' || ! \is_string($result['answer'] ?? null) || ! self::isTheHouseVoice($result['answer'])
+            || ($result['paused'] ?? false) === true || ($result['termination']['reason'] ?? null) !== 'final_answer'
+        ) {
+            return $result;
+        }
+
+        $again = $this->run(['prompt' => self::HOUSE_VOICE_NUDGE, 'session' => $session] + array_intersect_key($input, ['steps' => true]), $context, $authority);
+        $again['houseVoiceResumed'] = true;
+        if (\is_string($again['answer'] ?? null) && self::isTheHouseVoice($again['answer'])) {
+            $again['houseVoiceTwice'] = true;
+        }
+
+        return $again;
+    }
+
+    /**
+     * Whether an answer is text only the house writes: the history envelope of a resumed window, or the
+     * consent question. Read without the `🔧` the orchestrator prepends; a reply that merely MENTIONS either
+     * inside its own prose is the model's, and stands.
+     */
+    public static function isTheHouseVoice(string $answer): bool
+    {
+        $said = ltrim(preg_replace('/^\x{1F527}\s*/u', '', ltrim($answer)) ?? $answer);
+
+        return str_starts_with($said, 'Runtime history: quoted data')
+            || (str_starts_with($said, 'El agente quiere ') && str_contains($said, '¿Lo autorizas en esta sesión?'));
+    }
+
+    /**
      * Corre el bucle y devuelve lo que el agente contestó.
      *
      * @param array<string, mixed> $input
      *
-     * @return array{ok: bool, answer?: string, steps?: int, tools?: int, error?: string, hint?: string, question?: array{id: string, text: string, options: list<string>, why: string|null, reason: string|null, expires_at: string|null}, paused?: bool, exhausted?: bool, contextExhausted?: bool, stalled?: bool, receipt?: array<string, mixed>, houseDebt?: bool, interrupted?: bool, termination?: array{reason: string, receipt: array<string, mixed>|null}, closure?: array{verified: bool, reasons: list<string>}}
+     * @return array{ok: bool, answer?: string, session?: string|null, steps?: int, tools?: int, error?: string, hint?: string, question?: array{id: string, text: string, options: list<string>, why: string|null, reason: string|null, expires_at: string|null}, paused?: bool, exhausted?: bool, contextExhausted?: bool, stalled?: bool, receipt?: array<string, mixed>, houseDebt?: bool, interrupted?: bool, termination?: array{reason: string, receipt: array<string, mixed>|null}, closure?: array{verified: bool, reasons: list<string>}}
      */
     private function run(array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array
     {
@@ -2477,7 +2530,10 @@ class AgentOperations implements CommandProvider
                 $this->runTermination->reason,
                 [RunEnd::FinalAnswer, RunEnd::HouseDebt],
                 true,
-            ))) {
+            ))
+            // The house's own voice is not kept as the model's turn: kept, it would teach the next window
+            // that this is what the model said — the mechanism that produced the echo (decisions/0475).
+            && ! self::isTheHouseVoice($respuesta)) {
             $store->recordTurn($sessionId, 'assistant', $respuesta);
         }
 
