@@ -92,6 +92,9 @@ final class AReadingTheHouseLendsTest extends TestCase
             'source' => ['reading' => 'claim-balance', 'arguments' => ['claim' => 'h-1']]]);
         self::assertTrue($declared['ok'], json_encode($declared) ?: '');
         self::assertSame(0, $this->balance->reads, 'declaring never reads');
+        self::assertFalse($declared['served'], 'the anonymous check cannot earn «served» for a members-only page');
+        self::assertSame('members', $declared['audience'] ?? null, json_encode($declared) ?: '');
+        self::assertStringContainsString('is shown only to members', (string) $declared['note']);
 
         $anonymous = $this->show(null);
         self::assertSame(401, $anonymous->getStatusCode());
