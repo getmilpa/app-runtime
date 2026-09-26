@@ -319,7 +319,8 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             $error = 'Progress recovery: the last window produced no evidence, no artifact and closed no '
                 . 'todo, so more reading is not on the table. Do one of these now: materialize an '
                 . 'artifact, recover recorded bytes with a reader available in the current tool offer, run a verification, close a todo with its evidence, ask the human a '
-                . 'decision, or declare framework debt. Recorded progress clears this.';
+                . 'decision, or declare framework debt — or, when every todo is closed with evidence, give '
+                . 'your final answer. Recorded progress clears this.';
             // Only this cause can report a currently hidden recovery option. Earlier obligation,
             // intent and sterile-loop refusals retain their classification even for a hidden read.
             // The failed call consumes its allowance without executing or creating progress.
