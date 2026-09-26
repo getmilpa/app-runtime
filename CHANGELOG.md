@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.187.1](https://github.com/getmilpa/app-runtime/compare/v0.187.0...v0.187.1) (2026-09-26)
+
+
+### Bug Fixes
+
+* **screens:** children obey the contract their root obeys ([#597](https://github.com/getmilpa/app-runtime/issues/597)) ([8fd5479](https://github.com/getmilpa/app-runtime/commit/8fd547919c49d19e7ac23aafad5e3e8c24009c2d))
+
 ## [0.187.0](https://github.com/getmilpa/app-runtime/compare/v0.186.0...v0.187.0) (2026-09-26)
 
 
