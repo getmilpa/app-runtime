@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.188.0](https://github.com/getmilpa/app-runtime/compare/v0.187.2...v0.188.0) (2026-09-26)
+
+
+### Features
+
+* **web:** a reading the house lends ([#601](https://github.com/getmilpa/app-runtime/issues/601)) ([699b730](https://github.com/getmilpa/app-runtime/commit/699b730d7bfaa4f4e1a7761c828e62935d224342))
+
 ## [0.187.2](https://github.com/getmilpa/app-runtime/compare/v0.187.1...v0.187.2) (2026-09-26)
 
 
