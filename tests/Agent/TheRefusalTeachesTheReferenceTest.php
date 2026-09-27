@@ -101,6 +101,25 @@ final class TheRefusalTeachesTheReferenceTest extends TestCase
         self::assertStringContainsString('t1 «Declare the page»', (string) $refused['error']);
     }
 
+    /**
+     * Measured on fresh cattle (evidence/1017): 7 claims came from sessions that never opened a todo, each refused
+     * without saying what to do. With none open, the refusal names the fix.
+     */
+    public function testWithNoOpenTodoTheRefusalSaysToOpenOneFirst(): void
+    {
+        $this->store->start('s2', 'build the blog page');
+        foreach ((new SessionBookkeeping($this->store, 's2', $this->events))->operations() as $operation) {
+            if ($operation->name === 'work:claim-verified') {
+                $refused = ($operation->handler)(['todo' => 'screen', 'kind' => 'screen-served', 'reference' => 'blog']);
+                self::assertFalse($refused['ok']);
+                self::assertStringContainsString('add it first with the todo tool', (string) $refused['error']);
+
+                return;
+            }
+        }
+        self::fail('work:claim-verified is not offered');
+    }
+
     public function testAPromotionMaterialisesThePathsItCarriedAndOnlyThose(): void
     {
         self::assertTrue($this->claim('t1', 'artifact-created', 'config/screens.json')['ok'], 'the promotion put it in the house');

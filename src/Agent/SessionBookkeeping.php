@@ -388,8 +388,12 @@ final readonly class SessionBookkeeping implements ContractProducer
                 array_values(array_filter($sesion->todos, static fn ($t): bool => $t->status !== TodoStatus::Done)),
             );
 
+            // With none open, the refusal names the fix, not only the fault (evidence/1017): 7 claims on fresh cattle
+            // were made by sessions that never opened a todo, and each was refused without saying what to do.
             return ['ok' => false, 'error' => "there is no todo «{$todoId}» in this session to claim"
-                . ($open === [] ? '; this session has no open todo' : '; its open todos are: ' . implode(', ', $open))];
+                . ($open === []
+                    ? '; this session has no open todo — a claim closes one: add it first with the todo tool (text: what you did), then claim its id with the evidence that backs it'
+                    : '; its open todos are: ' . implode(', ', $open))];
         }
         if ($tarjeta->status === TodoStatus::Done) {
             return ['ok' => false, 'error' => "«{$todoId}» is already done: there is nothing left to claim"];
