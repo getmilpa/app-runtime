@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.190.0](https://github.com/getmilpa/app-runtime/compare/v0.189.0...v0.190.0) (2026-09-27)
+
+
+### Features
+
+* **agent:** the house derives closure for sessions without todos ([#609](https://github.com/getmilpa/app-runtime/issues/609)) ([993b97c](https://github.com/getmilpa/app-runtime/commit/993b97cc64cd7aa58ffa802e43d6f2045790776f))
+
 ## [0.189.0](https://github.com/getmilpa/app-runtime/compare/v0.188.2...v0.189.0) (2026-09-27)
 
 
