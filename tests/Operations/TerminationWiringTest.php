@@ -7,7 +7,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Operations;
 
 use Milpa\Agent\{SessionStore,Todo,TodoStatus,Evidence,PendingQuestion};
-use Milpa\AiGateway\{AgentOrchestrator,LlmService,PlanBoard,RunTermination,RunEnd};
+use Milpa\AiGateway\{AgentOrchestrator,LlmService,PlanBoard,ProgressProbe,RunTermination,RunEnd};
 use Milpa\AppRuntime\Agent\SessionProgressProbe;
 use Milpa\AppRuntime\Operations\AgentOperations;
 use Milpa\Container\DIContainer;
@@ -148,6 +148,67 @@ final class TerminationWiringTest extends TestCase
         self::assertSame('house_observation', $r['closure']['scope']);
         $recorded = array_values(array_filter($this->sessions->stream('s'), static fn ($e) => $e->type === 'session.closure_derived'));
         self::assertSame('house_observation', $recorded[0]->payload['scope'] ?? null);
+    }
+
+    /**
+     * A leg that ends `epilogue_exhausted` records the closure verdict too (greenhouse decisions/0489): the
+     * house opened the epilogue BECAUSE it verified closure, so running out of it before a final answer must
+     * not leave the session without the verdict the house already derived. The model never answered; the
+     * verdict is the house's fact, not the model's.
+     */
+    public function testAnExhaustedEpilogueRecordsTheClosureTheHouseDerived(): void
+    {
+        $this->events = new InMemoryEventStore();
+        $this->sessions = new SessionStore($this->events);
+        $this->sessions->start('s', 'Build the page a reader reads');
+        $this->sessions->recordToolCall('s', 'sandbox_promote', ['workspace' => 'wabc'], (string) json_encode(['ok' => true,
+            'evidence' => ['predicate' => 'promoted', 'subject' => 'wabc', 'environment' => ['kind' => 'house']]]), mutating: true);
+        $this->sessions->recordToolCall('s', 'screen_observe', ['name' => 'blog'], (string) json_encode(['ok' => true,
+            'evidence' => ['predicate' => 'served', 'subject' => 'blog', 'environment' => ['kind' => 'house']]]));
+        $this->container = new DIContainer();
+        $this->container->registerService(SessionStore::class, $this->sessions);
+        $this->container->registerService(EventStoreInterface::class, $this->events);
+        $kernel = Kernel::boot(['root' => dirname(__DIR__, 2),'container' => $this->container,'toolRegistry' => new ToolRegistry(new NullLogger()),'plugins' => []]);
+        $this->container->registerService(Kernel::class, $kernel);
+
+        $call = ['role' => 'assistant','content' => '','tool_calls' => [['id' => 'claim','function' => ['name' => 'read','arguments' => '{}']]]];
+        $tools = $this->tools();
+        $tools->method('callTool')->willReturn('Recorded result');
+        $spent = new class () implements ProgressProbe {
+            public function afterStep(int $step): ?array
+            {
+                return ['stalled' => false, 'notice' => '', 'receipt' => ['fixture' => true], 'epilogue' => 0];
+            }
+        };
+        $r = $this->invoke($this->ops(new AgentOrchestrator($this->llm($call), $tools, progressProbe: $spent)));
+
+        self::assertSame('epilogue_exhausted', $r['termination']['reason']);
+        self::assertArrayHasKey('closure', $r, 'the exhausted epilogue must carry the verdict it closed on');
+        self::assertTrue($r['closure']['verified'], implode('; ', $r['closure']['reasons']));
+        self::assertSame('house_observation', $r['closure']['scope']);
+        $recorded = array_values(array_filter($this->sessions->stream('s'), static fn ($e) => $e->type === 'session.closure_derived'));
+        self::assertCount(1, $recorded, 'one verdict per leg that ends on the closure');
+        self::assertSame($r['closure'], $recorded[0]->payload);
+        self::assertSame([], array_values(array_filter(
+            $this->sessions->load('s')?->turns ?? [],
+            static fn (array $turn): bool => $turn['role'] === 'assistant' && $turn['content'] !== '',
+        )), 'the verdict is recorded as a fact of the house, never as an answer the model gave');
+    }
+
+    /**
+     * The control: a leg that runs out of STEPS is not a closure — the house never verified it, so nothing
+     * is recorded even though the same stream would derive closure.
+     */
+    public function testExhaustedStepsStillRecordNoClosure(): void
+    {
+        $call = ['role' => 'assistant','content' => '','tool_calls' => [['id' => 'loop','function' => ['name' => 'read','arguments' => '{}']]]];
+        $tools = $this->tools();
+        $tools->method('callTool')->willReturn('Recorded result');
+        $r = $this->invoke($this->ops(new AgentOrchestrator($this->llm($call), $tools, maxSteps: 1)));
+
+        self::assertSame('steps_exhausted', $r['termination']['reason']);
+        self::assertArrayNotHasKey('closure', $r);
+        self::assertCount(0, array_filter($this->sessions->stream('s'), static fn ($e) => $e->type === 'session.closure_derived'));
     }
 
     public function testIdenticalFinalAndRefusalHaveDifferentClosureEligibility(): void
