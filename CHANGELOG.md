@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.189.0](https://github.com/getmilpa/app-runtime/compare/v0.188.2...v0.189.0) (2026-09-27)
+
+
+### Features
+
+* **agent:** the constitution reaches the agent ([#607](https://github.com/getmilpa/app-runtime/issues/607)) ([22138cd](https://github.com/getmilpa/app-runtime/commit/22138cdc372302cd995ed945eeab633e94f800aa))
+
 ## [0.188.2](https://github.com/getmilpa/app-runtime/compare/v0.188.1...v0.188.2) (2026-09-27)
 
 
