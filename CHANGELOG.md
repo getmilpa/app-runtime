@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.188.2](https://github.com/getmilpa/app-runtime/compare/v0.188.1...v0.188.2) (2026-09-27)
+
+
+### Bug Fixes
+
+* **agent:** the refusal teaches the reference ([#605](https://github.com/getmilpa/app-runtime/issues/605)) ([869e7b8](https://github.com/getmilpa/app-runtime/commit/869e7b8f6021da5fbe33fb8c546774878209aaf2))
+
 ## [0.188.1](https://github.com/getmilpa/app-runtime/compare/v0.188.0...v0.188.1) (2026-09-26)
 
 
