@@ -142,8 +142,9 @@ final class ClosureVerdict
     /**
      * Append the verdict to the session's own stream, so surfaces can project it.
      *
-     * One append per final answer — the caller's single natural-end site is the only one that
-     * records. It goes through the raw store because {@see SessionStore} types its appends by its
+     * One append per leg that ends on the closure — a final answer, or an epilogue the house opened
+     * on this verdict and the model exhausted (greenhouse decisions/0489); the caller's single
+     * natural-end site is the only one that records. It goes through the raw store because {@see SessionStore} types its appends by its
      * own enum; the reducer skips what it does not know, so the session keeps folding unchanged
      * while any projection may read the verdict back by {@see self::EVENT}.
      *

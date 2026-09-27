@@ -2704,8 +2704,12 @@ class AgentOperations implements CommandProvider
 
         // A current base-loop final answer and a question-free session are both required.
         // The cause only makes this observation eligible; recorded work still decides its verdict.
+        // An exhausted epilogue is eligible too (greenhouse decisions/0489): the house opened it
+        // BECAUSE it verified closure, so running out of it must not leave the leg without the
+        // verdict — which stays the house's fact, never an answer the model gave.
         if ($pausada !== null && $pausada->question === null && $pausada->runFirst === []
-            && $this->runTermination !== null && $this->runTermination->reason === RunEnd::FinalAnswer
+            && $this->runTermination !== null
+            && \in_array($this->runTermination->reason, [RunEnd::FinalAnswer, RunEnd::EpilogueExhausted], true)
         ) {
             $closure = $this->deliveryClosure($store, $pausada);
             $resultado['closure'] = $closure;
