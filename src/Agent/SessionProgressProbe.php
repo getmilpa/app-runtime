@@ -15,6 +15,8 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Agent;
 
 use Milpa\Agent\ProgressReceipt;
+use Milpa\Agent\SessionFacts;
+use Milpa\Agent\SessionReducer;
 use Milpa\Agent\SessionStore;
 use Milpa\AiGateway\ProgressProbe;
 use Milpa\EventStore\Event;
@@ -173,16 +175,18 @@ final class SessionProgressProbe implements ProgressProbe
         // THE EPILOGUE (greenhouse decisions/0477). Terminating a task is the agent's judgement; verifying
         // it is the house's — every todo done with verifiable evidence — and how much budget the output
         // deserves after that is the house's policy. It outranks a stall, and an open todo reopens the work.
-        if ($this->workIsComplete()) {
+        $closure = $this->closure($stream);
+        if ($closure !== null) {
             if ($receipt->progress === ProgressReceipt::ADVANCING) {
                 $this->checkpointSeq = $last;
                 $this->recovering = false;
             }
             if ($this->epilogueFrom === null) {
                 $this->epilogueFrom = $step;
-                $this->recordFact(self::EPILOGUE_OPENED, ['atStep' => $step, 'budget' => self::EPILOGUE_CALLS]);
+                $this->recordFact(self::EPILOGUE_OPENED, ['atStep' => $step, 'budget' => self::EPILOGUE_CALLS]
+                    + ($closure === [] ? [] : ['derivedFrom' => $closure]));
 
-                return ['stalled' => false, 'notice' => $this->epilogueNotice(), 'receipt' => $receipt->toArray(), 'epilogue' => self::EPILOGUE_CALLS];
+                return ['stalled' => false, 'notice' => $this->epilogueNotice($closure), 'receipt' => $receipt->toArray(), 'epilogue' => self::EPILOGUE_CALLS];
             }
 
             return ['stalled' => false, 'notice' => '', 'receipt' => $receipt->toArray(),
@@ -253,39 +257,61 @@ final class SessionProgressProbe implements ProgressProbe
     }
 
     /**
-     * Whether the session's RECORDED work is complete: it has todos, and every one is done AND backed
-     * by verifiable evidence ({@see \Milpa\Agent\Session::isDoneVerified()}). Read from the stream,
-     * never inferred from prose; a store that cannot answer says «not complete», the notice it had.
+     * Whether the house verified the work phase closed, and how — `null` while it did not.
+     *
+     * A session with todos keeps its own record: every one done AND backed by verifiable evidence
+     * ({@see \Milpa\Agent\Session::isDoneVerified()}) answers `[]`. A session that never opened a todo
+     * kept no record, so the HOUSE derives the closure from its own receipts — the one verdict the final
+     * answer records ({@see ClosureVerdict}, greenhouse decisions/0488) — and answers what it derived it
+     * from. Read from the stream, never inferred from prose; a store that cannot answer says «not closed».
+     *
+     * @param list<Event> $stream
+     *
+     * @return array<string, mixed>|null
      */
-    private function workIsComplete(): bool
+    private function closure(array $stream): ?array
     {
         if ($this->events === null) {
-            return false;
+            return null;
+        }
+        if ($stream === []) {
+            return null;
         }
         try {
-            $session = (new SessionStore($this->events))->load($this->sessionId);
+            $session = (new SessionReducer())->reduce($this->sessionId, $stream);
         } catch (\Throwable) {
-            return false;
+            return null;
         }
-        if ($session === null || $session->todos === []) {
-            return false;
+        if ($session->todos === []) {
+            $verdict = ClosureVerdict::derive($session, SessionFacts::fromEvents($this->sessionId, $stream), $stream);
+
+            return $verdict['verified'] && isset($verdict['derivedFrom']) ? $verdict['derivedFrom'] : null;
         }
         foreach ($session->todos as $todo) {
             if (! $session->isDoneVerified($todo->id)) {
-                return false;
+                return null;
             }
         }
 
-        return true;
+        return [];
     }
 
-    /** What the house says once, when the epilogue opens: the semantic change, named. */
-    private function epilogueNotice(): string
+    /**
+     * What the house says once, when the epilogue opens: the semantic change, named — and on what the house
+     * closed it, its own todos or its own observation.
+     *
+     * @param array<string, mixed> $closure
+     */
+    private function epilogueNotice(array $closure): string
     {
+        $subject = $closure['observation']['subject'] ?? null;
+
         return sprintf(
-            'The work phase is closed: every todo of this session is closed with verifiable evidence. You are '
-            . 'writing the output now — %d model calls remain for your final answer. New work only by reopening '
-            . 'the closure: open a todo for it first.',
+            'The work phase is closed: %s. You are writing the output now — %d model calls remain for your final '
+            . 'answer. New work only by reopening the closure: open a todo for it first.',
+            \is_string($subject)
+                ? "the house observed «{$subject}» served in the house after your last change landed"
+                : 'every todo of this session is closed with verifiable evidence',
             self::EPILOGUE_CALLS,
         );
     }

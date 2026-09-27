@@ -3315,7 +3315,7 @@ class AgentOperations implements CommandProvider
                         + ['expectation' => ['declarationSeq' => $expectation['seq'], 'sha256' => $expectation['sha256']],
                             'bindingState' => 'awaiting_candidate'];
                 }
-                return ClosureVerdict::derive($session, $store->facts($session->id));
+                return ClosureVerdict::derive($session, $store->facts($session->id), $store->stream($session->id));
             }
             $contract = ['session' => $session->id] + $declaration['scope'];
             $evidence = $this->acceptanceEvidence($contract);
