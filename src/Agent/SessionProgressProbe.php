@@ -262,7 +262,7 @@ final class SessionProgressProbe implements ProgressProbe
      * A session with todos keeps its own record: every one done AND backed by verifiable evidence
      * ({@see \Milpa\Agent\Session::isDoneVerified()}) answers `[]`. A session that never opened a todo
      * kept no record, so the HOUSE derives the closure from its own receipts — the one verdict the final
-     * answer records ({@see ClosureVerdict}, greenhouse decisions/0488) — and answers what it derived it
+     * answer records ({@see ClosureVerdict}, greenhouse decisions/0487) — and answers what it derived it
      * from. Read from the stream, never inferred from prose; a store that cannot answer says «not closed».
      *
      * @param list<Event> $stream

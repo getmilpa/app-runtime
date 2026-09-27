@@ -123,7 +123,7 @@ final class TerminationWiringTest extends TestCase
     }
 
     /**
-     * A session that never opened a todo gets the closure the HOUSE derives (greenhouse decisions/0488): the
+     * A session that never opened a todo gets the closure the HOUSE derives (greenhouse decisions/0487): the
      * final answer's recorded verdict reads the stream, and the house's own observation of its promoted
      * screen served in the house closes it — with the scope saying so.
      */

@@ -25,7 +25,7 @@ use Milpa\EventStore\InMemoryEventStore;
 use PHPUnit\Framework\TestCase;
 
 /**
- * The house derives closure (greenhouse decisions/0488).
+ * The house derives closure (greenhouse decisions/0487).
  *
  * Measured (evidence/1017): 20–21 of 24 resident sessions never open a todo, so the house never verified
  * their closure — even when it had itself observed the promoted screen served in the house. For a session

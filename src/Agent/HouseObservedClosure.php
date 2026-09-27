@@ -19,7 +19,7 @@ use Milpa\Agent\SessionFacts;
 use Milpa\EventStore\Event;
 
 /**
- * The closure the HOUSE derives for a session that kept no record of its own (greenhouse decisions/0488).
+ * The closure the HOUSE derives for a session that kept no record of its own (greenhouse decisions/0487).
  *
  * ── THE DEBT THIS PAYS, MEASURED (greenhouse evidence/1017) ─────────────────────────────────────
  *

@@ -60,7 +60,7 @@ final class ClosureVerdict
      * recorded work, not completeness against a human goal whose criteria were never declared.
      *
      * A session that never opened a todo kept no record of its own; given its stream, the HOUSE derives
-     * the closure from its own receipts instead ({@see HouseObservedClosure}, greenhouse decisions/0488):
+     * the closure from its own receipts instead ({@see HouseObservedClosure}, greenhouse decisions/0487):
      * the house observed the work served in the house after the last change landed. A session with todos
      * keeps its own record as the authority, untouched.
      *

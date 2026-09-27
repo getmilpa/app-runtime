@@ -388,6 +388,20 @@ final readonly class SessionBookkeeping implements ContractProducer
                 array_values(array_filter($sesion->todos, static fn ($t): bool => $t->status !== TodoStatus::Done)),
             );
 
+            // A session that never opened a todo needs none once the HOUSE derived its closure (greenhouse
+            // decisions/0487, evidence/1022): the advice below would send it to open a todo only to close it,
+            // and in the epilogue that ritual spent the budget the final answer needed.
+            if ($sesion->todos === [] && $this->events !== null) {
+                $stream = $this->events->replay(SessionStore::PREFIX . $this->sessionId);
+                $closure = ClosureVerdict::derive($sesion, SessionFacts::fromEvents($this->sessionId, $stream), $stream);
+                $subject = $closure['derivedFrom']['observation']['subject'] ?? null;
+                if ($closure['verified'] && \is_string($subject)) {
+                    return ['ok' => false, 'error' => "there is nothing to claim: this session has no todos, and the house "
+                        . "already closed it on its own observation of «{$subject}» served in the house after your last "
+                        . 'change. Do not open a todo to close it — give your final answer'];
+                }
+            }
+
             // With none open, the refusal names the fix, not only the fault (evidence/1017): 7 claims on fresh cattle
             // were made by sessions that never opened a todo, and each was refused without saying what to do.
             return ['ok' => false, 'error' => "there is no todo «{$todoId}» in this session to claim"
