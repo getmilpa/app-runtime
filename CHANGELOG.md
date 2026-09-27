@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.191.0](https://github.com/getmilpa/app-runtime/compare/v0.190.0...v0.191.0) (2026-09-27)
+
+
+### Features
+
+* **agent:** an exhausted epilogue records the closure verdict ([#611](https://github.com/getmilpa/app-runtime/issues/611)) ([f88e95e](https://github.com/getmilpa/app-runtime/commit/f88e95ea491433c9015178848d993824f8e350f5))
+
 ## [0.190.0](https://github.com/getmilpa/app-runtime/compare/v0.189.0...v0.190.0) (2026-09-27)
 
 
