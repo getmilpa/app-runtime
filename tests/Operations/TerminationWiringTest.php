@@ -122,6 +122,34 @@ final class TerminationWiringTest extends TestCase
         self::assertTrue($sessions->load('s')?->isRunnable(), 'and the session can go on');
     }
 
+    /**
+     * A session that never opened a todo gets the closure the HOUSE derives (greenhouse decisions/0487): the
+     * final answer's recorded verdict reads the stream, and the house's own observation of its promoted
+     * screen served in the house closes it — with the scope saying so.
+     */
+    public function testTheFinalAnswerRecordsTheClosureTheHouseDerivesWithoutTodos(): void
+    {
+        $this->events = new InMemoryEventStore();
+        $this->sessions = new SessionStore($this->events);
+        $this->sessions->start('s', 'Build the page a reader reads');
+        $this->sessions->recordToolCall('s', 'sandbox_promote', ['workspace' => 'wabc'], (string) json_encode(['ok' => true,
+            'evidence' => ['predicate' => 'promoted', 'subject' => 'wabc', 'environment' => ['kind' => 'house']]]), mutating: true);
+        $this->sessions->recordToolCall('s', 'screen_observe', ['name' => 'blog'], (string) json_encode(['ok' => true,
+            'evidence' => ['predicate' => 'served', 'subject' => 'blog', 'environment' => ['kind' => 'house']]]));
+        $this->container = new DIContainer();
+        $this->container->registerService(SessionStore::class, $this->sessions);
+        $this->container->registerService(EventStoreInterface::class, $this->events);
+        $kernel = Kernel::boot(['root' => dirname(__DIR__, 2),'container' => $this->container,'toolRegistry' => new ToolRegistry(new NullLogger()),'plugins' => []]);
+        $this->container->registerService(Kernel::class, $kernel);
+
+        $r = $this->invoke($this->ops(new AgentOrchestrator($this->llm(['role' => 'assistant','content' => self::ANSWER]), $this->tools())));
+
+        self::assertTrue($r['closure']['verified'], implode('; ', $r['closure']['reasons']));
+        self::assertSame('house_observation', $r['closure']['scope']);
+        $recorded = array_values(array_filter($this->sessions->stream('s'), static fn ($e) => $e->type === 'session.closure_derived'));
+        self::assertSame('house_observation', $recorded[0]->payload['scope'] ?? null);
+    }
+
     public function testIdenticalFinalAndRefusalHaveDifferentClosureEligibility(): void
     {
         $final = $this->invoke($this->ops(new AgentOrchestrator($this->llm(['role' => 'assistant','content' => self::ANSWER]), $this->tools())));

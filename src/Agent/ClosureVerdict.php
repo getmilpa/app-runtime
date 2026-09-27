@@ -59,9 +59,16 @@ final class ClosureVerdict
      * Read-only discovery does not create a verification obligation. The explicit scope covers
      * recorded work, not completeness against a human goal whose criteria were never declared.
      *
-     * @return array{verified: bool, reasons: list<string>, scope: string}
+     * A session that never opened a todo kept no record of its own; given its stream, the HOUSE derives
+     * the closure from its own receipts instead ({@see HouseObservedClosure}, greenhouse decisions/0487):
+     * the house observed the work served in the house after the last change landed. A session with todos
+     * keeps its own record as the authority, untouched.
+     *
+     * @param list<Event>|null $stream the session's stream, or `null` to judge the recorded work alone
+     *
+     * @return array{verified: bool, reasons: list<string>, scope: string, derivedFrom?: array<string, mixed>}
      */
-    public static function derive(Session $session, SessionFacts $facts): array
+    public static function derive(Session $session, SessionFacts $facts, ?array $stream = null): array
     {
         $reasons = [];
         $hasEvidence = false;
@@ -105,6 +112,15 @@ final class ClosureVerdict
                 $reasons[] = "artifact {$artifact} has no current verification";
             }
         }
+        $house = null;
+        if ($session->todos === [] && $stream !== null) {
+            $house = HouseObservedClosure::of($stream, $facts);
+            if ($house['derived']) {
+                $hasEvidence = true;
+            } elseif ($house['lastChangeSeq'] !== null && $house['reason'] !== null) {
+                $reasons[] = $house['reason'];
+            }
+        }
         if (!$hasEvidence) {
             $reasons[] = 'no positive verification evidence recorded';
         }
@@ -113,6 +129,11 @@ final class ClosureVerdict
             $overflow = \count($reasons) - (self::MAX_REASONS - 1);
             $reasons = \array_slice($reasons, 0, self::MAX_REASONS - 1);
             $reasons[] = "… and {$overflow} more recorded facts";
+        }
+
+        if ($house !== null && $house['derived']) {
+            return ['verified' => $reasons === [], 'reasons' => $reasons, 'scope' => 'house_observation',
+                'derivedFrom' => ['observation' => $house['observation'], 'lastChangeSeq' => $house['lastChangeSeq']]];
         }
 
         return ['verified' => $reasons === [], 'reasons' => $reasons, 'scope' => 'recorded_work'];

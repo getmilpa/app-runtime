@@ -132,6 +132,30 @@ final class TheRefusalTeachesTheReferenceTest extends TestCase
         self::fail('work:claim-verified is not offered');
     }
 
+    /**
+     * Once the HOUSE derived the closure of a session with no todos (greenhouse decisions/0487), the refusal does
+     * not send it to open a todo only to close it: measured in evidence/1022, that ritual spent the epilogue.
+     */
+    public function testWithTheClosureTheHouseDerivedTheRefusalAsksForTheFinalAnswer(): void
+    {
+        $this->store->start('s3', 'build the blog page');
+        $this->store->recordToolCall('s3', 'sandbox_promote', ['workspace' => 'wabc'], (string) json_encode(['ok' => true,
+            'evidence' => ['predicate' => 'promoted', 'subject' => 'wabc', 'environment' => ['kind' => 'house']]]), mutating: true);
+        $this->store->recordToolCall('s3', 'screen_observe', ['name' => 'blog'], (string) json_encode(['ok' => true,
+            'evidence' => ['predicate' => 'served', 'subject' => 'blog', 'environment' => ['kind' => 'house']]]));
+        foreach ((new SessionBookkeeping($this->store, 's3', $this->events))->operations() as $operation) {
+            if ($operation->name === 'work:claim-verified') {
+                $refused = ($operation->handler)(['todo' => 'screen', 'kind' => 'screen-served', 'reference' => 'blog']);
+                self::assertFalse($refused['ok']);
+                self::assertStringContainsString('the house already closed it on its own observation of «blog»', (string) $refused['error']);
+                self::assertStringNotContainsString('add it first with the todo tool', (string) $refused['error']);
+
+                return;
+            }
+        }
+        self::fail('work:claim-verified is not offered');
+    }
+
     public function testAPromotionMaterialisesThePathsItCarriedAndOnlyThose(): void
     {
         self::assertTrue($this->claim('t1', 'artifact-created', 'config/screens.json')['ok'], 'the promotion put it in the house');
