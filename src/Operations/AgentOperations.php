@@ -4702,6 +4702,14 @@ class AgentOperations implements CommandProvider
             $partes[] = "What this app has installed:\n- " . implode("\n- ", $puesto);
         }
 
+        // THE CONSTITUTION REACHES THE AGENT (greenhouse decisions/0485). Measured: a rule taught once was kept
+        // as a foundation boundary 5 of 5 times, and a later session building the reader's page honoured it 0 of
+        // 5 — the house wrote its constitution and nobody building in it read it. With it here, 4 of 5.
+        $constitucion = $this->constitution();
+        if ($constitucion !== null) {
+            $partes[] = $constitucion;
+        }
+
         // Skills — non-deterministic guidance the agent reaches for by judgment, not tools it runs.
         // Only the model-invocable ones are advertised: a skill barred from the model
         // (`disable-model-invocation`) is withheld here so the agent never reaches for it.
@@ -4781,6 +4789,44 @@ class AgentOperations implements CommandProvider
                 return substr_replace($system, $section, $skillOffset, \strlen($initialSkillSection));
             };
         return $basePrompt;
+    }
+
+    /**
+     * The house's constitution as the agent must read it — domain, objective and the boundaries nothing built
+     * here may cross — or null when there is none to state (greenhouse decisions/0485).
+     *
+     * Read through {@see Foundation::verdict()}, the one authority on it, from the kernel's root. Without a
+     * kernel there is no house to speak for: the fallback root would be whatever package runs (a test's, a
+     * tool's), so nothing is read. An invalid or indeterminate foundation is never recited — a damaged
+     * constitution stated as law would be worse than none.
+     */
+    protected function constitution(): ?string
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (! $kernel instanceof Kernel) {
+            return null;
+        }
+        $verdict = Foundation::verdict($kernel->root());
+        $doc = $verdict['foundation'];
+        if ($verdict['verdict'] !== 'founded' || ! \is_array($doc)) {
+            return null;
+        }
+        $lines = ['This house is founded. Its constitution binds everything you build here:'];
+        if (\is_string($doc['domain'] ?? null) && trim($doc['domain']) !== '') {
+            $lines[] = 'Domain: ' . trim($doc['domain']);
+        }
+        if (\is_string($doc['objective'] ?? null) && trim($doc['objective']) !== '') {
+            $lines[] = 'Objective: ' . trim($doc['objective']);
+        }
+        $boundaries = array_values(array_filter(
+            array_map(static fn (mixed $b): string => \is_string($b) ? trim($b) : '', (array) ($doc['boundaries'] ?? [])),
+            static fn (string $b): bool => $b !== '',
+        ));
+        if ($boundaries !== []) {
+            $lines[] = "Boundaries — never cross them:\n- " . implode("\n- ", $boundaries);
+        }
+
+        return implode("\n", $lines);
     }
 
     /**
