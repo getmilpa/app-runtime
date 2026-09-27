@@ -49,6 +49,8 @@ use Milpa\EventStore\Event;
 final class HouseObservedClosure
 {
     /**
+     * Derive whether the house observed itself serving after the last change that landed in it.
+     *
      * @param list<Event> $stream the session's own stream, in order
      *
      * @return array{derived: bool, reason: ?string, observation: ?array{subject: string, seq: int}, lastChangeSeq: ?int}
