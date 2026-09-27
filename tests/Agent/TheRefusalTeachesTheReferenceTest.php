@@ -77,10 +77,22 @@ final class TheRefusalTeachesTheReferenceTest extends TestCase
     public function testAStaleSubjectIsNotOffered(): void
     {
         // Served, then forgotten: the judge would refuse it as stale, so the refusal must not offer it.
-        $this->store->recordToolCall('s1', 'screen_declare', ['name' => 'old-page'],
-            '{"ok":true,"screen":"old-page","evidence":{"predicate":"served","subject":"old-page","servedAt":"/live/page?component=old-page"}}', true, true);
-        $this->store->recordToolCall('s1', 'screen_forget', ['name' => 'old-page'],
-            '{"ok":true,"forgotten":"old-page","evidence":{"predicate":"served","subject":"old-page","invalidates":true}}', true, true);
+        $this->store->recordToolCall(
+            's1',
+            'screen_declare',
+            ['name' => 'old-page'],
+            '{"ok":true,"screen":"old-page","evidence":{"predicate":"served","subject":"old-page","servedAt":"/live/page?component=old-page"}}',
+            true,
+            true
+        );
+        $this->store->recordToolCall(
+            's1',
+            'screen_forget',
+            ['name' => 'old-page'],
+            '{"ok":true,"forgotten":"old-page","evidence":{"predicate":"served","subject":"old-page","invalidates":true}}',
+            true,
+            true
+        );
 
         $refused = $this->claim('t2', 'screen-served', 'the page');
         self::assertStringContainsString('«blog»', (string) $refused['error']);
