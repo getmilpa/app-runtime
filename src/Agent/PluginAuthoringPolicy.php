@@ -90,6 +90,38 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
     }
 
     /**
+     * The permission a recorded call still lacks under this authority, or null (greenhouse decisions/0493).
+     *
+     * The refusal is judged again, not read back: the same resource checks {@see authorize()} runs before
+     * a call executes, asked with the scopes the principal holds NOW. A refusal already granted, or a call
+     * that failed for any other reason, names no permission.
+     *
+     * @param array<string, mixed> $arguments the arguments the call was recorded with
+     */
+    public function missingPermission(ToolContext $context, string $tool, array $arguments): ?string
+    {
+        if ($context->hasScope('*')) {
+            return null;
+        }
+        try {
+            if (in_array($tool, self::BUILD, true)) {
+                $this->writePaths($context, $tool, $arguments);
+            } elseif ($tool === 'sandbox_promote' || $tool === 'sandbox_undo') {
+                $this->checkExport($context, $tool, $arguments);
+            } elseif ($tool === 'sandbox_discard') {
+                $record = json_decode((string) @file_get_contents($this->workspace($arguments)->baseDirectory() . '/authoring.json'), true);
+                $this->requirePlugin($context, is_array($record) ? ($record['plugin'] ?? null) : null);
+            }
+        } catch (MissingPermission $missing) {
+            return $missing->permission;
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return null;
+    }
+
+    /**
      * Resolve the exact write set; null preserves the explicitly unrestricted local mode.
      *
      * @param array<string, mixed> $arguments
@@ -233,7 +265,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             // sandbox:promote next step that could never cross the same boundary.
             if ($path === 'config/plugins.php') {
                 if (!$context->hasScope('plugins.config:write')) {
-                    throw new \RuntimeException("Missing required permission 'plugins.config:write' for plugin configuration.");
+                    throw new MissingPermission('plugins.config:write', "Missing required permission 'plugins.config:write' for plugin configuration.");
                 }
 
                 continue;
@@ -243,7 +275,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             // operation that writes it, and nothing else under config/.
             if ($path === \Milpa\AppRuntime\Web\ScreenStore::DEFAULT_PATH) {
                 if (!$context->hasScope(self::SCREEN_SCOPE)) {
-                    throw new \RuntimeException("Missing required permission '" . self::SCREEN_SCOPE . "' for declared screens.");
+                    throw new MissingPermission(self::SCREEN_SCOPE, "Missing required permission '" . self::SCREEN_SCOPE . "' for declared screens.");
                 }
 
                 continue;
@@ -252,7 +284,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             // the operation that writes it.
             if ($path === \Milpa\AppRuntime\Web\ComponentWords::PATH) {
                 if (!$context->hasScope(\Milpa\AppRuntime\Web\ComponentWordOperations::SCOPE)) {
-                    throw new \RuntimeException("Missing required permission '" . \Milpa\AppRuntime\Web\ComponentWordOperations::SCOPE . "' for the house's words.");
+                    throw new MissingPermission(\Milpa\AppRuntime\Web\ComponentWordOperations::SCOPE, "Missing required permission '" . \Milpa\AppRuntime\Web\ComponentWordOperations::SCOPE . "' for the house's words.");
                 }
 
                 continue;
@@ -301,7 +333,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
                 $message .= " Plugin identifiers and grants are case-sensitive. The current grant is '{$scope}'."
                     . ' Verify the installed plugin identifier before requesting a different permission.';
             }
-            throw new \RuntimeException($message);
+            throw new MissingPermission($permission, $message);
         }
         return $plugin;
     }

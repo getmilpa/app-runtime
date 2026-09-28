@@ -184,6 +184,23 @@ final class FileEnrollmentStore implements EnrollmentStore
     }
 
     /**
+     * Who authorized this key's standing recognition, or null for one never enrolled — and null once revoked.
+     *
+     * The enroller is the relation greenhouse decisions/0493 reads: the principal that answers for a seat.
+     */
+    public function authorizedBy(string $fingerprint): ?string
+    {
+        $map = $this->read() ?? [];
+        $entry = $map[IdentityKey::normalize($fingerprint)] ?? null;
+        if (!\is_array($entry) || ($entry['revoked_by'] ?? null) !== null) {
+            return null;
+        }
+        $by = $entry['authorized_by'] ?? null;
+
+        return \is_string($by) && $by !== '' ? $by : null;
+    }
+
+    /**
      * The ledger as written — `[]` when there is none yet, and null when the file holds content the
      * store cannot read as a JSON object. Null is not an empty ledger: nothing is decided over it as
      * if it were, and nothing is written over it.
