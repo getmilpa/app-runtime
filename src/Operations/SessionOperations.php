@@ -638,6 +638,7 @@ final class SessionOperations implements CommandProvider
                         'granted' => ['type' => 'string', 'description' => 'The one scope granted, as the refusal named it'],
                         'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'What the seat may do now'],
                         'authorized_by' => ['type' => 'string', 'description' => 'The verified principal that decided, as passkey:<id> or key:<fingerprint>'],
+                        'session_told' => ['type' => 'boolean', 'description' => 'The seat\'s session recorded the grant as a turn it reads (decisions/0495)'],
                         'error' => ['type' => 'string', 'description' => 'Why nothing was granted; absent when ok'],
                     ],
                     'required' => ['ok'],
@@ -985,6 +986,10 @@ final class SessionOperations implements CommandProvider
         if ($session === null) {
             return ['ok' => false, 'error' => "no existe la sesión «{$id}»"];
         }
+        $outsider = $this->outsiderRefusal($almacen, $id, $ctx, 'discarded');
+        if ($outsider !== null) {
+            return $outsider;
+        }
 
         $almacen->end($id, $porque);
 
@@ -1141,6 +1146,60 @@ final class SessionOperations implements CommandProvider
      * salió que este lado no guardaba principal ninguno, y que aquél además prohíbe que el que pide
      * sea el que aprueba.
      */
+    /**
+     * The refusal owed to an answerer who does not answer for this session — or null when they may decide it
+     * (greenhouse decisions/0495).
+     *
+     * Deciding on a session — answering its question, discarding it — belongs to whoever opened it and, when a
+     * verified seat opened it, to the line that enrolled that seat (decisions/0493, {@see \Milpa\AppRuntime\Agent\SeatFrontier}). The
+     * judgment runs where identity is promised: the terminal stays the honest unverified case it already is
+     * (`cli:user@host`), and a session no verified principal opened keeps the rule it had — any attributable
+     * holder of the scope — because nobody is on record to answer for it. What it closes: the panel mounting
+     * its own door to `agent:answer`, where a passkey another key enrolled, holding `agent:answer`, would
+     * otherwise decide the seat's question.
+     *
+     * @return array{ok: false, error: string, hint: string}|null
+     */
+    private function outsiderRefusal(SessionStore $sessions, string $id, ?InvocationContext $ctx, string $act): ?array
+    {
+        if ($ctx === null || $ctx->channel === 'cli') {
+            return null;
+        }
+        $opener = null;
+        foreach ($sessions->stream($id) as $event) {
+            if ($event->type === 'session.started') {
+                $by = \is_array($event->payload['by'] ?? null) ? $event->payload['by'] : [];
+                $opener = ($by['verified'] ?? false) === true && \is_string($by['id'] ?? null) ? $by['id'] : null;
+
+                break;
+            }
+        }
+        // The HTTP projector attributes as `actor:<id>`; the ledger and a seat's session name the bare
+        // principal (`passkey:<id>`, `key:<fp>`). Compared bare, or the owner of the session reads as a stranger.
+        $bare = static fn (string $principal): string => str_starts_with($principal, 'actor:') ? substr($principal, 6) : $principal;
+        $actor = $bare((string) $ctx->actor);
+        if ($opener === null || $bare($opener) === $actor) {
+            return null;
+        }
+        $kernel = $this->container->has(\Milpa\Runtime\Kernel::class)
+            ? $this->container->get(\Milpa\Runtime\Kernel::class)
+            : null;
+        if ($kernel instanceof \Milpa\Runtime\Kernel
+            && \Milpa\AppRuntime\Agent\SeatFrontier::forRoot($kernel->root(), $sessions)->answersFor($actor, $id)) {
+            return null;
+        }
+
+        return [
+            'ok' => false,
+            'error' => sprintf(
+                'you do not answer for session «%s» — only the principal that opened it, or the line that enrolled its seat, may decide it; nothing was %s',
+                $id,
+                $act,
+            ),
+            'hint' => 'decide it with the passkey or key whose line enrolled the seat (greenhouse decisions/0493, 0495)',
+        ];
+    }
+
     private function quienContesta(?InvocationContext $ctx = null): Principal
     {
         // EL CONTEXTO MANDA cuando trae un actor verificable: viene de la política que ya autorizó,
@@ -1325,6 +1384,10 @@ final class SessionOperations implements CommandProvider
         $session = $almacen->load($id);
         if ($session === null) {
             return ['ok' => false, 'error' => "no existe la sesión «{$id}»"];
+        }
+        $outsider = $this->outsiderRefusal($almacen, $id, $ctx, 'answered');
+        if ($outsider !== null) {
+            return $outsider;
         }
 
         if ($session->question === null) {
@@ -1834,7 +1897,7 @@ final class SessionOperations implements CommandProvider
      *
      * @param array<string, mixed> $input
      *
-     * @return array{ok: bool, fingerprint?: string, granted?: string, scopes?: list<string>, authorized_by?: string, error?: string}
+     * @return array{ok: bool, fingerprint?: string, granted?: string, scopes?: list<string>, authorized_by?: string, session_told?: bool, error?: string}
      */
     private function conceder(array $input, ?ToolContext $authority): array
     {
@@ -1879,13 +1942,40 @@ final class SessionOperations implements CommandProvider
             return ['ok' => false, 'error' => 'nothing was granted: ' . $e->getMessage()];
         }
 
+        // THE SESSION IS TOLD WHAT CHANGED (greenhouse decisions/0495). A grant changes what the seat may do,
+        // not what it knows: measured in evidence/1026, a plain «continue» kept retrying what it had invented,
+        // and only went back to the granted call once a person told it. So the house records the fact it just
+        // made, as a turn the model reads — the same way a counter-offer reaches it. It asks nothing and grants
+        // nothing more: the refusal stayed a refusal (decisions/0317), a human decided it, and this says so.
+        $store->recordTurn($session, 'user', self::grantNotice($refusal, $enrolled->authorizedBy));
+
         return [
             'ok' => true,
             'fingerprint' => $enrolled->fingerprint,
             'granted' => $refusal['permission'],
             'scopes' => $enrolled->scopes,
             'authorized_by' => $enrolled->authorizedBy,
+            'session_told' => true,
         ];
+    }
+
+    /**
+     * What the seat's session reads after a grant: who decided, the scope, and the call it was refused — a fact,
+     * never an instruction beyond what the session was already asked to do.
+     *
+     * @param array{seq: int, tool: string, plugin: ?string, permission: string, seat: string} $refusal
+     */
+    private static function grantNotice(array $refusal, string $authorizedBy): string
+    {
+        $call = $refusal['tool'] . ($refusal['plugin'] !== null ? ' plugin=' . $refusal['plugin'] : '');
+
+        return sprintf(
+            '[house] %s granted this seat the scope «%s». Your call #%d (%s) was refused for lacking it; that same call can run now. Nothing else changed.',
+            $authorizedBy,
+            $refusal['permission'],
+            $refusal['seq'],
+            $call,
+        );
     }
 
     /**
