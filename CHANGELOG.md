@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [0.194.0](https://github.com/getmilpa/app-runtime/compare/v0.193.0...v0.194.0) (2026-09-28)
+
+
+### Features
+
+* **identity:** only the seat's line sets its goal, mode or next turn; agent:model declares its scope (greenhouse 0497) ([#619](https://github.com/getmilpa/app-runtime/issues/619)) ([4041682](https://github.com/getmilpa/app-runtime/commit/40416823259a598fed53e7e10a0e0ed45292820a))
+* **identity:** the first passkey enters with the invitation of whoever opened the panel (greenhouse 0498) ([#620](https://github.com/getmilpa/app-runtime/issues/620)) ([e5440bf](https://github.com/getmilpa/app-runtime/commit/e5440bfbf031a2ac5fcf76ae7689ac8f85699dea))
+
+
+### Bug Fixes
+
+* **frontier:** offer a grant only for a real or a named plugin ([#618](https://github.com/getmilpa/app-runtime/issues/618)) ([46501a1](https://github.com/getmilpa/app-runtime/commit/46501a1b9314611d67f009c6aab03b2e9582b743))
+
 ## [0.193.0](https://github.com/getmilpa/app-runtime/compare/v0.192.0...v0.193.0) (2026-09-28)
 
 
