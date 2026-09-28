@@ -127,6 +127,26 @@ final class AKernelKnowsWhenItWentStaleTest extends TestCase
         self::assertStringStartsWith('src/Plugins/Blog/BlogProbe', (string) $definition->staleBecause());
     }
 
+    /**
+     * What the BOOT included is taken in right after the boot — not at the first request.
+     *
+     * Measured in evidence/1038 (m3b): a worker that had served nothing when a promotion rewrote
+     * `config/plugins.php` first looked at its files after the change, took the new content as what it
+     * read, and answered 404 for the promoted plugin without ever knowing it was stale.
+     */
+    public function testWhatTheBootIncludedIsTakenInBeforeTheFirstRequest(): void
+    {
+        $definition = KernelDefinition::before($this->root);
+        $config = $this->root . '/config/plugins' . bin2hex(random_bytes(3)) . '.php';
+        file_put_contents($config, "<?php return ['HelloPlugin'];");
+        require $config;
+        $definition->takeInIncluded();
+
+        file_put_contents($config, "<?php return ['HelloPlugin', 'Blog'];");
+
+        self::assertStringStartsWith('config/plugins', (string) $definition->staleBecause(), 'the first check after the change sees it');
+    }
+
     /** What the process never included and is not an overlay does not define it — a session written each turn above all. */
     public function testWhatTheKernelDidNotReadIsNotTracked(): void
     {

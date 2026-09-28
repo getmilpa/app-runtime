@@ -42,7 +42,8 @@ use Psr\Http\Message\ServerRequestInterface;
  *     `.milpa/secrets.json`, and `vendor/composer/installed.php` (Composer rewrites it on every
  *     `require`, `update` and `remove`) — fingerprinted by {@see before()}, ahead of the boot;
  *   - every PHP file of the app the process included (`config/*.php`, `src/`, the front controller) —
- *     taken from `get_included_files()` as the process loads them, outside `vendor/`.
+ *     taken from `get_included_files()`, outside `vendor/`: what the boot included right after the boot
+ *     ({@see takeInIncluded()}), what a request loads later at the next check.
  *
  * The fingerprint is the CONTENT (`xxh128`; absent is a state too), never a clock: `filemtime` has a
  * one-second resolution, and a same-size write in the second of the boot would pass. An identical
@@ -105,16 +106,8 @@ final class KernelDefinition
     public function staleBecause(): ?string
     {
         clearstatcache();
+        $this->takeInIncluded();
         $prefix = $this->root . '/';
-        foreach (get_included_files() as $file) {
-            if (!str_starts_with($file, $prefix) || str_starts_with($file, $this->vendor)) {
-                continue;
-            }
-            $relative = substr($file, \strlen($prefix));
-            if (!isset($this->seen[$relative])) {
-                $this->seen[$relative] = self::fingerprint($file);
-            }
-        }
 
         $first = null;
         foreach ($this->seen as $relative => $fingerprint) {
@@ -125,6 +118,28 @@ final class KernelDefinition
         }
 
         return $first;
+    }
+
+    /**
+     * Take in the app's PHP files this process included so far, at their current content — call it right after the boot.
+     *
+     * Measured in greenhouse evidence/1038 (m3b): taken in only at the first request, a worker that sat
+     * idle while a promotion rewrote `config/plugins.php` recorded the NEW content as what it had read,
+     * and answered 404 for the promoted plugin without ever knowing it was stale. {@see staleBecause()}
+     * calls this too, for the files a request loads later.
+     */
+    public function takeInIncluded(): void
+    {
+        $prefix = $this->root . '/';
+        foreach (get_included_files() as $file) {
+            if (!str_starts_with($file, $prefix) || str_starts_with($file, $this->vendor)) {
+                continue;
+            }
+            $relative = substr($file, \strlen($prefix));
+            if (!isset($this->seen[$relative])) {
+                $this->seen[$relative] = self::fingerprint($file);
+            }
+        }
     }
 
     /**
