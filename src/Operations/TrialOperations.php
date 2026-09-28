@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Operations;
 use Milpa\Agent\SessionStore;
 use Milpa\Command\InvocationContext;
 use Milpa\ToolRuntime\Contracts\ToolContext;
+use Milpa\AppRuntime\Agent\HouseRouteObserver;
 use Milpa\AppRuntime\Agent\PluginAuthoringPolicy;
 use Milpa\AppRuntime\Agent\KeyedDeclarations;
 use Milpa\AppRuntime\Agent\TrialWorkspace;
@@ -53,6 +54,7 @@ final class TrialOperations implements CommandProvider
         private readonly DIContainerInterface $container,
         private readonly ?SessionStore $sessions = null,
         private readonly ?string $root = null,
+        private readonly ?HouseRouteObserver $observer = new HouseRouteObserver(),
     ) {
     }
 
@@ -247,6 +249,11 @@ final class TrialOperations implements CommandProvider
         // is spent. Collapse it — free the ~656 KB, keep the tiny pre-image for manual undo (0069).
         $ws->collapse();
 
+        // THE HOUSE LOOKS AT WHAT LANDED (greenhouse decisions/0494). A route is code, and this process booted
+        // before that code existed — so a fresh process of the house requests the GET routes the touched
+        // plugins declare, through its own front controller, and the receipt says what the house answered.
+        $observation = $this->observer?->observe($root, $paths) ?? ['observed' => []];
+
         // THE PROMOTION EARNS ITS OWN VERB (greenhouse decisions/0463). Its receipt says what crossed
         // and where from; it does NOT carry forward what the trial observed. «Served in the copy» stays
         // a fact about the copy, and a fact about the house is observed in the house.
@@ -262,9 +269,33 @@ final class TrialOperations implements CommandProvider
                 'from' => ['kind' => 'trial', 'workspace' => $id],
                 'paths' => $paths,
             ],
+            ...($observation['observed'] !== [] ? ['observed' => $observation['observed']] : []),
+            ...(isset($observation['error']) ? ['observation_error' => $observation['error']] : []),
             'note' => 'Promoted into the house. What the trial observed (served, passed) was observed in the '
-                . 'copy; observe it here before claiming it about the house.',
+                . 'copy; observe it here before claiming it about the house.' . self::whatTheHouseSaw($observation),
         ];
+    }
+
+    /**
+     * The house's own observation of what landed, in one sentence for the note — empty when it asked nothing.
+     *
+     * @param array{observed: list<array<string, mixed>>, error?: string, unobserved?: int} $observation
+     */
+    private static function whatTheHouseSaw(array $observation): string
+    {
+        if (isset($observation['error'])) {
+            return ' The house could not be observed: ' . $observation['error'] . '.';
+        }
+        if ($observation['observed'] === []) {
+            return '';
+        }
+        $answers = array_map(
+            static fn (array $entry): string => $entry['route'] . ' answered ' . ($entry['status'] === null ? 'nothing' : 'HTTP ' . $entry['status']),
+            $observation['observed'],
+        );
+
+        return ' The house requested the routes this promotion declares, the way a browser does: ' . implode('; ', $answers)
+            . (isset($observation['unobserved']) ? "; {$observation['unobserved']} more were not requested" : '') . '.';
     }
 
     /** @return array<string, mixed> */
