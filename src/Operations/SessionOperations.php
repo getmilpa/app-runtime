@@ -181,7 +181,7 @@ final class SessionOperations implements CommandProvider
                     subject: Subject::Data,
                 ),
                 description: 'Change how far a session may go without asking',
-                handler: fn (array $input): array => $this->cambiarModo($input),
+                handler: fn (array $input, ?InvocationContext $ctx = null): array => $this->cambiarModo($input, $ctx),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
@@ -231,7 +231,7 @@ final class SessionOperations implements CommandProvider
                     subject: Subject::Data,
                 ),
                 description: 'The human\'s standing intent for a session — set it, clear it, or read it. The gate judges targets against it; in auto mode it bounds what runs without asking. It never pre-consents a signature or a third-party egress.',
-                handler: fn (array $input): array => $this->changeGoal($input),
+                handler: fn (array $input, ?InvocationContext $ctx = null): array => $this->changeGoal($input, $ctx),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
@@ -1147,57 +1147,24 @@ final class SessionOperations implements CommandProvider
      * sea el que aprueba.
      */
     /**
-     * The refusal owed to an answerer who does not answer for this session — or null when they may decide it
-     * (greenhouse decisions/0495).
-     *
-     * Deciding on a session — answering its question, discarding it — belongs to whoever opened it and, when a
-     * verified seat opened it, to the line that enrolled that seat (decisions/0493, {@see \Milpa\AppRuntime\Agent\SeatFrontier}). The
-     * judgment runs where identity is promised: the terminal stays the honest unverified case it already is
-     * (`cli:user@host`), and a session no verified principal opened keeps the rule it had — any attributable
-     * holder of the scope — because nobody is on record to answer for it. What it closes: the panel mounting
-     * its own door to `agent:answer`, where a passkey another key enrolled, holding `agent:answer`, would
-     * otherwise decide the seat's question.
+     * The refusal owed to a caller who does not answer for this session — or null when they may decide it
+     * (greenhouse decisions/0495, 0497; the judgment lives in {@see \Milpa\AppRuntime\Agent\SessionLine}).
      *
      * @return array{ok: false, error: string, hint: string}|null
      */
     private function outsiderRefusal(SessionStore $sessions, string $id, ?InvocationContext $ctx, string $act): ?array
     {
-        if ($ctx === null || $ctx->channel === 'cli') {
-            return null;
-        }
-        $opener = null;
-        foreach ($sessions->stream($id) as $event) {
-            if ($event->type === 'session.started') {
-                $by = \is_array($event->payload['by'] ?? null) ? $event->payload['by'] : [];
-                $opener = ($by['verified'] ?? false) === true && \is_string($by['id'] ?? null) ? $by['id'] : null;
-
-                break;
-            }
-        }
-        // The HTTP projector attributes as `actor:<id>`; the ledger and a seat's session name the bare
-        // principal (`passkey:<id>`, `key:<fp>`). Compared bare, or the owner of the session reads as a stranger.
-        $bare = static fn (string $principal): string => str_starts_with($principal, 'actor:') ? substr($principal, 6) : $principal;
-        $actor = $bare((string) $ctx->actor);
-        if ($opener === null || $bare($opener) === $actor) {
-            return null;
-        }
         $kernel = $this->container->has(\Milpa\Runtime\Kernel::class)
             ? $this->container->get(\Milpa\Runtime\Kernel::class)
             : null;
-        if ($kernel instanceof \Milpa\Runtime\Kernel
-            && \Milpa\AppRuntime\Agent\SeatFrontier::forRoot($kernel->root(), $sessions)->answersFor($actor, $id)) {
-            return null;
-        }
 
-        return [
-            'ok' => false,
-            'error' => sprintf(
-                'you do not answer for session «%s» — only the principal that opened it, or the line that enrolled its seat, may decide it; nothing was %s',
-                $id,
-                $act,
-            ),
-            'hint' => 'decide it with the passkey or key whose line enrolled the seat (greenhouse decisions/0493, 0495)',
-        ];
+        return \Milpa\AppRuntime\Agent\SessionLine::refusal(
+            $sessions,
+            $id,
+            $ctx,
+            $act,
+            $kernel instanceof \Milpa\Runtime\Kernel ? $kernel->root() : null,
+        );
     }
 
     private function quienContesta(?InvocationContext $ctx = null): Principal
@@ -1571,7 +1538,7 @@ final class SessionOperations implements CommandProvider
      *
      * @return array<string, mixed>
      */
-    private function cambiarModo(array $input): array
+    private function cambiarModo(array $input, ?InvocationContext $ctx = null): array
     {
         [$almacen, $id, $error] = $this->target($input);
         if ($error !== null || $almacen === null) {
@@ -1590,6 +1557,11 @@ final class SessionOperations implements CommandProvider
         $session = $almacen->load($id);
         if ($session === null) {
             return ['ok' => false, 'error' => "unknown session '{$id}'"];
+        }
+        // Raising a session's autonomy is deciding on it (greenhouse decisions/0497): the seat's line, or nobody.
+        $outsider = $this->outsiderRefusal($almacen, $id, $ctx, 'changed');
+        if ($outsider !== null) {
+            return $outsider;
         }
 
         $antes = $session->mode;
@@ -1621,7 +1593,7 @@ final class SessionOperations implements CommandProvider
      *
      * @return array{ok: bool, session?: string, goal?: string, changed?: bool, error?: string}
      */
-    private function changeGoal(array $input): array
+    private function changeGoal(array $input, ?InvocationContext $ctx = null): array
     {
         [$almacen, $id, $error] = $this->target($input);
         if ($error !== null || $almacen === null) {
@@ -1640,6 +1612,12 @@ final class SessionOperations implements CommandProvider
         $session = $almacen->load($id);
         if ($session === null) {
             return ['ok' => false, 'error' => "unknown session '{$id}'"];
+        }
+        // The standing goal steers what runs in auto (decisions/0202): reading or writing it is the seat's line's
+        // to do (greenhouse decisions/0497), never any holder of `agent:run`.
+        $outsider = $this->outsiderRefusal($almacen, $id, $ctx, 'changed');
+        if ($outsider !== null) {
+            return $outsider;
         }
 
         $next = $clear ? '' : $goal;
