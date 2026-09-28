@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.192.0](https://github.com/getmilpa/app-runtime/compare/v0.191.0...v0.192.0) (2026-09-28)
+
+
+### Features
+
+* **agent:** the house observes the route a promotion landed (greenhouse 0494) ([#613](https://github.com/getmilpa/app-runtime/issues/613)) ([4115ff0](https://github.com/getmilpa/app-runtime/commit/4115ff0ad557b218a77c890cd43f2501b2cd8a79))
+* **identity:** the human who enrolled a seat grants the scope its refusal names ([#614](https://github.com/getmilpa/app-runtime/issues/614)) ([620ce75](https://github.com/getmilpa/app-runtime/commit/620ce75c16c0628287a45b86ad214967c164415b))
+
 ## [0.191.0](https://github.com/getmilpa/app-runtime/compare/v0.190.0...v0.191.0) (2026-09-27)
 
 
