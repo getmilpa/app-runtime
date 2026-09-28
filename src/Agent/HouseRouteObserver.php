@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Agent;
 
+use Milpa\AppRuntime\Support\PhpBinary;
 use Milpa\Attributes\PluginMetadata;
 use Milpa\Http\HttpMethod;
 use Milpa\Runtime\Http\RouteProviderInterface;
@@ -53,11 +54,15 @@ final class HouseRouteObserver
 
     private readonly string $script;
 
+    /** The PHP each observing process runs — found by {@see PhpBinary}, because under FrankenPHP `PHP_BINARY` is empty (0505). */
+    private readonly string $php;
+
     public function __construct(
-        private readonly string $php = \PHP_BINARY,
+        ?string $php = null,
         private readonly int $timeoutSeconds = 20,
         ?string $script = null,
     ) {
+        $this->php = $php ?? PhpBinary::path();
         $this->script = $script ?? \dirname(__DIR__, 2) . '/resources/house-observe.php';
     }
 

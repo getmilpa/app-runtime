@@ -14,6 +14,8 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Agent;
 
+use Milpa\AppRuntime\Support\PhpBinary;
+
 /**
  * What makes the confinement TRUE and not merely claimed: it runs the trial's operation in a
  * namespace where the host root is read-only, the network is gone, and the pid space is its own.
@@ -30,12 +32,16 @@ final class TrialRunner
 {
     private ?bool $available = null;
 
+    /** The PHP a trial runs — found by {@see PhpBinary}, because under FrankenPHP `PHP_BINARY` is empty (0505). */
+    private readonly string $php;
+
     public function __construct(
         private readonly string $bwrap = 'bwrap',
         private readonly int $timeoutSeconds = 60,
-        private readonly string $php = \PHP_BINARY,
+        ?string $php = null,
         private readonly ?TrialInputObserver $inputObserver = null,
     ) {
+        $this->php = $php ?? PhpBinary::path();
     }
 
     /** Is there an unprivileged user namespace here for bwrap to use? Probed once, then remembered. */
