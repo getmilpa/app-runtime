@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [0.195.0](https://github.com/getmilpa/app-runtime/compare/v0.194.0...v0.195.0) (2026-09-28)
+
+
+### Features
+
+* **agent:** one signature per sequence — legs and resumes cite the receipt ([#623](https://github.com/getmilpa/app-runtime/issues/623)) ([efa28a8](https://github.com/getmilpa/app-runtime/commit/efa28a8099ce43ab9ce8d121a6ca5da396f9b6d1))
+* **identity:** the resident takes its seat by signing the invitation of whoever answers for it (greenhouse 0499) ([#624](https://github.com/getmilpa/app-runtime/issues/624)) ([76586ed](https://github.com/getmilpa/app-runtime/commit/76586ed3fd002e3e495d708373cbbc27f2ce3824))
+
+
+### Bug Fixes
+
+* **agent:** a short name names its qualified class in the intent contract (greenhouse 0501) ([#622](https://github.com/getmilpa/app-runtime/issues/622)) ([dd6e26b](https://github.com/getmilpa/app-runtime/commit/dd6e26bc93ccc8bcb631f64f564abe298c4afe7e))
+
 ## [0.194.0](https://github.com/getmilpa/app-runtime/compare/v0.193.0...v0.194.0) (2026-09-28)
 
 
