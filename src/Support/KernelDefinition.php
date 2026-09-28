@@ -145,24 +145,29 @@ final class KernelDefinition
      *
      * OPcache revalidates a file at most every `opcache.revalidate_freq` seconds (2 by default), and a
      * worker's replacement shares its cache: without this, the clean process could run the bytecode of
-     * the file that just changed. The changed PHP files of the app are invalidated; a changed
-     * `installed.php` means Composer rewrote an unknown set of files under `vendor/`, so the whole cache
-     * is reset. Nothing happens without OPcache.
+     * a file that just changed. The app files this process saw change are invalidated by force (their
+     * content moved even if their mtime did not); every other cached script is invalidated only if its
+     * file is newer than its bytecode — which is how the files Composer rewrote under `vendor/` are
+     * found without knowing their names. Nothing happens without OPcache.
+     *
+     * NEVER `opcache_reset()`. Measured under FrankenPHP 1.12.7 (greenhouse evidence/1038, o2): it
+     * restarts EVERY worker, and a request in flight in another one — a resident's turn — was killed
+     * after 8 s and answered 200 with a fatal. `opcache_invalidate()` restarted nothing and let a 12 s
+     * request finish (o3).
      */
     public function forgetCompiled(): void
     {
         if (!\function_exists('opcache_invalidate') || !(bool) \ini_get('opcache.enable')) {
             return;
         }
-        if (isset($this->changed['vendor/composer/installed.php']) && \function_exists('opcache_reset')) {
-            opcache_reset();
-
-            return;
-        }
         foreach (array_keys($this->changed) as $relative) {
             if (str_ends_with($relative, '.php')) {
                 opcache_invalidate($this->root . '/' . $relative, true);
             }
+        }
+        $status = \function_exists('opcache_get_status') ? opcache_get_status(true) : false;
+        foreach (\is_array($status) && \is_array($status['scripts'] ?? null) ? array_keys($status['scripts']) : [] as $script) {
+            opcache_invalidate((string) $script, false);
         }
     }
 
