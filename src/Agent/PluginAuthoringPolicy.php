@@ -100,6 +100,19 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
      */
     public function missingPermission(ToolContext $context, string $tool, array $arguments): ?string
     {
+        return $this->missing($context, $tool, $arguments)?->permission;
+    }
+
+    /**
+     * The refusal a recorded call still earns under this authority, with the plugin it targets — or null.
+     *
+     * The same judgement as {@see missingPermission()}, kept whole: a reader that must know WHICH plugin
+     * a missing write scope is for reads it here, never from the scope's spelling (decisions/0496).
+     *
+     * @param array<string, mixed> $arguments the arguments the call was recorded with
+     */
+    public function missing(ToolContext $context, string $tool, array $arguments): ?MissingPermission
+    {
         if ($context->hasScope('*')) {
             return null;
         }
@@ -113,7 +126,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
                 $this->requirePlugin($context, is_array($record) ? ($record['plugin'] ?? null) : null);
             }
         } catch (MissingPermission $missing) {
-            return $missing->permission;
+            return $missing;
         } catch (\Throwable) {
             return null;
         }
@@ -333,9 +346,23 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
                 $message .= " Plugin identifiers and grants are case-sensitive. The current grant is '{$scope}'."
                     . ' Verify the installed plugin identifier before requesting a different permission.';
             }
-            throw new MissingPermission($permission, $message);
+            // A fact of the disk, not a guess about the goal: this policy never reads the session. The
+            // skeleton only shows `<Something>Plugin` directories, and a resident told to build «a plugin
+            // named Blog» asked for `BlogPlugin` three times on the bare refusal (evidence/1028).
+            if (!$this->pluginExists($plugin)) {
+                $message .= " No plugin '{$plugin}' exists in this house yet. A new plugin takes exactly the name the task gives it.";
+            }
+            throw new MissingPermission($permission, $message, $plugin);
         }
         return $plugin;
+    }
+
+    /**
+     * Whether the house already has this plugin: its source directory, the one its write scope would open.
+     */
+    public function pluginExists(string $plugin): bool
+    {
+        return preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $plugin) === 1 && is_dir($this->root . '/src/Plugins/' . $plugin);
     }
 
     /** Refuse traversal, aliases and links in either the source or destination tree. */

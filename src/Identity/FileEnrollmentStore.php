@@ -68,6 +68,9 @@ final class FileEnrollmentStore implements EnrollmentStore
         $report = ['previously_revoked_by' => null, 'history_entries' => 0];
         $this->mutate(static function (array $map) use ($key, $enrolled, &$report): array {
             $entry = ['scopes' => $enrolled->scopes, 'authorized_by' => $enrolled->authorizedBy];
+            if ($enrolled->grownBy !== null) {
+                $entry['grown_by'] = $enrolled->grownBy;
+            }
 
             if (\array_key_exists($key, $map)) {
                 $previous = $map[$key];

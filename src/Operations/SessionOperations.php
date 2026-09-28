@@ -39,7 +39,9 @@ use Milpa\Command\Operation;
 use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
 use Milpa\AppRuntime\Identity\IdentityEnrolled;
+use Milpa\AppRuntime\Identity\FirstHuman;
 use Milpa\AppRuntime\Identity\IdentityConfig;
+use Milpa\AppRuntime\Identity\IdentityInvitations;
 use Milpa\AppRuntime\Identity\IdentityEnrollment;
 use Milpa\AppRuntime\Identity\IdentityNotRooted;
 use Milpa\ToolRuntime\Identity\GrantedAuthorization;
@@ -85,10 +87,37 @@ final class SessionOperations implements CommandProvider
         // no anunciarla: quien lee `coa list` —persona o agente— la cuenta como disponible, la llama,
         // y aprende que el listado miente. `coa capabilities` es donde se ve lo que FALTA, con el
         // `composer require` que lo enciende.
-        if (!Capabilities::installed('agent')) {
-            return [];
-        }
+        //
+        // EXCEPT IDENTITY (greenhouse decisions/0498): recognizing, revoking and inviting read and write the
+        // identity ledger and nothing of the agent's. Gating them on `milpa/agent` made a fresh house install
+        // the agent from the terminal before anybody could be enrolled (evidence/1024, B3).
+        $operations = $this->declared();
 
+        return Capabilities::installed('agent') ? $operations : self::withoutTheAgent($operations);
+    }
+
+    /** The operations of this provider that need nothing of `milpa/agent` (greenhouse decisions/0498). */
+    private const array WITHOUT_THE_AGENT = ['identity:enroll', 'identity:revoke', 'identity:bootstrap', 'identity:invite'];
+
+    /**
+     * What this provider offers a house without `milpa/agent`: the identity operations, and nothing that
+     * needs a session (greenhouse decisions/0498).
+     *
+     * @param list<Operation> $operations
+     *
+     * @return list<Operation>
+     */
+    public static function withoutTheAgent(array $operations): array
+    {
+        return array_values(array_filter(
+            $operations,
+            static fn (Operation $op): bool => \in_array($op->name, self::WITHOUT_THE_AGENT, true),
+        ));
+    }
+
+    /** @return list<Operation> */
+    private function declared(): array
+    {
         return [
             new Operation(
                 name: 'agent:sessions',
@@ -730,7 +759,102 @@ final class SessionOperations implements CommandProvider
                 mutating: true,
                 requiresConfirmation: true,
             ),
+            new Operation(
+                name: 'identity:invite',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    // Once spent, the credential it admitted stays rooted; an unspent one expires on its own.
+                    Reversibility::Irreversible,
+                    // It answers, in advance, for a passkey that does not exist yet — the root of trust a
+                    // recognition consumes (greenhouse decisions/0498).
+                    Authority::Privileged,
+                    subject: Subject::Configuration,
+                ),
+                description: 'Mint a one-time invitation: the passkey that redeems it is enrolled in the same ceremony, vouched by the key that signed this',
+                handler: fn (array $input, ?InvocationContext $context = null): array => $this->invitar($input, $context),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'scopes' => [
+                            'type' => 'array',
+                            'items' => ['type' => 'string'],
+                            'description' => 'What the invited passkey may do — omitted, what the installed capabilities declare their operator needs, plus identity:enroll',
+                        ],
+                    ],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean', 'description' => 'False when nothing was minted — the error says why'],
+                        'path' => ['type' => 'string', 'description' => 'Where to open it: the enroll page, carrying the one-time secret'],
+                        'url' => ['type' => 'string', 'description' => 'The same path on the host `php bin/coa serve` answers by default'],
+                        'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'What the passkey that redeems it will hold'],
+                        'vouched_by' => ['type' => 'string', 'description' => 'The key that answers for it, as key:<fingerprint>'],
+                        'expires_at' => ['type' => 'string', 'description' => 'When it stops admitting anybody'],
+                        'error' => ['type' => 'string', 'description' => 'Why nothing was minted; absent when ok'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // The same scope as recognizing an identity: an invitation IS a recognition, deferred.
+                scopes: ['identity:enroll'],
+                // The terminal only: its secret is shown once, to whoever signed — never to an agent, never
+                // to a web request (greenhouse decisions/0498).
+                surfaces: ['cli', 'tui'],
+                mutating: true,
+                requiresConfirmation: true,
+            ),
         ];
+    }
+
+    /**
+     * Mint an invitation vouched by the signer — or refuse (greenhouse decisions/0498).
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function invitar(array $input, ?InvocationContext $context): array
+    {
+        $granted = $this->container->has(GrantedAuthorization::class)
+            ? $this->container->get(GrantedAuthorization::class)
+            : null;
+        if (! $granted instanceof GrantedAuthorization || $granted->authorization->operation !== 'identity:invite') {
+            return ['ok' => false, 'error' => 'an invitation is answered for by whoever signs it; re-run with --sign'];
+        }
+        // The signed arguments ARE the invitation: a signature over other scopes does not cover these.
+        if (($granted->authorization->arguments['scopes'] ?? null) !== ($input['scopes'] ?? null)) {
+            return ['ok' => false, 'error' => 'the granted signature does not cover inviting with THESE scopes — nothing was minted'];
+        }
+        if ($context !== null && $context->channel !== 'cli' && $context->channel !== 'tui') {
+            return ['ok' => false, 'error' => 'an invitation\'s secret is shown only at the terminal that signed it'];
+        }
+
+        $kernel = $this->container->has(\Milpa\Runtime\Kernel::class)
+            ? $this->container->get(\Milpa\Runtime\Kernel::class)
+            : null;
+        if (! $kernel instanceof \Milpa\Runtime\Kernel) {
+            return ['ok' => false, 'error' => 'this app has no root to keep an invitation in'];
+        }
+
+        $scopes = null;
+        if (\is_array($input['scopes'] ?? null)) {
+            $scopes = [];
+            foreach ($input['scopes'] as $scope) {
+                if (\is_string($scope) && trim($scope) !== '') {
+                    $scopes[] = trim($scope);
+                }
+            }
+            if ($scopes === []) {
+                return ['ok' => false, 'error' => '`scopes` was given empty — an invitation that grants nothing admits nobody'];
+            }
+        }
+
+        try {
+            return ['ok' => true, ...FirstHuman::invite($kernel->root(), 'key:' . $granted->signer->fingerprint, $scopes)];
+        } catch (\RuntimeException $e) {
+            return ['ok' => false, 'error' => 'nothing was minted: ' . $e->getMessage()];
+        }
     }
 
     /**
@@ -1833,7 +1957,8 @@ final class SessionOperations implements CommandProvider
         }
         $root = $kernel->root();
 
-        $enrollment = new IdentityEnrollment(IdentityConfig::load($root));
+        // The root is the operator's config AND every credential an invitation rooted (decisions/0498).
+        $enrollment = new IdentityEnrollment(IdentityInvitations::rootFor($root));
         try {
             $enrolled = $enrollment->enroll($fingerprint, $scopes, 'key:' . $granted->signer->fingerprint);
         } catch (IdentityNotRooted $e) {
@@ -1911,7 +2036,7 @@ final class SessionOperations implements CommandProvider
         $scopes = $ledger->scopesFor($refusal['seat']) ?? [];
         $scopes[] = $refusal['permission'];
         try {
-            $enrolled = (new IdentityEnrollment(IdentityConfig::load($root)))
+            $enrolled = (new IdentityEnrollment(IdentityInvitations::rootFor($root)))
                 ->enroll($refusal['seat'], array_values(array_unique($scopes)), $decider);
             $ledger->recordAndReport($enrolled);
         } catch (IdentityNotRooted $e) {

@@ -71,6 +71,8 @@
   const RP_ID = typeof cfg.rpId === 'string' ? cfg.rpId : '';
   const SCOPE = typeof cfg.scope === 'string' ? cfg.scope : '';
   const NEXT = typeof cfg.next === 'string' ? cfg.next : '/';
+  // The one-time secret of an invitation the server said will admit — empty otherwise (greenhouse decisions/0498).
+  const INVITE = typeof cfg.invite === 'string' ? cfg.invite : '';
 
   const out = () => document.getElementById('out');
   const btn = () => document.getElementById('go');
@@ -161,45 +163,54 @@
         timeout: 60000,
       }});
 
+      const body = {
+        clientDataJSON: bufToB64u(cred.response.clientDataJSON),
+        attestationObject: bufToB64u(cred.response.attestationObject),
+      };
+      if (INVITE !== '') {
+        body.invite = INVITE;
+      }
       const res = await (await fetch('/webauthn/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clientDataJSON: bufToB64u(cred.response.clientDataJSON),
-          attestationObject: bufToB64u(cred.response.attestationObject),
-        }),
+        body: JSON.stringify(body),
       })).json();
+
+      // THE INVITATION ENROLLED IT AND OPENED THE SESSION (greenhouse decisions/0498): one ceremony, and
+      // the page goes where the link said — the same pulse and jump as signing in.
+      if (res.ok && res.enrolled) {
+        say('r ok', 'Enrolled as ' + res.actor + ' — you may: ' + (res.scopes || []).join(', ') + '. Vouched by ' + res.authorized_by + '. Taking you to ' + NEXT);
+        mark('ready');
+        setTimeout(() => location.replace(NEXT), matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 520);
+        return;
+      }
+      if (res.error === 'invitation_refused') {
+        say('r no', 'The invitation did not admit this key (' + res.reason + '). '
+          + (res.credentialId ? 'The key is registered and grants nothing. ' : 'Nothing was stored. ')
+          + 'Ask whoever runs this house for a new invitation: php bin/coa identity:invite --sign');
+        mark('sown');
+        return;
+      }
 
       // SUCCESS SAYS WHAT IS STILL MISSING. Registering is not permission: the server had been
       // saying so in `note` all along and this page threw it away, so somebody read "Registered
       // credential: T05…" and concluded, reasonably, that they were in. They were not
       // (greenhouse decisions/0244).
       //
-      // AND IT NAMES THE STEP THAT WAS MISSING FROM THE INSTRUCTION. `identity:enroll` checks the
-      // ENROLLED fingerprint against the out-of-band root, so on a house that declared no root the
-      // command it used to print here could only ever fail with `IdentityNotRooted` — measured
-      // (greenhouse decisions/0263). Naming the declaration first is what makes step 2 finish the
-      // sentence step 1 started (decisions/0260), one step further out.
-      //
-      // AND IT SAYS «ADD», WHICH THE FIRST VERSION OF THIS MESSAGE DID NOT. It printed a whole
-      // rooted-list assignment, which reads as a file to write — and Rod hit it on a house that
-      // ALREADY had a rooted credential, where following it literally un-roots the working key.
-      // Measured, including the bound: the un-rooted key keeps signing in, because the gate reads
-      // the ENROLLMENT ledger and not the root; what is lost is the ability to enroll it again. A
-      // first-run instruction that assumes a greenfield file is wrong the second time somebody uses
-      // it (greenhouse decisions/0263).
+      // AND IT NO LONGER SENDS ANYBODY TO EDIT A FILE. This used to print a line to ADD to the
+      // 'rooted' list of config/identity.php and an identity:enroll command — on a fresh house the file
+      // did not exist and the command was not declared until the agent was installed, three steps
+      // outside the panel (greenhouse evidence/1024, B3). Recognition now arrives with an invitation a
+      // signed act minted (decisions/0498); a key registered without one waits for somebody this house
+      // already recognizes.
       say(
         'r ' + (res.ok ? 'ok' : 'no'),
         res.ok
           ? 'Registered. This house now holds the public key of credential ' + res.credentialId
             + '. It grants nothing yet.\n\n'
-            + "1 · ADD this credential to the 'rooted' list in config/identity.php, so the house is\n"
-            + '    willing to recognise it. Add the line — a house can recognise more than one key,\n'
-            + '    and replacing the list un-roots whatever was already in it:\n\n'
-            + "        '" + res.credentialId + "',\n\n"
-            + '2 · Say what it may do, authorised by a principal this house already recognises:\n\n'
-            + '    php bin/coa identity:enroll --fingerprint=' + res.credentialId + ' --scopes=' + SCOPE + ' --sign\n\n'
-            + 'Then sign in at /webauthn/signin.'
+            + 'Recognition comes with an invitation: open the link the house printed when its panel was opened,\n'
+            + 'or ask whoever runs it for one (php bin/coa identity:invite --sign). A principal this house\n'
+            + 'already recognizes can also enroll this credential id with identity:enroll.'
           : 'Refused: the challenge was already spent, or the attestation did not verify. Nothing was stored — press again for a fresh challenge.',
       );
       mark(res.ok ? 'ready' : 'sown');
@@ -225,7 +236,7 @@
       if (allow.length === 0) {
         // Registered ∩ enrolled is empty. Registered is not enrolled, and revoked is not enrolled
         // either (greenhouse evidence/0519): say which act is missing, not "no passkey".
-        say('r no', 'Not enrolled: no passkey is recognised by this house. A registered key nobody enrolled, or one that was revoked, is not offered. Register one at /webauthn/enroll if you have none, then enroll its credential id with identity:enroll.');
+        say('r no', 'Not enrolled: no passkey is recognised by this house. A registered key nobody enrolled, or one that was revoked, is not offered. The first one enters with the invitation the house printed when its panel was opened (php bin/coa identity:invite --sign mints another).');
         return;
       }
 

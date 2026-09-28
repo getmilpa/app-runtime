@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Operations;
 
+use Milpa\AppRuntime\Identity\InstallIdentity;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\CapabilityIndex;
 use Milpa\DevTools\Doctor\Repair;
@@ -25,7 +26,9 @@ use Milpa\Command\Effect\Externality;
 use Milpa\Command\Effect\Mutation;
 use Milpa\Command\Effect\Reversibility;
 use Milpa\Command\Effect\Subject;
+use Milpa\Command\InvocationContext;
 use Milpa\Command\Operation;
+use Milpa\ToolRuntime\Contracts\ToolContext;
 
 /**
  * What this app can do today, and how it grows.
@@ -205,7 +208,7 @@ final readonly class CapabilityOperations implements CommandProvider
                     escalatesOn: ['capability'],
                 ),
                 description: 'Install an opt-in capability by name — one step instead of three',
-                handler: fn (array $input): array => $this->enable($input),
+                handler: fn (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array => $this->enable($input, $context, $authority),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
@@ -290,6 +293,9 @@ final readonly class CapabilityOperations implements CommandProvider
                 artifacts: [
                     'the installed composer package under vendor/',
                     'the capability operation providers registered in config/operations.php',
+                    // greenhouse decisions/0498: the first passkey's invitation, and the installer's growth.
+                    'on a signed enable that leaves a house recognizing nobody with a panel and a door: one invitation in storage/identity/invitations.json',
+                    'on an install by an enrolled principal: its recognition widened by the operator scopes the capability declares',
                 ],
                 observableEvidence: 'the result: what the install unlocked (re-read from disk after landing), the providers it registered, and any promise mismatch against the dated index',
             ),
@@ -347,15 +353,22 @@ final readonly class CapabilityOperations implements CommandProvider
      *
      * @return array<string, mixed>
      */
-    private function enable(array $input): array
+    private function enable(array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array
     {
-        return Capabilities::install(
+        $dryRun = ($input['dry_run'] ?? false) === true;
+        $result = Capabilities::install(
             \is_string($input['capability'] ?? null) ? $input['capability'] : '',
-            dryRun: ($input['dry_run'] ?? false) === true,
+            dryRun: $dryRun,
             // The dated index, when one was derived: it widens `available` to what the registry
             // publishes, and it is the PROMISE the delivery gets compared against afterwards.
             index: CapabilityIndex::read(),
         );
+        if ($dryRun || ($result['ok'] ?? false) !== true) {
+            return $result;
+        }
+
+        // What the install means for the person who made it (greenhouse decisions/0498).
+        return InstallIdentity::settle($result, Capabilities::raizDeLaApp(), null, $context, $authority);
     }
 
     /**

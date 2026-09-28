@@ -144,6 +144,27 @@ final class IdentityGrantOperationTest extends TestCase
         self::assertSame($before, (string) file_get_contents($root . '/storage/identity/enrollments.json'), 'the ledger is untouched');
     }
 
+    /**
+     * A refusal for a name the model made up is not grantable, even with a valid signature over it
+     * (decisions/0496): the goal says «blog», the house has no `BlogPlugin`, so there is nothing to decide.
+     */
+    public function testARefusalForAnInventedPluginGrantsNothing(): void
+    {
+        [$c, $root] = $this->house();
+        $sessions = $c->get(SessionStore::class);
+        \assert($sessions instanceof SessionStore);
+        $invented = $sessions->recordToolCall(self::SESSION, 'make', ['what' => 'plugin', 'plugin' => 'BlogPlugin', 'name' => 'BlogPlugin'], "Missing required permission 'plugins.BlogPlugin:write' for plugin 'BlogPlugin'.", false, true);
+        $before = (string) file_get_contents($root . '/storage/identity/enrollments.json');
+        $this->signed($c, self::HUMAN, ['session' => self::SESSION, 'seq' => $invented]);
+
+        $r = $this->call($c, ['session' => self::SESSION, 'seq' => $invented]);
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('not an open refusal', (string) $r['error']);
+        self::assertSame($before, (string) file_get_contents($root . '/storage/identity/enrollments.json'), 'the ledger is untouched');
+        self::assertSame(['plugins.Blog:write'], array_values(array_unique(array_column($this->frontier($c, $root)->openRefusals(self::SESSION), 'permission'))));
+    }
+
     public function testASignatureOverAnotherRefusalGrantsNothing(): void
     {
         [$c, , $seq] = $this->house();

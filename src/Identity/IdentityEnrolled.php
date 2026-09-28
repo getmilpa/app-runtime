@@ -25,25 +25,38 @@ namespace Milpa\AppRuntime\Identity;
  */
 final readonly class IdentityEnrolled
 {
-    /** @param list<string> $scopes */
+    /**
+     * @param list<string>                                      $scopes
+     * @param array{principal: string, capability: string}|null $grownBy what widened this state when it was
+     *                                                                   not a new recognition: the principal's own
+     *                                                                   install of a capability whose operator scopes
+     *                                                                   it now holds (greenhouse decisions/0498) — the
+     *                                                                   enroller in `authorizedBy` stays who answers for it
+     */
     public function __construct(
         public string $fingerprint,
         public array $scopes,
         public string $authorizedBy,
+        public ?array $grownBy = null,
     ) {
     }
 
     /**
      * The recognition as a plain map, for persistence and transport.
      *
-     * @return array{fingerprint: string, scopes: list<string>, authorized_by: string}
+     * @return array{fingerprint: string, scopes: list<string>, authorized_by: string, grown_by?: array{principal: string, capability: string}}
      */
     public function toArray(): array
     {
-        return [
+        $out = [
             'fingerprint' => $this->fingerprint,
             'scopes' => $this->scopes,
             'authorized_by' => $this->authorizedBy,
         ];
+        if ($this->grownBy !== null) {
+            $out['grown_by'] = $this->grownBy;
+        }
+
+        return $out;
     }
 }

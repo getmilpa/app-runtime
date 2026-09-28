@@ -56,6 +56,8 @@ final class PluginCaseHintTest extends TestCase
             $expected .= " Plugin identifiers and grants are case-sensitive. The current grant is '{$hint}'."
                 . ' Verify the installed plugin identifier before requesting a different permission.';
         }
+        // The temp root has no src/Plugins/: the refusal also says so (decisions/0496).
+        $expected .= " No plugin '{$plugin}' exists in this house yet. A new plugin takes exactly the name the task gives it.";
         try {
             $policy->writePaths($context, 'edit', ['plugin' => $plugin, 'class' => 'Renderer']);
             self::fail('A case hint must not authorize the requested spelling.');

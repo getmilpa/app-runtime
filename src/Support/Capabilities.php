@@ -617,6 +617,42 @@ final class Capabilities
         return \is_array($loaded) ? $loaded : [];
     }
 
+    /**
+     * The scopes a capability declares its OPERATOR needs — `extra.milpa.capability.operator_scopes`
+     * (greenhouse decisions/0498). What a human who uses it must hold, declared by the package that knows,
+     * never typed by whoever asks.
+     *
+     * @param array<string, mixed> $manifest the package's `extra.milpa.capability`
+     *
+     * @return list<string>
+     */
+    public static function operatorScopesOf(array $manifest): array
+    {
+        $scopes = [];
+        foreach (\is_array($manifest['operator_scopes'] ?? null) ? $manifest['operator_scopes'] : [] as $scope) {
+            if (\is_string($scope) && trim($scope) !== '') {
+                $scopes[] = trim($scope);
+            }
+        }
+
+        return array_values(array_unique($scopes));
+    }
+
+    /**
+     * Every operator scope the installed capabilities declare, in one list.
+     *
+     * @return list<string>
+     */
+    public static function operatorScopes(?string $vendor = null): array
+    {
+        $scopes = [];
+        foreach (self::declaredBy($vendor) as $manifest) {
+            array_push($scopes, ...self::operatorScopesOf($manifest));
+        }
+
+        return array_values(array_unique($scopes));
+    }
+
     /** ¿Está puesta esta capacidad, por su `id`? */
     public static function installed(string $id, ?string $vendor = null): bool
     {
@@ -941,6 +977,9 @@ final class Capabilities
             };
         }
 
+        // WHAT WAS HERE BEFORE, so what arrives WITH the capability can be told apart from it below.
+        $antes = array_keys(self::declaredBy($vendor));
+
         [$codigo, $salida] = $runner($comando);
 
         if ($codigo !== 0) {
@@ -1009,7 +1048,25 @@ final class Capabilities
         $deliveredId = \is_string($delivered0['id'] ?? null) ? $delivered0['id'] : '';
         $announced = self::pluginsDeclaredBy($delivered0);
         $pluginsDeclared = self::registerPlugins($root, self::pluginsFor($delivered0));
-        $relyingParty = $deliveredId === 'identity' ? self::declareRelyingParty($root) : null;
+        // WHAT ARRIVED WITH IT IS WIRED LIKE WHAT WAS ASKED FOR (greenhouse decisions/0498). A capability
+        // that another one requires lands by composer's hand, and «installed is not wired» (evidence/0993)
+        // held for it too: `milpa/admin` requires `milpa/auth`, and the panel arrived with a door nobody
+        // declared. Each capability that is new in this vendor gets the same two writers and, for the door,
+        // its relying party — and the result names it.
+        $arrived = [];
+        $identityArrived = false;
+        foreach (self::declaredBy($vendorAfter) as $package => $manifest) {
+            if ($package === (string) $objetivo['package'] || \in_array($package, $antes, true)) {
+                continue;
+            }
+            $arrived[] = [
+                'package' => $package,
+                'registered' => self::registerOperations($root, self::providersFor($manifest)),
+                'plugins_declared' => self::registerPlugins($root, self::pluginsFor($manifest)),
+            ];
+            $identityArrived = $identityArrived || ($manifest['id'] ?? null) === 'identity';
+        }
+        $relyingParty = $deliveredId === 'identity' || $identityArrived ? self::declareRelyingParty($root) : null;
 
         $okOut = [
             'ok' => true,
@@ -1028,14 +1085,19 @@ final class Capabilities
             // `composer require` writes, so the result names the constraint it left behind.
             'pinned' => $ensanchado,
             'unlocked' => $llego,
-            'hint' => $deliveredId === 'identity'
+            'hint' => $deliveredId === 'identity' || $identityArrived
                 // The invocation comes from the one authority here too: a hint is something a person is
                 // told to RUN, so it is held to the same rule as a `command` field.
-                ? 'the passkey door is declared: run `' . self::CLI . 'serve`, open http://localhost:8000/webauthn/enroll and enroll the first key'
+                // The first key is enrolled by the invitation a SIGNED enable mints on a house that recognizes
+                // nobody (greenhouse decisions/0498) — the page alone registers, it does not recognize.
+                ? 'the passkey door is declared: run `' . self::CLI . 'serve` and open the first_passkey invitation this act printed (a signed enable on a house that recognizes nobody mints it; `' . self::CLI . 'identity:invite --sign` mints another)'
                 : 'run `' . self::CLI . 'list` to see the new operations',
         ];
         if ($relyingParty !== null) {
             $okOut['relying_party'] = $relyingParty;
+        }
+        if ($arrived !== []) {
+            $okOut['arrived_with_it'] = $arrived;
         }
 
         // ── THE PROMISE IS COMPARED WITH THE DELIVERY, and any difference is RECORDED ────────────

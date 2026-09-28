@@ -23,7 +23,9 @@ namespace Milpa\AppRuntime\Identity;
  * recognizes an institutional identity for it (that is enrollment). It is deliberately read-only at
  * runtime: a root a running session could extend would let a signer vouch for itself, and then the
  * root would authenticate the very enrollment that was supposed to consume it — a circular bootstrap.
- * The only way in is out of band (decisions/0117, H-ENROLL-1).
+ * The only way in is out of band (decisions/0117, H-ENROLL-1): the operator's config, or a signed
+ * invitation that answered for a credential before it existed and was spent once on it
+ * ({@see IdentityInvitations}, greenhouse decisions/0498). Neither is the key vouching for itself.
  *
  * Keys are compared through {@see IdentityKey::normalize()}, the SAME rule the enrollment ledger uses:
  * a hex fingerprint matches regardless of case and spaces; a passkey's base64url credential id matches
@@ -48,6 +50,17 @@ final readonly class RootedSigners
     public function isEmpty(): bool
     {
         return $this->fingerprints === [];
+    }
+
+    /**
+     * The keys in this root, in their comparable form — so two roots can be read as one set
+     * ({@see IdentityInvitations::rootFor()}).
+     *
+     * @return list<string>
+     */
+    public function declared(): array
+    {
+        return $this->fingerprints;
     }
 
     /** True only when the operator declared this key before boot. Silence is «not rooted». */
