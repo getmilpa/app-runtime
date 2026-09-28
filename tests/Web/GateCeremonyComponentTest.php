@@ -72,6 +72,9 @@ final class GateCeremonyComponentTest extends TestCase
             'next' => '/milpa/admin',
             'attachment' => 'platform',
             'markHtml' => '<svg></svg>',
+            // No link carried an invitation: nothing is invented (greenhouse decisions/0498).
+            'invite' => '',
+            'invitation' => null,
         ], $state->data);
     }
 

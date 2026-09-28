@@ -80,14 +80,18 @@ final class GateCeremonyHtmlRenderer implements ComponentRendererInterface, Decl
         $rpId = \is_string($state['rpId'] ?? null) ? (string) $state['rpId'] : '';
         $scope = \is_string($state['scope'] ?? null) ? (string) $state['scope'] : '';
 
+        $invitation = $kind === GateCeremonyComponent::ENROLL && \is_array($state['invitation'] ?? null) ? $state['invitation'] : null;
+        $copy = GateCeremonyComponent::copy($kind);
         $subject = new GateCeremonyRender(
-            copy: GateCeremonyComponent::copy($kind),
+            copy: $invitation === null ? $copy : GateCeremonyComponent::invitationCopy($copy, $invitation),
             facts: [
                 'kind' => $kind,
                 'rpId' => $rpId,
                 'scope' => $scope,
                 'next' => \is_string($state['next'] ?? null) ? (string) $state['next'] : '/',
                 'attachment' => \is_string($state['attachment'] ?? null) ? (string) $state['attachment'] : null,
+                // The secret travels back only to the page it came in on, as data (greenhouse decisions/0498).
+                'invite' => $invitation !== null && ($invitation['ok'] ?? false) === true && \is_string($state['invite'] ?? null) ? (string) $state['invite'] : '',
             ],
             markHtml: \is_string($state['markHtml'] ?? null) ? (string) $state['markHtml'] : '',
         );

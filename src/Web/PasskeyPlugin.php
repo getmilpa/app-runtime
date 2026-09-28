@@ -18,6 +18,7 @@ use Milpa\Interfaces\Event\MilpaEventDispatcherInterface;
 use Milpa\AppRuntime\Agent\PasskeyIntentAdmission;
 use Milpa\AppRuntime\Agent\PasskeyIntentProof;
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
+use Milpa\AppRuntime\Identity\IdentityInvitations;
 use Milpa\AppRuntime\Web\Controllers\PasskeyController;
 use Milpa\AppRuntime\Web\Controllers\PasskeyIntentController;
 use Milpa\Attributes\PluginMetadata;
@@ -190,7 +191,22 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
         $this->rpId = $rpId;
         $this->container->registerService(
             PasskeyController::class,
-            new PasskeyController($authenticator, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $registered, $enrollments, $rpId, $cookie, $scope, $attachment, $this->dispatcher()),
+            new PasskeyController(
+                $authenticator,
+                $login,
+                $challenges,
+                new WebAuthnRegistrationVerifier(),
+                $credentials,
+                $registered,
+                $enrollments,
+                $rpId,
+                $cookie,
+                $scope,
+                $attachment,
+                $this->dispatcher(),
+                // Where an invitation is spent: the same ledger and session store as the login (decisions/0498).
+                new PasskeyInvitations(IdentityInvitations::forRoot($root), $enrollments, $sessions, $ttl),
+            ),
         );
 
         // THE GATE (decisions/0206): registered under its own class name so a panel can NAME it in
