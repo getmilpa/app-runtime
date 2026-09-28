@@ -99,6 +99,38 @@ final class IdentityGrantOperationTest extends TestCase
         self::assertStringContainsString('not an open refusal', (string) $again['error']);
     }
 
+    public function testTheGrantTellsTheSeatsSessionWhatChanged(): void
+    {
+        [$c, , $seq] = $this->house();
+        $sessions = $c->get(SessionStore::class);
+        \assert($sessions instanceof SessionStore);
+        $this->signed($c, self::HUMAN, ['session' => self::SESSION, 'seq' => $seq]);
+
+        $r = $this->call($c, ['session' => self::SESSION, 'seq' => $seq]);
+
+        self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
+        self::assertTrue($r['session_told']);
+        $turns = array_values(array_filter(
+            $sessions->stream(self::SESSION),
+            static fn ($e): bool => $e->type === 'session.turn' && ($e->payload['role'] ?? null) === 'user',
+        ));
+        self::assertCount(1, $turns, 'one fact, recorded once');
+        $told = (string) $turns[0]->payload['content'];
+        self::assertStringContainsString('key:' . self::HUMAN . ' granted this seat the scope «plugins.Blog:write»', $told);
+        self::assertStringContainsString('#' . $seq . ' (make plugin=Blog)', $told);
+    }
+
+    public function testARefusedGrantTellsTheSessionNothing(): void
+    {
+        [$c, , $seq] = $this->house();
+        $sessions = $c->get(SessionStore::class);
+        \assert($sessions instanceof SessionStore);
+        $this->signed($c, self::STRANGER, ['session' => self::SESSION, 'seq' => $seq]);
+
+        self::assertFalse($this->call($c, ['session' => self::SESSION, 'seq' => $seq])['ok']);
+        self::assertSame([], array_values(array_filter($sessions->stream(self::SESSION), static fn ($e): bool => $e->type === 'session.turn')));
+    }
+
     public function testAKeyOutsideTheSeatsLineGrantsNothing(): void
     {
         [$c, $root, $seq] = $this->house();
