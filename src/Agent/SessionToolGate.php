@@ -448,7 +448,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // run's prompt AND the session's goal. Still mechanical, still no model in the circuit;
         // a target named in neither keeps pausing — ADR-0044 lives.
         $standing = $this->petition . "\n" . (string) $this->session->goal;
-        if (mb_stripos($standing, trim($valor)) !== false) {
+        if (mb_stripos($standing, trim($valor)) !== false || self::namesItsShortName($standing, trim($valor))) {
             return null;
         }
 
@@ -613,6 +613,27 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
     private function isRecordedReader(Operation $operation): bool
     {
         return $operation instanceof SessionResultOperation || $operation instanceof SessionArgumentOperation;
+    }
+
+    /**
+     * Whether the standing ask names a qualified class by its short name (greenhouse decisions/0501).
+     *
+     * Nobody writes a namespace into a goal: «a plugin named Blog» is how a human names
+     * `App\Plugins\Blog\Blog`, and `plugins.register` itself reduces a qualified value to that last
+     * segment. So a value shaped like a qualified class name also counts as named when the ask names
+     * its LAST segment as a whole identifier, ignoring case — the frontier's judge (decisions/0496 §3),
+     * not a substring: this relaxation is new and shorter than the whole value, and as a substring
+     * «blogging» would name `Blog`. Intermediate segments never name the class, and a bare value is
+     * left to the whole-value comparison above. Named cost: the namespace is not compared, so «Blog»
+     * names `Vendor\Other\Blog` too.
+     */
+    private static function namesItsShortName(string $standing, string $value): bool
+    {
+        if (preg_match('/^\\\\?(?:[A-Za-z_][A-Za-z0-9_]*\\\\)+([A-Za-z_][A-Za-z0-9_]*)$/', $value, $match) !== 1) {
+            return false;
+        }
+
+        return preg_match('/(?<![A-Za-z0-9_])' . preg_quote($match[1], '/') . '(?![A-Za-z0-9_])/iu', $standing) === 1;
     }
 
     private function contratoDeclaradoPor(object $operacion): ?string
