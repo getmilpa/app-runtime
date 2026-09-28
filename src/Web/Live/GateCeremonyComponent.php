@@ -94,6 +94,9 @@ final class GateCeremonyComponent implements ComponentDefinitionInterface
                 'next' => ['type' => 'string', 'default' => '/'],
                 'attachment' => ['type' => 'string|null', 'default' => null],
                 'markHtml' => ['type' => 'string', 'default' => ''],
+                // greenhouse decisions/0498: the one-time secret from the link, and what the house said of it.
+                'invite' => ['type' => 'string', 'default' => ''],
+                'invitation' => ['type' => 'array|null', 'default' => null],
             ],
             stateSchema: [
                 'kind' => ['type' => 'string'],
@@ -102,6 +105,8 @@ final class GateCeremonyComponent implements ComponentDefinitionInterface
                 'next' => ['type' => 'string'],
                 'attachment' => ['type' => 'string|null'],
                 'markHtml' => ['type' => 'string'],
+                'invite' => ['type' => 'string'],
+                'invitation' => ['type' => 'array|null'],
             ],
             // NO ACTIONS, AND THAT IS THE POINT. The ceremony talks to `/webauthn/*` — challenge,
             // registration, assertion — never to a live endpoint. A component with an action would
@@ -137,6 +142,8 @@ final class GateCeremonyComponent implements ComponentDefinitionInterface
                 'next' => \is_string($props['next'] ?? null) && $props['next'] !== '' ? (string) $props['next'] : '/',
                 'attachment' => \is_string($attachment) && $attachment !== '' ? $attachment : null,
                 'markHtml' => \is_string($props['markHtml'] ?? null) ? (string) $props['markHtml'] : '',
+                'invite' => $kind === self::ENROLL && \is_string($props['invite'] ?? null) ? (string) $props['invite'] : '',
+                'invitation' => $kind === self::ENROLL && \is_array($props['invitation'] ?? null) ? $props['invitation'] : null,
             ],
             ['locale' => $context->locale],
         );
@@ -196,5 +203,45 @@ final class GateCeremonyComponent implements ComponentDefinitionInterface
             'button' => 'Continue with a passkey',
             'away' => ['href' => '/webauthn/enroll', 'text' => 'No key on this house yet? Register one →'],
         ];
+    }
+
+    /**
+     * The enroll words when the link carried an invitation (greenhouse decisions/0498).
+     *
+     * Step 2 stops asking and SAYS: what this person will hold and which key answers for them — before
+     * anybody touches a key. A link that will not admit says why, and that registering alone still
+     * grants nothing.
+     *
+     * @param array<string, mixed> $copy       the words {@see copy()} gave
+     * @param array<string, mixed> $invitation what the door said of the secret
+     *
+     * @return array<string, mixed>
+     */
+    public static function invitationCopy(array $copy, array $invitation): array
+    {
+        if (($invitation['ok'] ?? false) === true) {
+            $scopes = array_values(array_filter(\is_array($invitation['scopes'] ?? null) ? $invitation['scopes'] : [], 'is_string'));
+            $copy['doctrine'] = 'Registering identifies you. This invitation grants what it names — nothing more.';
+            $copy['next'] = [
+                'kicker' => 'Step 2 · What may you do?',
+                'text' => 'Vouched by ' . (string) ($invitation['authorized_by'] ?? '') . ', this invitation lets you: '
+                    . implode(', ', $scopes) . '. It works once.',
+            ];
+            $copy['button'] = 'Register and enter';
+
+            return $copy;
+        }
+
+        $why = match ($invitation['reason'] ?? null) {
+            'already_used' => 'it was already used',
+            'expired' => 'it has expired',
+            default => 'this house did not issue it',
+        };
+        $copy['next'] = [
+            'kicker' => 'Step 2 · What may you do?',
+            'text' => 'This invitation will not admit anyone: ' . $why . '. Registering still identifies you and grants nothing — ask whoever runs this house for a new one (`php bin/coa identity:invite --sign`).',
+        ];
+
+        return $copy;
     }
 }

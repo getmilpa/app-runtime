@@ -20,6 +20,7 @@ use Milpa\AppRuntime\Web\Live\GateCeremonyAssets;
 use Milpa\AppRuntime\Web\Live\GateCeremonyComponent;
 use Milpa\AppRuntime\Web\Live\GateCeremonyHtmlRenderer;
 use Milpa\AppRuntime\Web\LocalPath;
+use Milpa\AppRuntime\Web\PasskeyInvitations;
 use Milpa\AppRuntime\Web\RegisteredCredentialIds;
 use Milpa\AppRuntime\Web\SessionCookie;
 use Milpa\Auth\WebAuthn\ChallengeStore;
@@ -94,6 +95,11 @@ final class PasskeyController
          * can extend — so the seam exists even where no app has used it yet.
          */
         private readonly ?MilpaEventDispatcherInterface $events = null,
+        /**
+         * Where an invitation is spent (greenhouse decisions/0498). Null keeps the door as it was:
+         * registering grants nothing, and an `invite` in the body is refused rather than ignored.
+         */
+        private readonly ?PasskeyInvitations $invitations = null,
     ) {
     }
 
@@ -113,12 +119,24 @@ final class PasskeyController
      *
      * The credential is now REGISTERED (the house holds its public key), not yet RECOGNIZED — granting it
      * scopes is identity:enroll's job, exactly as a fresh gpg key must be enrolled (greenhouse decisions/0125).
+     *
+     * UNLESS IT CARRIES AN INVITATION (greenhouse decisions/0498): then the same request spends it — the
+     * credential is recognized with what the invitation grants, vouched by the key that minted it, and a
+     * session opens. An invitation that would not admit is refused BEFORE anything is registered or any
+     * challenge spent, so a wrong link leaves nothing behind.
      */
     public function register(ServerRequestInterface $request): ResponseInterface
     {
         $body = json_decode((string) $request->getBody(), true);
         if (!\is_array($body)) {
             return $this->json(400, ['error' => 'passkey_bad_request', 'message' => 'The body is not a JSON object.']);
+        }
+        $invite = \is_string($body['invite'] ?? null) ? trim($body['invite']) : '';
+        if ($invite !== '') {
+            $admits = $this->invitations?->check($invite) ?? ['ok' => false, 'reason' => 'no_invitations_here'];
+            if ($admits['ok'] !== true) {
+                return $this->json(403, ['ok' => false, 'error' => 'invitation_refused', 'reason' => $admits['reason']]);
+            }
         }
         $clientData = self::base64UrlDecode(\is_string($body['clientDataJSON'] ?? null) ? $body['clientDataJSON'] : '');
         $attestation = self::base64UrlDecode(\is_string($body['attestationObject'] ?? null) ? $body['attestationObject'] : '');
@@ -139,10 +157,28 @@ final class PasskeyController
         }
         $this->credentials->register($credential);
 
+        if ($invite !== '' && $this->invitations !== null) {
+            $spent = $this->invitations->redeem($invite, $credential->credentialId);
+            if ($spent['ok'] !== true) {
+                // Another ceremony spent it between the check and now: this key is registered, not recognized.
+                return $this->json(403, ['ok' => false, 'error' => 'invitation_refused', 'reason' => $spent['reason'], 'credentialId' => $credential->credentialId]);
+            }
+
+            return $this->json(201, [
+                'ok' => true,
+                'credentialId' => $credential->credentialId,
+                'enrolled' => true,
+                'actor' => $spent['session']->actorId,
+                'scopes' => $spent['scopes'],
+                'authorized_by' => $spent['authorized_by'],
+            ])->withHeader('Set-Cookie', SessionCookie::set($this->cookieName, $spent['session']->id, $request));
+        }
+
         return $this->json(201, [
             'ok' => true,
             'credentialId' => $credential->credentialId,
-            'note' => 'registered — enroll this credential id to grant it scopes',
+            'enrolled' => false,
+            'note' => 'registered — it grants nothing until a principal this house recognizes enrolls it, or an invitation admits it',
         ]);
     }
 
@@ -216,13 +252,30 @@ final class PasskeyController
         return [$markup, (new ComponentAssetOrchestrator())->collect([BrandMarkComponent::contract()])->styleTag()];
     }
 
-    /** The self-contained enrollment page: registers a passkey with `navigator.credentials.create`. */
+    /**
+     * The self-contained enrollment page: registers a passkey with `navigator.credentials.create`.
+     *
+     * With `?invite=` it says, before anybody touches a key, what the invitation grants and who answers
+     * for it — or why it will not admit (greenhouse decisions/0498). `next` is validated as a local path,
+     * as on the sign-in page.
+     */
     public function enrollPage(ServerRequestInterface $request): ResponseInterface
     {
+        $params = $request->getQueryParams();
+        if ($params === []) {
+            parse_str($request->getUri()->getQuery(), $params);
+        }
+        $invite = \is_string($params['invite'] ?? null) ? trim($params['invite']) : '';
+        $invitation = null;
+        if ($invite !== '') {
+            $invitation = $this->invitations?->check($invite) ?? ['ok' => false, 'reason' => 'no_invitations_here'];
+            unset($invitation['id']);
+        }
+
         return new Response(
             200,
             ['Content-Type' => 'text/html; charset=utf-8', 'Cache-Control' => 'no-store'],
-            $this->ceremonyHtml(GateCeremonyComponent::ENROLL),
+            $this->ceremonyHtml(GateCeremonyComponent::ENROLL, LocalPath::orRoot($params['next'] ?? null), $invite, $invitation),
         );
     }
 
@@ -296,7 +349,8 @@ final class PasskeyController
      * reads, the component's own two files, and the mark's declared styles. It owns no markup of the
      * ceremony and no line of its CSS.
      */
-    private function ceremonyHtml(string $kind, string $next = '/'): string
+    /** @param array<string, mixed>|null $invitation what {@see PasskeyInvitations::check()} said of `$invite` */
+    private function ceremonyHtml(string $kind, string $next = '/', string $invite = '', ?array $invitation = null): string
     {
         // The canon, under this plugin's own prefix — the same call its routes are declared from,
         // so a page can never link a URL this plugin does not serve (greenhouse decisions/0308).
@@ -314,6 +368,8 @@ final class PasskeyController
             'next' => $next,
             'attachment' => $this->authenticatorAttachment,
             'markHtml' => $mark,
+            'invite' => $invite,
+            'invitation' => $invitation,
         ], $context);
         $painted = $renderer->render($component, new RenderRequest(context: $context, state: $state));
 

@@ -138,6 +138,32 @@ final class EnablingIdentityOpensTheDoorTest extends TestCase
     }
 
     #[Test]
+    public function the_door_that_arrives_with_the_panel_is_wired_like_one_asked_for(): void
+    {
+        // greenhouse decisions/0498: `milpa/admin` requires `milpa/auth`, so composer lands the door with the
+        // panel. «Installed is not wired» (evidence/0993) held for it too — this is the control that it does not.
+        $after = $this->vendorWith([$this->package('milpa/admin', 'admin'), $this->package('milpa/auth', 'identity')]);
+
+        $answer = Capabilities::install('admin', $this->vendorBefore, static fn (string $c): array => [0, []], vendorAfter: $after, root: $this->root);
+
+        self::assertTrue($answer['ok'], json_encode($answer, \JSON_THROW_ON_ERROR));
+        self::assertSame([['package' => 'milpa/auth', 'registered' => [], 'plugins_declared' => [PasskeyPlugin::class]]], $answer['arrived_with_it']);
+        self::assertSame(['rpId' => 'localhost', 'written' => true, 'file' => 'config/app.php'], $answer['relying_party']);
+        self::assertStringContainsString('first_passkey', $answer['hint'], 'the hint names the invitation, not a page that grants nothing');
+        $plugins = (fn (): mixed => include $this->root . '/config/plugins.php')();
+        self::assertIsArray($plugins);
+        self::assertContains(PasskeyPlugin::class, $plugins);
+
+        // CONTROL: what was already there before the install is not «arrived» — nothing is re-wired.
+        $again = Capabilities::install('devtools', $after, static fn (string $c): array => [0, []], vendorAfter: $this->vendorWith([
+            $this->package('milpa/admin', 'admin'), $this->package('milpa/auth', 'identity'), $this->package('milpa/devtools', 'devtools'),
+        ]), root: $this->root);
+        self::assertTrue($again['ok']);
+        self::assertArrayNotHasKey('arrived_with_it', $again);
+        self::assertArrayNotHasKey('relying_party', $again);
+    }
+
+    #[Test]
     public function a_relying_party_the_app_already_declares_is_kept(): void
     {
         file_put_contents($this->root . '/config/app.php', "<?php\n\nreturn ['passkey' => ['rpId' => 'notes.example'], 'app' => ['name' => 'x']];\n");

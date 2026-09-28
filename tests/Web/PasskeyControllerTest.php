@@ -136,27 +136,22 @@ final class PasskeyControllerTest extends TestCase
         self::assertSame('cross-platform', self::ceremonyFacts($body)['attachment']);
     }
 
-    public function testTheSuccessMessageSaysToADDTheCredentialAndNotToReplaceTheRoot(): void
+    public function testTheSuccessMessageNoLongerSendsAnybodyToEditAFile(): void
     {
-        // 🚨 THE FIRST VERSION OF THIS MESSAGE PRINTED A WHOLE `return ['rooted' => [ … ]];`, which
-        // reads as a file to write. Rod hit it on a house that already had one rooted credential:
-        // following it literally un-roots the working key. Measured, with the bound — the un-rooted
-        // key keeps signing in, because the gate reads the ENROLLMENT ledger and not the root, so
-        // what is lost is the ability to enroll it again (greenhouse decisions/0263).
+        // 🚨 THE MESSAGE USED TO SEND THE HUMAN TO ADD A LINE TO config/identity.php AND RUN
+        // identity:enroll — on a fresh house the file did not exist and the command was not declared
+        // until the agent was installed: three steps outside the panel (greenhouse evidence/1024, B3).
+        // Recognition now arrives with an invitation (decisions/0498).
         //
-        // A first-run instruction that assumes a greenfield file is wrong the second time anybody
-        // uses it, and that is exactly the class of defect this whole arc keeps finding: the step
-        // that was missing from the sentence.
-        $module = self::ceremonyModule();
+        // Asserted over what a human READS, not over the file: the note explaining why the old
+        // instruction is gone names it, so a file-wide ban would fail for the wrong reason — the fourth
+        // time this house paid for «grepping prose cannot fail for the right reason» (decisions/0261, 0263).
+        $read = self::withoutComments(self::ceremonyModule());
 
-        self::assertStringContainsString('ADD this credential', $module);
-        self::assertStringContainsString('replacing the list un-roots', $module, 'and it says what replacing costs');
-        // THE CONTROL, over what a human READS and not over the file: the note above explaining why
-        // the whole-file form was removed contains that form, so banning it file-wide fails for the
-        // wrong reason — the mirror of the `authenticatorAttachment` assertion that PASSED for the
-        // wrong reason, from a comment saying the value was gone. Fourth time this house pays for
-        // «grepping prose cannot fail for the right reason» (greenhouse decisions/0261, 0263).
-        self::assertStringNotContainsString("return ['rooted'", self::withoutComments($module), 'a printed `return [...]` reads as a file to write');
+        self::assertStringNotContainsString('config/identity.php', $read, 'no file to edit');
+        self::assertStringNotContainsString("return ['rooted'", $read, 'a printed `return [...]` reads as a file to write');
+        self::assertStringContainsString('identity:invite --sign', $read, 'it names where an invitation comes from');
+        self::assertStringContainsString('It grants nothing yet', $read, 'and it still says registering is not permission');
     }
 
     /** `POST /webauthn/register` is open: a registered key nobody enrolled must not bloat the sign-in list. */
