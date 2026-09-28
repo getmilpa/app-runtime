@@ -862,6 +862,10 @@ class AgentOperations implements CommandProvider
                 // request. An anonymous call answers 401, a signed-in one without the scope 403. The
                 // CLI, where the caller IS the operator, enforces no scopes and is unchanged.
                 scopes: ['agent:run'],
+                // THE SEQUENCE IS THE SESSION (greenhouse decisions/0458, 0500). The first leg signs;
+                // the legs that continue the same session cite that receipt and run under the same
+                // signer — without it, an unsigned leg ran as the terminal's wildcard, not the seat.
+                continues: static fn (array $arguments): ?string => \is_string($arguments['session'] ?? null) ? $arguments['session'] : null,
             ),
         ];
     }
