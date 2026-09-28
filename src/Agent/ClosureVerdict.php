@@ -85,6 +85,10 @@ final class ClosureVerdict
             $reasons[] = $open === 1 ? '1 todo open' : "{$open} todos open";
         }
 
+        // A session that never opened a todo kept no record of its own; given its stream, the HOUSE derives the
+        // closure from what landed in it and what it observed after (decisions/0487).
+        $house = $session->todos === [] && $stream !== null ? HouseObservedClosure::of($stream, $facts) : null;
+
         $state = $facts->workState();
         $artifacts = \is_array($state['artifacts'] ?? null) ? $state['artifacts'] : [];
         foreach ($artifacts as $entry) {
@@ -108,13 +112,19 @@ final class ClosureVerdict
                     $touched = true;
                 }
             }
+            // WHAT NEVER LANDED DOES NOT BIND THE HOUSE (greenhouse decisions/0494 §5). When the house derived its
+            // closure, an artifact every mutating attempt of which was a rehearsal or a call that failed is a fact
+            // about a copy: the house changed only through what landed, and it observed that served after. Measured
+            // (evidence/1024): a blog written in trials and promoted kept five such obligations no call could meet.
+            if ($house !== null && $house['derived'] && $verification === null
+                && array_intersect(array_column($entry['attempts'] ?? [], 'seq'), $house['landed']) === []) {
+                continue;
+            }
             if (!$current && ($touched || $verification !== null)) {
                 $reasons[] = "artifact {$artifact} has no current verification";
             }
         }
-        $house = null;
-        if ($session->todos === [] && $stream !== null) {
-            $house = HouseObservedClosure::of($stream, $facts);
+        if ($house !== null) {
             if ($house['derived']) {
                 $hasEvidence = true;
             } elseif ($house['lastChangeSeq'] !== null && $house['reason'] !== null) {
