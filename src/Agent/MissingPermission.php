@@ -22,8 +22,13 @@ namespace Milpa\AppRuntime\Agent;
  */
 final class MissingPermission extends \RuntimeException
 {
-    /** Carry the refused permission beside the message the surfaces already show. */
-    public function __construct(public readonly string $permission, string $message)
+    /**
+     * Carry the refused permission beside the message the surfaces already show.
+     *
+     * `plugin` is set only when the permission is one plugin's write scope, so a reader asks the
+     * judgement which plugin the call targeted instead of parsing the scope (decisions/0496).
+     */
+    public function __construct(public readonly string $permission, string $message, public readonly ?string $plugin = null)
     {
         parent::__construct($message);
     }
