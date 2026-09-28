@@ -605,6 +605,51 @@ final class SessionOperations implements CommandProvider
                 requiresConfirmation: true,
             ),
             new Operation(
+                name: 'identity:grant',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    // A grant re-recognizes the seat with one more scope; the ledger keeps the state it
+                    // replaces (decisions/0207), and withdrawing it is revocation or a new recognition.
+                    Reversibility::Irreversible,
+                    // Deciding what a seat may do is an institutional act, the same as recognizing it.
+                    Authority::Privileged,
+                    subject: Subject::Configuration,
+                ),
+                description: 'Grant a seat the one scope a recorded refusal of its session names — only by a principal that answers for the seat (greenhouse decisions/0493)',
+                handler: fn (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array => $this->conceder($input, $authority),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'session' => ['type' => 'string', 'description' => 'The seat\'s session that recorded the refusal'],
+                        'seq' => ['type' => 'integer', 'description' => 'The refused call\'s position in that session — the house re-derives the missing scope from it; no scope is ever typed'],
+                        'assertion' => [
+                            'type' => 'object',
+                            'description' => 'Over HTTP: the passkey assertion over the challenge /webauthn/intent/options bound to identity:grant {session, seq}',
+                        ],
+                    ],
+                    'required' => ['session', 'seq'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean', 'description' => 'False when nothing was granted — the error says why'],
+                        'fingerprint' => ['type' => 'string', 'description' => 'The seat that received the scope'],
+                        'granted' => ['type' => 'string', 'description' => 'The one scope granted, as the refusal named it'],
+                        'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'What the seat may do now'],
+                        'authorized_by' => ['type' => 'string', 'description' => 'The verified principal that decided, as passkey:<id> or key:<fingerprint>'],
+                        'error' => ['type' => 'string', 'description' => 'Why nothing was granted; absent when ok'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // The same scope as recognizing an identity: a grant IS a narrower recognition.
+                scopes: ['identity:enroll'],
+                // Never MCP: a seat does not decide its own frontier.
+                surfaces: ['cli', 'http'],
+                mutating: true,
+                requiresConfirmation: true,
+            ),
+            new Operation(
                 name: 'identity:revoke',
                 effects: new EffectProfile(
                     Mutation::Persistent,
@@ -1773,6 +1818,112 @@ final class SessionOperations implements CommandProvider
         }
 
         return $out;
+    }
+
+    /**
+     * Grant a seat the scope one of its recorded refusals names — or refuse (greenhouse decisions/0493).
+     *
+     * A missing scope stays a refusal (decisions/0317); this is the human deciding it. Three things must
+     * hold. WHO: a principal proven for THIS call — a gpg signature over identity:grant {session, seq} on
+     * the CLI, or on the web the passkey session plus a live WebAuthn assertion bound to the same call by
+     * the intent ceremony, from the same credential. WHICH SEAT: the verified key that opened the session,
+     * live in the ledger, and one that principal answers for ({@see \Milpa\AppRuntime\Identity\EnrollmentLine}).
+     * WHAT: the scope the authoring policy still refuses for the recorded call, judged again now — never a
+     * scope the caller names. The seat is re-recognized with that one scope added; the ledger keeps the
+     * state it replaces.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array{ok: bool, fingerprint?: string, granted?: string, scopes?: list<string>, authorized_by?: string, error?: string}
+     */
+    private function conceder(array $input, ?ToolContext $authority): array
+    {
+        $session = \is_string($input['session'] ?? null) ? trim($input['session']) : '';
+        $seq = $input['seq'] ?? null;
+        if ($session === '' || !\is_int($seq)) {
+            return ['ok' => false, 'error' => 'which refusal? `session` and an integer `seq` are required'];
+        }
+
+        $decider = $this->decider($session, $seq, $input['assertion'] ?? null, $authority);
+        if (\is_array($decider)) {
+            return $decider;
+        }
+
+        $kernel = $this->container->has(\Milpa\Runtime\Kernel::class)
+            ? $this->container->get(\Milpa\Runtime\Kernel::class)
+            : null;
+        $store = $this->sessions();
+        if (!$kernel instanceof \Milpa\Runtime\Kernel || !$store instanceof SessionStore) {
+            return ['ok' => false, 'error' => 'this app has no ledger or session store to judge a grant against'];
+        }
+        $root = $kernel->root();
+        $frontier = \Milpa\AppRuntime\Agent\SeatFrontier::forRoot($root, $store);
+        if (!$frontier->answersFor($decider, $session)) {
+            return ['ok' => false, 'error' => 'you do not answer for this session\'s seat — only the line that enrolled it may decide its frontier; nothing was granted'];
+        }
+        $refusal = $frontier->refusal($session, $seq);
+        if ($refusal === null) {
+            return ['ok' => false, 'error' => 'that call is not an open refusal — nothing it lacks remains to grant; nothing was granted'];
+        }
+
+        $ledger = new FileEnrollmentStore($root . '/storage/identity/enrollments.json');
+        $scopes = $ledger->scopesFor($refusal['seat']) ?? [];
+        $scopes[] = $refusal['permission'];
+        try {
+            $enrolled = (new IdentityEnrollment(IdentityConfig::load($root)))
+                ->enroll($refusal['seat'], array_values(array_unique($scopes)), $decider);
+            $ledger->recordAndReport($enrolled);
+        } catch (IdentityNotRooted $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        } catch (\RuntimeException $e) {
+            return ['ok' => false, 'error' => 'nothing was granted: ' . $e->getMessage()];
+        }
+
+        return [
+            'ok' => true,
+            'fingerprint' => $enrolled->fingerprint,
+            'granted' => $refusal['permission'],
+            'scopes' => $enrolled->scopes,
+            'authorized_by' => $enrolled->authorizedBy,
+        ];
+    }
+
+    /**
+     * The principal proven for exactly this grant, or the refusal that says why there is none.
+     *
+     * @return string|array{ok: false, error: string}
+     */
+    private function decider(string $session, int $seq, mixed $assertion, ?ToolContext $authority): string|array
+    {
+        $call = ['session' => $session, 'seq' => $seq];
+        $granted = $this->container->has(GrantedAuthorization::class)
+            ? $this->container->get(GrantedAuthorization::class)
+            : null;
+        if ($granted instanceof GrantedAuthorization) {
+            $signed = $granted->authorization->arguments;
+            unset($signed['assertion']);
+            if ($granted->authorization->operation !== 'identity:grant' || $signed != $call) {
+                return ['ok' => false, 'error' => 'the granted signature does not cover granting THIS refusal — nothing was granted'];
+            }
+
+            return 'key:' . $granted->signer->fingerprint;
+        }
+
+        $principal = $authority === null ? '' : $authority->principal;
+        if ($authority?->channel !== 'web' || !str_starts_with($principal, 'passkey:')) {
+            return ['ok' => false, 'error' => 'granting a scope requires the signature that names WHO decides; re-run with --sign, or approve it with your passkey in the panel'];
+        }
+        $proof = $this->container->has(\Milpa\AppRuntime\Agent\PasskeyIntentProof::class)
+            ? $this->container->get(\Milpa\AppRuntime\Agent\PasskeyIntentProof::class)
+            : null;
+        $grant = $proof instanceof \Milpa\AppRuntime\Agent\PasskeyIntentProof && \is_array($assertion)
+            ? $proof->admit($assertion)
+            : null;
+        if ($grant === null || $grant->principal !== $principal || !$grant->admits('identity:grant', $call, $session)) {
+            return ['ok' => false, 'error' => 'the passkey did not approve THIS grant — touch your key for it in the panel; nothing was granted'];
+        }
+
+        return $principal;
     }
 
     /**

@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Web;
 
 use Milpa\Interfaces\Event\MilpaEventDispatcherInterface;
 use Milpa\AppRuntime\Agent\PasskeyIntentAdmission;
+use Milpa\AppRuntime\Agent\PasskeyIntentProof;
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
 use Milpa\AppRuntime\Web\Controllers\PasskeyController;
 use Milpa\AppRuntime\Web\Controllers\PasskeyIntentController;
@@ -216,10 +217,14 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
         // authorising a concrete operation instead of minting a session. Its challenge→call binding is
         // persistent because the ceremony spans two requests (issue at the pause, admit at the touch).
         $intentChallenges = new FileIntentChallengeStore($root . '/var/passkey/intent-challenges.json');
+        $admission = new PasskeyIntentAdmission($authenticator, $intentChallenges);
         $this->container->registerService(
             PasskeyIntentController::class,
-            new PasskeyIntentController(new PasskeyIntentAdmission($authenticator, $intentChallenges), $registered, $rpId),
+            new PasskeyIntentController($admission, $registered, $rpId),
         );
+        // The same admission, for an operation that carries the assertion inside its own call and must
+        // know WHO decided — identity:grant (greenhouse decisions/0493).
+        $this->container->registerService(PasskeyIntentProof::class, new PasskeyIntentProof($admission, $rpId));
     }
 
     /**
