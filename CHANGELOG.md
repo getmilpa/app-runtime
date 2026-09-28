@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.196.0](https://github.com/getmilpa/app-runtime/compare/v0.195.0...v0.196.0) (2026-09-28)
+
+
+### Features
+
+* **serve:** coa serve answers with workers, so a long turn does not block the panel ([#627](https://github.com/getmilpa/app-runtime/issues/627)) ([00e8f5a](https://github.com/getmilpa/app-runtime/commit/00e8f5ae008865896f50cdbc8c6a1652cc6b8c38))
+* **support:** a kernel knows when it went stale; children of the house find PHP under FrankenPHP ([#626](https://github.com/getmilpa/app-runtime/issues/626)) ([557e33b](https://github.com/getmilpa/app-runtime/commit/557e33b669c1700d1bff8e947056144f8e859c46))
+
 ## [0.195.0](https://github.com/getmilpa/app-runtime/compare/v0.194.0...v0.195.0) (2026-09-28)
 
 
