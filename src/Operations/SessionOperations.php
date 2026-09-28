@@ -44,6 +44,7 @@ use Milpa\AppRuntime\Identity\IdentityConfig;
 use Milpa\AppRuntime\Identity\IdentityInvitations;
 use Milpa\AppRuntime\Identity\IdentityEnrollment;
 use Milpa\AppRuntime\Identity\IdentityNotRooted;
+use Milpa\AppRuntime\Identity\ResidentSeat;
 use Milpa\ToolRuntime\Identity\GrantedAuthorization;
 
 /**
@@ -804,6 +805,92 @@ final class SessionOperations implements CommandProvider
                 mutating: true,
                 requiresConfirmation: true,
             ),
+            new Operation(
+                name: 'identity:seat',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    // Once accepted, the key it seated stays rooted; an unaccepted one expires within the hour.
+                    Reversibility::Irreversible,
+                    // It answers, in advance, for a resident's key — the root a recognition consumes
+                    // (greenhouse decisions/0499).
+                    Authority::Privileged,
+                    subject: Subject::Configuration,
+                ),
+                description: 'Give the resident a seat: mint a one-time invitation its own key accepts by signing — the seat answers to whoever minted it (greenhouse decisions/0499)',
+                handler: fn (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array => $this->sentar($input, $authority),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'label' => ['type' => 'string', 'description' => 'What the seat is called — «resident» — for whoever reads the ledger and the panel later'],
+                        'fingerprint' => ['type' => 'string', 'description' => 'Optional: the resident key\'s fingerprint, when you know it — then only that key can accept'],
+                        'assertion' => [
+                            'type' => 'object',
+                            'description' => 'Over HTTP: the passkey assertion over the challenge /webauthn/intent/options bound to identity:seat {label[, fingerprint]}, session identity:seat',
+                        ],
+                    ],
+                    'required' => ['label'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean', 'description' => 'False when nothing was minted — the error says why'],
+                        'label' => ['type' => 'string', 'description' => 'The seat\'s name'],
+                        'command' => ['type' => 'string', 'description' => 'What the resident\'s key runs to take the seat, carrying the one-time secret'],
+                        'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'What the seat will hold — declared by the house, never by the caller'],
+                        'vouched_by' => ['type' => 'string', 'description' => 'Who the seat will answer to, as passkey:<id> or key:<fingerprint>'],
+                        'for_key' => ['type' => ['string', 'null'], 'description' => 'The only key that may accept it, or null for any key that signs'],
+                        'expires_at' => ['type' => 'string', 'description' => 'When it stops admitting anybody'],
+                        'note' => ['type' => 'string', 'description' => 'Where to run the command, and what proves the key'],
+                        'error' => ['type' => 'string', 'description' => 'Why nothing was minted; absent when ok'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // The same scope as recognizing an identity: a seat invitation IS a recognition, deferred.
+                scopes: ['identity:enroll'],
+                // Never MCP: a model does not give itself a seat. The web answer goes to the passkey that just
+                // proved THIS act, as the terminal's goes to whoever signed it.
+                surfaces: ['cli', 'http'],
+                mutating: true,
+                requiresConfirmation: true,
+            ),
+            new Operation(
+                name: 'identity:accept',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    // Withdrawing a seat is identity:revoke, its own governed act (decisions/0117).
+                    Reversibility::Irreversible,
+                    Authority::Privileged,
+                    subject: Subject::Configuration,
+                ),
+                description: 'Take the seat an invitation promised: the key that signs this is the key the house seats (greenhouse decisions/0499)',
+                handler: fn (array $input): array => $this->aceptar($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'invite' => ['type' => 'string', 'description' => 'The one-time secret from identity:seat — the command it printed carries it'],
+                    ],
+                    'required' => ['invite'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean', 'description' => 'False when nothing was seated — the error says why'],
+                        'fingerprint' => ['type' => 'string', 'description' => 'The key now seated: the one that signed'],
+                        'label' => ['type' => ['string', 'null'], 'description' => 'The seat\'s name, as whoever minted it called it'],
+                        'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'What it may do'],
+                        'authorized_by' => ['type' => 'string', 'description' => 'Who the seat answers to'],
+                        'reason' => ['type' => 'string', 'description' => 'Why nothing was seated, as a code; absent when ok'],
+                        'error' => ['type' => 'string', 'description' => 'Why nothing was seated; absent when ok'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // The terminal only: the key lives on the resident's machine, and the signature is the act.
+                surfaces: ['cli'],
+                mutating: true,
+                requiresConfirmation: true,
+            ),
         ];
     }
 
@@ -855,6 +942,79 @@ final class SessionOperations implements CommandProvider
         } catch (\RuntimeException $e) {
             return ['ok' => false, 'error' => 'nothing was minted: ' . $e->getMessage()];
         }
+    }
+
+    /**
+     * Mint a resident's seat invitation, vouched by the principal proven for THIS call — or refuse
+     * (greenhouse decisions/0499).
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function sentar(array $input, ?ToolContext $authority): array
+    {
+        $label = \is_string($input['label'] ?? null) ? trim($input['label']) : '';
+        if ($label === '') {
+            return ['ok' => false, 'error' => '`label` is required — the seat needs a name the person reading the panel recognizes'];
+        }
+        $call = ['label' => $label];
+        $fingerprint = \is_string($input['fingerprint'] ?? null) ? trim($input['fingerprint']) : '';
+        if ($fingerprint !== '') {
+            $call['fingerprint'] = $fingerprint;
+        }
+
+        $voucher = $this->decider('identity:seat', $call, ResidentSeat::INTENT_SESSION, $input['assertion'] ?? null, $authority, 'minting');
+        if (\is_array($voucher)) {
+            return $voucher;
+        }
+
+        $kernel = $this->container->has(\Milpa\Runtime\Kernel::class)
+            ? $this->container->get(\Milpa\Runtime\Kernel::class)
+            : null;
+        if (! $kernel instanceof \Milpa\Runtime\Kernel) {
+            return ['ok' => false, 'error' => 'this app has no root to keep an invitation in'];
+        }
+
+        try {
+            return ['ok' => true, ...ResidentSeat::invite($kernel->root(), $voucher, $label, $fingerprint === '' ? null : $fingerprint)];
+        } catch (\RuntimeException $e) {
+            return ['ok' => false, 'error' => 'nothing was minted: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Seat the key that signed this acceptance, with what its invitation promised — or refuse, having written
+     * nothing (greenhouse decisions/0499).
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function aceptar(array $input): array
+    {
+        $invite = \is_string($input['invite'] ?? null) ? trim($input['invite']) : '';
+        if ($invite === '') {
+            return ['ok' => false, 'error' => '`invite` is required — it is in the command identity:seat printed'];
+        }
+        $granted = $this->container->has(GrantedAuthorization::class)
+            ? $this->container->get(GrantedAuthorization::class)
+            : null;
+        if (! $granted instanceof GrantedAuthorization) {
+            return ['ok' => false, 'error' => 'the key that takes the seat is the key that signs; re-run with --sign'];
+        }
+        if ($granted->authorization->operation !== 'identity:accept' || ($granted->authorization->arguments['invite'] ?? null) !== $invite) {
+            return ['ok' => false, 'error' => 'the granted signature does not cover accepting THIS invitation — nothing was seated'];
+        }
+
+        $kernel = $this->container->has(\Milpa\Runtime\Kernel::class)
+            ? $this->container->get(\Milpa\Runtime\Kernel::class)
+            : null;
+        if (! $kernel instanceof \Milpa\Runtime\Kernel) {
+            return ['ok' => false, 'error' => 'this app has no root to seat a key in'];
+        }
+
+        return ResidentSeat::accept($kernel->root(), $invite, $granted->signer->fingerprint);
     }
 
     /**
@@ -2010,7 +2170,7 @@ final class SessionOperations implements CommandProvider
             return ['ok' => false, 'error' => 'which refusal? `session` and an integer `seq` are required'];
         }
 
-        $decider = $this->decider($session, $seq, $input['assertion'] ?? null, $authority);
+        $decider = $this->decider('identity:grant', ['session' => $session, 'seq' => $seq], $session, $input['assertion'] ?? null, $authority, 'granted');
         if (\is_array($decider)) {
             return $decider;
         }
@@ -2082,21 +2242,27 @@ final class SessionOperations implements CommandProvider
     }
 
     /**
-     * The principal proven for exactly this grant, or the refusal that says why there is none.
+     * The principal proven for exactly this call — a gpg signature over it, or a passkey session plus a live
+     * assertion bound to it — or the refusal that says why there is none. Shared by identity:grant
+     * (decisions/0493) and identity:seat (decisions/0499): one judge for the acts a human decides in the panel.
+     *
+     * @param array<string, mixed> $call          the arguments the proof must cover, exactly
+     * @param string               $intentSession the session the passkey challenge was bound to
+     * @param string               $done          what did not happen, for the refusal — «granted», «minting»
      *
      * @return string|array{ok: false, error: string}
      */
-    private function decider(string $session, int $seq, mixed $assertion, ?ToolContext $authority): string|array
+    private function decider(string $operation, array $call, string $intentSession, mixed $assertion, ?ToolContext $authority, string $done): string|array
     {
-        $call = ['session' => $session, 'seq' => $seq];
+        $nothing = $done === 'granted' ? 'nothing was granted' : 'nothing was minted';
         $granted = $this->container->has(GrantedAuthorization::class)
             ? $this->container->get(GrantedAuthorization::class)
             : null;
         if ($granted instanceof GrantedAuthorization) {
             $signed = $granted->authorization->arguments;
             unset($signed['assertion']);
-            if ($granted->authorization->operation !== 'identity:grant' || $signed != $call) {
-                return ['ok' => false, 'error' => 'the granted signature does not cover granting THIS refusal — nothing was granted'];
+            if ($granted->authorization->operation !== $operation || $signed != $call) {
+                return ['ok' => false, 'error' => \sprintf('the granted signature does not cover %s — %s', $operation === 'identity:grant' ? 'granting THIS refusal' : 'THIS ' . $operation, $nothing)];
             }
 
             return 'key:' . $granted->signer->fingerprint;
@@ -2104,7 +2270,9 @@ final class SessionOperations implements CommandProvider
 
         $principal = $authority === null ? '' : $authority->principal;
         if ($authority?->channel !== 'web' || !str_starts_with($principal, 'passkey:')) {
-            return ['ok' => false, 'error' => 'granting a scope requires the signature that names WHO decides; re-run with --sign, or approve it with your passkey in the panel'];
+            return ['ok' => false, 'error' => $operation === 'identity:grant'
+                ? 'granting a scope requires the signature that names WHO decides; re-run with --sign, or approve it with your passkey in the panel'
+                : \sprintf('%s requires the signature that names WHO decides; re-run with --sign, or approve it with your passkey in the panel — %s', $operation, $nothing)];
         }
         $proof = $this->container->has(\Milpa\AppRuntime\Agent\PasskeyIntentProof::class)
             ? $this->container->get(\Milpa\AppRuntime\Agent\PasskeyIntentProof::class)
@@ -2112,8 +2280,8 @@ final class SessionOperations implements CommandProvider
         $grant = $proof instanceof \Milpa\AppRuntime\Agent\PasskeyIntentProof && \is_array($assertion)
             ? $proof->admit($assertion)
             : null;
-        if ($grant === null || $grant->principal !== $principal || !$grant->admits('identity:grant', $call, $session)) {
-            return ['ok' => false, 'error' => 'the passkey did not approve THIS grant — touch your key for it in the panel; nothing was granted'];
+        if ($grant === null || $grant->principal !== $principal || !$grant->admits($operation, $call, $intentSession)) {
+            return ['ok' => false, 'error' => \sprintf('the passkey did not approve THIS %s — touch your key for it in the panel; %s', $operation === 'identity:grant' ? 'grant' : $operation, $nothing)];
         }
 
         return $principal;
