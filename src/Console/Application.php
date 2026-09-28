@@ -554,6 +554,12 @@ final class Application
             // El despachador del kernel viaja al runner: sin él, un listener que audita operaciones
             // las vería por MCP y no por la terminal — que es el hueco que el runner vino a cerrar.
             dispatcher: $this->kernel()->dispatcher(),
+            // ONE SIGNATURE PER SEQUENCE (greenhouse decisions/0458, 0500): the first signed call of
+            // a session keeps its receipt there, and the calls that continue it cite it instead of
+            // signing again. Without the agent package there are no sessions, and nothing to cite.
+            receipts: class_exists(\Milpa\Agent\SessionStore::class)
+                ? new \Milpa\AppRuntime\Agent\SessionSequenceReceipts(fn (): ?\Milpa\Agent\SessionStore => $this->almacenDeSesiones())
+                : null,
         ))->run($operacion, $this->tokens($operacion, $resto), $this->kernel()->container(), $this->line(...));
     }
 
