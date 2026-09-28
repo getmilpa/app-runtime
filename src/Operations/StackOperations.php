@@ -87,7 +87,7 @@ final class StackOperations implements CommandProvider
                     'properties' => [
                         'ok' => ['type' => 'boolean'],
                         'kernel' => ['type' => 'boolean', 'description' => 'Whether a booted kernel was there to read plugins from; false means the answer is «I cannot see», not «nothing is declared»'],
-                        'services' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'One entry per declared service, sorted by name, each with its state: up, down, unknown (no published port to probe) or conflict (two plugins declared the name)'],
+                        'services' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'One entry per declared service, sorted by name, each with its state: up, occupied (the port answers, but not as the service declared it must — something else took it; `answered` says what it answered), down, unknown (no published port to probe) or conflict (two plugins declared the name)'],
                     ],
                     'required' => ['ok'],
                 ],

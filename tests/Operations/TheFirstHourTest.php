@@ -48,10 +48,13 @@ final class TheFirstHourTest extends TestCase
         $this->root = sys_get_temp_dir() . '/milpa-ar-first-hour-' . bin2hex(random_bytes(4));
         mkdir($this->root . '/config', 0o775, true);
         $this->declareOperations(['AgentOperations', 'CapabilityOperations', 'FoundationOperations']);
+        // The runner's own environment must not choose the workers these tests assert.
+        putenv(AgentOperations::SERVE_WORKERS_ENV);
     }
 
     protected function tearDown(): void
     {
+        putenv(AgentOperations::SERVE_WORKERS_ENV);
         exec('rm -rf ' . escapeshellarg($this->root));
     }
 
@@ -186,7 +189,7 @@ final class TheFirstHourTest extends TestCase
         $answer = $operations->serve(['dry_run' => true]);
         self::assertIsArray($answer);
         self::assertTrue($answer['ok']);
-        self::assertSame(\PHP_BINARY . ' -S 127.0.0.1:8000 -t public', $answer['command']);
+        self::assertSame('PHP_CLI_SERVER_WORKERS=8 ' . \PHP_BINARY . ' -S 127.0.0.1:8000 -t public', $answer['command']);
         self::assertSame('http://localhost:8000/', $answer['url'], 'the address the passkey door will accept');
         self::assertNull($answer['router'], 'without a router the built-in server serves files only');
 
@@ -194,7 +197,7 @@ final class TheFirstHourTest extends TestCase
         file_put_contents($this->root . '/public/router.php', '<?php return false;');
         $answer = $operations->serve(['dry_run' => true, 'host' => '0.0.0.0', 'port' => 8730]);
         self::assertIsArray($answer);
-        self::assertSame(\PHP_BINARY . ' -S 0.0.0.0:8730 -t public public/router.php', $answer['command']);
+        self::assertSame('PHP_CLI_SERVER_WORKERS=8 ' . \PHP_BINARY . ' -S 0.0.0.0:8730 -t public public/router.php', $answer['command']);
         self::assertSame('http://localhost:8730/', $answer['url'], 'bound everywhere, opened at the relying party');
         self::assertSame('public/router.php', $answer['router']);
     }
@@ -243,8 +246,128 @@ final class TheFirstHourTest extends TestCase
         $answer = $operations->serve(['dry_run' => true, 'host' => 'localhost', 'port' => '8730']);
         self::assertIsArray($answer);
         self::assertTrue($answer['ok']);
-        self::assertSame(\PHP_BINARY . ' -S localhost:8730 -t public', $answer['command']);
+        self::assertSame('PHP_CLI_SERVER_WORKERS=8 ' . \PHP_BINARY . ' -S localhost:8730 -t public', $answer['command']);
         self::assertSame($operations->serve(['dry_run' => true, 'port' => -5]), $operations->serve(['dry_run' => true, 'port' => '-5']));
+    }
+
+    #[Test]
+    public function serve_passes_workers_so_one_long_request_does_not_hold_the_rest(): void
+    {
+        mkdir($this->root . '/public');
+        $operations = $this->booted();
+
+        $answer = $operations->serve(['dry_run' => true]);
+        self::assertIsArray($answer);
+        self::assertSame(AgentOperations::SERVE_WORKERS, $answer['workers'], 'the measured default (greenhouse evidence/1035)');
+        self::assertSame(8, AgentOperations::SERVE_WORKERS);
+
+        $answer = $operations->serve(['dry_run' => true, 'workers' => '3']);
+        self::assertIsArray($answer);
+        self::assertSame('PHP_CLI_SERVER_WORKERS=3 ' . \PHP_BINARY . ' -S 127.0.0.1:8000 -t public', $answer['command']);
+
+        // `workers: 1` is the bare server — the variable is NOT passed, because php -S would only warn about it.
+        $answer = $operations->serve(['dry_run' => true, 'workers' => 1]);
+        self::assertIsArray($answer);
+        self::assertSame(1, $answer['workers']);
+        self::assertSame(\PHP_BINARY . ' -S 127.0.0.1:8000 -t public', $answer['command']);
+
+        // An inherited, valid value is the caller's choice and wins over the default; the input wins over both.
+        putenv('PHP_CLI_SERVER_WORKERS=4');
+        $answer = $operations->serve(['dry_run' => true]);
+        self::assertIsArray($answer);
+        self::assertSame(4, $answer['workers']);
+        $answer = $operations->serve(['dry_run' => true, 'workers' => 2]);
+        self::assertIsArray($answer);
+        self::assertSame(2, $answer['workers']);
+    }
+
+    #[Test]
+    public function serve_refuses_workers_the_built_in_server_would_silently_ignore(): void
+    {
+        mkdir($this->root . '/public');
+        $operations = $this->booted();
+
+        foreach ([0, -2, 257, 'abc', 2.5, true, ['8']] as $workers) {
+            $answer = $operations->serve(['dry_run' => true, 'workers' => $workers]);
+            self::assertIsArray($answer);
+            self::assertFalse($answer['ok'], var_export($workers, true) . ' must be refused');
+            self::assertStringContainsString('workers', $answer['error']);
+        }
+        // php -S answers these with «number of workers must be larger than 1» and ONE worker: refused by name.
+        foreach (['1', '0', 'abc', '-3'] as $inherited) {
+            putenv('PHP_CLI_SERVER_WORKERS=' . $inherited);
+            $answer = $operations->serve(['dry_run' => true]);
+            self::assertIsArray($answer);
+            self::assertFalse($answer['ok'], 'inherited ' . $inherited);
+            self::assertStringContainsString('PHP_CLI_SERVER_WORKERS=' . $inherited, $answer['error']);
+            // POSITIVE CONTROL: the same environment, with the caller saying how many — accepted.
+            $answer = $operations->serve(['dry_run' => true, 'workers' => 1]);
+            self::assertIsArray($answer);
+            self::assertTrue($answer['ok']);
+        }
+    }
+
+    #[Test]
+    public function with_workers_a_long_request_does_not_block_the_next_one(): void
+    {
+        if (!\function_exists('pcntl_exec') || \PHP_OS_FAMILY === 'Windows') {
+            self::markTestSkipped('needs pcntl and a built-in server that forks workers (Linux, macOS)');
+        }
+        mkdir($this->root . '/public');
+        file_put_contents($this->root . '/public/index.php', '<?php if (($_GET["slow"] ?? "") === "1") { sleep(4); } echo "first hour";');
+
+        // THE MEASUREMENT: a 4 s request in flight, then a quick one. With workers it answers at once.
+        $quick = $this->quickAnswerDuringASlowOne(['workers' => 2]);
+        self::assertLessThan(2.0, $quick, 'with two workers the quick request waited for the slow one');
+
+        // POSITIVE CONTROL: the bare server (`workers: 1`) makes the quick request wait for the slow one —
+        // without it, the measurement above could not tell a worker from a lucky schedule.
+        $quick = $this->quickAnswerDuringASlowOne(['workers' => 1]);
+        self::assertGreaterThan(2.5, $quick, 'the bare built-in server answered two requests at once');
+    }
+
+    /**
+     * Starts `serve` with $input on a free port, opens a slow request, and times a quick one; then stops it
+     * the way a terminal would and checks the port — workers included — is free.
+     *
+     * @param array<string, mixed> $input
+     */
+    private function quickAnswerDuringASlowOne(array $input): float
+    {
+        $port = $this->freePort();
+        $script = $this->root . '/serve.php';
+        file_put_contents($script, '<?php require ' . var_export(\dirname(__DIR__, 2) . '/vendor/autoload.php', true) . ";\n"
+            . '$container = new \Milpa\Container\DIContainer();' . "\n"
+            . '$kernel = \Milpa\Runtime\Kernel::boot(["root" => ' . var_export($this->root, true) . ', "container" => $container, "toolRegistry" => new \Milpa\ToolRuntime\ToolRegistry(new \Psr\Log\NullLogger()), "plugins" => [], "config" => []]);' . "\n"
+            . '$container->registerService(\Milpa\Runtime\Kernel::class, $kernel);' . "\n"
+            . 'var_export((new \Milpa\AppRuntime\Operations\AgentOperations($container))->serve(' . var_export(['port' => $port] + $input, true) . '));');
+        $process = proc_open([\PHP_BINARY, $script], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        self::assertIsResource($process);
+        try {
+            self::assertSame('first hour', $this->awaitAnswer($port));
+            $slow = stream_socket_client('tcp://127.0.0.1:' . $port, $errno, $errstr, 1);
+            self::assertIsResource($slow, (string) $errstr);
+            fwrite($slow, "GET /?slow=1 HTTP/1.0\r\nHost: localhost\r\n\r\n");
+            usleep(300_000);
+            $started = microtime(true);
+            $body = @file_get_contents('http://127.0.0.1:' . $port . '/', false, stream_context_create(['http' => ['timeout' => 10]]));
+            $elapsed = microtime(true) - $started;
+            self::assertSame('first hour', $body);
+            fclose($slow);
+
+            proc_terminate($process, 15);
+            $freed = false;
+            for ($i = 0; $i < 50 && !$freed; $i++) {
+                usleep(100_000);
+                $freed = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.2) === false;
+            }
+            self::assertTrue($freed, 'a worker outlived the signal that stopped coa, holding the port');
+
+            return $elapsed;
+        } finally {
+            proc_terminate($process, 9);
+            proc_close($process);
+        }
     }
 
     #[Test]
@@ -297,7 +420,7 @@ final class TheFirstHourTest extends TestCase
             $answer = $operations->serve(['dry_run' => true, 'host' => $host, 'port' => 8731]);
             self::assertIsArray($answer);
             self::assertTrue($answer['ok'], $host);
-            self::assertSame(\PHP_BINARY . ' -S [::1]:8731 -t public', $answer['command']);
+            self::assertSame('PHP_CLI_SERVER_WORKERS=8 ' . \PHP_BINARY . ' -S [::1]:8731 -t public', $answer['command']);
             self::assertSame('http://localhost:8731/', $answer['url']);
         }
         // POSITIVE CONTROLS: what is not an address and not a name is refused by name.

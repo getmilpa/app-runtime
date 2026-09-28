@@ -155,6 +155,19 @@ class AgentOperations implements CommandProvider
     private const PASOS_POR_DEFECTO = 12;
 
     /**
+     * How many requests `coa serve` answers at once when nobody says (greenhouse decisions/0504).
+     *
+     * The measured arm, not a derivation: with 8 the panel answered in 27 ms through a 47 s resident turn,
+     * where the bare server held it the whole turn (evidence/1035, Q2). What runs out is not CPU but held
+     * requests — a turn or an open stream keeps its worker — so a count read from the cores would give a
+     * two-core VM two workers and block again at the second long request.
+     */
+    public const SERVE_WORKERS = 8;
+
+    /** The built-in server's own knob — the variable `php -S` reads to fork its workers. */
+    public const SERVE_WORKERS_ENV = 'PHP_CLI_SERVER_WORKERS';
+
+    /**
      * The event store THIS invocation's session store was composed over, or `null` when the store
      * arrived already built and its log is not reachable ({@see self::sessions()} names the one
      * branch). It exists so the closure verdict can append its own event to the SAME stream the
@@ -410,16 +423,18 @@ class AgentOperations implements CommandProvider
             // `coa serve` — the difference between «it boots» and «I saw it» (greenhouse decisions/0216, point 3).
             // A TERMINAL operation only: it holds the process until the server stops, which no other surface
             // can afford. It prints the URL and hands the terminal to PHP's built-in server, with the skeleton's
-            // router when the app ships one (so routes served by controllers, not files, reach the kernel).
+            // router when the app ships one (so routes served by controllers, not files, reach the kernel), and
+            // with PHP_CLI_SERVER_WORKERS so one long request does not hold every other (greenhouse decisions/0504).
             new Operation(
                 name: 'serve',
-                description: 'Start the development server on this app and print the URL — PHP\'s built-in server over public/, with the app\'s router when it ships one',
+                description: 'Start the development server on this app and print the URL — PHP\'s built-in server over public/ with several workers, so a long agent turn does not block the panel, and with the app\'s router when it ships one',
                 handler: fn (array $input): array => $this->serve($input),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
                         'host' => ['type' => 'string', 'description' => 'The address to bind (default 127.0.0.1)'],
                         'port' => ['type' => 'integer', 'description' => 'The port to bind (default 8000)'],
+                        'workers' => ['type' => 'integer', 'description' => 'How many requests the server answers at once (default ' . self::SERVE_WORKERS . ', or PHP_CLI_SERVER_WORKERS when set); 1 is the bare built-in server, one request at a time'],
                         'dry_run' => ['type' => 'boolean', 'description' => 'Print the exact command instead of running it'],
                     ],
                     'required' => [],
@@ -1359,7 +1374,13 @@ class AgentOperations implements CommandProvider
     }
 
     /**
-     * `serve` — PHP's built-in server over `public/`, with the app's router when it ships one.
+     * `serve` — PHP's built-in server over `public/`, with the app's router when it ships one, and with
+     * {@see self::SERVE_WORKERS} workers so a long request does not hold every other one.
+     *
+     * WORKERS ARE VALIDATED HERE BECAUSE `php -S` DOES NOT REFUSE THEM: given `PHP_CLI_SERVER_WORKERS=1`,
+     * `0` or `abc` it prints «number of workers must be larger than 1» and serves ONE request at a time —
+     * a knob that vanished looks exactly like one obeyed (greenhouse evidence/1037). So `workers: 1` removes
+     * the variable instead of passing it, and an inherited value the server would ignore is refused.
      *
      * The server runs IN PLACE of `coa` (`pcntl_exec`): the signal that stops `coa` stops the server, where a
      * child left behind by `passthru` outlived SIGTERM holding the port. Nothing returns once it started — the
@@ -1412,33 +1433,78 @@ class AgentOperations implements CommandProvider
         if (\array_key_exists('dry_run', $input) && !\is_bool($input['dry_run'])) {
             return ['ok' => false, 'error' => 'dry_run must be true or false'];
         }
+        $workers = self::serveWorkers($input);
+        if (\is_string($workers)) {
+            return ['ok' => false, 'error' => $workers];
+        }
         $router = is_file($root . '/public/router.php') ? 'public/router.php' : null;
         $command = [\PHP_BINARY, '-S', $host . ':' . $port, '-t', 'public'];
         if ($router !== null) {
             $command[] = $router;
         }
+        // The command a person could paste: the variable in front when there is one to pass.
+        $shown = ($workers > 1 ? self::SERVE_WORKERS_ENV . '=' . $workers . ' ' : '') . implode(' ', $command);
         // THE URL TO OPEN IS `localhost`, not the address bound: a passkey door binds its assertions to a
         // relying-party id, and `capabilities:enable identity` declares `localhost` — a browser at 127.0.0.1
         // would be refused by the very door this server exists to show.
         $url = 'http://' . (\in_array($host, ['0.0.0.0', '127.0.0.1', '[::1]', '[::]'], true) ? 'localhost' : $host) . ':' . $port . '/';
 
         if (($input['dry_run'] ?? false) === true) {
-            return ['ok' => true, 'dry_run' => true, 'command' => implode(' ', $command), 'url' => $url, 'router' => $router];
+            return ['ok' => true, 'dry_run' => true, 'command' => $shown, 'url' => $url, 'router' => $router, 'workers' => $workers];
         }
 
         if (!\function_exists('pcntl_exec')) {
-            return ['ok' => false, 'error' => 'this PHP has no pcntl, so coa cannot hand its process to the server; run it by hand', 'command' => implode(' ', $command), 'url' => $url];
+            return ['ok' => false, 'error' => 'this PHP has no pcntl, so coa cannot hand its process to the server; run it by hand', 'command' => $shown, 'url' => $url];
         }
         if (!@chdir($root)) {
             return ['ok' => false, 'error' => 'could not enter ' . $root];
         }
-        echo 'Serving ' . basename($root) . ' at ' . $url . ($router !== null ? ' (with ' . $router . ')' : '') . "\n";
+        echo 'Serving ' . basename($root) . ' at ' . $url . ($router !== null ? ' (with ' . $router . ')' : '')
+            . ($workers > 1 ? ', ' . $workers . ' workers' : ', one request at a time') . "\n";
         echo "Press Ctrl+C to stop.\n";
         fflush(\STDOUT);
+        // pcntl_exec REPLACES the environment when it is given one, so the whole inherited environment goes
+        // along — with the workers variable set, or removed for `workers: 1`.
+        $env = getenv();
+        unset($env[self::SERVE_WORKERS_ENV]);
+        if ($workers > 1) {
+            $env[self::SERVE_WORKERS_ENV] = (string) $workers;
+        }
         // Only returns when the exec itself failed: from here on, this process IS the server.
-        pcntl_exec(\PHP_BINARY, \array_slice($command, 1));
+        pcntl_exec(\PHP_BINARY, \array_slice($command, 1), $env);
 
-        return ['ok' => false, 'error' => 'could not start ' . implode(' ', $command)];
+        return ['ok' => false, 'error' => 'could not start ' . $shown];
+    }
+
+    /**
+     * The worker count `serve` passes, or the refusal: the input first, then an inherited
+     * `PHP_CLI_SERVER_WORKERS`, then {@see self::SERVE_WORKERS}.
+     *
+     * @param array<string, mixed> $input
+     */
+    private static function serveWorkers(array $input): int|string
+    {
+        if (\array_key_exists('workers', $input)) {
+            $given = $input['workers'];
+            if (\is_string($given) && preg_match('/^-?\d+$/', $given) === 1) {
+                $given = (int) $given;
+            }
+            if (!\is_int($given) || $given < 1 || $given > 256) {
+                return 'workers must be an integer between 1 (one request at a time) and 256';
+            }
+
+            return $given;
+        }
+        $inherited = getenv(self::SERVE_WORKERS_ENV);
+        if ($inherited === false || $inherited === '') {
+            return self::SERVE_WORKERS;
+        }
+        // The built-in server ignores anything but an integer above 1 and serves one request at a time.
+        if (preg_match('/^\d+$/', $inherited) !== 1 || (int) $inherited < 2) {
+            return self::SERVE_WORKERS_ENV . '=' . $inherited . ' is set in this environment, and the built-in server would ignore it and serve one request at a time — unset it, or pass workers (1 for one at a time)';
+        }
+
+        return (int) $inherited;
     }
 
     /**
