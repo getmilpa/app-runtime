@@ -38,6 +38,7 @@ use Milpa\Http\Routing\Route;
 use Milpa\Http\Routing\Router;
 use Milpa\AppRuntime\Agent\ArchitectureSummaryProjector;
 use Milpa\AppRuntime\Agent\ClosureVerdict;
+use Milpa\AppRuntime\Agent\SessionLine;
 use Milpa\AppRuntime\Agent\DeliveryScope;
 use Milpa\AppRuntime\Agent\DeliveryExpectation;
 use Milpa\AppRuntime\Agent\DeliveryContext;
@@ -284,6 +285,11 @@ class AgentOperations implements CommandProvider
                     authority: Authority::Read,
                     subject: Subject::None,
                 ),
+                // WHO MAY ASK IT, declared (greenhouse decisions/0497). Without a scope the HTTP policy is never
+                // consulted (decisions/0082), and the panel's own door to this probe would send a request to the
+                // provider for anyone who reached it. Whoever reads the agent may read which model it talks to;
+                // the terminal, where the caller IS the operator, enforces no scopes and is unchanged.
+                scopes: ['agent:read'],
             ),
             new Operation(
                 name: 'operation:contract',
@@ -1757,6 +1763,25 @@ class AgentOperations implements CommandProvider
     }
 
     /**
+     * The line's refusal for a turn that continues someone else's session, or null (greenhouse decisions/0497).
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array{ok: false, error: string, hint: string}|null
+     */
+    private function outsiderOf(array $input, ?InvocationContext $context): ?array
+    {
+        $sessionId = \is_string($input['session'] ?? null) ? trim($input['session']) : '';
+        $store = $sessionId !== '' ? $this->sessions() : null;
+        if ($store === null || $store->load($sessionId) === null) {
+            return null;
+        }
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+
+        return SessionLine::refusal($store, $sessionId, $context, 'run', $kernel instanceof Kernel ? $kernel->root() : null);
+    }
+
+    /**
      * Corre el bucle y devuelve lo que el agente contestó.
      *
      * @param array<string, mixed> $input
@@ -1775,6 +1800,15 @@ class AgentOperations implements CommandProvider
         $prompt = \is_string($input['prompt'] ?? null) ? trim($input['prompt']) : '';
         if ($prompt === '') {
             return ['ok' => false, 'error' => 'falta `prompt`: qué quieres que haga'];
+        }
+
+        // A TURN THAT CONTINUES A SESSION DECIDES ON IT (greenhouse decisions/0497): it spends the session's mode and
+        // goal, and its tool calls land on the session's ledger. Over a channel that promises identity, only the
+        // principal that opened it, or the line that enrolled its seat, sends it the next turn — judged first,
+        // before the provider is even looked for. A session that does not exist yet has nobody to ask.
+        $outsider = $this->outsiderOf($input, $context);
+        if ($outsider !== null) {
+            return $outsider;
         }
 
         if (!class_exists(AgentOrchestrator::class) || !class_exists(ToolRegistry::class)) {
