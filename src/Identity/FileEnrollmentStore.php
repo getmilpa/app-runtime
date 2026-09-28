@@ -187,6 +187,23 @@ final class FileEnrollmentStore implements EnrollmentStore
     }
 
     /**
+     * Every key the ledger holds a live recognition for, in its stored form — revoked ones left out.
+     *
+     * @return list<string>
+     */
+    public function liveKeys(): array
+    {
+        $live = [];
+        foreach ($this->read() ?? [] as $key => $entry) {
+            if (\is_array($entry) && \is_array($entry['scopes'] ?? null) && ($entry['revoked_by'] ?? null) === null) {
+                $live[] = (string) $key;
+            }
+        }
+
+        return $live;
+    }
+
+    /**
      * Who authorized this key's standing recognition, or null for one never enrolled — and null once revoked.
      *
      * The enroller is the relation greenhouse decisions/0493 reads: the principal that answers for a seat.

@@ -70,6 +70,9 @@ final class ConsentDemandsIdentityTest extends TestCase
     private const array JUDGES_ITSELF = [
         'session:own' => 'its handler requires the GrantedAuthorization and refuses without it, and checks that '
             . 'the authorization names this operation AND this session — the signature is the payload, not a gate',
+        'identity:accept' => 'the key it seats has no scope yet — that is what it is taking (greenhouse decisions/0499). Its '
+            . 'handler requires the GrantedAuthorization, refuses unless it names this operation AND this invite, and seats '
+            . 'exactly the verified signer; it is offered on the CLI only, so no permission-aware surface reaches it',
     ];
 
     /**

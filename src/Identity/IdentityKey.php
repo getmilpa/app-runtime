@@ -28,6 +28,12 @@ final class IdentityKey
 {
     private const HEX_FINGERPRINT = '/^[0-9a-fA-F ]{40,}$/';
 
+    /** Whether this key is a gpg fingerprint — a signing key, as a resident's seat is — rather than a passkey's id. */
+    public static function isFingerprint(string $key): bool
+    {
+        return preg_match(self::HEX_FINGERPRINT, $key) === 1;
+    }
+
     /**
      * The comparable form of a key: a hex fingerprint is uppercased and space-stripped; anything else
      * — a base64url credential id above all — is returned exactly as given.

@@ -33,6 +33,12 @@ namespace Milpa\AppRuntime\Identity;
  *
  * Every write takes an exclusive lock and re-checks under it, so two ceremonies racing for one invitation
  * cannot both win. A write that cannot happen throws; content the store cannot read is never written over.
+ *
+ * TWO KINDS, AND THEY DO NOT CROSS (greenhouse decisions/0499). A `passkey` invitation — the first human's,
+ * and every invitation written before kinds existed — is spent only by a WebAuthn ceremony. A `seat`
+ * invitation is spent only by a gpg key that signs its acceptance: the resident's seat. Presented at the
+ * other door, each is judged unknown and stays unspent; otherwise the first human's invitation, which grants
+ * the panel and `identity:enroll`, would make the machine that redeemed it an administrator of the house.
  */
 final class IdentityInvitations
 {
@@ -45,6 +51,18 @@ final class IdentityInvitations
     public const string REDEEMED = 'already_used';
 
     public const string EXPIRED = 'expired';
+
+    /** A seat invitation bound to one key, presented by another: refused, and left unspent. */
+    public const string WRONG_KEY = 'wrong_key';
+
+    /** Redeemed by a WebAuthn ceremony — the kind every invitation without one is read as. */
+    public const string PASSKEY = 'passkey';
+
+    /** Redeemed by a gpg key signing its own acceptance — a resident's seat (decisions/0499). */
+    public const string SEAT = 'seat';
+
+    /** How long a seat invitation lives: it is accepted on the spot, and minting another costs one touch. */
+    public const int SEAT_TTL = 3600;
 
     /** @var callable(): \DateTimeImmutable */
     private $clock;
@@ -77,23 +95,33 @@ final class IdentityInvitations
      * Mint an invitation and return its secret — the only time the secret exists outside the caller.
      *
      * @param list<string> $scopes       what the credential that redeems it will be recognized with
-     * @param string       $authorizedBy the verified principal that answers for it, as `key:<fingerprint>`
+     * @param string       $authorizedBy the verified principal that answers for it, as `key:<fingerprint>` or `passkey:<id>`
+     * @param string       $kind         {@see PASSKEY} or {@see SEAT}: which door may spend it
+     * @param string|null  $forKey       a seat invitation only that key may accept; null admits any key that signs
+     * @param string|null  $label        what the seat is called, for the person who reads the ledger later
      *
      * @return array{token: string, id: string, scopes: list<string>, authorized_by: string, expires_at: string}
      *
      * @throws \RuntimeException when the invitation could not be written — never a secret for nothing
      */
-    public function mint(array $scopes, string $authorizedBy, int $ttlSeconds = self::DEFAULT_TTL): array
+    public function mint(array $scopes, string $authorizedBy, int $ttlSeconds = self::DEFAULT_TTL, string $kind = self::PASSKEY, ?string $forKey = null, ?string $label = null): array
     {
+        if ($kind !== self::PASSKEY && $kind !== self::SEAT) {
+            throw new \InvalidArgumentException('an invitation is for a passkey or for a seat, not for ' . $kind);
+        }
+        $forKey = $forKey === null || trim($forKey) === '' ? null : IdentityKey::normalize($forKey);
         $token = self::base64Url(random_bytes(32));
         $id = substr(hash('sha256', $token), 0, 12);
         $now = ($this->clock)();
         $expires = $now->add(new \DateInterval('PT' . max(1, $ttlSeconds) . 'S'));
         $scopes = array_values(array_unique(array_filter($scopes, static fn (string $s): bool => $s !== '')));
 
-        $this->mutate(static function (array $map) use ($id, $token, $scopes, $authorizedBy, $now, $expires): array {
+        $this->mutate(static function (array $map) use ($id, $token, $scopes, $authorizedBy, $now, $expires, $kind, $forKey, $label): array {
             $map[$id] = [
                 'hash' => hash('sha256', $token),
+                'kind' => $kind,
+                'for_key' => $forKey,
+                'label' => $label,
                 'scopes' => $scopes,
                 'authorized_by' => $authorizedBy,
                 'issued_at' => $now->format(\DATE_ATOM),
@@ -120,7 +148,17 @@ final class IdentityInvitations
      */
     public function check(string $token): array
     {
-        return self::judge($this->read() ?? [], $token, ($this->clock)());
+        return self::judge($this->read() ?? [], $token, ($this->clock)(), self::PASSKEY, null);
+    }
+
+    /**
+     * The live seat invitation this secret names for this key, or why it would not seat it (decisions/0499).
+     *
+     * @return array{ok: true, id: string, scopes: list<string>, authorized_by: string, expires_at: string}|array{ok: false, reason: string}
+     */
+    public function checkSeat(string $token, string $fingerprint): array
+    {
+        return self::judge($this->read() ?? [], $token, ($this->clock)(), self::SEAT, $fingerprint);
     }
 
     /**
@@ -133,16 +171,39 @@ final class IdentityInvitations
      */
     public function redeem(string $token, string $credentialId): array
     {
+        return $this->spend($token, self::PASSKEY, $credentialId, 'passkey:' . $credentialId);
+    }
+
+    /**
+     * Spend a seat invitation on the key that signed its acceptance — once, and only when it is the key the
+     * invitation names, if it names one (decisions/0499). The same lock and re-judgment as {@see redeem()}.
+     *
+     * @return array{ok: true, id: string, scopes: list<string>, authorized_by: string, expires_at: string}|array{ok: false, reason: string}
+     *
+     * @throws \RuntimeException when the redemption could not be written
+     */
+    public function redeemSeat(string $token, string $fingerprint): array
+    {
+        return $this->spend($token, self::SEAT, $fingerprint, 'key:' . IdentityKey::normalize($fingerprint));
+    }
+
+    /**
+     * @return array{ok: true, id: string, scopes: list<string>, authorized_by: string, expires_at: string}|array{ok: false, reason: string}
+     *
+     * @throws \RuntimeException
+     */
+    private function spend(string $token, string $kind, string $key, string $redeemer): array
+    {
         $now = ($this->clock)();
         /** @var list<array{ok: true, id: string, scopes: list<string>, authorized_by: string, expires_at: string}|array{ok: false, reason: string}> $verdicts */
         $verdicts = [];
-        $this->mutate(static function (array $map) use ($token, $credentialId, $now, &$verdicts): array {
-            $verdict = self::judge($map, $token, $now);
+        $this->mutate(static function (array $map) use ($token, $kind, $key, $redeemer, $now, &$verdicts): array {
+            $verdict = self::judge($map, $token, $now, $kind, $key);
             $verdicts[] = $verdict;
             if ($verdict['ok'] === true) {
                 $id = $verdict['id'];
                 $entry = \is_array($map[$id] ?? null) ? $map[$id] : [];
-                $entry['redeemed_by'] = 'passkey:' . $credentialId;
+                $entry['redeemed_by'] = $redeemer;
                 $entry['redeemed_at'] = $now->format(\DATE_ATOM);
                 $map[$id] = $entry;
             }
@@ -154,7 +215,7 @@ final class IdentityInvitations
     }
 
     /**
-     * The credentials an invitation rooted — part of the house's root from then on.
+     * The credentials an invitation rooted — passkeys and seat keys — part of the house's root from then on.
      *
      * @return list<string>
      */
@@ -163,12 +224,30 @@ final class IdentityInvitations
         $rooted = [];
         foreach ($this->read() ?? [] as $invitation) {
             $by = \is_array($invitation) ? ($invitation['redeemed_by'] ?? null) : null;
-            if (\is_string($by) && str_starts_with($by, 'passkey:') && \strlen($by) > 8) {
-                $rooted[] = substr($by, 8);
+            if (!\is_string($by)) {
+                continue;
+            }
+            foreach (['passkey:', 'key:'] as $prefix) {
+                if (str_starts_with($by, $prefix) && \strlen($by) > \strlen($prefix)) {
+                    $rooted[] = substr($by, \strlen($prefix));
+                }
             }
         }
 
         return $rooted;
+    }
+
+    /** The label of the seat invitation this key redeemed — what the person who minted it called the seat — or null. */
+    public function labelFor(string $fingerprint): ?string
+    {
+        $key = 'key:' . IdentityKey::normalize($fingerprint);
+        foreach ($this->read() ?? [] as $invitation) {
+            if (\is_array($invitation) && ($invitation['redeemed_by'] ?? null) === $key) {
+                return \is_string($invitation['label'] ?? null) ? $invitation['label'] : null;
+            }
+        }
+
+        return null;
     }
 
     /** Whether any invitation was ever redeemed — the house is no longer waiting for its first human. */
@@ -182,7 +261,7 @@ final class IdentityInvitations
      *
      * @return array{ok: true, id: string, scopes: list<string>, authorized_by: string, expires_at: string}|array{ok: false, reason: string}
      */
-    private static function judge(array $map, string $token, \DateTimeImmutable $now): array
+    private static function judge(array $map, string $token, \DateTimeImmutable $now, string $kind, ?string $key): array
     {
         if (trim($token) === '') {
             return ['ok' => false, 'reason' => self::UNKNOWN];
@@ -192,12 +271,20 @@ final class IdentityInvitations
             if (!\is_array($invitation) || !\is_string($invitation['hash'] ?? null) || !hash_equals($invitation['hash'], $hash)) {
                 continue;
             }
+            // Presented at the other kind's door, an invitation is one this door never issued (decisions/0499).
+            if (($invitation['kind'] ?? self::PASSKEY) !== $kind) {
+                return ['ok' => false, 'reason' => self::UNKNOWN];
+            }
             if (($invitation['redeemed_by'] ?? null) !== null) {
                 return ['ok' => false, 'reason' => self::REDEEMED];
             }
             $expires = \is_string($invitation['expires_at'] ?? null) ? \DateTimeImmutable::createFromFormat(\DATE_ATOM, $invitation['expires_at']) : false;
             if ($expires === false || $expires <= $now) {
                 return ['ok' => false, 'reason' => self::EXPIRED];
+            }
+            $for = $invitation['for_key'] ?? null;
+            if (\is_string($for) && $for !== '' && ($key === null || IdentityKey::normalize($key) !== $for)) {
+                return ['ok' => false, 'reason' => self::WRONG_KEY];
             }
             $scopes = [];
             foreach (\is_array($invitation['scopes'] ?? null) ? $invitation['scopes'] : [] as $scope) {
