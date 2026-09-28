@@ -105,6 +105,12 @@ final class RecipeOperations implements CommandProvider
                 // (greenhouse decisions/0278).
                 scopes: ['recipe:apply'],
                 surfaces: ['cli', 'tui', 'mcp'],
+                // ITS SEQUENCE IS THE SESSION IT PAUSES IN — the one named, or `recipe:<name>` — so the
+                // resume after each answer cites the signature that opened it instead of asking for
+                // a new one (greenhouse decisions/0458: eight signatures for one blog, now one).
+                continues: static fn (array $arguments): ?string => \is_string($arguments['session'] ?? null) && trim($arguments['session']) !== ''
+                    ? $arguments['session']
+                    : (\is_string($arguments['recipe'] ?? null) && trim($arguments['recipe']) !== '' ? self::sessionIdFor(trim($arguments['recipe'])) : null),
             ),
             // 🚨 THE PLAN IS A READ, AND ASKING FOR IT MUST NOT COST A CEREMONY.
             //
