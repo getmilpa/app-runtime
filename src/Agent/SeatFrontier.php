@@ -28,6 +28,11 @@ use Milpa\ToolRuntime\Contracts\ToolContext;
  * opened it (`session.started.by`); the human answers for it through the enrollment ledger
  * ({@see EnrollmentLine}). A refusal is OPEN while the authoring policy, asked again with the scopes the
  * seat holds now, still names a permission for the recorded call — the text of the refusal is never read.
+ *
+ * A refusal for one plugin's write scope is OFFERED only when that plugin is a real or an intended target
+ * (decisions/0496): the house already has it, or the standing ask — the session's goal and the human's
+ * turns — names it as a whole identifier. A name the model made up stays a refusal in the stream; it
+ * never becomes a Grant button.
  */
 final class SeatFrontier
 {
@@ -117,11 +122,12 @@ final class SeatFrontier
         if ($seat === null) {
             return null;
         }
+        $standing = self::standingAskIn($events);
         foreach ($events as $event) {
             if ($event->seq !== $seq) {
                 continue;
             }
-            $refusal = $this->judge($event, $seat);
+            $refusal = $this->judge($event, $seat, $standing);
 
             return $refusal === null ? null : $refusal + ['seat' => $seat];
         }
@@ -158,8 +164,9 @@ final class SeatFrontier
     {
         $open = [];
         $seen = [];
+        $standing = self::standingAskIn($events);
         foreach ($events as $event) {
-            $refusal = $this->judge($event, $seat);
+            $refusal = $this->judge($event, $seat, $standing);
             if ($refusal === null) {
                 continue;
             }
@@ -177,7 +184,7 @@ final class SeatFrontier
     }
 
     /** @return array{seq: int, tool: string, plugin: ?string, permission: string}|null */
-    private function judge(Event $event, string $seat): ?array
+    private function judge(Event $event, string $seat, string $standing): ?array
     {
         $payload = $event->payload;
         if ($event->type !== 'session.tool_called' || ($payload['ok'] ?? null) !== false || !\is_string($payload['tool'] ?? null)) {
@@ -185,8 +192,11 @@ final class SeatFrontier
         }
         $arguments = \is_array($payload['arguments'] ?? null) ? $payload['arguments'] : [];
         $scopes = $this->enrollments->scopesFor($seat) ?? [];
-        $missing = $this->policy->missingPermission(new ToolContext('key:' . $seat, 'cli', $scopes), $payload['tool'], $arguments);
+        $missing = $this->policy->missing(new ToolContext('key:' . $seat, 'cli', $scopes), $payload['tool'], $arguments);
         if ($missing === null) {
+            return null;
+        }
+        if ($missing->plugin !== null && !$this->policy->pluginExists($missing->plugin) && !self::names($standing, $missing->plugin)) {
             return null;
         }
 
@@ -194,8 +204,38 @@ final class SeatFrontier
             'seq' => $event->seq,
             'tool' => $payload['tool'],
             'plugin' => \is_string($arguments['plugin'] ?? null) ? $arguments['plugin'] : null,
-            'permission' => $missing,
+            'permission' => $missing->permission,
         ];
+    }
+
+    /**
+     * Whether the standing ask names this plugin as a whole identifier, ignoring case.
+     *
+     * Stricter than the `target_not_named` gate (decisions/0009), which only relaxes a question and so
+     * accepts a substring: a grant is authority over one identifier, so «a plugin named Blog» names
+     * `Blog` and `blog`, but neither `BlogPlugin` nor `log`. Ignoring case has a named cost: a common
+     * word of the goal names itself, so that sentence also names `Plugin`.
+     */
+    private static function names(string $standing, string $plugin): bool
+    {
+        return preg_match('/(?<![A-Za-z0-9_])' . preg_quote($plugin, '/') . '(?![A-Za-z0-9_])/iu', $standing) === 1;
+    }
+
+    /**
+     * The standing ask: the session's current goal and every turn the human wrote into it.
+     *
+     * @param list<Event> $events
+     */
+    private static function standingAskIn(array $events): string
+    {
+        $ask = [self::goalIn($events)];
+        foreach ($events as $event) {
+            if ($event->type === 'session.turn' && ($event->payload['role'] ?? null) === 'user' && \is_string($event->payload['content'] ?? null)) {
+                $ask[] = $event->payload['content'];
+            }
+        }
+
+        return implode("\n", $ask);
     }
 
     /** @param list<Event> $events */
