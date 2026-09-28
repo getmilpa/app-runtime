@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.193.0](https://github.com/getmilpa/app-runtime/compare/v0.192.0...v0.193.0) (2026-09-28)
+
+
+### Features
+
+* **identity:** only the seat's line answers its session; a grant tells the session (greenhouse 0495) ([#616](https://github.com/getmilpa/app-runtime/issues/616)) ([2ec0bfd](https://github.com/getmilpa/app-runtime/commit/2ec0bfd9072b43d5a40b894795cec79eb337a8ed))
+
 ## [0.192.0](https://github.com/getmilpa/app-runtime/compare/v0.191.0...v0.192.0) (2026-09-28)
 
 
