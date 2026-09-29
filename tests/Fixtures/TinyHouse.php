@@ -40,8 +40,8 @@ spl_autoload_register(static function (string $class): void {
 });
 return $loader;
 ');
-        // Where the house lives, in its container — the one line the skeleton's `config/boot.php` carries.
-        file_put_contents($root . '/config/boot.php', '<?php $c = new \Milpa\Container\DIContainer(); $c->registerService(\Milpa\Plugin\Contracts\AppRoot::class, new \Milpa\Plugin\Contracts\AppRoot(dirname(__DIR__))); return ["container" => $c, "plugins" => require __DIR__ . "/plugins.php"];');
+        // Where the house lives, and which plugins are switched on — the two lines the skeleton's `config/boot.php` carries.
+        file_put_contents($root . '/config/boot.php', '<?php $c = new \Milpa\Container\DIContainer(); $c->registerService(\Milpa\Plugin\Contracts\AppRoot::class, new \Milpa\Plugin\Contracts\AppRoot(dirname(__DIR__))); return ["container" => $c, "plugins" => \Milpa\Plugin\Activation\ActivePlugins::wire($c, require __DIR__ . "/plugins.php", dirname(__DIR__) . "/storage/plugins.json")];');
         file_put_contents($root . '/config/app.php', '<?php return [];');
         foreach ($plugins as $name) {
             self::plugin($root, $name);

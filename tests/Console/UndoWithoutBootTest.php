@@ -64,7 +64,10 @@ final class UndoWithoutBootTest extends TestCase
         @mkdir($ws->copy . '/src/Plugins/Roto', 0o777, true);
         file_put_contents($ws->copy . '/src/Plugins/Roto/Roto.php', TinyHouse::pluginSource('Roto', broken: $broken));
         file_put_contents($ws->copy . '/config/plugins.php', TinyHouse::pluginsFile('Blog', 'Roto'));
-        foreach ((new TrialOperations(new DIContainer(), null, $this->root, null))->operations() as $op) {
+        // Promoted the way the published train did (evidence/1036, R1): without asking whether the house still
+        // boots. Since 0506 a promotion refuses to land a broken boot; the undo is for houses broken anyway —
+        // by an older runtime, a person's editor, a `composer` step.
+        foreach ((new TrialOperations(new DIContainer(), null, $this->root, null, null))->operations() as $op) {
             if ($op->name === 'sandbox:promote') {
                 $receipt = ($op->handler)(['workspace' => 'w1']);
                 self::assertTrue($receipt['ok'] ?? false, (string) json_encode($receipt));
@@ -163,7 +166,7 @@ final class UndoWithoutBootTest extends TestCase
                 (new FileEnrollmentStore($this->root . '/storage/identity/enrollments.json'))->record(new IdentityEnrolled((new LabSigner())->fingerprint, $enrolled, 'key:0000'));
             }
             [$exit, $out] = $this->coa(['sandbox:undo', '--workspace=w1', ...$flags]);
-            self::assertSame($house === 'does not boot', str_contains($out, 'Undoing without booting it'), $out);
+            self::assertSame($house === 'does not boot', str_contains($out, 'Recovering without booting it'), $out);
             $verdicts[$house] = $exit;
             self::assertSame($expected, $exit, "{$house}: {$out}");
         }

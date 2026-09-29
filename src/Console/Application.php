@@ -81,6 +81,9 @@ use Milpa\Runtime\Kernel;
  */
 final class Application
 {
+    /** The recovery doors that run when the house does not boot (greenhouse decisions/0506) — nothing else does. */
+    private const RECUPERACION = ['sandbox:undo', 'plugins:disable-unsafe'];
+
     /** @var list<Operation>|null resueltos una vez por corrida */
     private ?array $operations = null;
 
@@ -232,7 +235,7 @@ final class Application
     /**
      * @param string                                             $root        where the app lives
      * @param \Milpa\Console\OperationSigner|null                $firmante    who signs a `--sign` on either door — the ordinary one and the one
-     *                                                                        without a kernel ({@see deshacerSinKernel()}); null is gpg
+     *                                                                        without a kernel ({@see recuperarSinKernel()}); null is gpg
      * @param \Milpa\ToolRuntime\Identity\SignatureVerifier|null $verificador who verifies it; null is gpg. Both exist so the two doors can be
      *                                                                        asked the same question with the same key (greenhouse decisions/0506)
      */
@@ -361,10 +364,12 @@ final class Application
         // rompe el arranque deja a `sandbox:undo` muriendo del mismo fatal que vino a deshacer. Un fatal
         // no se atrapa: se pregunta ANTES, en un proceso aparte, si la casa arranca. Si arranca, nada
         // cambia; si no, la reversa corre sin tocar un solo archivo de la app.
-        if ($comando === 'sandbox:undo') {
+        // Y la otra vía de recuperación que la casa ya ofrecía, `plugins:disable-unsafe` («Recovery only»):
+        // en evidence/1036 (R1) también murió al arrancar, igual que `coa list`.
+        if (\in_array($comando, self::RECUPERACION, true)) {
             $porQue = (new \Milpa\AppRuntime\Support\BootProbe())->whyNot($this->root);
             if ($porQue !== null) {
-                return $this->deshacerSinKernel(\array_slice($argv, 2), $porQue);
+                return $this->recuperarSinKernel($comando, \array_slice($argv, 2), $porQue);
             }
         }
 
@@ -1319,7 +1324,7 @@ final class Application
      * What a verified signer may do in this house — one judgment for every door of the terminal.
      *
      * The enrollment ledger and the policy file are read from disk, never from the kernel: the same
-     * judgment has to hold when the kernel does not boot ({@see deshacerSinKernel()}), and two copies
+     * judgment has to hold when the kernel does not boot ({@see recuperarSinKernel()}), and two copies
      * of it would disagree the day it matters.
      */
     private function autoridadDelFirmante(VerifiedSigner $signer, ?\Milpa\Auth\AuthContext $identity): ?ToolContext
@@ -1341,13 +1346,14 @@ final class Application
     }
 
     /**
-     * `sandbox:undo` for a house that does not boot — the way back that used to exist only by hand.
+     * `sandbox:undo` and `plugins:disable-unsafe` for a house that does not boot — the ways back that used to exist only by hand.
      *
      * Measured in greenhouse evidence/1038 (n5): a promotion registered a plugin whose class misses an
      * interface method, and `coa sandbox:undo` booted that same house and died of the same compile fatal.
      * The pre-image (decisions/0069) was there, and only a person with a shell and the know-how could
-     * put it back. A fatal cannot be caught; it can be avoided: this path touches no file of the app —
-     * no `config/`, no `src/` — only `vendor/`, `var/trials/` and the identity files on disk.
+     * put it back; on the published train the same happened to `plugins:disable-unsafe` (evidence/1036, R1).
+     * A fatal cannot be caught; it can be avoided: this path boots nothing of the app — it reads `vendor/`,
+     * `var/trials/`, `storage/` and the identity files, and `config/plugins.php` only as a list of names.
      *
      * THE SAME AUTHORITY, NEVER A WIDER ONE (greenhouse decisions/0506). The call goes through the same
      * `CliRunner` as always: the consent gate asks for `--sign`, the signer is judged by the same
@@ -1360,10 +1366,10 @@ final class Application
      *
      * @param list<string> $argv tokens after the command name
      */
-    private function deshacerSinKernel(array $argv, string $porQue): int
+    private function recuperarSinKernel(string $comando, array $argv, string $porQue): int
     {
         $this->line('✗ The house does not boot: ' . $porQue);
-        $this->line('  Undoing without booting it: only sandbox:undo runs here, under the same signature and write-set checks.');
+        $this->line('  Recovering without booting it: only ' . $comando . ' runs here, under the same signature, scope and write-set checks.');
 
         $token = getenv(PresentedToken::ENV);
         if (\is_string($token) && trim($token) !== '') {
@@ -1379,17 +1385,29 @@ final class Application
         $container->registerService(\Milpa\ToolRuntime\Contracts\CallPolicy::class, $policy);
         $container->registerService(\Milpa\Console\OperationBoundary::class, $policy);
         $operacion = null;
-        foreach ((new \Milpa\AppRuntime\Operations\TrialOperations($container, null, $this->root, null))->operations() as $op) {
-            if ($op->name === 'sandbox:undo') {
+        foreach ($this->operacionesDeRecuperacion($container) as $op) {
+            if (str_replace(['_', '.'], ':', $op->name) === $comando) {
                 $operacion = $op;
             }
         }
         if ($operacion === null) {
+            $this->line('✗ ' . $comando . ' cannot be offered without the kernel on this install.');
+
             return 1;
         }
 
         $renderer = \in_array('--json', $argv, true) ? new JsonCliRenderer() : new PlainTextCliRenderer();
         $base = ToolContext::cli();
+        // The same scope check the ordinary door runs before the runner (`plugins:disable-unsafe` declares
+        // `plugins:write`); with no token here, the local shell's default is what it judges.
+        $scope = (new PolicyGate())->authorizeScopes($base, McpProjector::toolName($operacion->name), $operacion->scopes);
+        if (!$scope->allowed) {
+            foreach ($renderer->presentError((string) $scope->reason) as $line) {
+                $this->line($line);
+            }
+
+            return 1;
+        }
         $salida = (new CliRunner(
             signer: $this->firmante,
             renderer: $renderer,
@@ -1404,6 +1422,39 @@ final class Application
         }
 
         return $salida;
+    }
+
+    /**
+     * The recovery operations, built from disk alone: the trial doors and the plugin registry's own file.
+     *
+     * `plugins.disable-unsafe` is milpa/plugin's, over the same `storage/plugins.json` the boot reads
+     * (`ActivePlugins::wire`). Its record of a declared plugin is read from the class's metadata, so the
+     * declared list is read from `config/plugins.php` — and if that very file is what broke, from nothing:
+     * a stored record can still be turned off. A declared class whose file does not even compile would take
+     * this process down when its metadata is read; that shape is `sandbox:undo`'s, which reads no app code.
+     *
+     * @return list<Operation>
+     */
+    private function operacionesDeRecuperacion(\Milpa\Container\DIContainer $container): array
+    {
+        $ops = (new \Milpa\AppRuntime\Operations\TrialOperations($container, null, $this->root, null))->operations();
+        if (class_exists(\Milpa\Plugin\Operations\PluginOperations::class)) {
+            $declarados = [];
+            try {
+                $leidos = is_file($this->root . '/config/plugins.php') ? require $this->root . '/config/plugins.php' : [];
+                $declarados = \is_array($leidos) ? array_values(array_filter($leidos, 'is_string')) : [];
+            } catch (\Throwable) {
+            }
+            $registro = new \Milpa\Plugin\Registry\FilePluginRegistry($this->root . '/storage/plugins.json');
+            $container->registerService(\Milpa\Plugin\Contracts\PluginRegistryInterface::class, $registro);
+            foreach ((new \Milpa\Plugin\Operations\PluginOperations($registro, null, $declarados, null, $this->root))->operations() as $op) {
+                if ($op->name === 'plugins.disable-unsafe') {
+                    $ops[] = $op;
+                }
+            }
+        }
+
+        return $ops;
     }
 
     private function kernel(): Kernel
