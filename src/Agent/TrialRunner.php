@@ -99,8 +99,14 @@ final class TrialRunner
         // mutation that tried to write vendor now takes an EPERM at write time instead of being caught
         // later at diff time. The bind comes AFTER `--bind <copy>` so it wins over the writable copy at
         // that one path. When the host has no vendor (a bare app), there is nothing to bind.
+        //
+        // /DEV/NULL, AND NO OTHER DEVICE (greenhouse evidence/1060): bwrap binds read-only WITHOUT devices, so
+        // under `--ro-bind / /` alone `/dev/null` is there and cannot be opened. git opens it at every start
+        // (and refuses to run without it), a shell's `2>/dev/null` fails before running its command, and the
+        // boot witness of 0515 could not start its child — every witnessed writer refused inside a leg. The
+        // sink is bound back with its device; /dev/zero, /dev/tty and the rest stay closed.
         $command = ['timeout', '-k', '2', (string) $this->timeoutSeconds, $this->bwrap,
-            '--unshare-net', '--unshare-pid', '--die-with-parent', '--ro-bind', '/', '/'];
+            '--unshare-net', '--unshare-pid', '--die-with-parent', '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null'];
         if ($writePaths === null) {
             array_push($command, '--bind', $workspace->copy, $workspace->copy);
         } else {

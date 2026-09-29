@@ -18,6 +18,7 @@ use Milpa\AppRuntime\Config\AgentKeys;
 use Milpa\AppRuntime\Config\JudgeCeiling;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\CatalogueBorrower;
+use Milpa\AppRuntime\Support\ChildProcess;
 use Milpa\AppRuntime\Config\MachineOverlay;
 use Milpa\AppRuntime\Config\SecretOverlay;
 use Milpa\Command\CommandProvider;
@@ -402,8 +403,9 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
             // Not a repository: nothing would commit it, so nothing is missing.
             return null;
         }
-        $status = 1;
-        @exec('git -C ' . escapeshellarg($root) . ' check-ignore -q ' . escapeshellarg($probe) . ' 2>/dev/null', $_, $status);
+        // Through ChildProcess, never `2>/dev/null`: inside a rehearsal's trial the redirect fails, git never runs,
+        // and an ignored overlay read as «missing» (greenhouse evidence/1060).
+        [$status] = ChildProcess::lines(['git', '-C', $root, 'check-ignore', '-q', $probe]);
 
         return $status === 0 ? null : SecretOverlay::IGNORE_LINE;
     }

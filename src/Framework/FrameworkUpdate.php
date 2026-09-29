@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Framework;
 
+use Milpa\AppRuntime\Support\ChildProcess;
 use Milpa\Plugin\Contracts\BootWitnessInterface;
 
 /**
@@ -224,7 +225,9 @@ final class FrameworkUpdate
      */
     private static function gitCannotBeTheWayBack(string $root, array $paths): ?string
     {
-        exec('git -C ' . escapeshellarg($root) . ' rev-parse --is-inside-work-tree 2>/dev/null', $out, $status);
+        // Git through ChildProcess, never `2>/dev/null`: inside a rehearsal's trial the redirect fails and the shell
+        // never runs git, so every house read as «not a repository» (greenhouse evidence/1060).
+        [$status] = ChildProcess::lines(['git', '-C', $root, 'rev-parse', '--is-inside-work-tree']);
         if ($status !== 0) {
             return 'this house is not a git repository, so there would be no way back from an overwrite — commit it to git first, or take the files by hand';
         }
@@ -237,8 +240,7 @@ final class FrameworkUpdate
         $untracked = [];
         $dirty = [];
         foreach ($paths as $path) {
-            $lines = [];
-            exec('git -C ' . escapeshellarg($root) . ' ls-files --error-unmatch -- ' . escapeshellarg($path) . ' 2>/dev/null', $lines, $tracked);
+            [$tracked] = ChildProcess::lines(['git', '-C', $root, 'ls-files', '--error-unmatch', '--', $path]);
             if ($tracked !== 0) {
                 // A file the release ADDS is not in this house yet, so of course git has never seen it:
                 // writing it destroys nothing and `git status` will show it as new.
@@ -248,8 +250,7 @@ final class FrameworkUpdate
 
                 continue;
             }
-            $lines = [];
-            exec('git -C ' . escapeshellarg($root) . ' status --porcelain -- ' . escapeshellarg($path) . ' 2>/dev/null', $lines, $code);
+            [$code, $lines] = ChildProcess::lines(['git', '-C', $root, 'status', '--porcelain', '--', $path]);
             if ($code === 0 && $lines !== []) {
                 $dirty[] = $path;
             }
