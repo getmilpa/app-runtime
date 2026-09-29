@@ -119,6 +119,8 @@ final class KernelDefinition
      * Every call first takes in the app's PHP files the process included since the last one, at their
      * current content, then compares everything it holds. A host calls it when a request starts (another
      * process changed the house) and when it ends (this request did).
+     *
+     * @phpstan-impure it reads the disk: two calls in a row can answer differently.
      */
     public function staleBecause(): ?string
     {
