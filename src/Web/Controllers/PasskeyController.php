@@ -27,6 +27,8 @@ use Milpa\Auth\WebAuthn\ChallengeStore;
 use Milpa\Auth\WebAuthn\PasskeyAuthenticator;
 use Milpa\Auth\WebAuthn\PasskeyCredentialStore;
 use Milpa\Auth\WebAuthn\PasskeyLogin;
+use Milpa\Auth\WebAuthn\RelyingParty;
+use Milpa\Auth\WebAuthn\UserVerificationRequirement;
 use Milpa\Auth\WebAuthn\WebAuthnRegistrationVerifier;
 use Milpa\Live\Assets\ComponentAssetOrchestrator;
 use Milpa\Live\Components\BrandMarkComponent;
@@ -68,7 +70,7 @@ final class PasskeyController
         private readonly PasskeyCredentialStore $credentials,
         private readonly RegisteredCredentialIds $registered,
         private readonly EnrollmentStore $enrollments,
-        private readonly string $rpId,
+        private readonly RelyingParty $relyingParty,
         private readonly string $cookieName,
         private readonly string $gateScope = 'milpa.admin',
         /**
@@ -109,8 +111,10 @@ final class PasskeyController
         $challenge = $this->challenges->issue();
 
         return $this->json(200, [
-            'rpId' => $this->rpId,
+            'rpId' => $this->relyingParty->id,
             'challenge' => self::base64UrlEncode($challenge),
+            // What the verifier demands, said to the browser: a touch without the PIN or biometric is refused.
+            'userVerification' => UserVerificationRequirement::Required->value,
         ]);
     }
 
@@ -151,7 +155,7 @@ final class PasskeyController
             return $this->json(401, ['ok' => false, 'error' => 'passkey_rejected']);
         }
 
-        $credential = $this->registration->verify($challenge, $this->rpId, $clientData, $attestation);
+        $credential = $this->registration->verify($challenge, $this->relyingParty, $clientData, $attestation);
         if ($credential === null) {
             return $this->json(401, ['ok' => false, 'error' => 'passkey_rejected']);
         }
@@ -197,9 +201,10 @@ final class PasskeyController
         $challenge = $this->authenticator->challenge();
 
         return $this->json(200, [
-            'rpId' => $this->rpId,
+            'rpId' => $this->relyingParty->id,
             'challenge' => self::base64UrlEncode($challenge),
             'allowCredentials' => $this->registered->allowEnrolledCredentials($this->enrollments),
+            'userVerification' => UserVerificationRequirement::Required->value,
         ]);
     }
 
@@ -219,7 +224,7 @@ final class PasskeyController
             return $this->json(400, ['error' => 'passkey_bad_request', 'message' => 'credentialId, clientDataJSON, authenticatorData and signature are required.']);
         }
 
-        $session = $this->login->login($this->rpId, $credentialId, $clientData, $authData, $signature);
+        $session = $this->login->login($this->relyingParty, $credentialId, $clientData, $authData, $signature);
         if ($session === null) {
             // Refused for any reason — replay, unknown or unrecognized credential, bad signature, clone.
             // The single message keeps the door from telling an attacker which check failed.
@@ -363,7 +368,7 @@ final class PasskeyController
         $context = new ComponentContext('gate-ceremony', route: '/webauthn');
         $state = $component->mount([
             'kind' => $kind,
-            'rpId' => $this->rpId,
+            'rpId' => $this->relyingParty->id,
             'scope' => $this->gateScope,
             'next' => $next,
             'attachment' => $this->authenticatorAttachment,

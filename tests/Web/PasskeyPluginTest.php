@@ -86,7 +86,7 @@ final class PasskeyPluginTest extends TestCase
     public function testItRegistersTheSessionMiddlewareAsTheAuthContextFactoryToo(): void
     {
         [$container] = $this->container(rpId: 'milpa.local', withSessions: false);
-        $container->replaceService(Config::class, new Config(['passkey' => ['rpId' => 'milpa.local', 'cookie' => 'panel_session']]));
+        $container->replaceService(Config::class, new Config(['passkey' => ['rpId' => 'milpa.local', 'origins' => ['https://milpa.local'], 'cookie' => 'panel_session']]));
         (new PasskeyPlugin($container))->boot();
 
         self::assertTrue($container->has(PasskeySessionMiddleware::class));
@@ -174,7 +174,7 @@ final class PasskeyPluginTest extends TestCase
         $sessionsPath = $root . '/elsewhere/sessions.json';
         // The full knob set, declared once the root is known (the sessions path points under it).
         $container->replaceService(Config::class, new Config(['passkey' => [
-            'rpId' => 'milpa.local', 'sessions' => $sessionsPath, 'ttl' => 120, 'gate' => ['scope' => 'ops.panel'], 'cookie' => 'panel_session',
+            'rpId' => 'milpa.local', 'origins' => ['https://milpa.local'], 'sessions' => $sessionsPath, 'ttl' => 120, 'gate' => ['scope' => 'ops.panel'], 'cookie' => 'panel_session',
         ]]));
         (new PasskeyPlugin($container))->boot();
 
@@ -248,7 +248,7 @@ final class PasskeyPluginTest extends TestCase
     private function container(?string $rpId, bool $withSessions): array
     {
         $c = new DIContainer();
-        $c->registerService(Config::class, new Config($rpId === null ? [] : ['passkey' => ['rpId' => $rpId]]));
+        $c->registerService(Config::class, new Config($rpId === null ? [] : ['passkey' => ['rpId' => $rpId, 'origins' => ['https://' . $rpId]]]));
 
         $root = sys_get_temp_dir() . '/milpa-pkp-' . bin2hex(random_bytes(4));
         $this->roots[] = $root;

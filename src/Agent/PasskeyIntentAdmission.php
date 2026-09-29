@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Agent;
 
 use Milpa\Auth\WebAuthn\PasskeyAuthenticator;
+use Milpa\Auth\WebAuthn\RelyingParty;
 use Milpa\Command\Consent\ConsentGrant;
 use Milpa\Command\Consent\OperationId;
 use Milpa\Command\Effect\VerifiedPrincipal;
@@ -77,10 +78,13 @@ final class PasskeyIntentAdmission
      * Admit a passkey assertion into a proof-backed IntentGrant for the call its challenge was bound
      * to — or `null` when the proof does not hold.
      *
+     * @param RelyingParty $relyingParty the house's relying party: the assertion must come from one of its
+     *                                   origins and carry user verification, or it is refused
+     *
      * @return ConsentGrant|null the grant for the bound call, or null on any failure (fail-closed)
      */
     public function admit(
-        string $rpId,
+        RelyingParty $relyingParty,
         string $credentialId,
         string $clientDataJson,
         string $authenticatorData,
@@ -93,7 +97,7 @@ final class PasskeyIntentAdmission
 
         // Verify FIRST: a registered credential, a live signature over this challenge, the challenge
         // spent once, the counter climbing — everything milpa/auth's authenticator already proves.
-        $verified = $this->authenticator->authenticate($rpId, $credentialId, $clientDataJson, $authenticatorData, $signature);
+        $verified = $this->authenticator->authenticate($relyingParty, $credentialId, $clientDataJson, $authenticatorData, $signature);
         if ($verified === null) {
             return null;
         }

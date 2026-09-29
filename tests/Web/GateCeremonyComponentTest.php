@@ -317,7 +317,7 @@ final class GateCeremonyComponentTest extends TestCase
     {
         $class = new \ReflectionClass(PasskeyController::class);
         $controller = $class->newInstanceWithoutConstructor();
-        foreach (['rpId' => 'localhost', 'gateScope' => 'milpa.admin', 'authenticatorAttachment' => null, 'events' => null] as $name => $value) {
+        foreach (['relyingParty' => new \Milpa\Auth\WebAuthn\RelyingParty('localhost', 'Milpa', ['http://localhost:8000']), 'gateScope' => 'milpa.admin', 'authenticatorAttachment' => null, 'events' => null] as $name => $value) {
             $property = $class->getProperty($name);
             $property->setAccessible(true);
             $property->setValue($controller, $value);

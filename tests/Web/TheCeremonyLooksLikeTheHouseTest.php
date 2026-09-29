@@ -196,7 +196,7 @@ final class TheCeremonyLooksLikeTheHouseTest extends TestCase
 
         // Every property the page path reads, seeded — a promoted readonly left uninitialised is a
         // TypeError at first access, not a null (greenhouse decisions/0263).
-        foreach (['rpId' => 'localhost', 'gateScope' => 'milpa.admin', 'authenticatorAttachment' => null, 'events' => null] as $property => $value) {
+        foreach (['relyingParty' => new \Milpa\Auth\WebAuthn\RelyingParty('localhost', 'Milpa', ['http://localhost:8000']), 'gateScope' => 'milpa.admin', 'authenticatorAttachment' => null, 'events' => null] as $property => $value) {
             if ($class->hasProperty($property)) {
                 $reflected = $class->getProperty($property);
                 $reflected->setAccessible(true);
@@ -220,7 +220,7 @@ final class TheCeremonyLooksLikeTheHouseTest extends TestCase
     private function container(): DIContainer
     {
         $container = new DIContainer();
-        $container->registerService(Config::class, new Config(['passkey' => ['rpId' => 'localhost']]));
+        $container->registerService(Config::class, new Config(['passkey' => ['rpId' => 'localhost', 'origins' => ['http://localhost:8000']]]));
 
         return $container;
     }

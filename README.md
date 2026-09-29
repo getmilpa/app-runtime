@@ -557,10 +557,13 @@ physical YubiKey, greenhouse evidence/0519):
    the agent operations.
 1. **Declare the plugin and the relying party.** In `config/plugins.php` list
    `Milpa\AppRuntime\Web\PasskeyPlugin::class`; in `config/app.php` declare
-   `'passkey' => ['rpId' => 'localhost']`. The `rpId` must be the host the browser is on, and WebAuthn
-   needs a secure context (`https://`, or `localhost`). Without `rpId` the plugin mounts nothing — a
-   relying party nobody chose is one nobody can trust. With it, and no session store registered by the
-   host, the plugin provides one (`var/passkey/sessions.json`).
+   `'passkey' => ['rpId' => 'localhost', 'origins' => ['http://localhost:8000']]`. The `rpId` must be the
+   host the browser is on, and WebAuthn needs a secure context (`https://`, or `localhost`). `origins`
+   lists **exactly** what the address bar shows — scheme, host and port — for every place the house is
+   served from; a ceremony from any other origin is refused, and the list is never guessed from the
+   request. Without `rpId` the plugin mounts nothing — a relying party nobody chose is one nobody can
+   trust; with `rpId` and no valid `origins` it refuses to boot, naming the key. With both, and no
+   session store registered by the host, the plugin provides one (`var/passkey/sessions.json`).
 2. **Register the key.** Open `GET /webauthn/enroll`, press *Register with passkey*, touch the key. The
    page prints the **credential id** (base64url). The credential is now *registered* — the house holds
    its public key — but *recognized* by nobody: registering grants nothing.
@@ -626,6 +629,7 @@ secret, the private key is. The intent page (the D-01 approve ceremony) now requ
 | key | default | what it decides |
 |---|---|---|
 | `passkey.rpId` | *none — required* | the relying-party id every assertion binds to; without it, no routes |
+| `passkey.origins` | *none — required with `rpId`* | the exact origins (`https://host[:port]`; plain `http` only on `localhost`/`127.0.0.1`/`[::1]`) a registration, sign-in or intent may come from; missing or malformed, the plugin refuses to boot |
 | `passkey.cookie` | `milpa_session` | the cookie the session id travels in (HttpOnly, SameSite=Strict) |
 | `passkey.ttl` | `3600` | session lifetime in seconds, from the moment the ceremony mints it |
 | `passkey.sessions` | `<root>/var/passkey/sessions.json` | where the provided `FileSessionStore` writes — ignored when the host registered its own `SessionStore` |
@@ -633,6 +637,22 @@ secret, the private key is. The intent page (the D-01 approve ceremony) now requ
 
 `POST /webauthn/register` stays open: registering grants nothing, enrolling is the act, and the root gate
 is the file only you write.
+
+Every ceremony — registration, sign-in and intent — also demands **user verification** (the PIN or the
+biometric, not just a touch), and each options response says so (`userVerification: 'required'`).
+
+**What the container hands out** once the door is booted, so a host that runs a passkey ceremony of its
+own (a signature, an approval) never repeats a path:
+
+| service id | instance | backed by |
+|---|---|---|
+| `Milpa\Auth\WebAuthn\RelyingParty` | the one relying party every ceremony is verified against | `passkey.rpId` + `passkey.origins` |
+| `Milpa\Auth\WebAuthn\PasskeyCredentialStore` | `FilePasskeyCredentialStore` | `<root>/var/passkey/credentials.json` (`PasskeyPlugin::CREDENTIALS_PATH`) |
+| `Milpa\AppRuntime\Web\RegisteredCredentialIds` | the ids in that ledger, for `allowCredentials` | the same file |
+| `Milpa\AppRuntime\Identity\EnrollmentStore` | `FileEnrollmentStore` | `<root>/storage/identity/enrollments.json` (`PasskeyPlugin::ENROLLMENTS_PATH`) |
+
+The plugin owns these: a host that registered a different class under one of those ids first makes the
+boot fail loudly rather than run two ledgers.
 
 ### The session on the operations surface
 
@@ -687,6 +707,34 @@ $response = $handler->handle($request);
 ```
 
 ## Upgrading
+
+### 0.201.0 — passkey ceremonies are held to `passkey.origins` (milpa/auth 0.11)
+
+`milpa/auth` 0.11.0 checks what its WebAuthn verifiers used to skip: the clientDataJSON **origin** must be
+one the relying party lists (exact string), and the authenticator must report **user verification**. Its
+verifiers, `PasskeyAuthenticator::authenticate` and `PasskeyLogin::login` take a `RelyingParty` instead of
+a `string $rpId`. This release adopts it and **conflicts with `milpa/auth < 0.11`**, so Composer will not
+pair it with an older one; the reverse pairing — 0.11 under an older app-runtime — fails closed, answering
+every sign-in and registration with a `500`. Update both together.
+
+- **Declare the origins.** In `config/app.php`, next to `rpId`:
+  ```php
+  'passkey' => ['rpId' => 'example.com', 'origins' => ['https://example.com']],
+  ```
+  List every origin the pages are served from — `https://admin.example.com` is not implied by
+  `example.com`, and `https://example.com:8443` is not `https://example.com`. On a laptop,
+  `'rpId' => 'localhost', 'origins' => ['http://localhost:8000']` (the port `php bin/coa serve` uses).
+  A house that declares `rpId` without valid `origins` now **refuses to boot**, naming the key; one that
+  declares neither keeps mounting nothing, as before. `capabilities:enable identity` writes both.
+- **Keys without user verification stop signing in.** The pages already asked for
+  `userVerification: 'required'`; a key that nevertheless answered without the PIN or biometric was
+  accepted and is now refused. Registered credentials keep working — nothing stored changes.
+- **The ledgers are services.** `RelyingParty`, `PasskeyCredentialStore`, `RegisteredCredentialIds` and
+  `EnrollmentStore` are registered in the container (see *Passkey gate*); a host that built them from
+  `var/passkey/credentials.json` or `storage/identity/enrollments.json` can ask for them instead.
+- **Code that constructed the door by hand** passes the `RelyingParty` where it passed the rpId:
+  `PasskeyController` (8th argument), `PasskeyIntentController` (3rd), `PasskeyIntentProof` (2nd) and
+  `PasskeyIntentAdmission::admit()` (1st).
 
 ### `events:catalogue` answers for the APP, not for the process
 

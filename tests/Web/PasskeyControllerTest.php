@@ -26,6 +26,7 @@ use Milpa\Auth\WebAuthn\PasskeyLogin;
 use Milpa\Auth\WebAuthn\ChallengeStore;
 use Milpa\Auth\WebAuthn\FileChallengeStore;
 use Milpa\Auth\WebAuthn\RegisteredCredential;
+use Milpa\Auth\WebAuthn\RelyingParty;
 use Milpa\Auth\WebAuthn\WebAuthnRegistrationVerifier;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -354,7 +355,7 @@ final class PasskeyControllerTest extends TestCase
         $registered = new RegisteredCredentialIds($this->files[array_key_last($this->files)]); // the credentials ledger
         $enrollments = new FileEnrollmentStore(sys_get_temp_dir() . '/milpa-passkey-en-' . bin2hex(random_bytes(6)) . '.json');
         $enrollments->record(new IdentityEnrolled($storedId, ['agent:read'], 'key:TEST')); // recognized = enrolled
-        $loginController = new PasskeyController($auth, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $registered, $enrollments, self::RP_ID, self::COOKIE);
+        $loginController = new PasskeyController($auth, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $registered, $enrollments, new RelyingParty(self::RP_ID, 'Milpa', ['https://' . self::RP_ID]), self::COOKIE);
         // The freshly registered id is what the options now offer to the browser.
         $opt = json_decode((string) $loginController->options(new ServerRequest('POST', '/webauthn/authenticate/options'))->getBody(), true);
         self::assertSame([['type' => 'public-key', 'id' => $storedId]], $opt['allowCredentials']);
@@ -621,7 +622,7 @@ final class PasskeyControllerTest extends TestCase
         if ($recognized && $registerCred) {
             $enrollments->record(new IdentityEnrolled(self::CRED, ['agent:read'], 'key:TEST'));
         }
-        $controller = new PasskeyController($auth, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $registered, $enrollments, self::RP_ID, self::COOKIE, $gateScope, $attachment);
+        $controller = new PasskeyController($auth, $login, $challenges, new WebAuthnRegistrationVerifier(), $credentials, $registered, $enrollments, new RelyingParty(self::RP_ID, 'Milpa', ['https://' . self::RP_ID]), self::COOKIE, $gateScope, $attachment);
 
         return [$controller, $auth, $key, $sessions, $challenges, $credentials];
     }
@@ -633,7 +634,7 @@ final class PasskeyControllerTest extends TestCase
             'challenge' => rtrim(strtr(base64_encode($challenge), '+/', '-_'), '='),
             'origin' => 'https://' . self::RP_ID,
         ]);
-        $data = hash('sha256', self::RP_ID, true) . "\x01" . pack('N', 7);
+        $data = hash('sha256', self::RP_ID, true) . "\x05" . pack('N', 7);
         $sig = '';
         openssl_sign($data . hash('sha256', $client, true), $sig, $key, OPENSSL_ALGO_SHA256);
 
@@ -655,7 +656,7 @@ final class PasskeyControllerTest extends TestCase
             'challenge' => rtrim(strtr(base64_encode($challenge), '+/', '-_'), '='),
             'origin' => 'https://' . self::RP_ID,
         ]);
-        $data = hash('sha256', self::RP_ID, true) . "\x01" . pack('N', 7);
+        $data = hash('sha256', self::RP_ID, true) . "\x05" . pack('N', 7);
         $sig = '';
         openssl_sign($data . hash('sha256', $client, true), $sig, $key, OPENSSL_ALGO_SHA256);
         $b64 = static fn (string $v): string => rtrim(strtr(base64_encode($v), '+/', '-_'), '=');
@@ -689,7 +690,7 @@ final class PasskeyControllerTest extends TestCase
         // locally — the temptation there is to re-run until green, which is how a suite starts lying.
         $coord = static fn (string $raw): string => str_pad($raw, 32, "\x00", \STR_PAD_LEFT);
         $cose = self::cborCoseMap([1 => 2, 3 => -7, -1 => 1, -2 => $coord($d['ec']['x']), -3 => $coord($d['ec']['y'])]);
-        $authData = hash('sha256', self::RP_ID, true) . "\x41" . pack('N', 0)
+        $authData = hash('sha256', self::RP_ID, true) . "\x45" . pack('N', 0)
             . str_repeat("\x00", 16) . pack('n', \strlen($credId)) . $credId . $cose;
         $att = self::cborHead(5, 3)
             . self::cborText('fmt') . self::cborText('none')

@@ -44,14 +44,19 @@ final class SyntheticPasskey
      * The registration body: a `webauthn.create` clientDataJSON over `$challenge` and a `none`
      * attestation carrying the raw credential id and the COSE public key.
      *
+     * The flags say what a real authenticator says after the PIN or the biometric: user present AND user
+     * verified (milpa/auth 0.11 refuses a ceremony without UV). `$origin` defaults to `https://<rpId>`,
+     * the page a browser would report; a test passes another to play a page the house does not serve,
+     * and `$verified: false` to play a key that was touched but never verified its user.
+     *
      * @return array{clientDataJSON: string, attestationObject: string} base64url fields
      */
-    public static function attestation(\OpenSSLAsymmetricKey $key, string $rpId, string $challenge, string $rawCredentialId): array
+    public static function attestation(\OpenSSLAsymmetricKey $key, string $rpId, string $challenge, string $rawCredentialId, ?string $origin = null, bool $verified = true): array
     {
         $client = (string) json_encode([
             'type' => 'webauthn.create',
             'challenge' => self::b64u($challenge),
-            'origin' => 'https://' . $rpId,
+            'origin' => $origin ?? 'https://' . $rpId,
         ]);
         $d = openssl_pkey_get_details($key);
         // COSE EC2 coordinates are FIXED-WIDTH (RFC 8152: 32 bytes for P-256) and CoseKey refuses any
@@ -62,7 +67,7 @@ final class SyntheticPasskey
         $x = str_pad($d['ec']['x'], 32, "\0", \STR_PAD_LEFT);
         $y = str_pad($d['ec']['y'], 32, "\0", \STR_PAD_LEFT);
         $cose = self::cborCoseMap([1 => 2, 3 => -7, -1 => 1, -2 => $x, -3 => $y]);
-        $authData = hash('sha256', $rpId, true) . "\x41" . pack('N', 0)
+        $authData = hash('sha256', $rpId, true) . ($verified ? "\x45" : "\x41") . pack('N', 0)
             . str_repeat("\x00", 16) . pack('n', \strlen($rawCredentialId)) . $rawCredentialId . $cose;
         $att = self::cborHead(5, 3)
             . self::cborText('fmt') . self::cborText('none')
@@ -74,18 +79,19 @@ final class SyntheticPasskey
 
     /**
      * The authentication body: a `webauthn.get` clientDataJSON over `$challenge`, authenticator data
-     * with user presence and a climbing counter, and the ES256 signature over both.
+     * with user presence, user verification and a climbing counter, and the ES256 signature over both.
+     * `$origin` and `$verified` as in {@see attestation()}.
      *
      * @return array{credentialId: string, clientDataJSON: string, authenticatorData: string, signature: string}
      */
-    public static function assertion(\OpenSSLAsymmetricKey $key, string $rpId, string $challenge, string $credentialId, int $counter = 7): array
+    public static function assertion(\OpenSSLAsymmetricKey $key, string $rpId, string $challenge, string $credentialId, int $counter = 7, ?string $origin = null, bool $verified = true): array
     {
         $client = (string) json_encode([
             'type' => 'webauthn.get',
             'challenge' => self::b64u($challenge),
-            'origin' => 'https://' . $rpId,
+            'origin' => $origin ?? 'https://' . $rpId,
         ]);
-        $data = hash('sha256', $rpId, true) . "\x01" . pack('N', $counter);
+        $data = hash('sha256', $rpId, true) . ($verified ? "\x05" : "\x01") . pack('N', $counter);
         $sig = '';
         openssl_sign($data . hash('sha256', $client, true), $sig, $key, \OPENSSL_ALGO_SHA256);
 

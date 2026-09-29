@@ -2301,9 +2301,16 @@ final class SessionOperations implements CommandProvider
                 ? 'granting a scope requires the signature that names WHO decides; re-run with --sign, or approve it with your passkey in the panel'
                 : \sprintf('%s requires the signature that names WHO decides; re-run with --sign, or approve it with your passkey in the panel — %s', $operation, $nothing)];
         }
-        $proof = $this->container->has(\Milpa\AppRuntime\Agent\PasskeyIntentProof::class)
-            ? $this->container->get(\Milpa\AppRuntime\Agent\PasskeyIntentProof::class)
-            : null;
+        // Registered by PasskeyPlugin, or absent. `has()` also answers true for anything the container
+        // THINKS it could auto-wire, and the proof's collaborators are not auto-wirable — a door that was
+        // never mounted is no proof, not a 500.
+        try {
+            $proof = $this->container->has(\Milpa\AppRuntime\Agent\PasskeyIntentProof::class)
+                ? $this->container->get(\Milpa\AppRuntime\Agent\PasskeyIntentProof::class)
+                : null;
+        } catch (\Psr\Container\ContainerExceptionInterface) {
+            $proof = null;
+        }
         $grant = $proof instanceof \Milpa\AppRuntime\Agent\PasskeyIntentProof && \is_array($assertion)
             ? $proof->admit($assertion)
             : null;

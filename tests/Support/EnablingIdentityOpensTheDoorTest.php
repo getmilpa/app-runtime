@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Tests\Support;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Tests\Fixtures\RecordingWitness;
 use Milpa\AppRuntime\Web\PasskeyPlugin;
+use Milpa\Auth\WebAuthn\RelyingParty;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
@@ -152,6 +153,9 @@ final class EnablingIdentityOpensTheDoorTest extends TestCase
         $config = (fn (): mixed => include $this->root . '/config/app.php')();
         self::assertIsArray($config);
         self::assertSame('localhost', $config['passkey']['rpId']);
+        // The origins go with the id (milpa/auth 0.11): without them the door this act opened would refuse to boot.
+        self::assertSame(['http://localhost:8000'], $config['passkey']['origins']);
+        self::assertSame(['http://localhost:8000'], (new RelyingParty($config['passkey']['rpId'], 'x', $config['passkey']['origins']))->allowedOrigins);
         self::assertSame('door-house', $config['app']['name'], 'the rest of the file is what it was');
         self::assertStringContainsString('Declared by `capabilities:enable identity`', (string) file_get_contents($this->root . '/config/app.php'));
 
@@ -198,7 +202,7 @@ final class EnablingIdentityOpensTheDoorTest extends TestCase
     #[Test]
     public function a_relying_party_the_app_already_declares_is_kept(): void
     {
-        file_put_contents($this->root . '/config/app.php', "<?php\n\nreturn ['passkey' => ['rpId' => 'notes.example'], 'app' => ['name' => 'x']];\n");
+        file_put_contents($this->root . '/config/app.php', "<?php\n\nreturn ['passkey' => ['rpId' => 'notes.example', 'origins' => ['https://notes.example']], 'app' => ['name' => 'x']];\n");
         $before = (string) file_get_contents($this->root . '/config/app.php');
 
         $answer = Capabilities::install('identity', $this->vendorBefore, static fn (string $c): array => [0, []], vendorAfter: $this->vendorAfter, root: $this->root);
@@ -223,6 +227,19 @@ final class EnablingIdentityOpensTheDoorTest extends TestCase
         self::assertArrayNotHasKey('relying_party', $answer);
         self::assertStringEqualsFile($this->root . '/config/plugins.php', $pluginsFile);
         self::assertStringEqualsFile($this->root . '/config/app.php', $appFile);
+    }
+
+    #[Test]
+    public function a_relying_party_off_loopback_is_declared_with_its_https_origin(): void
+    {
+        file_put_contents($this->root . '/config/app.php', "<?php\n\nreturn [\n    'app' => ['name' => 'x'],\n];\n");
+
+        $answer = Capabilities::declareRelyingParty($this->root, 'notes.example');
+
+        self::assertSame(['rpId' => 'notes.example', 'written' => true, 'file' => 'config/app.php'], $answer);
+        $config = (fn (): mixed => include $this->root . '/config/app.php')();
+        self::assertIsArray($config);
+        self::assertSame(['rpId' => 'notes.example', 'origins' => ['https://notes.example']], $config['passkey']);
     }
 
     #[Test]
