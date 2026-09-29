@@ -43,11 +43,25 @@ use Milpa\Console\SequenceReceipts;
 final class UnsignedTerminal
 {
     /**
-     * Whether the operation declares a change that lasts — anything but `none` or `ephemeral`, undeclared included.
+     * Whether THIS call declares a change that lasts — anything but `none` or `ephemeral`, undeclared included.
+     *
+     * Read for the call, not for the operation in the abstract: the ceiling a call's arguments bring down
+     * (`ceilingForCall`, the descent `Consent` reads too) counts — `capabilities:enable --dry-run` changes nothing. And a
+     * dry run the operation's own schema declares (`dry_run`) is a plan, not a change: `make --dry-run` writes nothing,
+     * and asking a signature for a preview would teach nobody anything. That second reading trusts the operation's
+     * author the way its effect profile already does; an operation that declares `dry_run` and ignores it is a defect of
+     * that operation (greenhouse decisions/0522).
+     *
+     * @param array<string, mixed> $input
      */
-    public static function lasts(Operation $op): bool
+    public static function lasts(Operation $op, array $input = []): bool
     {
-        return !\in_array($op->effects?->mutation, [Mutation::None, Mutation::Ephemeral], true);
+        if (($input['dry_run'] ?? false) === true && isset($op->inputSchema['properties']['dry_run'])) {
+            return false;
+        }
+
+        return $op->effects === null
+            || !\in_array($op->ceilingForCall($input)->mutation, [Mutation::None, Mutation::Ephemeral], true);
     }
 
     /**
@@ -86,7 +100,7 @@ final class UnsignedTerminal
      */
     public static function refusal(Operation $op, array $input, ?SequenceReceipts $receipts): ?array
     {
-        if (self::runnerDecides($op, $input, $receipts) || !self::lasts($op)) {
+        if (self::runnerDecides($op, $input, $receipts) || !self::lasts($op, $input)) {
             return null;
         }
         $declared = $op->effects === null

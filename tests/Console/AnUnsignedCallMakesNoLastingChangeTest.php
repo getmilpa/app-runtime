@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Tests\Console;
 
 use Milpa\AppRuntime\Console\UnsignedTerminal;
 use Milpa\AppRuntime\Operations\AgentOperations;
+use Milpa\AppRuntime\Operations\DryRunOperation;
 use Milpa\AppRuntime\Operations\TrialOperations;
 use Milpa\AppRuntime\Tests\Fixtures\TinyHouse;
 use Milpa\Command\Effect\Authority;
@@ -107,6 +108,27 @@ final class AnUnsignedCallMakesNoLastingChangeTest extends TestCase
         self::assertTrue(UnsignedTerminal::lasts($op($profile(Mutation::Persistent))));
         self::assertTrue(UnsignedTerminal::lasts($op($profile(Mutation::Unknown))));
         self::assertTrue(UnsignedTerminal::lasts($op(null)), 'undeclared counts as the maximum');
+    }
+
+    public function testADryRunIsAPlanNotALastingChange(): void
+    {
+        $persistent = new EffectProfile(Mutation::Persistent, Externality::None, Reversibility::ManualRecovery, Authority::WriteAsUser, subject: Subject::Executable);
+        $make = new Operation(
+            name: 'make',
+            description: 'd',
+            handler: static fn (): array => [],
+            inputSchema: ['type' => 'object', 'properties' => ['dry_run' => ['type' => 'boolean']]],
+            mutating: true,
+            effects: $persistent,
+        );
+        $undeclared = new Operation(name: 'implement', description: 'd', handler: static fn (): array => [], mutating: true, effects: $persistent);
+        $descends = new DryRunOperation(name: 'capabilities:enable', description: 'd', handler: static fn (): array => [], mutating: true, effects: $persistent);
+
+        self::assertFalse(UnsignedTerminal::lasts($make, ['dry_run' => true]), 'a dry run its schema declares');
+        self::assertTrue(UnsignedTerminal::lasts($make, ['dry_run' => false]));
+        self::assertTrue(UnsignedTerminal::lasts($undeclared, ['dry_run' => true]), 'a dry_run nobody declared is just an argument');
+        self::assertFalse(UnsignedTerminal::lasts($descends, ['dry_run' => true]), 'the ceiling the call brings down');
+        self::assertTrue(UnsignedTerminal::lasts($descends, []));
     }
 
     public function testTheRefusalSaysWhatTheOperationDeclaresAndHowToSign(): void
