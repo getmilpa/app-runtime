@@ -170,6 +170,6 @@ final class ABrokenBootIsNotLeftForTest extends TestCase
         self::assertSame((string) KernelDefinition::RECHECK_SECONDS, $response->getHeaderLine('Retry-After'));
         self::assertSame('ArgumentCountError: Too few arguments ??? ??Blog??', $response->getHeaderLine('Milpa-House-Does-Not-Boot'), 'a header carries printable ASCII only');
         self::assertStringStartsWith('This house does not boot: ArgumentCountError: Too few arguments — «Blog»', (string) $response->getBody());
-        self::assertStringContainsString('coa sandbox:undo', (string) $response->getBody());
+        self::assertStringContainsString(\Milpa\AppRuntime\Support\Capabilities::CLI . ' sandbox:undo', (string) $response->getBody());
     }
 }
