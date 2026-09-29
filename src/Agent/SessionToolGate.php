@@ -483,7 +483,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         return new \Milpa\Agent\PendingQuestion(
             id: 'intent-' . substr(sha1($operacion->name . '|' . $valor), 0, 12),
             question: "The request does not name «{$valor}». Confirm {$operacion->name} on «{$valor}»?",
-            options: ['sí', 'no'],
+            options: AffirmativeAnswer::OPTIONS,
             why: json_encode(
                 ['operation' => $operacion->name, 'arguments' => $arguments],
                 \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES,
@@ -1079,7 +1079,10 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         return new \Milpa\Agent\PendingQuestion(
             id: $pregunta->id,
             question: $pregunta->question,
-            options: $pregunta->options,
+            // THIS GATE READS THE ANSWER, SO THIS GATE SAYS WHICH ONES IT OFFERS (greenhouse decisions/0518):
+            // a permission question offers `yes`/`no` whatever milpa/agent release drafted it — agent ≤0.51.1
+            // still drafts «sí» — so the wire does not depend on the order two packages are released in.
+            options: $pregunta->reason === 'permission' ? AffirmativeAnswer::OPTIONS : $pregunta->options,
             why: json_encode($hecho, \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES) ?: $pregunta->why,
             expiresAt: $pregunta->expiresAt,
             reason: $pregunta->reason,

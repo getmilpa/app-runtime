@@ -440,7 +440,7 @@ final class SessionOperations implements CommandProvider
                             // the catalogue. An annotation nobody verifies is prose with better syntax.
                             'x-milpa-source' => ['tool' => 'agent:sessions', 'path' => 'sessions', 'key' => 'session'],
                         ],
-                        'answer' => ['type' => 'string', 'description' => 'Your answer — «sí» authorises the operation for this session'],
+                        'answer' => ['type' => 'string', 'description' => 'Your answer — `yes` authorises the operation for this session, `no` denies it'],
                         'counter' => ['type' => 'string', 'description' => 'A COUNTER instead of answer: your constraint (e.g. «use 200, not 250»). It grants nothing — it re-queues the session so the agent re-proposes the call with your constraint, and that call re-faces the gate. Mutually exclusive with `answer`.'],
                         // THE STRUCTURAL COUNTER (greenhouse decisions/0067): tighten the EFFECT ENVELOPE
                         // the proposed call may run under — the five axes, nothing else. A key that is
@@ -1786,7 +1786,7 @@ final class SessionOperations implements CommandProvider
         if ($apretadas === []) {
             return [
                 'ok' => false,
-                'error' => 'esto es un «sí»: el sobre no baja ninguna hacha respecto del techo declarado — contesta `answer: sí`',
+                'error' => 'this is a plain yes: the envelope lowers no axis below the declared ceiling — answer `answer: yes`',
             ];
         }
 
@@ -1794,7 +1794,7 @@ final class SessionOperations implements CommandProvider
         $almacen->answer(
             $id,
             $pregunta->id,
-            'sí',
+            \Milpa\AppRuntime\Agent\AffirmativeAnswer::YES,
             $quien,
             $ctx instanceof InvocationContext && $ctx->executor !== null ? $ctx->executor : $this->procesoLocal(),
         );
