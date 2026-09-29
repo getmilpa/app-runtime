@@ -397,7 +397,8 @@ final class Capabilities
      *
      * @param array<string, mixed> $manifest the package's `extra.milpa.capability`
      *
-     * @return list<string> the classes still to declare, operations first
+     * @return list<string> the classes still to declare, operations first — and `passkey.rpId` when the
+     *                      manifest is identity's and config/app.php does not declare it yet
      */
     public static function unwired(string $root, array $manifest): array
     {
@@ -420,7 +421,34 @@ final class Capabilities
             }
         }
 
+        // THE DOOR'S RELYING PARTY is declared by the same enable (greenhouse evidence/1041): identity with
+        // its plugin named and no `passkey.rpId` is a door that does not open, not a wired capability.
+        if (self::relyingPartyPending($root, $manifest)) {
+            $missing[] = 'passkey.rpId';
+        }
+
         return $missing;
+    }
+
+    /**
+     * Whether identity's relying party is still to declare: the manifest is identity's, the app has a
+     * config/app.php to declare it in, and nothing there declares `passkey.rpId`. The same presence rule
+     * {@see self::declareRelyingParty()} writes by, so «is it declared» has one answer.
+     *
+     * @param array<string, mixed> $manifest the package's `extra.milpa.capability`
+     */
+    private static function relyingPartyPending(string $root, array $manifest): bool
+    {
+        if (($manifest['id'] ?? null) !== 'identity') {
+            return false;
+        }
+        $file = rtrim($root, '/') . '/config/app.php';
+        if (!is_file($file)) {
+            return false;
+        }
+        $declared = self::loadConfig($file)['passkey']['rpId'] ?? null;
+
+        return !\is_string($declared) || $declared === '';
     }
 
     /**
@@ -911,18 +939,30 @@ final class Capabilities
             $root ??= self::raizDeLaApp();
             $registered = self::registerOperations($root, self::providersFor($manifest));
             $pluginsDeclared = self::registerPlugins($root, self::pluginsFor($manifest));
-            if ($registered === [] && $pluginsDeclared === []) {
+            // THE RELYING PARTY ON THIS BRANCH TOO (greenhouse evidence/1041). It was written only when
+            // identity ARRIVED, so a house whose milpa/auth landed by composer beforehand — an image baked
+            // from a lock — got its plugin named and its door left unconfigured: the invitation answered
+            // 404. Same writer as a fresh enable: it declares when nothing does and never overwrites.
+            $relyingParty = self::relyingPartyPending($root, $manifest) ? self::declareRelyingParty($root) : null;
+            if ($registered === [] && $pluginsDeclared === [] && $relyingParty === null) {
                 return ['ok' => true, 'capability' => $puesta['package'], 'hint' => 'already installed and declared — nothing to do'];
             }
 
-            return [
+            $wired = [
                 'ok' => true,
                 'capability' => $puesta['package'],
                 'command' => '',
                 'registered' => $registered,
                 'plugins_declared' => $pluginsDeclared,
-                'hint' => 'it was installed but not declared — declared now; run `' . self::CLI . 'list` to see its operations',
+                'hint' => $relyingParty !== null
+                    ? 'it was installed but not declared — the passkey door is declared now: run `' . self::CLI . 'serve` and open the first_passkey invitation a signed enable prints (`' . self::CLI . 'identity:invite --sign` mints another)'
+                    : 'it was installed but not declared — declared now; run `' . self::CLI . 'list` to see its operations',
             ];
+            if ($relyingParty !== null) {
+                $wired['relying_party'] = $relyingParty;
+            }
+
+            return $wired;
         }
 
         $objetivo = null;
