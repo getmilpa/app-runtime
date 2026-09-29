@@ -1,6 +1,24 @@
 # Changelog
 
 
+## [0.198.0](https://github.com/getmilpa/app-runtime/compare/v0.197.0...v0.198.0) (2026-09-29)
+
+
+### Features
+
+* **agent:** a run holds its session's lease and records the window it obeys ([#636](https://github.com/getmilpa/app-runtime/issues/636)) ([45b2494](https://github.com/getmilpa/app-runtime/commit/45b2494e9f1ec5b3068c8fbc98785b85ecc81ba6))
+* **promote:** boot the house as it would be before writing; a front controller's broken boot answers 503 ([#634](https://github.com/getmilpa/app-runtime/issues/634)) ([1fcb3af](https://github.com/getmilpa/app-runtime/commit/1fcb3af54f31f2c8cb08178c03aedd31ac745d9f))
+
+
+### Bug Fixes
+
+* **agent:** derive the output limit from the window; ask in English ([#637](https://github.com/getmilpa/app-runtime/issues/637)) ([1b6b2c6](https://github.com/getmilpa/app-runtime/commit/1b6b2c6e2dc8cba2b7a6a6eecc4cdcae0296972e))
+
+
+### Performance Improvements
+
+* **agent:** a leg reads its session once and runs with the memory the house declares ([#635](https://github.com/getmilpa/app-runtime/issues/635)) ([0431284](https://github.com/getmilpa/app-runtime/commit/0431284235d442b7dc6ca209030f43d074b3405d))
+
 ## [0.197.0](https://github.com/getmilpa/app-runtime/compare/v0.196.0...v0.197.0) (2026-09-29)
 
 
