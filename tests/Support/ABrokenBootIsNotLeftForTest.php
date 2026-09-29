@@ -159,4 +159,17 @@ final class ABrokenBootIsNotLeftForTest extends TestCase
         $definition->staleBecause();
         self::assertNull($definition->nextBootFails(recheckSeconds: 3600), 'restored: the process may leave, and a clean one boots');
     }
+
+    /** While the house does not boot the answer is a refusal that says why — 503, never the old kernel's answer (Rod, 2026-09-28). */
+    public function testTheRefusalSaysWhyAndIsNotCached(): void
+    {
+        $response = KernelDefinition::houseDoesNotBoot('ArgumentCountError: Too few arguments — «Blog»', new \Nyholm\Psr7\Factory\Psr17Factory());
+
+        self::assertSame(503, $response->getStatusCode());
+        self::assertSame('no-store', $response->getHeaderLine('Cache-Control'));
+        self::assertSame((string) KernelDefinition::RECHECK_SECONDS, $response->getHeaderLine('Retry-After'));
+        self::assertSame('ArgumentCountError: Too few arguments ??? ??Blog??', $response->getHeaderLine('Milpa-House-Does-Not-Boot'), 'a header carries printable ASCII only');
+        self::assertStringStartsWith('This house does not boot: ArgumentCountError: Too few arguments — «Blog»', (string) $response->getBody());
+        self::assertStringContainsString('coa sandbox:undo', (string) $response->getBody());
+    }
 }

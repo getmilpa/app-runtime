@@ -148,8 +148,8 @@ final class KernelDefinition
      * clean one dies before its first request and the supervisor starts another that dies the same way:
      * measured on FrankenPHP (greenhouse evidence/1038, n5), 224 → 320 crashes and requests that waited
      * with no answer, while the naive worker that never left kept serving. So the process asks FIRST, in
-     * a child of its own ({@see BootProbe}), and a house that does not boot is not left for — the old
-     * kernel keeps serving, and the caller says why (greenhouse decisions/0506).
+     * a child of its own ({@see BootProbe}), and a house that does not boot is not left for: the process stays
+     * and answers {@see houseDoesNotBoot()} — never the old kernel's answer (Rod, 2026-09-28; decisions/0506).
      *
      * Asked once per distinct content of the inputs: a held process checks at every request, and a
      * probe per request would boot the house on every request. The verdict is kept for the digest the
@@ -257,6 +257,31 @@ final class KernelDefinition
             ->withHeader('Cache-Control', 'no-store')
             ->withHeader('Retry-After', '0')
             ->withHeader('Connection', 'close');
+    }
+
+    /**
+     * The answer while the house does not boot: a refusal that says why — never the old kernel's answer.
+     *
+     * Rod decided it (2026-09-28, greenhouse decisions/0506 and 0507 alike): when the house does not boot, a
+     * long-lived server STOPS HONESTLY and says why. Serving with the kernel from before would answer for a
+     * house that no longer exists — a promotion undone in appearance only, a plugin switched off that still
+     * answers. Leaving is no answer either: the replacement dies at boot, in a loop, and requests hang
+     * (evidence/1038, n5). So the process stays, answers every request with this, and leaves the moment the
+     * house boots again. `503` with `Retry-After`: this is a state of the house, not of the request.
+     */
+    public static function houseDoesNotBoot(string $why, ResponseFactoryInterface $factory): ResponseInterface
+    {
+        $line = (string) preg_replace('/[^\x20-\x7E]/', '?', $why);
+        $response = $factory->createResponse(503)
+            ->withHeader('Content-Type', 'text/plain; charset=utf-8')
+            ->withHeader('Cache-Control', 'no-store')
+            ->withHeader('Retry-After', (string) self::RECHECK_SECONDS)
+            ->withHeader('Milpa-House-Does-Not-Boot', $line);
+        $response->getBody()->write("This house does not boot: {$why}\n\n"
+            . "Nothing was served with the kernel from before the change. Undo it from a terminal (`coa sandbox:undo --workspace=<trial>`,\n"
+            . "or `coa plugins:disable-unsafe --name=<plugin> --sign`) or fix it; this server answers again as soon as the house boots.\n");
+
+        return $response;
     }
 
     private static function fingerprint(string $file): string
