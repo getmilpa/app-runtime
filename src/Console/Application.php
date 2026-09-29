@@ -405,12 +405,7 @@ final class Application
 
             $definicion = \in_array('--child', $argv, true) ? KernelDefinition::before($this->root) : null;
             $foco = $definicion !== null ? KernelSupervisor::handedOver() : null;
-            $shell = new OperationsScreen(
-                $this->all(),
-                $this->kernel()->container(),
-                ...$this->tamano(),
-                dispatcher: $this->kernel()->dispatcher(),
-            );
+            $shell = $this->pantallaDelShell();
             $definicion?->takeInIncluded();
             // Only an operation this kernel still offers: one that left with its plugin is not a place to reopen on.
             foreach ($shell->operations() as $operacion) {
@@ -641,12 +636,7 @@ final class Application
             return 1;
         }
 
-        // ONE SIGNATURE PER SEQUENCE (greenhouse decisions/0458, 0500): the first signed call of
-        // a session keeps its receipt there, and the calls that continue it cite it instead of
-        // signing again. Without the agent package there are no sessions, and nothing to cite.
-        $receipts = class_exists(\Milpa\Agent\SessionStore::class)
-            ? new \Milpa\AppRuntime\Agent\SessionSequenceReceipts(fn (): ?\Milpa\Agent\SessionStore => $this->almacenDeSesiones())
-            : null;
+        $receipts = $this->recibos();
         $tokens = $this->tokens($operacion, $resto);
         $caller = new ToolContext(
             principal: $identity->actor->id ?? $base->principal,
@@ -757,8 +747,20 @@ final class Application
         }
         // Everything the app declares, not only what the plugins booted — the same catalogue the skeleton's
         // `bin/mcp-server.php` projected, so a client sees the same tools it always saw.
-        (new McpProjector())->projectAll(\Milpa\AppRuntime\Support\Operations::all($kernel, $this->root), $registro, $kernel->container());
+        $operaciones = \Milpa\AppRuntime\Support\Operations::all($kernel, $this->root);
+        (new McpProjector())->projectAll($operaciones, $registro, $kernel->container());
         $servicio = new \Milpa\McpServer\JsonRpcService($registro);
+        $porHerramienta = [];
+        foreach ($operaciones as $operacion) {
+            $porHerramienta[McpProjector::toolName($operacion->name)] = $operacion;
+        }
+        // WHO CALLS OVER THIS PIPE (greenhouse decisions/0526): a token the house minted, presented in the environment
+        // the client launched this server with, is its actor and its scopes — the channel's policy judges them. Without
+        // one, `stdio` keeps its `*` for what changes nothing; what lasts is refused at the door below.
+        $identidad = PresentedToken::identity($kernel->container());
+        $quien = static fn (string $id): ToolContext => $identidad !== null
+            ? ToolContext::stdio($id, $identidad->actor->id ?? 'stdio', PresentedToken::scopes($identidad, ['*']))
+            : ToolContext::stdio($id);
         $definicion->takeInIncluded();
 
         $escribir = static function (array $respuesta): void {
@@ -786,10 +788,12 @@ final class Application
                 if (\array_key_exists('id', $pedido)) {
                     $escribir(['jsonrpc' => '2.0', 'id' => $pedido['id'], 'result' => new \stdClass()]);
                 }
+            } elseif (($pedido['method'] ?? null) === 'tools/call' && ($negada = $this->mcpPorLaPuerta($pedido, $porHerramienta)) !== null) {
+                $escribir($negada);
             } else {
                 // This transport carries no auth: ToolContext::stdio() is the context for exactly this case.
                 /** @var array<string, mixed> $pedido */
-                $respuesta = $servicio->handle($pedido, ToolContext::stdio((string) ($pedido['id'] ?? uniqid('mcp-', true))));
+                $respuesta = $servicio->handle($pedido, $quien((string) ($pedido['id'] ?? uniqid('mcp-', true))));
                 if ($respuesta !== null) {
                     $escribir($respuesta);
                 }
@@ -801,6 +805,61 @@ final class Application
         }
 
         return 0;
+    }
+
+    /**
+     * The door of `coa mcp` for one `tools/call`: the answer when the house answers it here, or null to let it run.
+     *
+     * An MCP client sees what any tool failure looks like on this server — a `tools/call` RESULT, not a JSON-RPC
+     * error: `isError: true` and the one text part every tool of this house answers with (`success`, `error`, `meta`),
+     * so a model reads why and what to type instead of seeing its request fail as a protocol fault. `meta.code` says
+     * which refusal (`UNSIGNED_LASTING_CHANGE` or `CONSENT_NEEDS_SIGNATURE`) and `meta.sign` carries the terminal line
+     * that runs it signed (greenhouse decisions/0526). A call that continues a signed sequence is answered here too,
+     * cited through the terminal's runner. A tool the house does not declare as an operation is not judged here.
+     *
+     * @param array<string, mixed>     $pedido
+     * @param array<string, Operation> $porHerramienta
+     *
+     * @return array<string, mixed>|null
+     */
+    private function mcpPorLaPuerta(array $pedido, array $porHerramienta): ?array
+    {
+        $params = \is_array($pedido['params'] ?? null) ? $pedido['params'] : [];
+        $nombre = \is_string($params['name'] ?? null) ? $params['name'] : '';
+        $operacion = $porHerramienta[$nombre] ?? null;
+        if ($operacion === null) {
+            return null;
+        }
+        /** @var array<string, mixed> $entrada the call's own arguments — a confirm token is the transport's, not the operation's */
+        $entrada = array_diff_key(\is_array($params['arguments'] ?? null) ? $params['arguments'] : [], ['confirm_token' => true]);
+        $sigue = new \stdClass();
+        $r = $this->porLaPuertaSinFirma(Capabilities::CLI . 'mcp', $operacion, $entrada, static fn (): object => $sigue);
+        if ($r === $sigue) {
+            return null;
+        }
+        $r = \is_array($r) ? $r : ['ok' => false, 'error' => 'the call answered nothing'];
+        $ok = ($r['ok'] ?? true) !== false;
+        $meta = ['tool' => $nombre, 'channel' => 'mcp'];
+        if (\is_string($r['refused'] ?? null)) {
+            $meta += [
+                'code' => $r['refused'] === 'consent' ? 'CONSENT_NEEDS_SIGNATURE' : 'UNSIGNED_LASTING_CHANGE',
+                'type' => 'error',
+                'sign' => $r['sign'] ?? null,
+            ];
+        }
+        $texto = json_encode([
+            'success' => $ok,
+            'data' => $ok ? $r : null,
+            'message' => null,
+            'error' => $ok ? null : ($r['error'] ?? 'refused'),
+            'meta' => $meta,
+        ], \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE);
+
+        return [
+            'jsonrpc' => '2.0',
+            'id' => $pedido['id'] ?? null,
+            'result' => ['content' => [['type' => 'text', 'text' => $texto]], 'isError' => !$ok],
+        ];
     }
 
     /** A stale child of `coa mcp` leaves: it says why on STDERR and lets the next process compile what changed. */
@@ -1151,7 +1210,9 @@ final class Application
 
             $handler = $operacion->handler;
             if (\is_callable($handler)) {
-                $r = $handler($entrada);
+                // THE CHAT SIGNS FOR NOBODY EITHER (greenhouse decisions/0526): a turn is an `agent` call on the chat's
+                // session and an answer is an `agent:answer` — both lasting changes, run as the terminal's `*` until now.
+                $r = $this->porLaPuertaSinFirma(Capabilities::CLI . 'chat', $operacion, $entrada, static fn (array $e): mixed => $handler($e));
 
                 return \is_array($r) ? $r : null;
             }
@@ -1598,6 +1659,167 @@ final class Application
             : (\in_array('*', $signedScopes, true) ? $tokenScopes : array_values(array_intersect($tokenScopes, $signedScopes)));
 
         return new ToolContext(principal: 'key:' . $signer->fingerprint, channel: 'cli', scopes: $scopes);
+    }
+
+    /** The shell's screen, as `coa shell` opens it: its catalogue behind the door ({@see operacionesDelShell()}). */
+    private function pantallaDelShell(): OperationsScreen
+    {
+        return new OperationsScreen(
+            $this->operacionesDelShell(),
+            $this->kernel()->container(),
+            ...$this->tamano(),
+            dispatcher: $this->kernel()->dispatcher(),
+        );
+    }
+
+    /**
+     * The shell's catalogue: every operation, each behind the door of a surface that cannot sign (decisions/0526).
+     *
+     * The shell's form calls the handler itself ({@see \Milpa\Console\Tui\OperationScreen}), so the door stands in
+     * front of the handler: the same operation, the same declaration, a handler that asks first. What the form already
+     * refuses — a call that demands consent — never reaches it.
+     *
+     * @return list<Operation>
+     */
+    private function operacionesDelShell(): array
+    {
+        $superficie = Capabilities::CLI . 'shell';
+        $contenedor = $this->kernel()->container();
+
+        return array_map(
+            function (Operation $operacion) use ($superficie, $contenedor): Operation {
+                $handler = $operacion->handler;
+                // A handler is a callable or a [service, method] pair the container resolves — the two shapes
+                // OperationRunner invokes; the door stands in front of both.
+                $interior = \is_callable($handler)
+                    ? $handler
+                    : static function (mixed ...$argumentos) use ($handler, $contenedor, $operacion): mixed {
+                        [$clase, $metodo] = $handler;
+                        $instancia = $contenedor->get($clase);
+                        if (!\is_object($instancia)) {
+                            throw new \RuntimeException("operation '{$operacion->name}': its handler did not resolve to an object.");
+                        }
+
+                        return $instancia->{$metodo}(...$argumentos);
+                    };
+
+                return UnsignedTerminal::withHandler(
+                    $operacion,
+                    fn (array $entrada, mixed ...$resto): mixed => $this->porLaPuertaSinFirma(
+                        $superficie,
+                        $operacion,
+                        $entrada,
+                        static fn (array $e): mixed => $interior($e, ...$resto),
+                    ),
+                );
+            },
+            $this->all(),
+        );
+    }
+
+    /**
+     * Where the sequences of this house keep their receipts — the book every door cites from.
+     *
+     * ONE SIGNATURE PER SEQUENCE (greenhouse decisions/0458, 0500): the first signed call of a session keeps its
+     * receipt there, and the calls that continue it cite it instead of signing again. Without the agent package there
+     * are no sessions, and nothing to cite.
+     */
+    private function recibos(): ?\Milpa\Console\SequenceReceipts
+    {
+        return class_exists(\Milpa\Agent\SessionStore::class)
+            ? new \Milpa\AppRuntime\Agent\SessionSequenceReceipts(fn (): ?\Milpa\Agent\SessionStore => $this->almacenDeSesiones())
+            : null;
+    }
+
+    /**
+     * The door of a surface that cannot sign a call — `coa chat`, `coa shell`, `coa mcp` (greenhouse decisions/0526).
+     *
+     * They used to run every call as `local-shell` (or `stdio`) with `*`: the terminal's default, which 0522 took away
+     * from the terminal's own door and left standing here. The same rule now, read from the same declaration
+     * ({@see UnsignedTerminal::refusalOver()}):
+     *
+     * - a token the house minted is presented → the call runs, as it runs at the terminal with one: the token's actor
+     *   and scopes are what the operation's own code and the gates read ({@see PresentedToken}); a consent is still a
+     *   signature over the call, and none travels here, so it is refused;
+     * - the call continues a sequence whose receipt stands → it is cited through the terminal's runner
+     *   ({@see citar()}), which re-verifies the receipt and runs it as its signer, or refuses — one judge, not two;
+     * - it changes nothing that lasts → it runs as it always did;
+     * - otherwise it is refused before it runs, with the terminal line that signs it.
+     *
+     * @param array<string, mixed>                  $entrada
+     * @param \Closure(array<string, mixed>): mixed $correr  runs the call as the surface always did
+     *
+     * @return mixed what the call returned, or the refusal as the `{ok: false, error, sign}` every surface already paints
+     */
+    private function porLaPuertaSinFirma(string $superficie, Operation $operacion, array $entrada, \Closure $correr): mixed
+    {
+        $recibos = $this->recibos();
+        $identidad = PresentedToken::identity($this->kernel()->container());
+        $negativa = $identidad !== null && !\Milpa\Console\Consent::demanded($operacion, $entrada)
+            ? null
+            : UnsignedTerminal::refusalOver($superficie, $operacion, $entrada, $identidad !== null ? null : $recibos);
+        if ($negativa !== null) {
+            return [
+                'ok' => false,
+                'error' => implode("\n", $negativa),
+                'refused' => \Milpa\Console\Consent::demanded($operacion, $entrada) ? 'consent' : 'unsigned',
+                'sign' => UnsignedTerminal::signedLine($operacion, $entrada),
+            ];
+        }
+        if ($identidad === null && UnsignedTerminal::continuesASignedSequence($operacion, $entrada, $recibos)) {
+            return $this->citar($operacion, $entrada);
+        }
+
+        return $correr($entrada);
+    }
+
+    /**
+     * Runs a call that continues a signed sequence through the terminal's runner, which cites the standing receipt.
+     *
+     * The receipt is re-verified, bound to its sequence and judged against who its signer is TODAY by exactly one
+     * judge — {@see CliRunner} — so a surface that cannot sign never carries a second copy of that judgment (the
+     * copy that would disagree the day it matters). The call reaches the runner as the terminal would type it, and
+     * the result comes back as the JSON the runner prints.
+     *
+     * @param array<string, mixed> $entrada
+     *
+     * @return array<string, mixed>
+     */
+    private function citar(Operation $operacion, array $entrada): array
+    {
+        $tokens = [];
+        foreach ($entrada as $nombre => $valor) {
+            if ($valor === null || $valor === false) {
+                continue;
+            }
+            $tokens[] = '--' . $nombre . ($valor === true ? '' : '=' . (\is_scalar($valor) ? (string) $valor : (string) json_encode($valor, \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE)));
+        }
+        $lineas = [];
+        $salida = (new CliRunner(
+            signer: $this->firmante,
+            renderer: new JsonCliRenderer(),
+            verifier: $this->verificador,
+            callerAuthority: ToolContext::cli(),
+            signerAuthority: fn (VerifiedSigner $signer): ?ToolContext => $this->autoridadDelFirmante($signer, null),
+            dispatcher: $this->kernel()->dispatcher(),
+            receipts: $this->recibos(),
+        ))->run($operacion, $tokens, $this->kernel()->container(), function (string $linea) use (&$lineas): void {
+            $lineas[] = $linea;
+        });
+
+        // The runner says what it cited on a line of its own, and prints the result as ONE JSON document after it.
+        $documento = json_decode((string) end($lineas), true);
+        if (\is_array($documento) && \array_key_exists('result', $documento) && \is_array($documento['result'])) {
+            return $documento['result'];
+        }
+
+        return [
+            'ok' => false,
+            'error' => \is_array($documento) && \is_string($documento['error'] ?? null)
+                ? $documento['error']
+                : implode("\n", array_filter($lineas, static fn (string $l): bool => trim($l) !== '')),
+            'exit' => $salida,
+        ];
     }
 
     /**
