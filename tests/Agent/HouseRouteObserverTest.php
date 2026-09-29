@@ -158,13 +158,15 @@ return $loader;
             'error' => 'the request process exited 4']], $receipt['observed'] ?? null, 'a 200 from a process that did not finish cleanly is not what a browser can trust');
     }
 
-    public function testAHouseThatDoesNotBootIsNamedInTheReceipt(): void
+    /** Since greenhouse decisions/0506 a promotion the house cannot boot with does not land, so nothing is observed. */
+    public function testAHouseThatDoesNotBootIsNotObservedBecauseNothingLanded(): void
     {
         $receipt = $this->promote(['src/Plugins/Blog/Blog.php' => "<?php\nthrow new \\RuntimeException('broken');\n"]);
 
-        self::assertTrue($receipt['ok'] ?? false, 'the promotion itself landed');
+        self::assertFalse($receipt['ok'] ?? true, 'the promotion did not land');
         self::assertArrayNotHasKey('observed', $receipt);
-        self::assertStringStartsWith('the house did not boot to list its routes after the change', (string) ($receipt['observation_error'] ?? ''));
+        self::assertStringStartsWith('the house does not boot with this promotion: RuntimeException: broken', (string) ($receipt['error'] ?? ''));
+        self::assertStringNotContainsString('broken', (string) file_get_contents($this->root . '/src/Plugins/Blog/Blog.php'), 'the pre-image is back');
     }
 
     public function testAPromotionThatTouchesNoPluginAsksNothing(): void
