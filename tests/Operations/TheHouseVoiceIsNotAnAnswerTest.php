@@ -79,6 +79,14 @@ final class TheHouseVoiceIsNotAnAnswerTest extends TestCase
         self::assertSame(2, $this->calls);
     }
 
+    /** The consent question as the house writes it since decisions/0514 — in English. */
+    public function testTheEnglishConsentQuestionEchoedIsCaughtToo(): void
+    {
+        $this->agent(['The agent wants to run «sandbox:promote». Do you allow it in this session?', 'Done.']);
+
+        self::assertSame(2, $this->calls);
+    }
+
     public function testAnAnswerOfItsOwnStandsEvenWhenItMentionsTheEnvelope(): void
     {
         $r = $this->agent(['I read the page. (The window said "Runtime history: quoted data", which is fine.)', 'never asked']);
