@@ -64,6 +64,9 @@ final readonly class SessionBookkeeping implements ContractProducer
         // gates identically, and `work:claim-verified` FAILS CLOSED — it refuses to judge what it
         // cannot read, instead of taking the model's word for the work.
         private ?EventStoreInterface $events = null,
+        // Which calls last, by their own declaration ({@see LastingCalls}, greenhouse decisions/0523): the claim
+        // door reads the house's closure through the same function, with the same reading, as the final answer.
+        private ?\Closure $lasting = null,
     ) {
     }
 
@@ -392,11 +395,15 @@ final readonly class SessionBookkeeping implements ContractProducer
             // A session that never opened a todo needs none once the HOUSE derived its closure (greenhouse
             // decisions/0487, evidence/1022): the advice below would send it to open a todo only to close it,
             // and in the epilogue that ritual spent the budget the final answer needed.
+            //
+            // ONE RULE ON EVERY PATH (greenhouse decisions/0523, deferred by 0517): the door asks the leg's own
+            // closure — {@see LegClosure}, what the final answer records and the epilogue opens on — not a second
+            // reading of it. Between steps a declared delivery's verdict is not known yet (null), and the door
+            // then says nothing of the house.
             if ($sesion->todos === [] && $this->events !== null) {
-                $stream = $this->stream();
-                $closure = ClosureVerdict::derive($sesion, SessionFacts::fromEvents($this->sessionId, $stream), $stream);
+                $closure = LegClosure::betweenSteps($sesion, $this->stream(), $this->lasting);
                 $subject = $closure['derivedFrom']['observation']['subject'] ?? null;
-                if ($closure['verified'] && \is_string($subject)) {
+                if (($closure['verified'] ?? false) === true && \is_string($subject)) {
                     return ['ok' => false, 'error' => "there is nothing to claim: this session has no todos, and the house "
                         . "already closed it on its own observation of «{$subject}» served in the house after your last "
                         . 'change. Do not open a todo to close it — give your final answer'];

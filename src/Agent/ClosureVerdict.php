@@ -69,11 +69,15 @@ final class ClosureVerdict
      * says both (`recorded_work_and_house_observation`, greenhouse decisions/0509). A done todo whose test
      * reference's last run is red is not done, with or without the house.
      *
-     * @param list<Event>|null $stream the session's stream, or `null` to judge the recorded work alone
+     * A call is a change to the house only when its operation's own declaration says it lasts (`$lasting`,
+     * {@see LastingCalls}, decisions/0523): a green test run after the observation does not take it back.
+     *
+     * @param list<Event>|null                                     $stream  the session's stream, or `null` to judge the recorded work alone
+     * @param (\Closure(string, array<string, mixed>): ?bool)|null $lasting the house's reading of which calls last; null reads the recorded flag
      *
      * @return array{verified: bool, reasons: list<string>, scope: string, derivedFrom?: array<string, mixed>}
      */
-    public static function derive(Session $session, SessionFacts $facts, ?array $stream = null): array
+    public static function derive(Session $session, SessionFacts $facts, ?array $stream = null, ?\Closure $lasting = null): array
     {
         $reasons = [];
         $hasEvidence = false;
@@ -121,7 +125,7 @@ final class ClosureVerdict
         // empty plugin made the house see `GET /` → 200, and that closed a session whose goal was `GET /blog`.
         $ask = $stream !== null ? StandingAsk::in($stream) : null;
         $house = $stream !== null && $ask !== null
-            ? HouseObservedClosure::of($stream, $facts, static fn (string $subject): bool => $ask->namesSubject($subject))
+            ? HouseObservedClosure::of($stream, $facts, static fn (string $subject): bool => $ask->namesSubject($subject), $lasting)
             : null;
         if ($session->todos !== [] && $house !== null && ! ($house['derived'] && $house['lastChangeSeq'] !== null)) {
             $house = null;

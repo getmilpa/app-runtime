@@ -58,18 +58,27 @@ use Milpa\EventStore\Event;
  * (evidence/1050): registering an empty plugin made the house observe `GET /` → 200, and that closed a session
  * whose goal was `GET /blog` — while `/blog` answered 404 and the resident itself said the goal was not met.
  * Every route the house answered still counts against it: a server error on an unnamed route is still an error.
+ *
+ * ── A TEST RUN IS NOT A CHANGE (greenhouse decisions/0523) ──────────────────────────────────────
+ *
+ * Given the house's catalogue ({@see LastingCalls}), a recorded mutating call counts as a change only when its
+ * operation's own declaration says it lasts. Measured (evidence/1050): three green `test` calls after /blog was
+ * observed served made the observation «stale», and the closure never came. The declaration only SUBTRACTS: a call
+ * recorded as not mutating never becomes a change, and a tool the catalogue does not declare keeps its flag.
  */
 final class HouseObservedClosure
 {
     /**
      * Derive whether the house observed itself serving after the last change that landed in it.
      *
-     * @param list<Event>                   $stream the session's own stream, in order
-     * @param (\Closure(string): bool)|null $named  whether the goal names an observed subject; null counts every subject
+     * @param list<Event>                                          $stream  the session's own stream, in order
+     * @param (\Closure(string): bool)|null                        $named   whether the goal names an observed subject; null counts every subject
+     * @param (\Closure(string, array<string, mixed>): ?bool)|null $lasting whether a call's own declaration says it lasts
+     *                                                                      ({@see LastingCalls}); null reads the recorded flag alone
      *
      * @return array{derived: bool, reason: ?string, observation: ?array{subject: string, seq: int}, lastChangeSeq: ?int, landed: list<int>}
      */
-    public static function of(array $stream, SessionFacts $facts, ?\Closure $named = null): array
+    public static function of(array $stream, SessionFacts $facts, ?\Closure $named = null, ?\Closure $lasting = null): array
     {
         $counts = $named ?? static fn (string $subject): bool => true;
         // The last observation of a subject the goal does not name: said in the reason, never counted.
@@ -96,7 +105,7 @@ final class HouseObservedClosure
             $rehearsed = ($result['ran_in_trial'] ?? false) === true && ($result['applied'] ?? false) !== true;
 
             if (($payload['mutating'] ?? false) === true && ($payload['awaitingConfirmation'] ?? null) !== true
-                && $environment !== 'trial' && !$rehearsed) {
+                && $environment !== 'trial' && !$rehearsed && self::lasts($payload, $lasting)) {
                 $lastChange = $event->seq;
                 $landed[] = $event->seq;
             }
@@ -168,5 +177,20 @@ final class HouseObservedClosure
         }
 
         return ['derived' => $reason === null, 'reason' => $reason, 'observation' => $observation, 'lastChangeSeq' => $lastChange, 'landed' => $landed];
+    }
+
+    /**
+     * Whether the call's own declaration says it lasts — true when there is no classifier or it does not know the tool.
+     *
+     * @param array<string, mixed>                                 $payload
+     * @param (\Closure(string, array<string, mixed>): ?bool)|null $lasting
+     */
+    private static function lasts(array $payload, ?\Closure $lasting): bool
+    {
+        if ($lasting === null || ! \is_string($payload['tool'] ?? null)) {
+            return true;
+        }
+
+        return $lasting($payload['tool'], \is_array($payload['arguments'] ?? null) ? $payload['arguments'] : []) ?? true;
     }
 }

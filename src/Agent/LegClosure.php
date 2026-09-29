@@ -41,34 +41,37 @@ final class LegClosure
      *
      * @param list<Event>                                          $stream  the session's stream, as $session was folded from
      * @param \Closure(array<string, mixed>): array<string, mixed> $observe reads the declared delivery's acceptance evidence
+     * @param (\Closure(string, array<string, mixed>): ?bool)|null $lasting which calls last, by their own declaration ({@see LastingCalls})
      *
      * @return array<string, mixed>
      */
-    public static function atTheEnd(Session $session, array $stream, \Closure $observe): array
+    public static function atTheEnd(Session $session, array $stream, \Closure $observe, ?\Closure $lasting = null): array
     {
-        return self::verdict($session, $stream, $observe)
+        return self::verdict($session, $stream, $observe, $lasting)
             ?? DeliveryClosure::derive($session, SessionFacts::fromEvents($session->id, $stream), [], null);
     }
 
     /**
      * The same verdict between steps — `null` while it depends on evidence only the natural end reads.
      *
-     * @param list<Event> $stream the session's stream, as $session was folded from
+     * @param list<Event>                                          $stream  the session's stream, as $session was folded from
+     * @param (\Closure(string, array<string, mixed>): ?bool)|null $lasting which calls last, by their own declaration ({@see LastingCalls})
      *
      * @return array<string, mixed>|null
      */
-    public static function betweenSteps(Session $session, array $stream): ?array
+    public static function betweenSteps(Session $session, array $stream, ?\Closure $lasting = null): ?array
     {
-        return self::verdict($session, $stream, null);
+        return self::verdict($session, $stream, null, $lasting);
     }
 
     /**
      * @param list<Event>                                                 $stream
      * @param (\Closure(array<string, mixed>): array<string, mixed>)|null $observe
+     * @param (\Closure(string, array<string, mixed>): ?bool)|null        $lasting
      *
      * @return array<string, mixed>|null
      */
-    private static function verdict(Session $session, array $stream, ?\Closure $observe): ?array
+    private static function verdict(Session $session, array $stream, ?\Closure $observe, ?\Closure $lasting): ?array
     {
         $facts = SessionFacts::fromEvents($session->id, $stream);
         try {
@@ -81,7 +84,7 @@ final class LegClosure
                             'bindingState' => 'awaiting_candidate'];
                 }
 
-                return ClosureVerdict::derive($session, $facts, $stream);
+                return ClosureVerdict::derive($session, $facts, $stream, $lasting);
             }
             if ($observe === null) {
                 return null;
