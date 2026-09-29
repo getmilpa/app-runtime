@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.200.3](https://github.com/getmilpa/app-runtime/compare/v0.200.2...v0.200.3) (2026-09-29)
+
+
+### Bug Fixes
+
+* **agent:** a test run is not a change to the house, and the claim door reads the leg's closure ([#652](https://github.com/getmilpa/app-runtime/issues/652)) ([d1511fa](https://github.com/getmilpa/app-runtime/commit/d1511faf8ef9c17d9c7c8c9f97a50e431ecbe31a))
+
 ## [0.200.2](https://github.com/getmilpa/app-runtime/compare/v0.200.1...v0.200.2) (2026-09-29)
 
 
