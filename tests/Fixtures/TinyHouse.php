@@ -95,7 +95,7 @@ final class ' . $name . ' implements \Milpa\Interfaces\Plugin\PluginInterface
             return;
         }
         foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::CHILD_FIRST) as $f) {
-            $f->isDir() ? rmdir($f->getPathname()) : unlink($f->getPathname());
+            $f->isDir() && !$f->isLink() ? rmdir($f->getPathname()) : unlink($f->getPathname());
         }
         rmdir($root);
     }

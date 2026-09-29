@@ -1134,13 +1134,14 @@ final class Capabilities
      * It is the same seam as `$vendor` in {@see self::declaredBy()}, for the same reason: what a test
      * cannot arrange, it injects — and what it injects is named, not mocked behind a framework.
      *
-     * @param null|callable(string): array{0: int, 1: list<string>} $runner
-     * @param null|array<string, mixed>                             $index       the derived
-     *                                                                           artifact — the promise the delivery is compared against
-     * @param null|string                                           $vendorAfter the vendor after
-     *                                                                           the install; in production the same tree re-read
-     * @param null|BootWitnessInterface                             $witness     whether the house boots with
-     *                                                                           what is declared, asked before it is written (decisions/0515)
+     * @param null|callable(string, string=): array{0: int, 1: list<string>} $runner      a stand-in composer; with the
+     *                                                                                    house's witness it is also told the directory it runs in (the stage, decisions/0527)
+     * @param null|array<string, mixed>                                      $index       the derived
+     *                                                                                    artifact — the promise the delivery is compared against
+     * @param null|string                                                    $vendorAfter the vendor after
+     *                                                                                    the install; in production the same tree re-read
+     * @param null|BootWitnessInterface                                      $witness     whether the house boots with
+     *                                                                                    what is declared, asked before it is written (decisions/0515)
      *
      * @return array<string, mixed>
      */
@@ -1282,21 +1283,42 @@ final class Capabilities
             ];
         }
 
-        if ($runner === null) {
-            $raiz = self::raizDeLaApp();
-            $runner = static function (string $cmd) use ($raiz): array {
-                $salida = [];
-                $codigo = 1;
-                exec('cd ' . escapeshellarg($raiz) . ' && ' . $cmd . ' --no-interaction 2>&1', $salida, $codigo);
-
-                return [$codigo, $salida];
-            };
-        }
-
         // WHAT WAS HERE BEFORE, so what arrives WITH the capability can be told apart from it below.
         $antes = array_keys(self::declaredBy($vendor));
 
-        [$codigo, $salida] = $runner($comando);
+        // COMPOSER BOOTS A STAGE BEFORE IT LANDS (greenhouse decisions/0527). The house's own witness runs the
+        // `require` on a staged copy — `vendor/` a copy of its own — boots it, and swaps it in only if it booted:
+        // a package whose autoloaded files kill every boot, or a require that moves a dependency the house cannot
+        // boot with, is refused with the live `vendor/` untouched. A witness that is not the house's (a test's)
+        // has no stage, and the runner runs where it always did.
+        $composed = ['said' => []];
+        if ($witness instanceof HouseBootWitness) {
+            $composed = $witness->composeIfItBoots($comando, $runner === null ? null : static fn (string $cmd, string $cwd): array => $runner($cmd, $cwd));
+            if ($composed['refused'] !== null) {
+                return [
+                    'ok' => false,
+                    'capability' => $objetivo['package'],
+                    'command' => $comando,
+                    'error' => $composed['refused'],
+                    'installed' => false,
+                    'hint' => 'the house does not boot with what composer would install, so nothing was installed: '
+                        . 'the house boots as before. Fix the package, or require a version that boots.',
+                ] + $composed['said'];
+            }
+            [$codigo, $salida] = [$composed['code'], $composed['output']];
+        } else {
+            if ($runner === null) {
+                $raiz = self::raizDeLaApp();
+                $runner = static function (string $cmd) use ($raiz): array {
+                    $salida = [];
+                    $codigo = 1;
+                    exec('cd ' . escapeshellarg($raiz) . ' && ' . $cmd . ' --no-interaction 2>&1', $salida, $codigo);
+
+                    return [$codigo, $salida];
+                };
+            }
+            [$codigo, $salida] = $runner($comando);
+        }
 
         if ($codigo !== 0) {
             return [
@@ -1307,7 +1329,7 @@ final class Capabilities
                 // version conflict, no network, a locked platform — and hiding them turns a fixable
                 // problem into "it did not work".
                 'error' => implode("\n", \array_slice($salida, -12)),
-            ];
+            ] + $composed['said'];
         }
 
         // UN CERO DE COMPOSER NO ES LA PRUEBA DE QUE LA CAPACIDAD LLEGÓ.
@@ -1435,6 +1457,10 @@ final class Capabilities
                 : 'run `' . self::CLI . 'list` to see the new operations',
         ];
         $okOut += $boot['said'];
+        if ($composed['said'] !== []) {
+            // What the stage said about composer's own write (decisions/0527): it booted, and how it landed.
+            $okOut['composer'] = $composed['said'];
+        }
         if ($relyingParty !== null) {
             $okOut['relying_party'] = $relyingParty;
         }
