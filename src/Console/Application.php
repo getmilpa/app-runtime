@@ -23,11 +23,13 @@ use Milpa\AppRuntime\Policy\PolicyConfig;
 use Milpa\ToolRuntime\Identity\VerifiedSigner;
 use Milpa\AppRuntime\Agent\SurfaceBroadcaster;
 use Milpa\AppRuntime\Agent\SurfaceComposition;
+use Milpa\AppRuntime\Support\BootProbe;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\HouseBootWitness;
 use Milpa\AppRuntime\Support\KernelDefinition;
 use Milpa\AppRuntime\Support\PhpBinary;
 use Milpa\AppRuntime\Support\StagedComposerRunner;
+use Milpa\AppRuntime\Web\PasskeyPlugin;
 use Milpa\DevTools\Doctor\Repair;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Operation;
@@ -245,11 +247,14 @@ final class Application
      *                                                                        without a kernel ({@see recuperarSinKernel()}); null is gpg
      * @param \Milpa\ToolRuntime\Identity\SignatureVerifier|null $verificador who verifies it; null is gpg. Both exist so the two doors can be
      *                                                                        asked the same question with the same key (greenhouse decisions/0506)
+     * @param BootProbe|null                                     $bootProbe   who asks a fresh process whether the house boots, for `coa doctor`;
+     *                                                                        null is the real one (greenhouse decisions/0533)
      */
     public function __construct(
         private readonly string $root,
         private readonly ?\Milpa\Console\OperationSigner $firmante = null,
         private readonly ?\Milpa\ToolRuntime\Identity\SignatureVerifier $verificador = null,
+        private readonly ?BootProbe $bootProbe = null,
     ) {
     }
 
@@ -1331,16 +1336,24 @@ final class Application
         // de tener efecto en el archivo que la persona abre — y sin esto se entera cambiando el valor
         // y viendo que no pasa nada. Prohibir la edición a mano no está a nuestro alcance; que la
         // divergencia sea invisible sí lo estaba.
-        $enAmbos = MachineOverlay::divergencias(
-            \is_array($delApp = @include $this->root . '/config/app.php') ? $delApp : [],
-            $this->root,
-        );
+        $delApp = @include $this->root . '/config/app.php';
+        $delApp = \is_array($delApp) ? $delApp : [];
+        $enAmbos = MachineOverlay::divergencias($delApp, $this->root);
 
         foreach ($enAmbos as $ruta) {
             $this->line("  ! «{$ruta}» está en config/app.php Y en .milpa/agent.json — gana el segundo");
         }
 
-        if ($enAmbos !== []) {
+        // THE DOOR ON ORIGINS NOBODY WROTE (greenhouse decisions/0533): a house made before 0.201 declared its
+        // rpId alone, and boots on the origins derived from it. Said here, with the act that writes them.
+        $origenes = \in_array(PasskeyPlugin::class, $clases, true) && \is_array($delApp['passkey'] ?? null)
+            ? PasskeyPlugin::undeclaredOrigins($delApp['passkey'])
+            : null;
+        if ($origenes !== null) {
+            $this->line('  ! ' . $origenes);
+        }
+
+        if ($enAmbos !== [] || $origenes !== null) {
             $this->line('');
         }
 
@@ -1384,6 +1397,16 @@ final class Application
 
         $this->line('');
         $this->line($reporte->ok() ? '✓ el grafo cierra' : '✗ esta app no va a arrancar así');
+
+        // A GRAPH THAT CLOSES IS NOT A HOUSE THAT BOOTS (greenhouse evidence/1067): a 0.200.3 house moved to
+        // 0.201.0 died in a plugin's boot() while this said «✓ el grafo cierra», exit 0 — and `coa update` reads
+        // this exit as its boot check, so it printed `boots: 1`. The same fresh process the recovery path asks.
+        $porQue = $reporte->ok() ? ($this->bootProbe ?? new BootProbe())->whyNot($this->root) : null;
+        if ($porQue !== null) {
+            $this->line('✗ this house does not boot: ' . $porQue);
+
+            return 1;
+        }
 
         // LAS PROMESAS QUE ESTA APP NO PUEDE CUMPLIR, cuando hay tabla que preguntar.
         //

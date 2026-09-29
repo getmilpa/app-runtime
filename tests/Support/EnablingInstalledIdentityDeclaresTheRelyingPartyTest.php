@@ -174,6 +174,83 @@ final class EnablingInstalledIdentityDeclaresTheRelyingPartyTest extends TestCas
         self::assertFileDoesNotExist($this->root . '/config/app.php');
     }
 
+    /** What `capabilities:enable identity` wrote into config/app.php on 0.200.x: the rpId, and no origins. */
+    private const FROM_BEFORE_THE_ORIGINS = <<<'PHP_'
+        <?php
+
+        declare(strict_types=1);
+
+        return [
+            'app' => ['name' => 'house-from-0.200', 'debug' => false],
+
+            // Declared by `capabilities:enable identity`: the relying-party id passkey assertions bind to.
+            // It must equal the host the browser uses (`php bin/coa serve` answers at http://localhost:…). Change it
+            // to your domain before enrolling anyone there.
+            'passkey' => ['rpId' => 'localhost'],
+        ];
+
+        PHP_;
+
+    /**
+     * A HOUSE FROM BEFORE THE ORIGINS GETS THEM WRITTEN (greenhouse decisions/0533). Its door boots on the
+     * origins derived in memory; the same enable that declares a new house's relying party completes this
+     * one on disk — where the person reads and changes it — with the value a new house gets.
+     */
+    #[Test]
+    public function enabling_identity_completes_a_relying_party_declared_without_its_origins(): void
+    {
+        file_put_contents($this->root . '/config/app.php', self::FROM_BEFORE_THE_ORIGINS);
+        self::assertSame(['passkey.origins'], Capabilities::unwired($this->root, $this->manifest('milpa/auth')), 'the reader sees what is missing');
+
+        $answer = Capabilities::install('identity', $this->vendor, $this->composerThatMustNotRun(), root: $this->root);
+
+        self::assertTrue($answer['ok'], json_encode($answer, \JSON_THROW_ON_ERROR));
+        self::assertSame(['rpId' => 'localhost', 'written' => true, 'file' => 'config/app.php', 'origins' => ['http://localhost:8000']], $answer['relying_party'] ?? null);
+        self::assertStringNotContainsString('nothing to do', (string) $answer['hint']);
+        self::assertStringContainsString('passkey.origins is declared now', (string) $answer['hint']);
+        self::assertStringNotContainsString('first_passkey', (string) $answer['hint'], 'the door was open already: no invitation to chase');
+
+        $config = (fn (): mixed => include $this->root . '/config/app.php')();
+        self::assertIsArray($config);
+        self::assertSame(['rpId' => 'localhost', 'origins' => ['http://localhost:8000']], $config['passkey']);
+        self::assertSame(['name' => 'house-from-0.200', 'debug' => false], $config['app'], 'the rest of the file is untouched');
+        self::assertSame(1, substr_count((string) file_get_contents($this->root . '/config/app.php'), "'passkey'"), 'completed in place, not declared twice');
+        self::assertSame([], Capabilities::unwired($this->root, $this->manifest('milpa/auth')));
+
+        // And once is enough: the second enable finds it done.
+        $again = Capabilities::install('identity', $this->vendor, $this->composerThatMustNotRun(), root: $this->root);
+        self::assertStringContainsString('nothing to do', (string) $again['hint']);
+    }
+
+    #[Test]
+    public function the_completion_keeps_what_else_the_person_declared_beside_the_rp_id(): void
+    {
+        file_put_contents($this->root . '/config/app.php', "<?php\n\nreturn [\n    'passkey' => [\n        'rpId' => 'notes.example',\n        'ttl' => 10800,\n    ],\n];\n");
+
+        $answer = Capabilities::declareRelyingParty($this->root);
+
+        self::assertSame(['rpId' => 'notes.example', 'written' => true, 'file' => 'config/app.php', 'origins' => ['https://notes.example']], $answer);
+        $config = (fn (): mixed => include $this->root . '/config/app.php')();
+        self::assertIsArray($config);
+        self::assertSame(['rpId' => 'notes.example', 'origins' => ['https://notes.example'], 'ttl' => 10800], $config['passkey']);
+    }
+
+    /** An rpId the writer cannot find as a literal is not guessed at: the file stays, and the answer says what to write. */
+    #[Test]
+    public function a_relying_party_it_cannot_complete_in_place_is_left_as_it_is_and_named(): void
+    {
+        // The one literal is in a comment: written there, the file would load back without origins — so it is not kept.
+        $src = "<?php\n\n// was: 'rpId' => 'notes.example'\n\$host = 'notes.example';\n\nreturn ['passkey' => ['rpId' => \$host]];\n";
+        file_put_contents($this->root . '/config/app.php', $src);
+
+        $answer = Capabilities::declareRelyingParty($this->root);
+
+        self::assertIsArray($answer);
+        self::assertFalse($answer['written']);
+        self::assertStringContainsString("'origins' => ['https://notes.example']", (string) ($answer['error'] ?? ''));
+        self::assertStringEqualsFile($this->root . '/config/app.php', $src);
+    }
+
     /** @return array<string, mixed> */
     private function manifest(string $package): array
     {

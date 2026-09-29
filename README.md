@@ -562,8 +562,10 @@ physical YubiKey, greenhouse evidence/0519):
    lists **exactly** what the address bar shows — scheme, host and port — for every place the house is
    served from; a ceremony from any other origin is refused, and the list is never guessed from the
    request. Without `rpId` the plugin mounts nothing — a relying party nobody chose is one nobody can
-   trust; with `rpId` and no valid `origins` it refuses to boot, naming the key. With both, and no
-   session store registered by the host, the plugin provides one (`var/passkey/sessions.json`).
+   trust; with `rpId` and malformed `origins` it refuses to boot, naming the key; with `rpId` and no
+   `origins` at all (a house made before 0.201) it holds every ceremony to the origins a new house gets
+   written — see *Upgrading*. With both, and no session store registered by the host, the plugin
+   provides one (`var/passkey/sessions.json`).
 2. **Register the key.** Open `GET /webauthn/enroll`, press *Register with passkey*, touch the key. The
    page prints the **credential id** (base64url). The credential is now *registered* — the house holds
    its public key — but *recognized* by nobody: registering grants nothing.
@@ -629,7 +631,7 @@ secret, the private key is. The intent page (the D-01 approve ceremony) now requ
 | key | default | what it decides |
 |---|---|---|
 | `passkey.rpId` | *none — required* | the relying-party id every assertion binds to; without it, no routes |
-| `passkey.origins` | *none — required with `rpId`* | the exact origins (`https://host[:port]`; plain `http` only on `localhost`/`127.0.0.1`/`[::1]`) a registration, sign-in or intent may come from; missing or malformed, the plugin refuses to boot |
+| `passkey.origins` | *derived from `rpId` when absent:* `http://localhost:8000` for `localhost`, `https://<rpId>` otherwise | the exact origins (`https://host[:port]`; plain `http` only on `localhost`/`127.0.0.1`/`[::1]`) a registration, sign-in or intent may come from; malformed, the plugin refuses to boot; absent, `coa doctor` says so and `capabilities:enable identity` writes them |
 | `passkey.cookie` | `milpa_session` | the cookie the session id travels in (HttpOnly, SameSite=Strict) |
 | `passkey.ttl` | `3600` | session lifetime in seconds, from the moment the ceremony mints it |
 | `passkey.sessions` | `<root>/var/passkey/sessions.json` | where the provided `FileSessionStore` writes — ignored when the host registered its own `SessionStore` |
@@ -708,6 +710,22 @@ $response = $handler->handle($request);
 
 ## Upgrading
 
+### 0.201.x — a house from 0.200.x keeps booting without `passkey.origins`
+
+0.201.0 refused to boot any house that declared `passkey.rpId` without `passkey.origins` — and that is every
+house whose `capabilities:enable identity` ran on 0.200.x, which wrote the id alone (greenhouse
+evidence/1067). From this release such a house boots, and its door is held to exactly the origins a new
+house gets written: `http://localhost:8000` for `localhost`, `https://<rpId>` for any other id — derived from
+the declared id, never from the request. `passkey.origins` declared but malformed still refuses to boot.
+
+- **Write them down.** `php bin/coa doctor` names the house and the origins it runs on; `php bin/coa
+  capabilities:enable identity --sign` writes them into `config/app.php` right beside the `rpId`, and
+  touches nothing else there. If the house is served from anywhere else (another port, a domain), list
+  that origin instead.
+- **`coa doctor` asks whether the house boots**, in a fresh process, after the plugin graph closes: a
+  house whose graph closes but whose boot dies says `✗ this house does not boot: <reason>` and exits 1 —
+  so `coa update`, which reads that exit, no longer reports `boots: 1` over a house that does not.
+
 ### 0.201.0 — passkey ceremonies are held to `passkey.origins` (milpa/auth 0.11)
 
 `milpa/auth` 0.11.0 checks what its WebAuthn verifiers used to skip: the clientDataJSON **origin** must be
@@ -724,8 +742,9 @@ every sign-in and registration with a `500`. Update both together.
   List every origin the pages are served from — `https://admin.example.com` is not implied by
   `example.com`, and `https://example.com:8443` is not `https://example.com`. On a laptop,
   `'rpId' => 'localhost', 'origins' => ['http://localhost:8000']` (the port `php bin/coa serve` uses).
-  A house that declares `rpId` without valid `origins` now **refuses to boot**, naming the key; one that
-  declares neither keeps mounting nothing, as before. `capabilities:enable identity` writes both.
+  A house that declares `rpId` with malformed `origins` **refuses to boot**, naming the key; one that
+  declares neither keeps mounting nothing, as before. `capabilities:enable identity` writes both. (0.201.0
+  also refused `rpId` with no `origins` at all; the next release boots it — see above.)
 - **Keys without user verification stop signing in.** The pages already asked for
   `userVerification: 'required'`; a key that nevertheless answered without the PIN or biometric was
   accepted and is now refused. Registered credentials keep working — nothing stored changes.
