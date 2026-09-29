@@ -239,7 +239,16 @@ final class IdentityGrantOperationTest extends TestCase
         self::assertCount(1, $seen);
         self::assertSame(self::SESSION, $seen[0]['session']);
         self::assertSame('key:' . self::SEAT, $seen[0]['seat']);
-        self::assertSame([['seq' => $seq, 'tool' => 'make', 'plugin' => 'Blog', 'permission' => 'plugins.Blog:write']], $seen[0]['refusals'], 'one row for the scope, not one per retry');
+        self::assertSame([[
+            'seq' => $seq + 1,
+            'tool' => 'make',
+            'plugin' => 'Blog',
+            'permission' => 'plugins.Blog:write',
+            'call' => ['what' => 'plugin', 'plugin' => 'Blog', 'name' => 'Blog'],
+            'target' => 'new',
+            'named' => true,
+            'consent' => 'touch',
+        ]], $seen[0]['refusals'], 'one row for the scope, not one per retry — the latest retry, the call the seat still asks for (decisions/0510)');
     }
 
     public function testACallThatFailedForAnotherReasonIsNotAFrontier(): void
@@ -274,7 +283,7 @@ final class IdentityGrantOperationTest extends TestCase
      *
      * @return array{0: DIContainer, 1: string, 2: int}
      */
-    private function house(): array
+    private function house(string $goal = 'Build the blog'): array
     {
         $root = sys_get_temp_dir() . '/milpa-grant-op-' . bin2hex(random_bytes(4));
         mkdir($root . '/config', 0o777, true);
@@ -299,12 +308,201 @@ final class IdentityGrantOperationTest extends TestCase
         $sessions = new SessionStore($events);
         $c->registerService(SessionStore::class, $sessions);
 
-        $sessions->start(self::SESSION, 'Build the blog', by: new Principal('key:' . self::SEAT, true));
+        $sessions->start(self::SESSION, $goal, by: new Principal('key:' . self::SEAT, true));
         $refused = "Missing required permission 'plugins.Blog:write' for plugin 'Blog'.";
         $seq = $sessions->recordToolCall(self::SESSION, 'make', ['what' => 'plugin', 'plugin' => 'Blog', 'name' => 'BlogPlugin'], $refused, false, true);
         $sessions->recordToolCall(self::SESSION, 'make', ['what' => 'plugin', 'plugin' => 'Blog', 'name' => 'Blog'], $refused, false, true);
 
         return [$c, $root, $seq];
+    }
+
+    /**
+     * evidence/1036 R3, the call as it was recorded: the resident asked to reset the demo plugin it was never told
+     * to touch. The card must say what granting opens — write over EXISTING work the task does not name — and it
+     * is never one touch (decisions/0510).
+     */
+    public function testAGrantOverAnExistingPluginTheTaskDoesNotNameIsAnInformedActNotOneTouch(): void
+    {
+        [$c, $root, $blog] = $this->house();
+        $hello = $this->helloRefused($c, $root);
+
+        $rows = $this->frontier($c, $root)->openRefusals(self::SESSION);
+        $byPlugin = array_column($rows, null, 'plugin');
+
+        self::assertSame(['target' => 'existing', 'named' => false, 'consent' => 'informed'], array_intersect_key($byPlugin['HelloPlugin'], ['target' => 1, 'named' => 1, 'consent' => 1]));
+        self::assertSame(['plugin' => 'HelloPlugin', 'class' => 'HelloPlugin', 'content' => '', 'mode' => 'reset'], $byPlugin['HelloPlugin']['call'], 'the call is shown as recorded, never interpreted');
+        self::assertSame(['target' => 'new', 'named' => true, 'consent' => 'touch'], array_intersect_key($byPlugin['Blog'], ['target' => 1, 'named' => 1, 'consent' => 1]));
+
+        // The plain grant — the one-touch shape of today's button — is refused, and the ledger does not move.
+        $before = (string) file_get_contents($root . '/storage/identity/enrollments.json');
+        $this->signed($c, self::HUMAN, ['session' => self::SESSION, 'seq' => $hello]);
+        $plain = $this->call($c, ['session' => self::SESSION, 'seq' => $hello]);
+        self::assertFalse($plain['ok']);
+        self::assertStringContainsString('opens write over the existing plugin «HelloPlugin»', (string) $plain['error']);
+        self::assertStringContainsString('the task does not name it', (string) $plain['error']);
+        self::assertSame($before, (string) file_get_contents($root . '/storage/identity/enrollments.json'));
+
+        // The wrong name repeated is not knowing it either.
+        $this->signed($c, self::HUMAN, ['session' => self::SESSION, 'seq' => $hello, 'existing' => 'Blog']);
+        self::assertFalse($this->call($c, ['session' => self::SESSION, 'seq' => $hello, 'existing' => 'Blog'])['ok']);
+        self::assertSame($before, (string) file_get_contents($root . '/storage/identity/enrollments.json'));
+
+        // A signature over the plain call does not approve the informed one.
+        $this->signed($c, self::HUMAN, ['session' => self::SESSION, 'seq' => $hello]);
+        $unsigned = $this->call($c, ['session' => self::SESSION, 'seq' => $hello, 'existing' => 'HelloPlugin']);
+        self::assertFalse($unsigned['ok']);
+        self::assertStringContainsString('does not cover', (string) $unsigned['error']);
+
+        // The Blog card still grants in one act, untouched by any of this.
+        $this->signed($c, self::HUMAN, ['session' => self::SESSION, 'seq' => $blog]);
+        $blogGrant = $this->call($c, ['session' => self::SESSION, 'seq' => $blog]);
+        self::assertTrue($blogGrant['ok'], (string) ($blogGrant['error'] ?? ''));
+
+        // Knowingly, signed: granted.
+        $this->signed($c, self::HUMAN, ['session' => self::SESSION, 'seq' => $hello, 'existing' => 'HelloPlugin']);
+        $informed = $this->call($c, ['session' => self::SESSION, 'seq' => $hello, 'existing' => 'HelloPlugin']);
+        self::assertTrue($informed['ok'], (string) ($informed['error'] ?? ''));
+        self::assertSame('plugins.HelloPlugin:write', $informed['granted']);
+    }
+
+    public function testAnExistingPluginTheTaskNamesStillNeedsTheInformedAct(): void
+    {
+        [$c, $root] = $this->house('Fix the greeting of HelloPlugin.');
+        $hello = $this->helloRefused($c, $root);
+
+        $row = array_column($this->frontier($c, $root)->openRefusals(self::SESSION), null, 'plugin')['HelloPlugin'];
+        self::assertTrue($row['named']);
+        self::assertSame('informed', $row['consent'], 'naming a plugin does not make writing over its work one touch');
+
+        $this->signed($c, self::HUMAN, ['session' => self::SESSION, 'seq' => $hello]);
+        $plain = $this->call($c, ['session' => self::SESSION, 'seq' => $hello]);
+        self::assertFalse($plain['ok']);
+        self::assertStringNotContainsString('does not name it', (string) $plain['error']);
+    }
+
+    public function testNamingAnExistingPluginOnAGrantThatOpensNoneIsRefused(): void
+    {
+        [$c, , $blog] = $this->house();
+        $this->signed($c, self::HUMAN, ['session' => self::SESSION, 'seq' => $blog, 'existing' => 'Blog']);
+
+        $r = $this->call($c, ['session' => self::SESSION, 'seq' => $blog, 'existing' => 'Blog']);
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('not a plugin this refusal would open existing work in', (string) $r['error']);
+    }
+
+    public function testThePasskeyTouchForThePlainGrantDoesNotApproveTheInformedOne(): void
+    {
+        [$c, $root] = $this->house();
+        $hello = $this->helloRefused($c, $root);
+        [, $touch] = $this->passkey($c, self::PASSKEY);
+        $web = new ToolContext('passkey:' . self::PASSKEY, 'web', ['identity:enroll']);
+        $plain = ['session' => self::SESSION, 'seq' => $hello];
+        $informed = $plain + ['existing' => 'HelloPlugin'];
+
+        $swapped = $this->call($c, $informed + ['assertion' => $touch($plain)], $web);
+        self::assertFalse($swapped['ok']);
+        self::assertStringContainsString('did not approve', (string) $swapped['error']);
+    }
+
+    public function testThePasskeyTouchBoundToTheInformedGrantGrantsIt(): void
+    {
+        [$c, $root] = $this->house();
+        $hello = $this->helloRefused($c, $root);
+        [, $touch] = $this->passkey($c, self::PASSKEY);
+        $informed = ['session' => self::SESSION, 'seq' => $hello, 'existing' => 'HelloPlugin'];
+
+        $r = $this->call($c, $informed + ['assertion' => $touch($informed)], new ToolContext('passkey:' . self::PASSKEY, 'web', ['identity:enroll']));
+
+        self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
+        self::assertSame('passkey:' . self::PASSKEY, $r['authorized_by']);
+        self::assertSame('plugins.HelloPlugin:write', $r['granted']);
+    }
+
+    /**
+     * A card the seat moved on from expires: in evidence/1036 the HelloPlugin card stayed on offer for two hours
+     * and fifteen legs the resident never spent on it. Staleness is the seat's work, not the clock.
+     */
+    public function testARefusalTheSeatMovedOnFromIsNoLongerOfferedNorGranted(): void
+    {
+        [$c, $root] = $this->house();
+        $hello = $this->helloRefused($c, $root);
+        $this->raw($c, 'session.run_terminated', ['reason' => 'progress_stalled']);
+        $sessions = $c->get(SessionStore::class);
+        \assert($sessions instanceof SessionStore);
+
+        // The house's own notice is a fact, not a run: it does not age the card.
+        $sessions->recordTurn(self::SESSION, 'user', SeatFrontier::NOTICE_PREFIX . 'passkey:x granted this seat the scope «plugins.Blog:write».');
+        self::assertContains('HelloPlugin', array_column($this->frontier($c, $root)->openRefusals(self::SESSION), 'plugin'));
+
+        // A later run begins: still offered while it works (it may yet retry).
+        $sessions->recordTurn(self::SESSION, 'user', 'continue');
+        $this->raw($c, 'session.model_called', []);
+        self::assertContains('HelloPlugin', array_column($this->frontier($c, $root)->openRefusals(self::SESSION), 'plugin'));
+
+        // It ends without asking again: the seat moved on.
+        $this->raw($c, 'session.run_terminated', ['reason' => 'output_truncated']);
+        self::assertNotContains('HelloPlugin', array_column($this->frontier($c, $root)->openRefusals(self::SESSION), 'plugin'));
+        $this->signed($c, self::HUMAN, ['session' => self::SESSION, 'seq' => $hello, 'existing' => 'HelloPlugin']);
+        $r = $this->call($c, ['session' => self::SESSION, 'seq' => $hello, 'existing' => 'HelloPlugin']);
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('not an open refusal', (string) $r['error']);
+
+        // Asking again renews it: the frontier offers the latest refusal of that shape.
+        $again = $this->helloRefused($c, $root);
+        self::assertSame([$again], array_values(array_map(
+            static fn (array $row): int => $row['seq'],
+            array_filter($this->frontier($c, $root)->openRefusals(self::SESSION), static fn (array $row): bool => $row['plugin'] === 'HelloPlugin'),
+        )));
+    }
+
+    public function testARunThatDiedWithoutAnEventEndsAtTheNextTurn(): void
+    {
+        [$c, $root] = $this->house();
+        $this->helloRefused($c, $root);
+        $sessions = $c->get(SessionStore::class);
+        \assert($sessions instanceof SessionStore);
+        $sessions->recordTurn(self::SESSION, 'user', 'continue');
+        $this->raw($c, 'session.model_called', []);
+        // The process died (evidence/1036: four memory deaths, no event); the next turn closes that run.
+        $sessions->recordTurn(self::SESSION, 'user', 'continue');
+
+        self::assertNotContains('HelloPlugin', array_column($this->frontier($c, $root)->openRefusals(self::SESSION), 'plugin'));
+    }
+
+    public function testLongArgumentsAreCutWithTheirSizeSaid(): void
+    {
+        [$c, $root] = $this->house();
+        $sessions = $c->get(SessionStore::class);
+        \assert($sessions instanceof SessionStore);
+        mkdir($root . '/src/Plugins/HelloPlugin', 0o777, true);
+        $body = str_repeat('x', 5000);
+        $sessions->recordToolCall(self::SESSION, 'implement', ['plugin' => 'HelloPlugin', 'class' => 'HelloPlugin', 'content' => $body, 'edits' => [['find' => 'a', 'replace' => 'b']]], "Missing required permission 'plugins.HelloPlugin:write' for plugin 'HelloPlugin'.", false, true);
+
+        $call = array_column($this->frontier($c, $root)->openRefusals(self::SESSION), null, 'plugin')['HelloPlugin']['call'];
+
+        self::assertSame(str_repeat('x', 120) . '… (5000 bytes)', $call['content']);
+        self::assertSame('[{"find":"a","replace":"b"}]', $call['edits']);
+    }
+
+    /** Record the refusal of evidence/1036 seq 49 against a house that has the demo plugin; return its seq. */
+    private function helloRefused(DIContainer $c, string $root): int
+    {
+        if (!is_dir($root . '/src/Plugins/HelloPlugin')) {
+            mkdir($root . '/src/Plugins/HelloPlugin', 0o777, true);
+        }
+        $sessions = $c->get(SessionStore::class);
+        \assert($sessions instanceof SessionStore);
+
+        return $sessions->recordToolCall(self::SESSION, 'implement', ['plugin' => 'HelloPlugin', 'class' => 'HelloPlugin', 'content' => '', 'mode' => 'reset'], "Missing required permission 'plugins.HelloPlugin:write' for plugin 'HelloPlugin'.", false, true);
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function raw(DIContainer $c, string $type, array $payload): void
+    {
+        $events = $c->get(EventStoreInterface::class);
+        \assert($events instanceof EventStoreInterface);
+        $events->append(new \Milpa\EventStore\Event('agent-session:' . self::SESSION, $type, $payload, $events->nextSeq()));
     }
 
     private function frontier(DIContainer $c, string $root): SeatFrontier
@@ -325,7 +523,9 @@ final class IdentityGrantOperationTest extends TestCase
             issuedAt: '2026-09-27T00:00:00+00:00',
             nonce: 'n-1',
         );
-        $c->registerService(GrantedAuthorization::class, new GrantedAuthorization(
+        // Replaced, not registered: re-registering an instance of the same class is silently kept as the first,
+        // and a later step would be judged against an earlier signature.
+        $c->{$c->has(GrantedAuthorization::class) ? 'replaceService' : 'registerService'}(GrantedAuthorization::class, new GrantedAuthorization(
             authorization: $authorization,
             signer: new VerifiedSigner($fingerprint, 'Lab <lab@example.invalid>'),
             payload: $authorization->canonical(),

@@ -653,6 +653,7 @@ final class SessionOperations implements CommandProvider
                     'properties' => [
                         'session' => ['type' => 'string', 'description' => 'The seat\'s session that recorded the refusal'],
                         'seq' => ['type' => 'integer', 'description' => 'The refused call\'s position in that session — the house re-derives the missing scope from it; no scope is ever typed'],
+                        'existing' => ['type' => 'string', 'description' => 'Required when the refused call targets a plugin the house already has: that plugin\'s name, repeated knowingly — the grant opens write over its whole work (greenhouse decisions/0510). Signed with the rest of the call'],
                         'assertion' => [
                             'type' => 'object',
                             'description' => 'Over HTTP: the passkey assertion over the challenge /webauthn/intent/options bound to identity:grant {session, seq}',
@@ -2170,7 +2171,14 @@ final class SessionOperations implements CommandProvider
             return ['ok' => false, 'error' => 'which refusal? `session` and an integer `seq` are required'];
         }
 
-        $decider = $this->decider('identity:grant', ['session' => $session, 'seq' => $seq], $session, $input['assertion'] ?? null, $authority, 'granted');
+        $existing = $input['existing'] ?? null;
+        if ($existing !== null && (!\is_string($existing) || $existing === '')) {
+            return ['ok' => false, 'error' => '`existing` names one plugin the house has, or is absent; nothing was granted'];
+        }
+        // What the proof must cover, exactly: an informed grant's `existing` is part of the approved call, so a
+        // touch for the plain grant never approves write over existing work (decisions/0510).
+        $call = ['session' => $session, 'seq' => $seq] + ($existing === null ? [] : ['existing' => $existing]);
+        $decider = $this->decider('identity:grant', $call, $session, $input['assertion'] ?? null, $authority, 'granted');
         if (\is_array($decider)) {
             return $decider;
         }
@@ -2190,6 +2198,22 @@ final class SessionOperations implements CommandProvider
         $refusal = $frontier->refusal($session, $seq);
         if ($refusal === null) {
             return ['ok' => false, 'error' => 'that call is not an open refusal — nothing it lacks remains to grant; nothing was granted'];
+        }
+        // Write over work the house already has is an informed act, never one touch (decisions/0510): the decider
+        // repeats the plugin's name, and that name travelled inside what the passkey or the signature approved.
+        if ($refusal['consent'] === 'informed' && $existing !== $refusal['plugin']) {
+            return ['ok' => false, 'error' => \sprintf(
+                'granting «%s» opens write over the existing plugin «%s» — all of its work, not only call #%d (%s)%s; approve it knowingly with existing=%s; nothing was granted',
+                $refusal['permission'],
+                (string) $refusal['plugin'],
+                $refusal['seq'],
+                $refusal['tool'],
+                $refusal['named'] ? '' : ', and the task does not name it',
+                (string) $refusal['plugin'],
+            )];
+        }
+        if ($refusal['consent'] === 'touch' && $existing !== null) {
+            return ['ok' => false, 'error' => \sprintf('«%s» is not a plugin this refusal would open existing work in; nothing was granted', $existing)];
         }
 
         $ledger = new FileEnrollmentStore($root . '/storage/identity/enrollments.json');
@@ -2233,7 +2257,7 @@ final class SessionOperations implements CommandProvider
         $call = $refusal['tool'] . ($refusal['plugin'] !== null ? ' plugin=' . $refusal['plugin'] : '');
 
         return sprintf(
-            '[house] %s granted this seat the scope «%s». Your call #%d (%s) was refused for lacking it; that same call can run now. Nothing else changed.',
+            \Milpa\AppRuntime\Agent\SeatFrontier::NOTICE_PREFIX . '%s granted this seat the scope «%s». Your call #%d (%s) was refused for lacking it; that same call can run now. Nothing else changed.',
             $authorizedBy,
             $refusal['permission'],
             $refusal['seq'],
