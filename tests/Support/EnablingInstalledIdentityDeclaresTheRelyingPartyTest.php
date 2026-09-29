@@ -95,6 +95,7 @@ final class EnablingInstalledIdentityDeclaresTheRelyingPartyTest extends TestCas
         $config = (fn (): mixed => include $this->root . '/config/app.php')();
         self::assertIsArray($config);
         self::assertSame('localhost', $config['passkey']['rpId']);
+        self::assertSame(['http://localhost:8000'], $config['passkey']['origins'], 'the origins the door refuses to boot without');
         self::assertSame('baked-house', $config['app']['name']);
     }
 
@@ -118,7 +119,7 @@ final class EnablingInstalledIdentityDeclaresTheRelyingPartyTest extends TestCas
     #[Test]
     public function an_explicit_relying_party_is_never_overwritten(): void
     {
-        file_put_contents($this->root . '/config/app.php', "<?php\n\nreturn ['passkey' => ['rpId' => 'notes.example'], 'app' => ['name' => 'x']];\n");
+        file_put_contents($this->root . '/config/app.php', "<?php\n\nreturn ['passkey' => ['rpId' => 'notes.example', 'origins' => ['https://notes.example']], 'app' => ['name' => 'x']];\n");
         $before = (string) file_get_contents($this->root . '/config/app.php');
 
         self::assertSame([], Capabilities::unwired($this->root, $this->manifest('milpa/auth')), 'an explicit value is declared');

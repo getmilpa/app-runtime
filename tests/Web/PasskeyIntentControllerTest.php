@@ -22,6 +22,7 @@ use Milpa\Auth\WebAuthn\FileChallengeStore;
 use Milpa\Auth\WebAuthn\FilePasskeyCredentialStore;
 use Milpa\Auth\WebAuthn\PasskeyAuthenticator;
 use Milpa\Auth\WebAuthn\RegisteredCredential;
+use Milpa\Auth\WebAuthn\RelyingParty;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
 
@@ -152,7 +153,7 @@ final class PasskeyIntentControllerTest extends TestCase
             'challenge' => rtrim(strtr(base64_encode($challenge), '+/', '-_'), '='),
             'origin' => 'https://' . self::RP_ID,
         ]);
-        $authData = hash('sha256', self::RP_ID, true) . "\x01" . pack('N', 7);
+        $authData = hash('sha256', self::RP_ID, true) . "\x05" . pack('N', 7);
         $sig = '';
         openssl_sign($authData . hash('sha256', $client, true), $sig, $key, \OPENSSL_ALGO_SHA256);
         if ($tamper) {
@@ -185,6 +186,6 @@ final class PasskeyIntentControllerTest extends TestCase
         $authenticator = new PasskeyAuthenticator(new FileChallengeStore($dir . '-ch.json'), $credentials);
         $admission = new PasskeyIntentAdmission($authenticator, new InMemoryIntentChallengeStore());
 
-        return [new PasskeyIntentController($admission, new RegisteredCredentialIds($dir . '-cr.json'), self::RP_ID), $key, $authenticator];
+        return [new PasskeyIntentController($admission, new RegisteredCredentialIds($dir . '-cr.json'), new RelyingParty(self::RP_ID, 'Milpa', ['https://' . self::RP_ID])), $key, $authenticator];
     }
 }

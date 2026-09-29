@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Web;
 use Milpa\Interfaces\Event\MilpaEventDispatcherInterface;
 use Milpa\AppRuntime\Agent\PasskeyIntentAdmission;
 use Milpa\AppRuntime\Agent\PasskeyIntentProof;
+use Milpa\AppRuntime\Identity\EnrollmentStore;
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
 use Milpa\AppRuntime\Identity\IdentityInvitations;
 use Milpa\AppRuntime\Web\Controllers\PasskeyController;
@@ -28,7 +29,9 @@ use Milpa\Auth\FileSessionStore;
 use Milpa\Auth\WebAuthn\FileChallengeStore;
 use Milpa\Auth\WebAuthn\FilePasskeyCredentialStore;
 use Milpa\Auth\WebAuthn\PasskeyAuthenticator;
+use Milpa\Auth\WebAuthn\PasskeyCredentialStore;
 use Milpa\Auth\WebAuthn\PasskeyLogin;
+use Milpa\Auth\WebAuthn\RelyingParty;
 use Milpa\Auth\WebAuthn\WebAuthnRegistrationVerifier;
 use Milpa\Http\HttpMethod;
 use Milpa\Http\Routing\HandlerReference;
@@ -69,10 +72,24 @@ use Milpa\Runtime\Http\RouteProviderInterface;
  * enrolled by `identity:enroll` is recognized exactly as a fingerprint is, so the CLI and WEB surfaces
  * meet in one identity model rather than two.
  *
+ * ONE RELYING PARTY, HELD TO ITS ORIGINS (milpa/auth 0.11). Every ceremony — registration, login, intent —
+ * is verified against the same {@see RelyingParty}: its `rpId` and the exact origins the house is served
+ * from, `passkey.origins`. A clientDataJSON from any other origin, or an assertion without user
+ * verification, is refused. The origins are DECLARED, never derived from the request's Host header (that
+ * is the attacker's to choose): a house that declares `rpId` without `origins` refuses to boot, naming
+ * the key — a half-declared relying party is a misconfiguration, not a door to open anyway.
+ *
+ * THE LEDGERS ARE THE CONTAINER'S TOO. The relying party ({@see RelyingParty}), the credential ledger
+ * ({@see PasskeyCredentialStore}), the ids it holds ({@see RegisteredCredentialIds}) and the enrollment
+ * ledger ({@see EnrollmentStore}) are registered under those names, so a host that verifies its own
+ * passkey ceremony (a signature, an approval) asks the container instead of repeating
+ * `var/passkey/credentials.json` and `storage/identity/enrollments.json` — paths that stay where they were.
+ *
  * Config (`config/app.php`):
  *
  *     'passkey' => [
  *         'rpId'     => 'example.com',                  // required — the relying-party id assertions bind to
+ *         'origins'  => ['https://example.com'],        // required with rpId — the exact origins ceremonies run on
  *         'cookie'   => 'milpa_session',                // optional — the session cookie name (the gate reads it)
  *         'ttl'      => 3600,                           // optional — session lifetime in seconds
  *         'sessions' => '/abs/path/sessions.json',      // optional — where the provided FileSessionStore writes
@@ -93,6 +110,15 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
     public const DEFAULT_TTL = 3600;
 
     public const DEFAULT_GATE_SCOPE = 'milpa.admin';
+
+    /** The name the browser shows for the relying party — the same one the ceremony page sends. */
+    public const RELYING_PARTY_NAME = 'Milpa';
+
+    /** Where the credential ledger lives, under the app root. */
+    public const CREDENTIALS_PATH = 'var/passkey/credentials.json';
+
+    /** Where the enrollment ledger lives, under the app root — the one the gpg-key path reads too. */
+    public const ENROLLMENTS_PATH = 'storage/identity/enrollments.json';
 
     /** The attachments WebAuthn knows. Omitting it — the default — admits both. */
     private const ATTACHMENTS = ['platform', 'cross-platform'];
@@ -136,6 +162,7 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
             return; // fail closed: no relying party, no routes (see the class docblock)
         }
 
+        $relyingParty = self::relyingParty($rpId, $config['origins'] ?? null);
         $root = $this->root();
 
         // The door provides what the door needs (decisions/0206): a host that registered no session
@@ -152,13 +179,20 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
         }
 
         $challenges = new FileChallengeStore($root . '/var/passkey/challenges.json');
-        $credentialsPath = $root . '/var/passkey/credentials.json';
+        $credentialsPath = $root . '/' . self::CREDENTIALS_PATH;
         $credentials = new FilePasskeyCredentialStore($credentialsPath);
         $registered = new RegisteredCredentialIds($credentialsPath);
         $authenticator = new PasskeyAuthenticator($challenges, $credentials);
 
         // THE CONVERGENCE: a passkey's scopes come from the same enrollment the gpg-key path reads.
-        $enrollments = new FileEnrollmentStore($root . '/storage/identity/enrollments.json');
+        $enrollments = new FileEnrollmentStore($root . '/' . self::ENROLLMENTS_PATH);
+
+        // The ledgers and the relying party, by name, for a host that runs its own ceremony over them.
+        $this->container->registerService(RelyingParty::class, $relyingParty);
+        $this->container->registerService(PasskeyCredentialStore::class, $credentials);
+        $this->container->registerService(RegisteredCredentialIds::class, $registered);
+        $this->container->registerService(EnrollmentStore::class, $enrollments);
+
         $ttl = \is_int($config['ttl'] ?? null) && $config['ttl'] > 0 ? $config['ttl'] : self::DEFAULT_TTL;
         $login = new PasskeyLogin(
             $authenticator,
@@ -199,7 +233,7 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
                 $credentials,
                 $registered,
                 $enrollments,
-                $rpId,
+                $relyingParty,
                 $cookie,
                 $scope,
                 $attachment,
@@ -236,11 +270,43 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
         $admission = new PasskeyIntentAdmission($authenticator, $intentChallenges);
         $this->container->registerService(
             PasskeyIntentController::class,
-            new PasskeyIntentController($admission, $registered, $rpId),
+            new PasskeyIntentController($admission, $registered, $relyingParty),
         );
         // The same admission, for an operation that carries the assertion inside its own call and must
         // know WHO decided — identity:grant (greenhouse decisions/0493).
-        $this->container->registerService(PasskeyIntentProof::class, new PasskeyIntentProof($admission, $rpId));
+        $this->container->registerService(PasskeyIntentProof::class, new PasskeyIntentProof($admission, $relyingParty));
+    }
+
+    /**
+     * The relying party every ceremony is verified against, from `passkey.rpId` and `passkey.origins`.
+     *
+     * The origins are a DECLARED list, never the request's Host: WebAuthn's origin check exists to refuse
+     * a page the house does not serve, and a Host header is whatever that page's author sends. Missing or
+     * malformed, the house refuses to boot and says which key to write — milpa/auth's own validation
+     * (https only, plain http on loopback, a host under the rpId) speaks for everything past that.
+     *
+     * @throws \InvalidArgumentException when `passkey.origins` is absent, empty, not a list of strings, or
+     *                                   rejected by {@see RelyingParty}
+     */
+    private static function relyingParty(string $rpId, mixed $origins): RelyingParty
+    {
+        if (!\is_array($origins) || $origins === [] || !array_is_list($origins) || array_filter($origins, static fn (mixed $o): bool => !\is_string($o)) !== []) {
+            throw new \InvalidArgumentException(\sprintf(
+                'passkey.rpId is "%s" but passkey.origins is %s: declare the exact origins the house is served from, '
+                . 'as a list, in config/app.php — for example \'origins\' => [\'https://%s\']. Every passkey ceremony is '
+                . 'checked against them, and they are never guessed from the request.',
+                $rpId,
+                $origins === null ? 'missing' : 'not a non-empty list of strings',
+                $rpId,
+            ));
+        }
+
+        try {
+            /** @var list<string> $origins */
+            return new RelyingParty($rpId, self::RELYING_PARTY_NAME, $origins);
+        } catch (\InvalidArgumentException $e) {
+            throw new \InvalidArgumentException('passkey.origins in config/app.php: ' . $e->getMessage(), 0, $e);
+        }
     }
 
     /**

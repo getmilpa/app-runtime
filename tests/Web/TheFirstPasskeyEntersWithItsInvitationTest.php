@@ -173,7 +173,7 @@ final class TheFirstPasskeyEntersWithItsInvitationTest extends TestCase
         $this->roots[] = $root;
 
         $c = new DIContainer();
-        $c->registerService(Config::class, new Config(['passkey' => ['rpId' => self::RP_ID]]));
+        $c->registerService(Config::class, new Config(['passkey' => ['rpId' => self::RP_ID, 'origins' => ['https://' . self::RP_ID]]]));
         $c->registerService('gated.probe', new class () {
             /** What the gate let through. */
             public function index(ServerRequestInterface $request): ResponseInterface

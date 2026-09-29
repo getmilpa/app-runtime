@@ -16,6 +16,8 @@ namespace Milpa\AppRuntime\Web\Controllers;
 
 use Milpa\AppRuntime\Agent\PasskeyIntentAdmission;
 use Milpa\AppRuntime\Web\RegisteredCredentialIds;
+use Milpa\Auth\WebAuthn\RelyingParty;
+use Milpa\Auth\WebAuthn\UserVerificationRequirement;
 use Milpa\Command\Consent\OperationId;
 use Nyholm\Psr7\Response;
 use Psr\Http\Message\ResponseInterface;
@@ -46,7 +48,7 @@ final class PasskeyIntentController
     public function __construct(
         private readonly PasskeyIntentAdmission $admission,
         private readonly RegisteredCredentialIds $registered,
-        private readonly string $rpId,
+        private readonly RelyingParty $relyingParty,
     ) {
     }
 
@@ -67,9 +69,10 @@ final class PasskeyIntentController
         $challenge = $this->admission->challengeFor(new OperationId($body['operation']), $arguments, $session);
 
         return $this->json(200, [
-            'rpId' => $this->rpId,
+            'rpId' => $this->relyingParty->id,
             'challenge' => self::base64UrlEncode($challenge),
             'allowCredentials' => $this->registered->allowCredentials(),
+            'userVerification' => UserVerificationRequirement::Required->value,
             'operation' => $body['operation'],
             'arguments' => $arguments,
         ]);
@@ -91,7 +94,7 @@ final class PasskeyIntentController
             return $this->json(400, ['error' => 'passkey_bad_request', 'message' => 'credentialId, clientDataJSON, authenticatorData and signature are required.']);
         }
 
-        $grant = $this->admission->admit($this->rpId, $credentialId, $clientData, $authData, $signature);
+        $grant = $this->admission->admit($this->relyingParty, $credentialId, $clientData, $authData, $signature);
         if ($grant === null) {
             // One message, so the door does not tell an attacker which check failed.
             return $this->json(401, ['ok' => false, 'error' => 'passkey_rejected']);

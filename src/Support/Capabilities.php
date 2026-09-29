@@ -839,10 +839,15 @@ final class Capabilities
     }
 
     /**
-     * Declares `passkey.rpId` in `config/app.php` when nothing declares it yet, and VERIFIES the
+     * Declares `passkey.rpId` — and the `passkey.origins` it is held to — in `config/app.php` when nothing
+     * declares it yet, and VERIFIES the
      * declaration by loading the file back: a write that did not land is reverted and reported, not
      * assumed. The value is written where the human edits config, with the lines that say who wrote it
      * and why — a declaration on disk, not a default in code.
+     *
+     * The origins go with the id because the passkey plugin refuses to boot without them (milpa/auth 0.11
+     * checks every ceremony's origin): `localhost` gets the origin `php bin/coa serve` answers on,
+     * `http://localhost:8000`; any other id gets `https://<id>`.
      *
      * @return array{rpId: string, written: bool, file: string, error?: string}|null `null` when the app has no config/app.php
      */
@@ -862,14 +867,16 @@ final class Capabilities
         if ($pos === false) {
             return ['rpId' => '', 'written' => false, 'file' => 'config/app.php', 'error' => 'config/app.php does not end with the returned array; declare passkey.rpId by hand'];
         }
-        $block = "\n    // Declared by `capabilities:enable identity`: the relying-party id passkey assertions bind to.\n"
-            . "    // It must equal the host the browser uses (`php bin/coa serve` answers at http://localhost:…). Change it\n"
-            . "    // to your domain before enrolling anyone there.\n"
-            . "    'passkey' => ['rpId' => " . var_export($rpId, true) . "],\n";
+        $origins = [$rpId === 'localhost' ? 'http://localhost:8000' : 'https://' . $rpId];
+        $block = "\n    // Declared by `capabilities:enable identity`: the relying-party id passkey assertions bind to, and\n"
+            . "    // the exact origins a ceremony may come from. They must equal what the browser's address bar shows\n"
+            . "    // (`php bin/coa serve` answers at http://localhost:8000). Change both to your domain before enrolling\n"
+            . "    // anyone there.\n"
+            . "    'passkey' => ['rpId' => " . var_export($rpId, true) . ", 'origins' => [" . var_export($origins[0], true) . "]],\n";
         file_put_contents($file, substr($src, 0, $pos) . $block . substr($src, $pos));
 
         $after = self::loadConfig($file);
-        if (($after['passkey']['rpId'] ?? null) !== $rpId) {
+        if (($after['passkey']['rpId'] ?? null) !== $rpId || ($after['passkey']['origins'] ?? null) !== $origins) {
             file_put_contents($file, $src);
 
             return ['rpId' => '', 'written' => false, 'file' => 'config/app.php', 'error' => 'the declaration did not load back from config/app.php, so it was reverted; declare passkey.rpId by hand'];

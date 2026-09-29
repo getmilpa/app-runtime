@@ -26,6 +26,7 @@
     },
     "conflict": {
         "milpa/agent": "<0.52",
+        "milpa/auth": "<0.11",
         "milpa/command": "<0.25",
         "milpa/event-store": "<0.4",
         "milpa/ai-gateway": "<0.38.0"
@@ -34,7 +35,7 @@
         "friendsofphp/php-cs-fixer": "^3.75",
         "milpa/agent": ">=0.52 <1.0",
         "milpa/ai-gateway": ">=0.39 <1.0",
-        "milpa/auth": ">=0.9 <1.0",
+        "milpa/auth": ">=0.11 <1.0",
         "milpa/data": ">=0.2.2 <1.0",
         "milpa/devtools": ">=0.34 <1.0",
         "milpa/event-store": ">=0.4 <1.0",
