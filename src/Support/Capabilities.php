@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Support;
 
+use Milpa\Plugin\Contracts\BootWitnessInterface;
 use Milpa\AppRuntime\Web\PasskeyPlugin;
 use Milpa\Interfaces\Plugin\PluginInterface;
 
@@ -506,6 +507,59 @@ final class Capabilities
     }
 
     /**
+     * Run the writers of `config/*.php` only if the house boots with what they would write (greenhouse decisions/0515).
+     *
+     * The writers are rehearsed on a scratch copy of the three lists they touch — `config/operations.php`,
+     * `config/plugins.php`, `config/app.php` — and the bytes they leave are what the witness boots a copy of the
+     * house with. Nothing changing asks nothing. Without a witness the writers run as they always did.
+     *
+     * @template T of array<mixed>
+     *
+     * @param callable(string): T $declare the writers, given the root they write under
+     *
+     * @return array{0: T|array{}, 1: array{refused: ?string, said: array<string, mixed>}}
+     */
+    private static function declareIfItBoots(string $root, callable $declare, ?BootWitnessInterface $witness): array
+    {
+        if ($witness === null) {
+            return [$declare($root), ['refused' => null, 'said' => []]];
+        }
+        $lists = ['config/operations.php', 'config/plugins.php', 'config/app.php'];
+        $scratch = sys_get_temp_dir() . '/milpa-declare-' . bin2hex(random_bytes(6));
+        mkdir($scratch . '/config', 0o777, true);
+        $writes = [];
+        try {
+            foreach ($lists as $list) {
+                if (is_file($root . '/' . $list)) {
+                    copy($root . '/' . $list, $scratch . '/' . $list);
+                }
+            }
+            $declare($scratch);
+            foreach ($lists as $list) {
+                $after = is_file($scratch . '/' . $list) ? (string) file_get_contents($scratch . '/' . $list) : null;
+                if ($after !== null && $after !== (is_file($root . '/' . $list) ? file_get_contents($root . '/' . $list) : null)) {
+                    $writes[$list] = $after;
+                }
+            }
+        } finally {
+            foreach ($lists as $list) {
+                @unlink($scratch . '/' . $list);
+            }
+            @rmdir($scratch . '/config');
+            @rmdir($scratch);
+        }
+        if ($writes === []) {
+            return [$declare($root), ['refused' => null, 'said' => []]];
+        }
+        $report = [];
+        $boot = $witness->writeIfItBoots($writes, static function () use (&$report, $declare, $root): void {
+            $report = $declare($root);
+        });
+
+        return [$report, $boot];
+    }
+
+    /**
      * Teaches the running autoloader the classes composer just installed under `$vendor`.
      *
      * The loader that booted this process keeps the maps it was born with; a fresh `ClassLoader` over the
@@ -859,6 +913,8 @@ final class Capabilities
      *                                                                           artifact — the promise the delivery is compared against
      * @param null|string                                           $vendorAfter the vendor after
      *                                                                           the install; in production the same tree re-read
+     * @param null|BootWitnessInterface                             $witness     whether the house boots with
+     *                                                                           what is declared, asked before it is written (decisions/0515)
      *
      * @return array<string, mixed>
      */
@@ -870,6 +926,7 @@ final class Capabilities
         ?array $index = null,
         ?string $vendorAfter = null,
         ?string $root = null,
+        ?BootWitnessInterface $witness = null,
     ): array {
         $pedido = trim($pedido);
         if ($pedido === '') {
@@ -909,8 +966,15 @@ final class Capabilities
             }
 
             $root ??= self::raizDeLaApp();
-            $registered = self::registerOperations($root, self::providersFor($manifest));
-            $pluginsDeclared = self::registerPlugins($root, self::pluginsFor($manifest));
+            [$wrote, $boot] = self::declareIfItBoots($root, static fn (string $at): array => [
+                self::registerOperations($at, self::providersFor($manifest)),
+                self::registerPlugins($at, self::pluginsFor($manifest)),
+            ], $witness);
+            if ($boot['refused'] !== null) {
+                return ['ok' => false, 'capability' => $puesta['package'], 'error' => $boot['refused']] + $boot['said']
+                    + ['hint' => 'it is installed; declaring it would leave this house unable to boot, so nothing was declared'];
+            }
+            [$registered, $pluginsDeclared] = $wrote;
             if ($registered === [] && $pluginsDeclared === []) {
                 return ['ok' => true, 'capability' => $puesta['package'], 'hint' => 'already installed and declared — nothing to do'];
             }
@@ -922,7 +986,7 @@ final class Capabilities
                 'registered' => $registered,
                 'plugins_declared' => $pluginsDeclared,
                 'hint' => 'it was installed but not declared — declared now; run `' . self::CLI . 'list` to see its operations',
-            ];
+            ] + $boot['said'];
         }
 
         $objetivo = null;
@@ -1041,33 +1105,52 @@ final class Capabilities
         // (greenhouse decisions/0226, measured on cattle). A fresh loader over the new maps, prepended.
         self::teachTheRunningLoader($vendorAfter ?? self::raizDeLaApp() . '/vendor');
         $root ??= self::raizDeLaApp();
-        $registered = self::registerOperations($root, self::providersFor($delivered0));
-        // THE DOOR, DECLARED: a capability that brings one of this package's plugins gets it named in
-        // config/plugins.php, and identity gets its relying party declared — the enable that leaves the
-        // human three hand edits away from the door has not enabled anything (decisions/0216, F6).
         $deliveredId = \is_string($delivered0['id'] ?? null) ? $delivered0['id'] : '';
         $announced = self::pluginsDeclaredBy($delivered0);
-        $pluginsDeclared = self::registerPlugins($root, self::pluginsFor($delivered0));
-        // WHAT ARRIVED WITH IT IS WIRED LIKE WHAT WAS ASKED FOR (greenhouse decisions/0498). A capability
-        // that another one requires lands by composer's hand, and «installed is not wired» (evidence/0993)
-        // held for it too: `milpa/admin` requires `milpa/auth`, and the panel arrived with a door nobody
-        // declared. Each capability that is new in this vendor gets the same two writers and, for the door,
-        // its relying party — and the result names it.
-        $arrived = [];
-        $identityArrived = false;
-        foreach (self::declaredBy($vendorAfter) as $package => $manifest) {
-            if ($package === (string) $objetivo['package'] || \in_array($package, $antes, true)) {
-                continue;
+        // WHAT IS DECLARED BOOTS FIRST (greenhouse decisions/0515). Composer has landed the code; the lines
+        // below name it in the lists the kernel boots from. They are written to a scratch `config/` first,
+        // the house is booted with them in a copy, and they land only if it booted — a package whose plugin
+        // does not compile stays installed and undeclared, and the house keeps booting.
+        [$wrote, $boot] = self::declareIfItBoots($root, static function (string $at) use ($delivered0, $deliveredId, $objetivo, $antes, $vendorAfter): array {
+            $registered = self::registerOperations($at, self::providersFor($delivered0));
+            // THE DOOR, DECLARED: a capability that brings one of this package's plugins gets it named in
+            // config/plugins.php, and identity gets its relying party declared — the enable that leaves the
+            // human three hand edits away from the door has not enabled anything (decisions/0216, F6).
+            $pluginsDeclared = self::registerPlugins($at, self::pluginsFor($delivered0));
+            // WHAT ARRIVED WITH IT IS WIRED LIKE WHAT WAS ASKED FOR (greenhouse decisions/0498). A capability
+            // that another one requires lands by composer's hand, and «installed is not wired» (evidence/0993)
+            // held for it too: `milpa/admin` requires `milpa/auth`, and the panel arrived with a door nobody
+            // declared. Each capability that is new in this vendor gets the same two writers and, for the door,
+            // its relying party — and the result names it.
+            $arrived = [];
+            $identityArrived = false;
+            foreach (self::declaredBy($vendorAfter) as $package => $manifest) {
+                if ($package === (string) $objetivo['package'] || \in_array($package, $antes, true)) {
+                    continue;
+                }
+                $arrived[] = [
+                    'package' => $package,
+                    'registered' => self::registerOperations($at, self::providersFor($manifest)),
+                    'plugins_declared' => self::registerPlugins($at, self::pluginsFor($manifest)),
+                ];
+                $identityArrived = $identityArrived || ($manifest['id'] ?? null) === 'identity';
             }
-            $arrived[] = [
-                'package' => $package,
-                'registered' => self::registerOperations($root, self::providersFor($manifest)),
-                'plugins_declared' => self::registerPlugins($root, self::pluginsFor($manifest)),
-            ];
-            $identityArrived = $identityArrived || ($manifest['id'] ?? null) === 'identity';
-        }
-        $relyingParty = $deliveredId === 'identity' || $identityArrived ? self::declareRelyingParty($root) : null;
+            $relyingParty = $deliveredId === 'identity' || $identityArrived ? self::declareRelyingParty($at) : null;
 
+            return [$registered, $pluginsDeclared, $arrived, $identityArrived, $relyingParty];
+        }, $witness);
+        if ($boot['refused'] !== null) {
+            return [
+                'ok' => false,
+                'capability' => $objetivo['package'],
+                'command' => $comando,
+                'error' => $boot['refused'],
+                'installed' => true,
+                'hint' => 'composer installed it, and the house does not boot with it declared, so nothing was declared: '
+                    . 'the house boots as before. Fix the package, or remove it with `composer remove ' . $objetivo['package'] . '`.',
+            ] + $boot['said'];
+        }
+        [$registered, $pluginsDeclared, $arrived, $identityArrived, $relyingParty] = $wrote;
         $okOut = [
             'ok' => true,
             'capability' => $objetivo['package'],
@@ -1093,6 +1176,7 @@ final class Capabilities
                 ? 'the passkey door is declared: run `' . self::CLI . 'serve` and open the first_passkey invitation this act printed (a signed enable on a house that recognizes nobody mints it; `' . self::CLI . 'identity:invite --sign` mints another)'
                 : 'run `' . self::CLI . 'list` to see the new operations',
         ];
+        $okOut += $boot['said'];
         if ($relyingParty !== null) {
             $okOut['relying_party'] = $relyingParty;
         }

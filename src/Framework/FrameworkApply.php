@@ -14,6 +14,8 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Framework;
 
+use Milpa\Plugin\Contracts\BootWitnessInterface;
+
 /**
  * TAKES BYTES FROM A FETCHED RELEASE INTO A HOUSE — the only thing in this family that writes.
  *
@@ -56,5 +58,36 @@ final class FrameworkApply
         }
 
         return $written;
+    }
+
+    /**
+     * {@see take()}, but only if the house boots with the release's bytes — asked of a copy before one lands.
+     *
+     * What `framework:apply` takes is `bin/coa`, `public/index.php`, `config/*.php`: the files the house boots
+     * from (greenhouse decisions/0515). With a witness, the bytes are booted in a copy of the house first; a
+     * release the house cannot boot with writes nothing (`unwritten`), and one that fails once landed is put
+     * back (`rolled_back`). Without one it is {@see take()}, as it always was.
+     *
+     * @param list<string> $paths the paths the reconciliation judged safe to take
+     *
+     * @return array{applied: list<string>, refused: ?string, said: array<string, mixed>}
+     */
+    public static function takeIfItBoots(string $tree, string $root, array $paths, ?BootWitnessInterface $witness): array
+    {
+        if ($witness === null) {
+            return ['applied' => self::take($tree, $root, $paths), 'refused' => null, 'said' => []];
+        }
+        $writes = [];
+        foreach ($paths as $path) {
+            if (is_file($tree . '/' . $path)) {
+                $writes[$path] = (string) file_get_contents($tree . '/' . $path);
+            }
+        }
+        $applied = [];
+        $boot = $witness->writeIfItBoots($writes, static function () use ($tree, $root, $paths, &$applied): void {
+            $applied = self::take($tree, $root, $paths);
+        });
+
+        return ['applied' => $boot['refused'] === null ? $applied : [], 'refused' => $boot['refused'], 'said' => $boot['said']];
     }
 }

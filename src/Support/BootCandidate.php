@@ -29,7 +29,8 @@ namespace Milpa\AppRuntime\Support;
  *
  * A copy of the house's tree under `var/boot-candidates/<id>/`, with the change applied, minus what a
  * boot never reads and what is too heavy or too private to copy: `var/` (state; an empty one is made, as a
- * trial's), `.git/`, `node_modules/`, and `.env` (LINKED, never copied: a secret does not get a second file).
+ * trial's), `.git/`, `node_modules/`, and `.env` and `.milpa/secrets.json` (LINKED, never copied: a secret does
+ * not get a second file).
  *
  * `vendor/` is the one subtle part. Composer's autoloader resolves the app's own classes from the directory
  * its `vendor/composer/` files live in — PHP resolves symlinks in `__DIR__` — so a linked `vendor/` would
@@ -41,6 +42,14 @@ final class BootCandidate
 {
     /** Top-level entries a boot never needs from a copy: state, history, front-end builds. `vendor/` is rebuilt, not skipped. */
     private const SKIP = ['var', 'vendor', '.git', 'node_modules', '.env'];
+
+    /**
+     * Files that hold secrets: LINKED into the candidate, never copied — a secret does not get a second file.
+     *
+     * `.milpa/secrets.json` is where `provider:declare` keeps a credential (SecretOverlay); the first candidate
+     * copied it with the rest of `.milpa/` (found in greenhouse decisions/0515).
+     */
+    private const LINKED = ['.env', '.milpa/secrets.json'];
 
     private function __construct(public readonly string $path)
     {
@@ -64,8 +73,13 @@ final class BootCandidate
         $candidate = new self($path);
         try {
             self::copyTree($root, $path, true);
-            if (is_file($root . '/.env')) {
-                symlink($root . '/.env', $path . '/.env');
+            foreach (self::LINKED as $secret) {
+                if (is_file($root . '/' . $secret)) {
+                    if (!is_dir(\dirname($path . '/' . $secret))) {
+                        mkdir(\dirname($path . '/' . $secret), 0o777, true);
+                    }
+                    symlink($root . '/' . $secret, $path . '/' . $secret);
+                }
             }
             self::vendor($root . '/vendor', $path . '/vendor');
             foreach ($writes as $relative => $bytes) {
@@ -119,10 +133,10 @@ final class BootCandidate
     }
 
     /** Copy a tree as it is — files as files, links as links — skipping {@see SKIP} at the top only. */
-    private static function copyTree(string $from, string $to, bool $top): void
+    private static function copyTree(string $from, string $to, bool $top, string $under = ''): void
     {
         foreach (scandir($from) ?: [] as $name) {
-            if ($name === '.' || $name === '..' || ($top && \in_array($name, self::SKIP, true))) {
+            if ($name === '.' || $name === '..' || ($top && \in_array($name, self::SKIP, true)) || \in_array($under . $name, self::LINKED, true)) {
                 continue;
             }
             $source = $from . '/' . $name;
@@ -131,7 +145,7 @@ final class BootCandidate
                 symlink((string) readlink($source), $target);
             } elseif (is_dir($source)) {
                 mkdir($target, 0o777);
-                self::copyTree($source, $target, false);
+                self::copyTree($source, $target, false, $under . $name . '/');
             } elseif (!copy($source, $target)) {
                 throw new \RuntimeException('could not copy ' . $name . ' into the candidate');
             }

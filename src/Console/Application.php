@@ -1608,7 +1608,10 @@ final class Application
             }
             $registro = new \Milpa\Plugin\Registry\FilePluginRegistry($this->root . '/storage/plugins.json');
             $container->registerService(\Milpa\Plugin\Contracts\PluginRegistryInterface::class, $registro);
-            foreach ((new \Milpa\Plugin\Operations\PluginOperations($registro, null, $declarados, null, $this->root))->operations() as $op) {
+            // The way back boots in a copy first too, as recovery (greenhouse decisions/0515): never refused
+            // because this house does not boot, only when it would break one that does.
+            $testigo = new \Milpa\AppRuntime\Support\HouseBootWitness($this->root);
+            foreach ((new \Milpa\Plugin\Operations\PluginOperations($registro, null, $declarados, null, $this->root, null, $testigo))->operations() as $op) {
                 if ($op->name === 'plugins.disable-unsafe') {
                     $ops[] = $op;
                 }

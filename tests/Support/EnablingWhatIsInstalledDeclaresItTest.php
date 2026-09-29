@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Support;
 
 use Milpa\AppRuntime\Support\Capabilities;
+use Milpa\AppRuntime\Tests\Fixtures\RecordingWitness;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
@@ -89,6 +90,43 @@ final class EnablingWhatIsInstalledDeclaresItTest extends TestCase
         self::assertSame([self::PROVIDER], $answer['registered'] ?? null, 'it says what it declared');
         self::assertStringContainsString(self::PROVIDER, (string) file_get_contents($this->root . '/config/operations.php'));
         self::assertStringNotContainsString('nothing to do', (string) ($answer['hint'] ?? ''), 'and does not report done over a gap');
+    }
+
+    /** WHAT IS DECLARED BOOTS FIRST (greenhouse decisions/0515): a declaration the house cannot boot with is not written. */
+    public function testADeclarationTheHouseCannotBootWithIsNotWritten(): void
+    {
+        $before = (string) file_get_contents($this->root . '/config/operations.php');
+        $scratches = \count(glob(sys_get_temp_dir() . '/milpa-declare-*') ?: []);
+        $witness = new RecordingWitness('Class Vendor\\Tools\\Operations\\ToolOperations contains 1 abstract method');
+
+        $answer = Capabilities::install('vendor/tools', $this->vendor, $this->composerThatMustNotRun(), root: $this->root, witness: $witness);
+
+        self::assertFalse($answer['ok']);
+        self::assertStringContainsString('abstract method', (string) $answer['error']);
+        self::assertSame(['config/operations.php'], $answer['unwritten']);
+        self::assertSame($before, (string) file_get_contents($this->root . '/config/operations.php'));
+        self::assertStringContainsString(self::PROVIDER, $witness->asked['config/operations.php'] ?? '', 'the witness was shown the bytes that would land');
+        self::assertCount($scratches, glob(sys_get_temp_dir() . '/milpa-declare-*') ?: [], 'no scratch is left');
+    }
+
+    public function testADeclarationTheHouseBootsWithIsWrittenAndSaysSo(): void
+    {
+        $answer = Capabilities::install('vendor/tools', $this->vendor, $this->composerThatMustNotRun(), root: $this->root, witness: new RecordingWitness(null));
+
+        self::assertTrue($answer['ok']);
+        self::assertTrue($answer['house_boots']);
+        self::assertStringContainsString(self::PROVIDER, (string) file_get_contents($this->root . '/config/operations.php'));
+    }
+
+    public function testNothingToDeclareAsksNothing(): void
+    {
+        Capabilities::install('vendor/tools', $this->vendor, $this->composerThatMustNotRun(), root: $this->root);
+        $witness = new RecordingWitness('never asked');
+
+        $again = Capabilities::install('vendor/tools', $this->vendor, $this->composerThatMustNotRun(), root: $this->root, witness: $witness);
+
+        self::assertTrue($again['ok']);
+        self::assertSame([], $witness->asked);
     }
 
     public function testEnablingItAgainIsNothingToDoAndWritesNothing(): void

@@ -22,6 +22,7 @@ use Milpa\AppRuntime\Agent\PluginAuthoringPolicy;
 use Milpa\AppRuntime\Agent\KeyedDeclarations;
 use Milpa\AppRuntime\Agent\TrialWorkspace;
 use Milpa\AppRuntime\Support\BootProbe;
+use Milpa\AppRuntime\Support\HouseBootWitness;
 use Milpa\AppRuntime\Support\CompiledCode;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Effect\Authority;
@@ -229,50 +230,46 @@ final class TrialOperations implements CommandProvider
         $paths = array_keys($diff);
         sort($paths);
 
-        // PROBE BEFORE WRITING (greenhouse decisions/0512). 0506 asked after the write and rolled back — and for
-        // the ~0.1–0.3 s its witness took, the broken file was on disk: a server that revalidates every request
-        // served one fatal answer in ~60 (evidence/1039, B5). So the house AS IT WOULD BE is built beside it and
-        // booted first; a promotion it cannot boot with never touches the live tree. The ask after the write
-        // stays below, for what a candidate cannot see (a boot that depends on the house's own `var/`).
-        $wouldBreak = $this->probeBeforeWriting && is_file($root . '/vendor/autoload.php')
-            ? $this->bootProbe?->whyNotWith($root, $payload, array_keys(array_filter($diff, static fn (array $entry): bool => $entry['status'] === 'deleted')))
-            : null;
-        if ($wouldBreak !== null) {
-            return $this->refuseUnwritten($root, $paths, $wouldBreak);
-        }
-
+        // ONE RULE, IN ONE PLACE (greenhouse decisions/0515, Rod's answer 4). The promotion writes through the same
+        // witness as every other writer of what the kernel boots from:
+        //   - BEFORE the write (0512): the house AS IT WOULD BE is built beside it and booted; a promotion it cannot
+        //     boot with never touches the live tree — for the ~0.1–0.3 s 0506's witness took, the broken file was
+        //     on disk and a server that revalidates every request served one fatal answer in ~60 (evidence/1039, B5);
+        //   - AFTER the write (0506): the house is asked in a process of its own — measured on the published train
+        //     (evidence/1036, R1, seq 442), a promotion the house could not boot with answered `ok: true` and from
+        //     then on EVERY `coa` died at boot; if it does not boot now, what was written is put back.
+        // `probeBeforeWriting: false` is 0506's order, kept as the positive control of the window.
+        $deletes = array_keys(array_filter($diff, static fn (array $entry): bool => $entry['status'] === 'deleted'));
         $preDir = $ws->baseDirectory() . '/pre';
-        foreach ($paths as $rel) {
-            $status = $diff[$rel]['status'];
-            $hostFile = $root . '/' . $rel;
-            // THE PRE-IMAGE: what the house had, kept before we overwrite it, so a promotion can be
-            // undone by hand (the reversibility we declared is manual, and this is the material).
-            if (is_file($hostFile)) {
-                $this->write($preDir . '/' . $rel, (string) file_get_contents($hostFile));
+        $land = function () use ($root, $paths, $diff, $payload, $preDir): void {
+            foreach ($paths as $rel) {
+                $hostFile = $root . '/' . $rel;
+                // THE PRE-IMAGE: what the house had, kept before we overwrite it, so a promotion can be
+                // undone (the reversibility we declared is manual, and this is the material).
+                if (is_file($hostFile)) {
+                    $this->write($preDir . '/' . $rel, (string) file_get_contents($hostFile));
+                }
+                if ($diff[$rel]['status'] === 'deleted') {
+                    @unlink($hostFile);
+                    continue;
+                }
+                // WRITE-THEN-RENAME: the house never sees a half-written file.
+                $this->write($hostFile, $payload[$rel]);
             }
-
-            if ($status === 'deleted') {
-                @unlink($hostFile);
-                continue;
+            // THE NEXT REQUEST RUNS WHAT LANDED (0506): when this process is the server, its OPcache would otherwise
+            // serve the old bytecode for up to `revalidate_freq` seconds (evidence/1038, o4).
+            CompiledCode::forget($root, $paths);
+        };
+        if ($this->bootProbe === null) {
+            $land();
+        } else {
+            $boot = (new HouseBootWitness($root, $this->bootProbe, $this->probeBeforeWriting))
+                ->writeIfItBoots(array_diff_key($payload, array_flip($deletes)), $land, recovery: false, deletes: $deletes);
+            if ($boot['refused'] !== null) {
+                return isset($boot['said']['rolled_back'])
+                    ? $this->rolledBack($preDir, $paths, $boot['said'])
+                    : $this->refuseUnwritten($paths, $boot['said']);
             }
-            // WRITE-THEN-RENAME: the house never sees a half-written file.
-            $this->write($hostFile, $payload[$rel]);
-        }
-
-        // THE NEXT REQUEST RUNS WHAT LANDED (greenhouse decisions/0506): when this process is the server, its
-        // OPcache would otherwise serve the old bytecode for up to `revalidate_freq` seconds (evidence/1038, o4).
-        CompiledCode::forget($root, $paths);
-
-        // A PROMOTION THAT THE HOUSE CANNOT BOOT WITH DOES NOT LAND (greenhouse decisions/0506). Measured on
-        // the published train (evidence/1036, R1, seq 442): a seeder whose constructor wanted a repository its
-        // plugin did not pass was promoted, the receipt said `ok: true` beside «the house did not boot», and
-        // from then on the panel answered 500 and EVERY `coa` died at boot — undo and disable-unsafe included,
-        // and the resident's own next leg. Only a hand copy of the pre-image brought the house back. So the
-        // house is asked, in a process of its own, right after the write; if it does not boot, the pre-image
-        // goes back in, the trial is kept to be fixed, and the answer is a refusal that says why.
-        $broken = is_file($root . '/vendor/autoload.php') ? $this->bootProbe?->whyNot($root) : null;
-        if ($broken !== null) {
-            return $this->rollBack($root, $ws->baseDirectory(), $paths, $broken);
         }
 
         $this->recordPromotion($sessions, $input, $id, $paths, $diff);
@@ -315,63 +312,56 @@ final class TrialOperations implements CommandProvider
     /**
      * Refuse a promotion the house would not boot with — nothing was written, so nothing is put back.
      *
-     * The trial is kept (its copy is what the author fixes) and no pre-image was taken. The live house is
-     * asked too, only here, so the answer can say whether it boots as it is — a promotion that would have
-     * FIXED a broken house boots in its candidate and lands.
+     * The trial is kept (its copy is what the author fixes) and no pre-image was taken. The witness asked the
+     * live house too, only on this path, so the answer can say whether it boots as it is — a promotion that
+     * would have FIXED a broken house boots in its candidate and lands.
      *
-     * @param list<string> $paths
+     * @param list<string>         $paths
+     * @param array<string, mixed> $said  what the witness said: `reason`, `house_boots`
      *
      * @return array<string, mixed>
      */
-    private function refuseUnwritten(string $root, array $paths, string $broken): array
+    private function refuseUnwritten(array $paths, array $said): array
     {
-        $now = $this->bootProbe?->whyNot($root);
+        $boots = ($said['house_boots'] ?? false) === true;
 
         return [
             'ok' => false,
-            'error' => 'the house does not boot with this promotion: ' . $broken,
+            'error' => 'the house does not boot with this promotion: ' . (string) ($said['reason'] ?? 'unknown'),
             'unwritten' => $paths,
-            'house_boots' => $now === null,
+            'house_boots' => $boots,
             'note' => 'Nothing was written: the house was booted as it would be, beside it, and did not boot — the live '
-                . 'files were never touched. The trial is kept; fix it there and promote again.' . ($now === null
+                . 'files were never touched. The trial is kept; fix it there and promote again.' . ($boots
                     ? ' The house boots as it is.'
-                    : ' The house does not boot as it is either: ' . $now . '.'),
+                    : ' The house does not boot as it is either.'),
         ];
     }
 
     /**
-     * Put back what a promotion just wrote, from the pre-image it kept — the promotion never landed.
+     * A promotion the witness put back after the write — the promotion never landed.
      *
      * The trial is NOT collapsed: its copy is what the author fixes and promotes again. Its pre-image is
      * removed, so a later promotion of the same trial keeps a fresh one of the house as it is then.
      *
-     * @param list<string> $paths
+     * @param list<string>         $paths
+     * @param array<string, mixed> $said  what the witness said: `reason`, `house_boots`
      *
      * @return array<string, mixed>
      */
-    private function rollBack(string $root, string $base, array $paths, string $broken): array
+    private function rolledBack(string $preDir, array $paths, array $said): array
     {
-        $preDir = $base . '/pre';
-        foreach ($paths as $rel) {
-            if (is_file($preDir . '/' . $rel)) {
-                $this->write($root . '/' . $rel, (string) file_get_contents($preDir . '/' . $rel));
-            } else {
-                @unlink($root . '/' . $rel); // the promotion added it; the house never had it
-            }
-        }
-        CompiledCode::forget($root, $paths);
         exec('rm -rf ' . escapeshellarg($preDir));
-        $after = $this->bootProbe?->whyNot($root);
+        $boots = ($said['house_boots'] ?? false) === true;
 
         return [
             'ok' => false,
-            'error' => 'the house does not boot with this promotion: ' . $broken,
+            'error' => 'the house does not boot with this promotion: ' . (string) ($said['reason'] ?? 'unknown'),
             'rolled_back' => $paths,
-            'house_boots' => $after === null,
+            'house_boots' => $boots,
             'note' => 'Nothing landed: every file this promotion wrote is back as it was, and the trial is kept — fix it '
-                . 'there and promote again.' . ($after === null
+                . 'there and promote again.' . ($boots
                     ? ' The house boots as it did before.'
-                    : ' The house did not boot before this promotion either: ' . $after . '.'),
+                    : ' The house did not boot before this promotion either.'),
         ];
     }
 
@@ -453,7 +443,9 @@ final class TrialOperations implements CommandProvider
         if (!$verdict->allowed) {
             return ['ok' => false, 'error' => (string) $verdict->reason];
         }
-        return TrialWorkspace::undo($root, $id);
+        // The way back boots in a copy first, as RECOVERY: never refused because the house is broken now,
+        // refused only when it would break a house that boots (greenhouse decisions/0515).
+        return TrialWorkspace::undo($root, $id, $this->bootProbe !== null ? new HouseBootWitness($root, $this->bootProbe) : null);
     }
 
     /**
