@@ -131,7 +131,9 @@ final class TheHouseDerivesClosureTest extends TestCase
 
         self::assertFalse($closure['verified']);
         self::assertContains('1 todo open', $closure['reasons']);
-        self::assertSame('recorded_work', $closure['scope']);
+        // The house's observation now stands BESIDE the record (greenhouse decisions/0509): the scope names both,
+        // and the open todo still keeps the session open — the house never closes a todo for it.
+        self::assertSame('recorded_work_and_house_observation', $closure['scope']);
     }
 
     public function testWithoutTheStreamTheVerdictJudgesTheRecordedWorkAlone(): void

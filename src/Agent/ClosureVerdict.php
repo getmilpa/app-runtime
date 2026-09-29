@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Agent;
 
+use Milpa\Agent\EvidenceKind;
 use Milpa\Agent\Session;
 use Milpa\Agent\SessionFacts;
 use Milpa\Agent\SessionStore;
@@ -62,7 +63,10 @@ final class ClosureVerdict
      * A session that never opened a todo kept no record of its own; given its stream, the HOUSE derives
      * the closure from its own receipts instead ({@see HouseObservedClosure}, greenhouse decisions/0487):
      * the house observed the work served in the house after the last change landed. A session with todos
-     * keeps its own record as the authority, untouched.
+     * keeps its own record — every todo done with accepted evidence — and when the house observed what
+     * landed, its observation stands beside that record: what never landed stops binding, and the scope
+     * says both (`recorded_work_and_house_observation`, greenhouse decisions/0509). A done todo whose test
+     * reference's last run is red is not done, with or without the house.
      *
      * @param list<Event>|null $stream the session's stream, or `null` to judge the recorded work alone
      *
@@ -85,9 +89,35 @@ final class ClosureVerdict
             $reasons[] = $open === 1 ? '1 todo open' : "{$open} todos open";
         }
 
+        // A TODO IS NOT DONE AGAINST A RED JUDGE (greenhouse decisions/0509 §4). A done todo backed by a passed test
+        // is only as done as the last run that declares that reference: a red run after the green one the claim
+        // cited takes it back. Measured (evidence/1036): the claim door accepted the last GREEN run, whatever came
+        // after it, and the closure never asked again.
+        if ($stream !== null) {
+            foreach ($session->evidence as $evidence) {
+                if ($evidence->kind !== EvidenceKind::TestPassed || $evidence->todo === null || ! $session->isDoneVerified($evidence->todo)) {
+                    continue;
+                }
+                $last = LastTestRun::of($stream, $evidence->reference);
+                if ($last !== null && ! $last['green']) {
+                    $reasons[] = "todo {$evidence->todo} rests on «{$evidence->reference}», whose last test run is red (seq {$last['seq']})";
+                }
+            }
+        }
+
         // A session that never opened a todo kept no record of its own; given its stream, the HOUSE derives the
         // closure from what landed in it and what it observed after (decisions/0487).
-        $house = $session->todos === [] && $stream !== null ? HouseObservedClosure::of($stream, $facts) : null;
+        //
+        // A session WITH todos keeps its record, and the house speaks beside it only when it observed what landed
+        // (greenhouse decisions/0509 §2): something landed, and the house saw it served after, fresh. Measured
+        // (evidence/1036): a resident planned 8 todos, closed them all with accepted evidence, and the house saw
+        // /blog served after its last promotion — and the verdict stayed open on eight artifacts written in trials
+        // (and one refused call) that no call could ever verify. When the house did not observe what landed, a
+        // session with todos is judged as it always was, and the house's reason is not added (§3).
+        $house = $stream !== null ? HouseObservedClosure::of($stream, $facts) : null;
+        if ($session->todos !== [] && $house !== null && ! ($house['derived'] && $house['lastChangeSeq'] !== null)) {
+            $house = null;
+        }
 
         $state = $facts->workState();
         $artifacts = \is_array($state['artifacts'] ?? null) ? $state['artifacts'] : [];
@@ -142,7 +172,8 @@ final class ClosureVerdict
         }
 
         if ($house !== null && $house['derived']) {
-            return ['verified' => $reasons === [], 'reasons' => $reasons, 'scope' => 'house_observation',
+            return ['verified' => $reasons === [], 'reasons' => $reasons,
+                'scope' => $session->todos === [] ? 'house_observation' : 'recorded_work_and_house_observation',
                 'derivedFrom' => ['observation' => $house['observation'], 'lastChangeSeq' => $house['lastChangeSeq']]];
         }
 
