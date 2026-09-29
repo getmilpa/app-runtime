@@ -33,9 +33,26 @@ use Milpa\ToolRuntime\Contracts\ToolContext;
  * (decisions/0496): the house already has it, or the standing ask — the session's goal and the human's
  * turns — names it as a whole identifier. A name the model made up stays a refusal in the stream; it
  * never becomes a Grant button.
+ *
+ * Each offered refusal says what granting OPENS (decisions/0510): the recorded call itself, whether its
+ * plugin is `new` or `existing` in the house, and whether the standing ask names it. A grant over an
+ * existing plugin opens write over that plugin's whole work, not only the refused call, so it is never
+ * one touch: its consent is `informed`, and the grant must repeat the plugin's name inside what the
+ * passkey or the signature approves. The call's text is shown, never classified: in evidence/1043 the
+ * call a reading took for «empties the plugin» was refused by its own handler. And a refusal the seat
+ * moved on from — a later run worked and ended without retrying it — is no longer offered.
+ *
+ * @phpstan-type Refusal array{seq: int, tool: string, plugin: ?string, permission: string, call: array<string, string|int|float|bool|null>, target: 'new'|'existing'|null, named: bool, consent: 'touch'|'informed'}
+ * @phpstan-type SeatRefusal array{seq: int, tool: string, plugin: ?string, permission: string, call: array<string, string|int|float|bool|null>, target: 'new'|'existing'|null, named: bool, consent: 'touch'|'informed', seat: string}
  */
 final class SeatFrontier
 {
+    /** How the house's own turns begin (decisions/0495): a fact it recorded, never the start of a run. */
+    public const NOTICE_PREFIX = '[house] ';
+
+    /** How much of one argument's text a card shows before it says the rest's size. */
+    private const SHOWN_BYTES = 120;
+
     private readonly EnrollmentLine $line;
 
     public function __construct(
@@ -75,7 +92,7 @@ final class SeatFrontier
     /**
      * The sessions whose seat this principal answers for, each with its open refusals.
      *
-     * @return list<array{session: string, goal: string, seat: string, refusals: list<array{seq: int, tool: string, plugin: ?string, permission: string}>}>
+     * @return list<array{session: string, goal: string, seat: string, refusals: list<Refusal>}>
      */
     public function sessionsFor(string $principal): array
     {
@@ -100,7 +117,7 @@ final class SeatFrontier
     /**
      * The session's open refusals, or `[]` when it has no seat.
      *
-     * @return list<array{seq: int, tool: string, plugin: ?string, permission: string}>
+     * @return list<Refusal>
      */
     public function openRefusals(string $session): array
     {
@@ -113,7 +130,10 @@ final class SeatFrontier
     /**
      * One open refusal by its sequence number, with the seat it belongs to — or null when it is not open.
      *
-     * @return array{seq: int, tool: string, plugin: ?string, permission: string, seat: string}|null
+     * Open means offered: the call's shape is one the frontier shows — any retry of it names the same scope —
+     * so a refusal the seat moved on from is not open here either (decisions/0510).
+     *
+     * @return SeatRefusal|null
      */
     public function refusal(string $session, int $seq): ?array
     {
@@ -122,14 +142,19 @@ final class SeatFrontier
         if ($seat === null) {
             return null;
         }
+        $offered = [];
+        foreach ($this->refusalsIn($events, $seat) as $open) {
+            $offered[self::shape($open)] = true;
+        }
         $standing = self::standingAskIn($events);
         foreach ($events as $event) {
             if ($event->seq !== $seq) {
                 continue;
             }
+            // Any retry of an offered call shape names the same scope; one the seat moved on from names none.
             $refusal = $this->judge($event, $seat, $standing);
 
-            return $refusal === null ? null : $refusal + ['seat' => $seat];
+            return $refusal === null || !isset($offered[self::shape($refusal)]) ? null : $refusal + ['seat' => $seat];
         }
 
         return null;
@@ -158,12 +183,11 @@ final class SeatFrontier
     /**
      * @param list<Event> $events
      *
-     * @return list<array{seq: int, tool: string, plugin: ?string, permission: string}>
+     * @return list<Refusal>
      */
     private function refusalsIn(array $events, string $seat): array
     {
-        $open = [];
-        $seen = [];
+        $latest = [];
         $standing = self::standingAskIn($events);
         foreach ($events as $event) {
             $refusal = $this->judge($event, $seat, $standing);
@@ -171,19 +195,64 @@ final class SeatFrontier
                 continue;
             }
             // One row per missing permission and call shape: the model retries a refused call, and the
-            // human decides the scope once, not once per retry.
-            $key = $refusal['permission'] . "\0" . $refusal['tool'] . "\0" . ($refusal['plugin'] ?? '');
-            if (isset($seen[$key])) {
-                continue;
+            // human decides the scope once, not once per retry — on the LATEST retry, the one the seat
+            // is still asking for (decisions/0510).
+            $key = self::shape($refusal);
+            unset($latest[$key]);
+            $latest[$key] = $refusal;
+        }
+
+        $open = [];
+        foreach ($latest as $refusal) {
+            if (!self::movedOn($events, $refusal['seq'])) {
+                $open[] = $refusal;
             }
-            $seen[$key] = true;
-            $open[] = $refusal;
         }
 
         return $open;
     }
 
-    /** @return array{seq: int, tool: string, plugin: ?string, permission: string}|null */
+    /**
+     * A refusal's call shape: the missing permission, the tool and the plugin — what a retry repeats.
+     *
+     * @param Refusal $refusal
+     */
+    private static function shape(array $refusal): string
+    {
+        return $refusal['permission'] . "\0" . $refusal['tool'] . "\0" . ($refusal['plugin'] ?? '');
+    }
+
+    /**
+     * Whether the seat moved on from a refusal: after the run that recorded it, a later run began, the model
+     * worked in it, and it ended — by `session.run_terminated` or by the next turn — without the same call
+     * shape being refused again (a retry is a newer row, so it never reaches here). Staleness is measured in
+     * the seat's work, never in minutes (decisions/0510).
+     *
+     * @param list<Event> $events
+     */
+    private static function movedOn(array $events, int $seq): bool
+    {
+        $phase = 0;
+        foreach ($events as $event) {
+            if ($event->seq <= $seq) {
+                continue;
+            }
+            $content = $event->payload['content'] ?? null;
+            $turn = $event->type === 'session.turn' && ($event->payload['role'] ?? null) === 'user'
+                && !(\is_string($content) && str_starts_with($content, self::NOTICE_PREFIX));
+            if ($phase === 0 && $turn) {
+                $phase = 1;
+            } elseif ($phase === 1 && $event->type === 'session.model_called') {
+                $phase = 2;
+            } elseif ($phase === 2 && ($turn || $event->type === 'session.run_terminated')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return Refusal|null */
     private function judge(Event $event, string $seat, string $standing): ?array
     {
         $payload = $event->payload;
@@ -196,16 +265,49 @@ final class SeatFrontier
         if ($missing === null) {
             return null;
         }
-        if ($missing->plugin !== null && !$this->policy->pluginExists($missing->plugin) && !self::names($standing, $missing->plugin)) {
+        $plugin = $missing->plugin ?? (\is_string($arguments['plugin'] ?? null) ? $arguments['plugin'] : null);
+        $exists = $plugin !== null && $this->policy->pluginExists($plugin);
+        $named = $plugin !== null && self::names($standing, $plugin);
+        if ($missing->plugin !== null && !$exists && !$named) {
             return null;
         }
 
         return [
             'seq' => $event->seq,
             'tool' => $payload['tool'],
-            'plugin' => \is_string($arguments['plugin'] ?? null) ? $arguments['plugin'] : null,
+            'plugin' => $plugin,
             'permission' => $missing->permission,
+            'call' => self::shown($arguments),
+            'target' => $plugin === null ? null : ($exists ? 'existing' : 'new'),
+            'named' => $named,
+            // Write over work the house already has is never one touch, named or not: a destructive call can
+            // only touch what exists, and which call is destructive is not read from its text.
+            'consent' => $exists ? 'informed' : 'touch',
         ];
+    }
+
+    /**
+     * The recorded arguments as a person reads them: scalars as they were, long text cut with its size
+     * said, structures as JSON under the same cut. Shown, never interpreted.
+     *
+     * @param array<mixed> $arguments
+     *
+     * @return array<string, string|int|float|bool|null>
+     */
+    private static function shown(array $arguments): array
+    {
+        $out = [];
+        foreach ($arguments as $name => $value) {
+            if (!\is_string($value) && !\is_scalar($value) && $value !== null) {
+                $value = (string) json_encode($value, \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE);
+            }
+            if (\is_string($value) && \strlen($value) > self::SHOWN_BYTES) {
+                $value = mb_strcut($value, 0, self::SHOWN_BYTES, 'UTF-8') . \sprintf('… (%d bytes)', \strlen($value));
+            }
+            $out[(string) $name] = $value;
+        }
+
+        return $out;
     }
 
     /**
