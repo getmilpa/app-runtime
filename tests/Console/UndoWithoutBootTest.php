@@ -106,7 +106,7 @@ final class UndoWithoutBootTest extends TestCase
         [$exit, $out] = $this->coa(['sandbox:undo', '--workspace=w1']);
 
         self::assertSame(1, $exit, $out);
-        self::assertStringContainsString('This call is not signed, and an unsigned call runs only what reads', $out);
+        self::assertStringContainsString('This call is not signed, and an unsigned call changes nothing that lasts', $out);
         self::assertStringContainsString('Sign it with --sign', $out);
         self::assertStringNotContainsString('The house boots again', $out);
         $this->assertStillBroken();

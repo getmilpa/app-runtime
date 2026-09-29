@@ -28,28 +28,25 @@ use Milpa\Command\Operation;
 use Milpa\Console\SequenceReceipts;
 use Milpa\Container\DIContainer;
 use Milpa\DevTools\Operations\DevToolsOperations;
-use Milpa\ToolRuntime\Contracts\CallPolicy;
-use Milpa\ToolRuntime\Contracts\ToolContext;
 use Milpa\ToolRuntime\Identity\GrantedAuthorization;
-use Milpa\ToolRuntime\Policy\AuthorizationResult;
-use Milpa\ToolRuntime\ToolDefinition;
 use PHPUnit\Framework\TestCase;
 
 /**
- * An unsigned call from the terminal runs only what reads (greenhouse decisions/0522).
+ * An unsigned call from the terminal makes no lasting change (greenhouse decisions/0522).
  *
  * Measured (evidence/1050): once the seat's receipt was released, the resident's unsigned legs ran as `local-shell`
  * with `*` — 21 build operations outside the seat — and an unsigned probe, outside any session, staged a write to
  * `HelloPlugin`, a scope the seat never held. The door calls here run `bin/coa`'s own `Application` in a CHILD
  * process, as a terminal would.
  *
- * @guards an unsigned call that asks for more than reading is refused before anything runs, and says how to sign
+ * @guards an unsigned call that declares a lasting change is refused before anything runs, and says how to sign;
+ *         what changes nothing that lasts — a read, the dev server — runs as it always did
  *
  * @refuses an unsigned agent leg with no standing receipt (it never runs as the terminal), and an unsigned staging write
  *
  * @subject-in milpa/app-runtime
  */
-final class AnUnsignedCallRunsOnlyWhatReadsTest extends TestCase
+final class AnUnsignedCallMakesNoLastingChangeTest extends TestCase
 {
     private string $root;
 
@@ -72,7 +69,7 @@ final class AnUnsignedCallRunsOnlyWhatReadsTest extends TestCase
         [$exit, $out] = $this->coa(['agent', '--session=camino-blog', '--prompt=continue']);
 
         self::assertSame(1, $exit, $out);
-        self::assertStringContainsString('This call is not signed, and an unsigned call runs only what reads: «agent» needs more', $out);
+        self::assertStringContainsString('This call is not signed, and an unsigned call changes nothing that lasts: «agent» declares a persistent change (write_as_user).', $out);
         self::assertStringContainsString('No signed receipt stands for «camino-blog»', $out);
         self::assertStringContainsString('Sign it with --sign', $out);
         self::assertStringNotContainsString('local-shell', $out);
@@ -86,7 +83,7 @@ final class AnUnsignedCallRunsOnlyWhatReadsTest extends TestCase
         [$exit, $out] = $this->coa(['implement', '--plugin=HelloPlugin', '--class=HelloPlugin', '--mode=reset', '--content=']);
 
         self::assertSame(1, $exit, $out);
-        self::assertStringContainsString('«implement» needs more', $out);
+        self::assertStringContainsString('«implement» declares a persistent change', $out);
         self::assertStringContainsString('It does not run as the terminal either. Nothing ran.', $out);
         self::assertFileDoesNotExist($this->root . '/src/Plugins/HelloPlugin/HelloPlugin.php.milpa-part');
         self::assertSame($live, file_get_contents($this->root . '/src/Plugins/HelloPlugin/HelloPlugin.php'));
@@ -100,41 +97,47 @@ final class AnUnsignedCallRunsOnlyWhatReadsTest extends TestCase
         self::assertStringNotContainsString('not signed', $out);
     }
 
-    public function testTheAuthorityOfAnUnsignedCallHoldsOnlyTheReadsItsOperationDeclares(): void
+    public function testWhatLastsIsReadFromTheOperationsOwnDeclaration(): void
     {
-        $op = new Operation(name: 'agent:show', description: 'd', handler: static fn (): array => [], scopes: ['agent:read', 'agent:answer']);
+        $profile = static fn (Mutation $m): EffectProfile => new EffectProfile($m, Externality::None, $m === Mutation::None ? Reversibility::NotApplicable : Reversibility::ManualRecovery, Authority::Read, subject: Subject::None);
+        $op = static fn (?EffectProfile $e): Operation => new Operation(name: 'x', description: 'd', handler: static fn (): array => [], effects: $e);
 
-        $authority = UnsignedTerminal::authority($op);
-
-        self::assertSame('local-shell', $authority->principal);
-        self::assertSame('cli', $authority->channel);
-        self::assertSame(['agent:read'], $authority->scopes);
-        self::assertFalse($authority->hasScope('*'));
-        self::assertNull(UnsignedTerminal::refusal($op, [], null, null), 'a read declared by the operation is enough');
+        self::assertFalse(UnsignedTerminal::lasts($op($profile(Mutation::None))), 'a read');
+        self::assertFalse(UnsignedTerminal::lasts($op($profile(Mutation::Ephemeral))), 'the dev server');
+        self::assertTrue(UnsignedTerminal::lasts($op($profile(Mutation::Persistent))));
+        self::assertTrue(UnsignedTerminal::lasts($op($profile(Mutation::Unknown))));
+        self::assertTrue(UnsignedTerminal::lasts($op(null)), 'undeclared counts as the maximum');
     }
 
-    public function testTheHostPolicyJudgesTheUnsignedCallAsAFinitePrincipal(): void
+    public function testTheRefusalSaysWhatTheOperationDeclaresAndHowToSign(): void
     {
-        $op = new Operation(name: 'implement', description: 'd', handler: static fn (): array => []);
-        $policy = new class () implements CallPolicy {
-            /** @var list<ToolContext> */
-            public array $asked = [];
+        $implement = new Operation(
+            name: 'implement',
+            description: 'd',
+            handler: static fn (): array => [],
+            mutating: true,
+            effects: new EffectProfile(Mutation::Persistent, Externality::None, Reversibility::ManualRecovery, Authority::WriteAsUser, subject: Subject::Data),
+        );
 
-            public function authorize(ToolContext $context, ToolDefinition $tool, array $arguments): AuthorizationResult
-            {
-                $this->asked[] = $context;
+        self::assertSame([
+            'This call is not signed, and an unsigned call changes nothing that lasts: «implement» declares a persistent change (write_as_user).',
+            '  It does not run as the terminal either. Nothing ran.',
+            '  Sign it with --sign, or continue a sequence whose receipt still stands.',
+        ], UnsignedTerminal::refusal($implement, ['plugin' => 'HelloPlugin'], null));
+    }
 
-                return $context->hasScope('plugins.' . $arguments['plugin'] . ':write')
-                    ? AuthorizationResult::allowed()
-                    : AuthorizationResult::denied("Missing required permission 'plugins.{$arguments['plugin']}:write'.");
-            }
-        };
+    /** `serve` declares an ephemeral change: it starts unsigned, as the three CLI steps of the 1→8 path expect. */
+    public function testTheDevServerIsNotALastingChange(): void
+    {
+        $serve = new Operation(
+            name: 'serve',
+            description: 'd',
+            handler: static fn (): array => [],
+            mutating: true,
+            effects: new EffectProfile(Mutation::Ephemeral, Externality::None, Reversibility::ManualRecovery, Authority::WriteAsUser, subject: Subject::Executable),
+        );
 
-        $refusal = UnsignedTerminal::refusal($op, ['plugin' => 'HelloPlugin'], $policy, null);
-
-        self::assertNotNull($refusal);
-        self::assertStringContainsString("Missing required permission 'plugins.HelloPlugin:write'.", $refusal[0]);
-        self::assertSame([], $policy->asked[0]->scopes);
+        self::assertNull(UnsignedTerminal::refusal($serve, ['port' => 18736], null));
     }
 
     public function testAStandingReceiptIsWhatLetsAnUnsignedCallContinue(): void

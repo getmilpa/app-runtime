@@ -14,14 +14,10 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Console;
 
+use Milpa\Command\Effect\Mutation;
 use Milpa\Command\Operation;
 use Milpa\Console\Consent;
-use Milpa\Console\McpProjector;
 use Milpa\Console\SequenceReceipts;
-use Milpa\ToolRuntime\Contracts\CallPolicy;
-use Milpa\ToolRuntime\Contracts\ToolContext;
-use Milpa\ToolRuntime\PolicyGate;
-use Milpa\ToolRuntime\ToolDefinition;
 
 /**
  * What an unsigned call from the terminal may do in this house (greenhouse decisions/0522).
@@ -31,30 +27,27 @@ use Milpa\ToolRuntime\ToolDefinition;
  * legs 3–13 of the resident's session ran as the terminal user, all 21 build operations outside the seat's
  * governance, and the same unsigned probe, outside any session, staged a write to a plugin the seat never held.
  *
- * So the terminal's default stops being an authority. An unsigned call either CONTINUES a signed sequence whose
- * receipt still stands — the runner re-verifies it and the call runs as its signer — or it runs with READING
- * only: the scopes its operation declares that read (`<area>:read`), judged by the same gate and the same host
- * policy as any call. Anything that asks for more is refused with what it lacks, and nothing runs. It never falls
- * back to the terminal's wildcard.
+ * So the terminal's default never reaches a change that lasts. An unsigned call with no token:
  *
- * WHAT STAYS AS IT WAS: a signed call (`--sign`), which the runner authorizes and bounds by who the signer is; a
- * presented token, bounded by its own scopes; and every operation that declares no scope and that the host's
- * policy does not refuse a finite principal — `list`, `test`, `serve`.
+ * - that demands consent is the runner's to refuse — it asks for `--sign`, as it always did;
+ * - that continues a sequence whose receipt still stands is the runner's too — it re-verifies the receipt and runs
+ *   the call as its signer, or refuses;
+ * - that declares it changes nothing that lasts (its effect profile's mutation is `none` or `ephemeral`: a read, the
+ *   dev server) runs as it always did;
+ * - and anything else — a declared persistent change — is refused here, before it runs, with what it declares and
+ *   how to sign it. It never falls back to the terminal's wildcard.
+ *
+ * The line is the operation's own declaration (greenhouse decisions/0019, 0028), not the name of its scopes: the
+ * house already asks it whether a call demands consent, and a change that lasts is what a signature answers for.
  */
 final class UnsignedTerminal
 {
     /**
-     * The authority an unsigned call runs with when no receipt stands for it: the terminal, reading only.
+     * Whether the operation declares a change that lasts — anything but `none` or `ephemeral`, undeclared included.
      */
-    public static function authority(Operation $op): ToolContext
+    public static function lasts(Operation $op): bool
     {
-        $terminal = ToolContext::cli();
-
-        return new ToolContext(
-            principal: $terminal->principal,
-            channel: $terminal->channel,
-            scopes: array_values(array_filter($op->scopes, static fn (string $scope): bool => str_ends_with($scope, ':read'))),
-        );
+        return !\in_array($op->effects?->mutation, [Mutation::None, Mutation::Ephemeral], true);
     }
 
     /**
@@ -73,9 +66,9 @@ final class UnsignedTerminal
     }
 
     /**
-     * Whether the runner already decides this unsigned call without the terminal's wildcard: it continues a
-     * sequence whose receipt stands (cited, or refused), or its operation demands consent — the runner asks for
-     * `--sign` and runs nothing without it. Either way this door stands aside and says nothing of its own.
+     * Whether the runner already decides this unsigned call without the terminal's wildcard: its operation demands
+     * consent — the runner asks for `--sign` and runs nothing without it — or it continues a sequence whose receipt
+     * stands (cited, or refused). Either way this door stands aside and says nothing of its own.
      *
      * @param array<string, mixed> $input
      */
@@ -85,33 +78,24 @@ final class UnsignedTerminal
     }
 
     /**
-     * The refusal owed to an unsigned call that asks for more than reading — or null when it may run reading only.
+     * The refusal owed to an unsigned call that would make a lasting change as the terminal — or null when it may run.
      *
      * @param array<string, mixed> $input
      *
      * @return list<string>|null the refusal's lines
      */
-    public static function refusal(Operation $op, array $input, ?CallPolicy $policy, ?SequenceReceipts $receipts): ?array
+    public static function refusal(Operation $op, array $input, ?SequenceReceipts $receipts): ?array
     {
-        $gate = new PolicyGate();
-        if ($policy !== null) {
-            $gate->setCallPolicy($policy);
-        }
-        $verdict = $gate->authorizeCall(self::authority($op), new ToolDefinition(
-            McpProjector::toolName($op->name),
-            $op->description,
-            $op->inputSchema ?? [],
-            $op->handler,
-            scopes: $op->scopes,
-            mutating: $op->mutating,
-        ), $input);
-        if ($verdict->allowed) {
+        if (self::runnerDecides($op, $input, $receipts) || !self::lasts($op)) {
             return null;
         }
+        $declared = $op->effects === null
+            ? 'never declared its effects'
+            : "declares a {$op->effects->mutation->value} change ({$op->effects->authority->value})";
         $sequence = $receipts !== null ? $op->sequenceFor($input) : null;
 
         return [
-            "This call is not signed, and an unsigned call runs only what reads: «{$op->name}» needs more — " . rtrim((string) $verdict->reason, '.') . '.',
+            "This call is not signed, and an unsigned call changes nothing that lasts: «{$op->name}» {$declared}.",
             $sequence !== null
                 ? "  No signed receipt stands for «{$sequence}», so it does not continue as anyone, and it does not run as the terminal. Nothing ran."
                 : '  It does not run as the terminal either. Nothing ran.',

@@ -651,34 +651,23 @@ final class Application
             channel: $base->channel,
             scopes: PresentedToken::scopes($identity, $base->scopes),
         );
-        // AN UNSIGNED CALL NEVER RUNS AS THE TERMINAL'S WILDCARD (greenhouse decisions/0522). With no signature and
-        // no token, it continues a sequence whose receipt stands — the runner cites it or refuses — or it runs
-        // reading only; what asks for more is refused here, before anything runs. Measured (evidence/1050): with the
-        // seat's receipt released, 21 build operations of the resident ran as `local-shell` with `*`.
+        // AN UNSIGNED CALL NEVER MAKES A LASTING CHANGE AS THE TERMINAL (greenhouse decisions/0522). With no signature
+        // and no token, a call that changes something that lasts either continues a sequence whose receipt stands — the
+        // runner cites it or refuses — or demands consent, or is refused here before anything runs. Measured
+        // (evidence/1050): with the seat's receipt released, 21 build operations of the resident ran as `local-shell`.
         if ($identity === null && !\in_array('--sign', $tokens, true)) {
-            $container = $this->kernel()->container();
             try {
                 $input = $operacion->inputSchema !== null ? (new CliRunner())->deriveInput($operacion, $tokens) : [];
             } catch (\Throwable) {
                 $input = null; // the runner says what is wrong with the arguments, and runs nothing
             }
-            if ($input !== null && !UnsignedTerminal::runnerDecides($operacion, $input, $receipts)) {
-                $policy = $container->has(\Milpa\ToolRuntime\Contracts\CallPolicy::class)
-                    ? $container->get(\Milpa\ToolRuntime\Contracts\CallPolicy::class) : null;
-                $refusal = UnsignedTerminal::refusal(
-                    $operacion,
-                    $input,
-                    $policy instanceof \Milpa\ToolRuntime\Contracts\CallPolicy ? $policy : null,
-                    $receipts,
-                );
-                if ($refusal !== null) {
-                    foreach ($renderer->presentError(implode("\n", $refusal)) as $line) {
-                        $this->line($line);
-                    }
-
-                    return 1;
+            $refusal = $input !== null ? UnsignedTerminal::refusal($operacion, $input, $receipts) : null;
+            if ($refusal !== null) {
+                foreach ($renderer->presentError(implode("\n", $refusal)) as $line) {
+                    $this->line($line);
                 }
-                $caller = UnsignedTerminal::authority($operacion);
+
+                return 1;
             }
         }
 
@@ -1668,8 +1657,8 @@ final class Application
 
             return 1;
         }
-        // THE SAME RULE FOR AN UNSIGNED CALL AS THE ORDINARY DOOR (greenhouse decisions/0522): reading only, and what
-        // asks for more is refused — never run as the terminal's wildcard. No receipt is cited here: every call signs.
+        // THE SAME RULE FOR AN UNSIGNED CALL AS THE ORDINARY DOOR (greenhouse decisions/0522): a lasting change is never
+        // made as the terminal. No receipt is cited here: every call signs.
         $tokens = $this->tokens($operacion, $argv);
         if (!\in_array('--sign', $tokens, true)) {
             try {
@@ -1677,16 +1666,13 @@ final class Application
             } catch (\Throwable) {
                 $input = null; // the runner says what is wrong with the arguments, and runs nothing
             }
-            if ($input !== null && !UnsignedTerminal::runnerDecides($operacion, $input, null)) {
-                $refusal = UnsignedTerminal::refusal($operacion, $input, $policy, null);
-                if ($refusal !== null) {
-                    foreach ($renderer->presentError(implode("\n", $refusal)) as $line) {
-                        $this->line($line);
-                    }
-
-                    return 1;
+            $refusal = $input !== null ? UnsignedTerminal::refusal($operacion, $input, null) : null;
+            if ($refusal !== null) {
+                foreach ($renderer->presentError(implode("\n", $refusal)) as $line) {
+                    $this->line($line);
                 }
-                $base = UnsignedTerminal::authority($operacion);
+
+                return 1;
             }
         }
         $salida = (new CliRunner(
