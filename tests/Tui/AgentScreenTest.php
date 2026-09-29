@@ -808,7 +808,7 @@ final class AgentScreenTest extends TestCase
             'paused' => true,
             'steps' => 5,
             'tools' => 19,
-            'hint' => 'contesta con: coa agent:answer --session=x --answer=<sí|no>',
+            'hint' => 'answer with: coa agent:answer --session=x --answer=<yes|no>',
         ]);
 
         $this->teclear($pantalla, 'enciende el plugin');

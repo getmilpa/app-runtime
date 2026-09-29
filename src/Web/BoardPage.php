@@ -161,7 +161,7 @@ h1 { font-family: var(--font-heading, inherit); font-size: 1.1rem; margin: 0; }
 Paste a token with the <code>agent:answer</code> scope to arm the buttons — it stays in this page's
 memory and travels only in the request header.</p>
 <label>token <input type="password" id="milpa-answer-token" class="milpa-answer-token" autocomplete="off"></label>
-<button type="button" id="milpa-answer-yes" class="mui-btn mui-btn--primary" disabled>sí</button>
+<button type="button" id="milpa-answer-yes" class="mui-btn mui-btn--primary" disabled>yes</button>
 <button type="button" id="milpa-answer-no" class="mui-btn mui-btn--secondary" disabled>no</button>
 <p id="milpa-answer-status" class="milpa-answer-status" aria-live="polite"></p>
 </section>
@@ -260,7 +260,7 @@ memory and travels only in the request header.</p>
                 armButtons();
             });
     }
-    yesButton.addEventListener('click', function () { answer('sí'); });
+    yesButton.addEventListener('click', function () { answer('yes'); });
     noButton.addEventListener('click', function () { answer('no'); });
 
     // Every pushed fact schedules a refetch of the fold. On purpose there is NO list here of which
