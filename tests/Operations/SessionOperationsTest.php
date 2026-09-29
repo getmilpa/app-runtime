@@ -1187,6 +1187,9 @@ final class SessionOperationsTest extends TestCase
         self::assertSame('perm:config:set', $granted['question'] ?? null);
         self::assertStringStartsWith('sha256:', (string) ($granted['arguments_digest'] ?? ''), 'la llamada exacta, por digest canónico');
         self::assertNotNull($granted['by'] ?? null, 'quién apretó');
+
+        $sesion = $this->almacen()->load('s1');
+        self::assertSame('yes', $sesion?->decisions[0]['answer'] ?? null, 'a tightening is recorded as the yes the wire speaks (decisions/0518)');
     }
 
     /**
@@ -1217,7 +1220,7 @@ final class SessionOperationsTest extends TestCase
         $r = $this->llamar('agent:answer', ['session' => 's1', 'envelope' => ['reversibility' => 'manual_recovery']]);
 
         self::assertFalse($r['ok']);
-        self::assertStringContainsString('sí', (string) $r['error']);
+        self::assertStringContainsString('`answer: yes`', (string) $r['error'], 'it names the answer the wire speaks (decisions/0518)');
         self::assertNotNull($almacen->load('s1')?->question, 'la pregunta sigue abierta: nada se otorgó');
         self::assertFalse($almacen->load('s1')?->allows('config:set'));
     }

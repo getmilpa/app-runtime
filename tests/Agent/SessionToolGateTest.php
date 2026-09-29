@@ -175,7 +175,7 @@ final class SessionToolGateTest extends TestCase
         // dominio; cómo se contesta lo pone cada superficie —la CLI en su `hint`, el TUI en su widget.
         self::assertStringNotContainsString('agent:answer', $motivo, 'cómo contestar es de la superficie');
         self::assertNotNull($almacen->load('s1')?->question, 'pero la pregunta sí quedó abierta');
-        self::assertSame(['sí', 'no'], $almacen->load('s1')?->question?->options, 'con sus opciones, que es lo que la superficie necesita');
+        self::assertSame(['yes', 'no'], $almacen->load('s1')?->question?->options, 'with its options, which is what the surface needs — in the question\'s language (decisions/0518)');
 
         $sesion = $almacen->load('s1');
         self::assertNotNull($sesion);
