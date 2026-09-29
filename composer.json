@@ -35,7 +35,7 @@
         "friendsofphp/php-cs-fixer": "^3.75",
         "milpa/agent": ">=0.52 <1.0",
         "milpa/ai-gateway": ">=0.39 <1.0",
-        "milpa/auth": "dev-main as 0.11.0",
+        "milpa/auth": ">=0.11 <1.0",
         "milpa/data": ">=0.2.2 <1.0",
         "milpa/devtools": ">=0.34 <1.0",
         "milpa/event-store": ">=0.4 <1.0",
@@ -46,13 +46,6 @@
         "phpstan/phpstan": "^2.1",
         "phpunit/phpunit": "^11.5"
     },
-    "repositories": [
-        {
-            "type": "vcs",
-            "url": "https://github.com/getmilpa/auth",
-            "no-api": true
-        }
-    ],
     "autoload": {
         "psr-4": {
             "Milpa\\AppRuntime\\": "src/"
