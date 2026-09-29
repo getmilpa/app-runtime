@@ -21,6 +21,7 @@ use Milpa\AppRuntime\Agent\HouseRouteObserver;
 use Milpa\AppRuntime\Agent\PluginAuthoringPolicy;
 use Milpa\AppRuntime\Agent\KeyedDeclarations;
 use Milpa\AppRuntime\Agent\TrialWorkspace;
+use Milpa\AppRuntime\Support\CompiledCode;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\EffectProfile;
@@ -238,6 +239,10 @@ final class TrialOperations implements CommandProvider
             // WRITE-THEN-RENAME: the house never sees a half-written file.
             $this->write($hostFile, $payload[$rel]);
         }
+
+        // THE NEXT REQUEST RUNS WHAT LANDED (greenhouse decisions/0506): when this process is the server, its
+        // OPcache would otherwise serve the old bytecode for up to `revalidate_freq` seconds (evidence/1038, o4).
+        CompiledCode::forget($root, $paths);
 
         $this->recordPromotion($sessions, $input, $id, $paths, $diff);
 

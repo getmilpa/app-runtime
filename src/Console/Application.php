@@ -229,8 +229,18 @@ final class Application
         return $filas;
     }
 
-    public function __construct(private readonly string $root)
-    {
+    /**
+     * @param string                                             $root        where the app lives
+     * @param \Milpa\Console\OperationSigner|null                $firmante    who signs a `--sign` on either door — the ordinary one and the one
+     *                                                                        without a kernel ({@see deshacerSinKernel()}); null is gpg
+     * @param \Milpa\ToolRuntime\Identity\SignatureVerifier|null $verificador who verifies it; null is gpg. Both exist so the two doors can be
+     *                                                                        asked the same question with the same key (greenhouse decisions/0506)
+     */
+    public function __construct(
+        private readonly string $root,
+        private readonly ?\Milpa\Console\OperationSigner $firmante = null,
+        private readonly ?\Milpa\ToolRuntime\Identity\SignatureVerifier $verificador = null,
+    ) {
     }
 
     /**
@@ -343,6 +353,19 @@ final class Application
 
         if ($comando === 'repair') {
             return $this->repararSinKernel(\array_slice($argv, 2));
+        }
+
+        // ── DESHACER TAMPOCO PUEDE NECESITAR QUE ARRANQUE (greenhouse decisions/0506) ────────────
+        //
+        // Lo mismo que `doctor`, `repair` y `update`, medido en evidence/1038 (n5): una promoción que
+        // rompe el arranque deja a `sandbox:undo` muriendo del mismo fatal que vino a deshacer. Un fatal
+        // no se atrapa: se pregunta ANTES, en un proceso aparte, si la casa arranca. Si arranca, nada
+        // cambia; si no, la reversa corre sin tocar un solo archivo de la app.
+        if ($comando === 'sandbox:undo') {
+            $porQue = (new \Milpa\AppRuntime\Support\BootProbe())->whyNot($this->root);
+            if ($porQue !== null) {
+                return $this->deshacerSinKernel(\array_slice($argv, 2), $porQue);
+            }
         }
 
         // Las dos pantallas. No son operaciones y no lo fingen: una operación se ejecuta con lo que
@@ -528,29 +551,15 @@ final class Application
         }
 
         return (new CliRunner(
+            signer: $this->firmante,
             renderer: $renderer,
+            verifier: $this->verificador,
             callerAuthority: new ToolContext(
                 principal: $identity->actor->id ?? $base->principal,
                 channel: $base->channel,
                 scopes: PresentedToken::scopes($identity, $base->scopes),
             ),
-            signerAuthority: function (VerifiedSigner $signer) use ($identity): ?ToolContext {
-                $root = $this->kernel()->root();
-                $signed = (new SignerAuthority(
-                    new FileEnrollmentStore($root . '/storage/identity/enrollments.json'),
-                    PolicyConfig::load($root),
-                ))->forSigner($signer);
-                // A second credential cannot widen a presented token for delegated tools.
-                $tokenScopes = PresentedToken::scopes($identity, ['*']);
-                if ($signed === null && $identity === null) {
-                    return null;
-                }
-                $signedScopes = $signed->scopes ?? ['*'];
-                $scopes = \in_array('*', $tokenScopes, true) ? $signedScopes
-                    : (\in_array('*', $signedScopes, true) ? $tokenScopes : array_values(array_intersect($tokenScopes, $signedScopes)));
-
-                return new ToolContext(principal: 'key:' . $signer->fingerprint, channel: 'cli', scopes: $scopes);
-            },
+            signerAuthority: fn (VerifiedSigner $signer): ?ToolContext => $this->autoridadDelFirmante($signer, $identity),
             // El despachador del kernel viaja al runner: sin él, un listener que audita operaciones
             // las vería por MCP y no por la terminal — que es el hueco que el runner vino a cerrar.
             dispatcher: $this->kernel()->dispatcher(),
@@ -1305,6 +1314,97 @@ final class Application
     }
 
     private ?Kernel $booted = null;
+
+    /**
+     * What a verified signer may do in this house — one judgment for every door of the terminal.
+     *
+     * The enrollment ledger and the policy file are read from disk, never from the kernel: the same
+     * judgment has to hold when the kernel does not boot ({@see deshacerSinKernel()}), and two copies
+     * of it would disagree the day it matters.
+     */
+    private function autoridadDelFirmante(VerifiedSigner $signer, ?\Milpa\Auth\AuthContext $identity): ?ToolContext
+    {
+        $signed = (new SignerAuthority(
+            new FileEnrollmentStore($this->root . '/storage/identity/enrollments.json'),
+            PolicyConfig::load($this->root),
+        ))->forSigner($signer);
+        // A second credential cannot widen a presented token for delegated tools.
+        $tokenScopes = PresentedToken::scopes($identity, ['*']);
+        if ($signed === null && $identity === null) {
+            return null;
+        }
+        $signedScopes = $signed->scopes ?? ['*'];
+        $scopes = \in_array('*', $tokenScopes, true) ? $signedScopes
+            : (\in_array('*', $signedScopes, true) ? $tokenScopes : array_values(array_intersect($tokenScopes, $signedScopes)));
+
+        return new ToolContext(principal: 'key:' . $signer->fingerprint, channel: 'cli', scopes: $scopes);
+    }
+
+    /**
+     * `sandbox:undo` for a house that does not boot — the way back that used to exist only by hand.
+     *
+     * Measured in greenhouse evidence/1038 (n5): a promotion registered a plugin whose class misses an
+     * interface method, and `coa sandbox:undo` booted that same house and died of the same compile fatal.
+     * The pre-image (decisions/0069) was there, and only a person with a shell and the know-how could
+     * put it back. A fatal cannot be caught; it can be avoided: this path touches no file of the app —
+     * no `config/`, no `src/` — only `vendor/`, `var/trials/` and the identity files on disk.
+     *
+     * THE SAME AUTHORITY, NEVER A WIDER ONE (greenhouse decisions/0506). The call goes through the same
+     * `CliRunner` as always: the consent gate asks for `--sign`, the signer is judged by the same
+     * enrollment ledger and policy file ({@see autoridadDelFirmante()}), and the house's own boundary
+     * ({@see PluginAuthoringPolicy}) judges the write set of the undo — the same checks, from the same
+     * files. What is NOT here is refused rather than skipped: a presented `MILPA_TOKEN` is judged by the
+     * token store a plugin registers, which lives in the kernel that does not boot — so it is refused,
+     * never read as «no token» (that would widen a narrow token to the terminal's wildcard). And a signed
+     * sequence is not continued from its receipt: every call here signs.
+     *
+     * @param list<string> $argv tokens after the command name
+     */
+    private function deshacerSinKernel(array $argv, string $porQue): int
+    {
+        $this->line('✗ The house does not boot: ' . $porQue);
+        $this->line('  Undoing without booting it: only sandbox:undo runs here, under the same signature and write-set checks.');
+
+        $token = getenv(PresentedToken::ENV);
+        if (\is_string($token) && trim($token) !== '') {
+            $this->line('✗ ' . PresentedToken::ENV . ' is presented, and a token is judged by the token store the house registers when it boots — it does not boot.');
+            $this->line('  Nothing ran. Unset ' . PresentedToken::ENV . ' and sign the undo with --sign.');
+
+            return 1;
+        }
+
+        $container = new \Milpa\Container\DIContainer();
+        $container->registerService(\Milpa\Plugin\Contracts\AppRoot::class, new \Milpa\Plugin\Contracts\AppRoot($this->root));
+        $policy = new \Milpa\AppRuntime\Agent\PluginAuthoringPolicy($this->root);
+        $container->registerService(\Milpa\ToolRuntime\Contracts\CallPolicy::class, $policy);
+        $container->registerService(\Milpa\Console\OperationBoundary::class, $policy);
+        $operacion = null;
+        foreach ((new \Milpa\AppRuntime\Operations\TrialOperations($container, null, $this->root, null))->operations() as $op) {
+            if ($op->name === 'sandbox:undo') {
+                $operacion = $op;
+            }
+        }
+        if ($operacion === null) {
+            return 1;
+        }
+
+        $renderer = \in_array('--json', $argv, true) ? new JsonCliRenderer() : new PlainTextCliRenderer();
+        $base = ToolContext::cli();
+        $salida = (new CliRunner(
+            signer: $this->firmante,
+            renderer: $renderer,
+            callerAuthority: $base,
+            verifier: $this->verificador,
+            signerAuthority: fn (VerifiedSigner $signer): ?ToolContext => $this->autoridadDelFirmante($signer, null),
+        ))->run($operacion, $this->tokens($operacion, $argv), $container, $this->line(...));
+
+        if ($salida === 0) {
+            $despues = (new \Milpa\AppRuntime\Support\BootProbe())->whyNot($this->root);
+            $this->line($despues === null ? '✓ The house boots again.' : '✗ The house still does not boot: ' . $despues);
+        }
+
+        return $salida;
+    }
 
     private function kernel(): Kernel
     {
