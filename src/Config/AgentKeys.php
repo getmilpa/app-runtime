@@ -125,7 +125,9 @@ final class AgentKeys
             ],
             'agent.outputTokens' => [
                 'type' => DeclaredType::integer(),
-                'does' => 'A positive output-token limit for each native loop call; absent keeps 4096. '
+                'does' => 'A positive output-token limit for each native loop call; absent, the house derives '
+                    . 'a sixth of the governing context window (4096 to 16384, in steps of 1024), or keeps 4096 '
+                    . 'when no window is known. '
                     . 'Must leave input room inside a known context window. The intake records the '
                     . 'actual provider limit; truncation never raises it or executes partial tools',
             ],

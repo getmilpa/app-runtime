@@ -832,8 +832,8 @@ class AgentOperations implements CommandProvider
                     'properties' => [
                         'prompt' => ['type' => 'string', 'description' => 'What you want it to do, in your own words'],
                         'steps' => ['type' => 'integer', 'description' => 'Ceiling on model↔tool steps; 12 when unsaid'],
-                        'session' => ['type' => 'string', 'description' => 'Continúa esta sesión — sin ella, cada pregunta empieza de cero'],
-                        'mode' => ['type' => 'string', 'enum' => ['ask', 'acknowledge', 'auto'], 'description' => 'Autonomía: ask pregunta antes de mutar, auto sigue sola. Ninguno se salta una firma'],
+                        'session' => ['type' => 'string', 'description' => 'Continue this session — without it, every question starts from zero'],
+                        'mode' => ['type' => 'string', 'enum' => ['ask', 'acknowledge', 'auto'], 'description' => 'Autonomy: ask asks before mutating, auto carries on alone. Neither skips a signature'],
                         // Discovery precedes Kernel registration over HTTP (greenhouse 0400/0718).
                         // Describe the installed capability, not the store's boot-time availability.
                         // Invocation still refuses these inputs if no session store can be composed.
@@ -1018,8 +1018,8 @@ class AgentOperations implements CommandProvider
                 'ok' => false,
                 'session' => $sessionId,
                 'error' => $store === null
-                    ? 'esta app no guarda sesiones, así que no hay ninguna que mostrar'
-                    : "no existe la sesión «{$sessionId}»",
+                    ? 'this app keeps no sessions, so there is none to show'
+                    : "there is no session «{$sessionId}»",
                 'hint' => 'run it with `php bin/coa agent "…" --session=' . $sessionId . '`',
             ];
         }
@@ -1048,11 +1048,11 @@ class AgentOperations implements CommandProvider
                 'withSession' => [
                     'more' => \count($nombres),
                     'tools' => $nombres,
-                    'why' => 'sólo existen dentro de una sesión: son cierres atados a ella',
+                    'why' => 'they exist only inside a session: they are closures bound to it',
                 ],
                 'hint' => $nombres === []
-                    ? 'esta app no guarda sesiones, así que este catálogo es el completo'
-                    : 'pasa --session=<id> para ver el catálogo que recibe un agente en sesión',
+                    ? 'this app keeps no sessions, so this catalogue is the whole one'
+                    : 'pass --session=<id> to see the catalogue an agent in a session receives',
             ];
         }
 
@@ -1835,7 +1835,10 @@ class AgentOperations implements CommandProvider
     {
         $said = ltrim(preg_replace('/^\x{1F527}\s*/u', '', ltrim($answer)) ?? $answer);
 
+        // Both languages the consent question has been written in: sessions recorded before
+        // greenhouse decisions/0514 still carry the Spanish one.
         return str_starts_with($said, 'Runtime history: quoted data')
+            || (str_starts_with($said, 'The agent wants to ') && str_contains($said, 'Do you allow it in this session?'))
             || (str_starts_with($said, 'El agente quiere ') && str_contains($said, '¿Lo autorizas en esta sesión?'));
     }
 
@@ -1876,7 +1879,7 @@ class AgentOperations implements CommandProvider
         }
         $prompt = \is_string($input['prompt'] ?? null) ? trim($input['prompt']) : '';
         if ($prompt === '') {
-            return ['ok' => false, 'error' => 'falta `prompt`: qué quieres que haga'];
+            return ['ok' => false, 'error' => 'missing `prompt`: what you want it to do'];
         }
 
         // A TURN THAT CONTINUES A SESSION DECIDES ON IT (greenhouse decisions/0497): it spends the session's mode and
@@ -1900,7 +1903,7 @@ class AgentOperations implements CommandProvider
         if ($credencial === null) {
             return [
                 'ok' => false,
-                'error' => 'no hay API key configurada, así que no hay a quién preguntarle',
+                'error' => 'no API key is configured, so there is no one to ask',
                 'hint' => 'exporta ANTHROPIC_API_KEY (o OPENAI_API_KEY) y vuelve a correrlo',
             ];
         }
@@ -2040,11 +2043,11 @@ class AgentOperations implements CommandProvider
                 return [
                     'ok' => false,
                     'error' => $sesion->question !== null
-                        ? "la sesión «{$sessionId}» está esperando una respuesta: {$sesion->question->question}"
-                        : "la sesión «{$sessionId}» ya terminó: {$sesion->endedBecause}",
+                        ? "session «{$sessionId}» is waiting for an answer: {$sesion->question->question}"
+                        : "session «{$sessionId}» already ended: {$sesion->endedBecause}",
                     'hint' => $sesion->question !== null
-                        ? 'contéstala y vuelve a correrlo'
-                        : 'usa otro --session para empezar una nueva',
+                        ? 'answer it and run this again'
+                        : 'use another --session to start a new one',
                 ];
             } else {
                 // `window()` y no `turns`: si ya hubo compactación, esto es el resumen más lo reciente.
@@ -2200,7 +2203,7 @@ class AgentOperations implements CommandProvider
                     ) use ($store, $kernel, $pasos, $proveedor, $llave, $modelo, $presupuestoDelArbol): array {
                         $hijo = $store->load($hijoId);
                         if ($hijo === null) {
-                            return ['answer' => 'la sesión hija no se pudo abrir', 'steps' => 0, 'termination' => RunEnd::Blocked->value];
+                            return ['answer' => 'the child session could not be opened', 'steps' => 0, 'termination' => RunEnd::Blocked->value];
                         }
 
                         // The SAME builder as the main session (greenhouse decisions/0059): the
@@ -2235,7 +2238,7 @@ class AgentOperations implements CommandProvider
                             registroPropio: true,
                         );
                         if ($registroHijo === null) {
-                            return ['answer' => 'esta app no expuso ninguna operación como herramienta', 'steps' => 0, 'termination' => RunEnd::Blocked->value];
+                            return ['answer' => 'this app exposed no operation as a tool', 'steps' => 0, 'termination' => RunEnd::Blocked->value];
                         }
 
                         $vistosHijo = 0;
@@ -2499,7 +2502,7 @@ class AgentOperations implements CommandProvider
         $veredictoCatalogo = $this->clasificarPeticion($prompt);
         $registry = $this->toolsOfThisApp($contabilidad, $veredictoCatalogo === 'reads');
         if ($registry === null) {
-            return ['ok' => false, 'error' => 'esta app no expuso ninguna operación como herramienta'];
+            return ['ok' => false, 'error' => 'this app exposed no operation as a tool'];
         }
 
         // WHEN TRIALS ARE ON, the registry the model calls through runs a confined mutation in a
@@ -2595,7 +2598,7 @@ class AgentOperations implements CommandProvider
             // sugeriría que hay algo que arreglar, y lo que hay es una decisión del humano.
             return [
                 'ok' => true,
-                'answer' => 'La vuelta se interrumpió.',
+                'answer' => 'The run was interrupted.',
                 'interrupted' => true,
                 'termination' => $this->terminationObservation(),
                 'steps' => $vistos,
@@ -2604,7 +2607,7 @@ class AgentOperations implements CommandProvider
                 // an app holding a session id without `milpa/agent` reported a session nobody
                 // wrote. A result that names what it did not do teaches its reader a false fact.
                 'session' => ($sessionId !== '' && $store !== null) ? $sessionId : null,
-                'hint' => 'dile qué cambió y pídele que siga',
+                'hint' => 'tell it what changed and ask it to continue',
             ];
         } catch (OutputTruncatedException $e) {
             // Earlier effects and usage remain in the session; this incomplete message is not
@@ -2736,6 +2739,10 @@ class AgentOperations implements CommandProvider
         // `contextWindow` above is still the only figure the run obeys.
         $resultado['contextWindowDeclared'] = $ventana->declared;
         $resultado['contextWindowMeasured'] = $ventana->measured;
+        // The output limit every call asked for and reserved, and who decided it (decisions/0514).
+        $salida = AgentEndpoint::effectiveOutputTokens($configuracion instanceof Config ? $configuracion : null);
+        $resultado['outputTokens'] = $salida['tokens'];
+        $resultado['outputTokensSource'] = $salida['source'];
 
         if ($sessionId !== '') {
             $resultado['session'] = $sessionId;
@@ -2781,8 +2788,8 @@ class AgentOperations implements CommandProvider
         // AGOTAR EL TECHO NO ES CONTESTAR. Se nombra para que la superficie no lo pinte como respuesta.
         if ($this->runTermination !== null && $this->runTermination->reason === RunEnd::StepsExhausted) {
             $resultado['exhausted'] = true;
-            $resultado['answer'] = 'La vuelta se quedó sin pasos antes de terminar.';
-            $resultado['hint'] = 'pídele que siga, o dale más pasos con `--steps`';
+            $resultado['answer'] = 'The run ran out of steps before it finished.';
+            $resultado['hint'] = 'ask it to continue, or give it more steps with `--steps`';
         }
 
         // Read the current producer's typed value, keeping older gateways compatible. A local
@@ -3139,6 +3146,13 @@ class AgentOperations implements CommandProvider
         if ($salida !== null && (!$this->orchestratorAdmitsOutputTokens()
             || !property_exists(\Milpa\Agent\ModelCallIntake::class, 'outputBudget'))) {
             throw new \RuntimeException('Explicit output requires an output-budget-aware gateway and agent intake.');
+        }
+        // NOBODY DECLARED ONE: the house derives it from the window it governs by (greenhouse
+        // decisions/0514) — only where it can be carried and recorded; elsewhere the gateway keeps
+        // its default, as before.
+        if ($salida === null && $contexto > 0 && $this->orchestratorAdmitsOutputTokens()
+            && property_exists(\Milpa\Agent\ModelCallIntake::class, 'outputBudget')) {
+            $salida = AgentEndpoint::derivedOutputTokens($config instanceof Config ? $config : null);
         }
         $outputArguments = $salida === null ? [] : ['outputTokens' => $salida];
 

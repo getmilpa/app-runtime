@@ -482,7 +482,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
 
         return new \Milpa\Agent\PendingQuestion(
             id: 'intent-' . substr(sha1($operacion->name . '|' . $valor), 0, 12),
-            question: "La petición no nombra a «{$valor}». ¿Confirmas {$operacion->name} sobre «{$valor}»?",
+            question: "The request does not name «{$valor}». Confirm {$operacion->name} on «{$valor}»?",
             options: ['sí', 'no'],
             why: json_encode(
                 ['operation' => $operacion->name, 'arguments' => $arguments],

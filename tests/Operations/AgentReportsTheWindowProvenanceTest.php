@@ -79,6 +79,18 @@ final class AgentReportsTheWindowProvenanceTest extends TestCase
         self::assertFalse($result['contextWindowCouldNotAsk'] ?? null);
         self::assertSame(100000, $result['contextWindowDeclared'] ?? null, 'what the human asked for is still visible');
         self::assertSame(32768, $result['contextWindowMeasured'] ?? null, 'and what the provider answered');
+        // The output limit every call asked for, derived from the window that governs (decisions/0514).
+        self::assertSame(5120, $result['outputTokens'] ?? null);
+        self::assertSame('derived', $result['outputTokensSource'] ?? null);
+    }
+
+    /** A declared output limit is reported as declared, and it is the one in force. */
+    public function testADeclaredOutputLimitIsReportedAsDeclared(): void
+    {
+        $result = $this->runAgentWith(['contextTokens' => 32768, 'outputTokens' => 2048]);
+
+        self::assertSame(2048, $result['outputTokens'] ?? null);
+        self::assertSame('declared', $result['outputTokensSource'] ?? null);
     }
 
     /**
@@ -132,6 +144,9 @@ final class AgentReportsTheWindowProvenanceTest extends TestCase
         self::assertSame(280, $result['tokens'] ?? null);
         self::assertNull($result['contextWindowDeclared'] ?? null);
         self::assertNull($result['contextWindowMeasured'] ?? null);
+        self::assertArrayHasKey('outputTokens', $result);
+        self::assertNull($result['outputTokens'], 'no window, no derivation: the gateway keeps its default');
+        self::assertSame('default', $result['outputTokensSource'] ?? null);
     }
 
     /**
