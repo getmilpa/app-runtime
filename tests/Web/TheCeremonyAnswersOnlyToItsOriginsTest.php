@@ -19,6 +19,7 @@ use Milpa\AppRuntime\Identity\FileEnrollmentStore;
 use Milpa\AppRuntime\Identity\IdentityEnrolled;
 use Milpa\AppRuntime\Web\Controllers\PasskeyController;
 use Milpa\AppRuntime\Web\Controllers\PasskeyIntentController;
+use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Web\PasskeyPlugin;
 use Milpa\AppRuntime\Web\RegisteredCredentialIds;
 use Milpa\Auth\WebAuthn\FilePasskeyCredentialStore;
@@ -146,7 +147,6 @@ final class TheCeremonyAnswersOnlyToItsOriginsTest extends TestCase
     /** @return iterable<string, array{0: mixed, 1: string}> */
     public static function undeclaredOrigins(): iterable
     {
-        yield 'absent' => [null, 'passkey.origins is missing'];
         yield 'a string, not a list' => [self::ORIGIN, 'not a non-empty list of strings'];
         yield 'an empty list' => [[], 'not a non-empty list of strings'];
         yield 'a map, not a list' => [['main' => self::ORIGIN], 'not a non-empty list of strings'];
@@ -158,17 +158,14 @@ final class TheCeremonyAnswersOnlyToItsOriginsTest extends TestCase
     }
 
     /**
-     * A relying party without its origins is a misconfiguration said at boot — never a door that opens
-     * anyway, and never origins guessed from the request.
+     * Origins DECLARED wrong are a misconfiguration said at boot — never a door that opens anyway, and
+     * never origins guessed from the request. (Origins not declared at all are a house from before 0.201:
+     * see the tests below.)
      */
     #[DataProvider('undeclaredOrigins')]
     public function testARelyingPartyWithoutValidOriginsRefusesToBoot(mixed $origins, string $said): void
     {
-        $passkey = ['rpId' => self::RP_ID];
-        if ($origins !== null) {
-            $passkey['origins'] = $origins;
-        }
-        [$c] = $this->house($passkey);
+        [$c] = $this->house(['rpId' => self::RP_ID, 'origins' => $origins]);
         $plugin = new PasskeyPlugin($c);
 
         try {
@@ -180,6 +177,63 @@ final class TheCeremonyAnswersOnlyToItsOriginsTest extends TestCase
         }
         self::assertSame([], $plugin->routes(), 'no route is mounted for a half-declared relying party');
         self::assertFalse($c->has(RelyingParty::class) && $c->get(RelyingParty::class) instanceof RelyingParty);
+    }
+
+    /**
+     * The sentence names the fix a person can type: for `localhost` the origin `php bin/coa serve` answers
+     * on, not an `https://localhost` no laptop serves — the same rule the writer declares by.
+     */
+    public function testTheRefusalShowsTheOriginsTheHouseWouldDeclare(): void
+    {
+        [$c] = $this->house(['rpId' => 'localhost', 'origins' => 'http://localhost:8000']);
+
+        try {
+            (new PasskeyPlugin($c))->boot();
+            self::fail('the plugin booted with a string for passkey.origins');
+        } catch (\InvalidArgumentException $e) {
+            self::assertStringContainsString("'origins' => ['http://localhost:8000']", $e->getMessage());
+            self::assertStringNotContainsString('https://localhost', $e->getMessage());
+        }
+    }
+
+    /** @return iterable<string, array{0: string, 1: string, 2: string}> */
+    public static function housesFromBeforeTheOrigins(): iterable
+    {
+        yield 'a laptop house (0.200.x wrote rpId localhost)' => ['localhost', 'http://localhost:8000', 'http://localhost:8001'];
+        yield 'a house on its domain' => [self::RP_ID, self::ORIGIN, 'https://evil.milpa.local'];
+    }
+
+    /**
+     * A HOUSE FROM BEFORE 0.201 STILL BOOTS (greenhouse decisions/0533). `capabilities:enable identity` on
+     * 0.200.x wrote `rpId` and nothing else; 0.201 refused to boot that house, and every writer with a boot
+     * check refused with it. With `origins` ABSENT the door is held to exactly the origins a new house gets
+     * written — derived from the declared rpId, never from the request — and refuses every other one.
+     */
+    #[DataProvider('housesFromBeforeTheOrigins')]
+    public function testAHouseThatDeclaredOnlyItsRpIdIsHeldToTheOriginsANewHouseGetsWritten(string $rpId, string $origin, string $other): void
+    {
+        [$c] = $this->house(['rpId' => $rpId]);
+        $plugin = new PasskeyPlugin($c);
+        $plugin->boot();
+
+        self::assertNotSame([], $plugin->routes(), 'the door is mounted');
+        $rp = $c->get(RelyingParty::class);
+        self::assertInstanceOf(RelyingParty::class, $rp);
+        self::assertSame([$origin], $rp->allowedOrigins);
+        self::assertSame(Capabilities::originsFor($rpId), $rp->allowedOrigins, 'one rule: the writer\'s');
+
+        $door = $this->door($c);
+        $key = SyntheticPasskey::key();
+        $challenge = static fn (): string => SyntheticPasskey::unb64u((string) json_decode((string) $door->registerOptions(new ServerRequest('POST', '/webauthn/register/options'))->getBody(), true)['challenge']);
+
+        $refused = $door->register($this->post('/webauthn/register', SyntheticPasskey::attestation($key, $rpId, $challenge(), 'cred-other', $other)));
+        self::assertSame(401, $refused->getStatusCode(), 'an origin the house would not declare is refused');
+        self::assertSame([], $this->registered($c)->all());
+
+        // Control: the same key from the derived origin — registered.
+        $admitted = $door->register($this->post('/webauthn/register', SyntheticPasskey::attestation($key, $rpId, $challenge(), 'cred-derived', $origin)));
+        self::assertSame(201, $admitted->getStatusCode());
+        self::assertSame([SyntheticPasskey::b64u('cred-derived')], $this->registered($c)->all());
     }
 
     /** Loopback may speak plain http, and several origins are one relying party. */

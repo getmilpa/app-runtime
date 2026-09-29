@@ -20,6 +20,7 @@ use Milpa\AppRuntime\Agent\PasskeyIntentProof;
 use Milpa\AppRuntime\Identity\EnrollmentStore;
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
 use Milpa\AppRuntime\Identity\IdentityInvitations;
+use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Web\Controllers\PasskeyController;
 use Milpa\AppRuntime\Web\Controllers\PasskeyIntentController;
 use Milpa\Attributes\PluginMetadata;
@@ -76,8 +77,14 @@ use Milpa\Runtime\Http\RouteProviderInterface;
  * is verified against the same {@see RelyingParty}: its `rpId` and the exact origins the house is served
  * from, `passkey.origins`. A clientDataJSON from any other origin, or an assertion without user
  * verification, is refused. The origins are DECLARED, never derived from the request's Host header (that
- * is the attacker's to choose): a house that declares `rpId` without `origins` refuses to boot, naming
- * the key — a half-declared relying party is a misconfiguration, not a door to open anyway.
+ * is the attacker's to choose): origins declared malformed refuse to boot, naming the key — a
+ * misconfiguration, not a door to open anyway.
+ *
+ * A HOUSE FROM BEFORE THE ORIGINS STILL BOOTS (greenhouse decisions/0533). `capabilities:enable identity`
+ * on 0.200.x wrote `rpId` and no `origins`, so 0.201 refused to boot every such house — and every writer
+ * with a boot check refused with it. With `origins` ABSENT the door is held to exactly the origins a new
+ * house gets written ({@see Capabilities::originsFor()}, from the declared id, never the request), and
+ * `coa doctor` says so and names the act that writes them ({@see self::undeclaredOrigins()}).
  *
  * THE LEDGERS ARE THE CONTAINER'S TOO. The relying party ({@see RelyingParty}), the credential ledger
  * ({@see PasskeyCredentialStore}), the ids it holds ({@see RegisteredCredentialIds}) and the enrollment
@@ -89,7 +96,7 @@ use Milpa\Runtime\Http\RouteProviderInterface;
  *
  *     'passkey' => [
  *         'rpId'     => 'example.com',                  // required — the relying-party id assertions bind to
- *         'origins'  => ['https://example.com'],        // required with rpId — the exact origins ceremonies run on
+ *         'origins'  => ['https://example.com'],        // with rpId — the exact origins ceremonies run on (absent: Capabilities::originsFor)
  *         'cookie'   => 'milpa_session',                // optional — the session cookie name (the gate reads it)
  *         'ttl'      => 3600,                           // optional — session lifetime in seconds
  *         'sessions' => '/abs/path/sessions.json',      // optional — where the provided FileSessionStore writes
@@ -162,7 +169,7 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
             return; // fail closed: no relying party, no routes (see the class docblock)
         }
 
-        $relyingParty = self::relyingParty($rpId, $config['origins'] ?? null);
+        $relyingParty = self::relyingParty($rpId, $config['origins'] ?? Capabilities::originsFor($rpId));
         $root = $this->root();
 
         // The door provides what the door needs (decisions/0206): a host that registered no session
@@ -278,26 +285,48 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
     }
 
     /**
+     * What `coa doctor` says of a house whose door runs on derived origins, or null when there is nothing to say.
+     *
+     * Null unless `$passkey` (the `passkey` block of config/app.php) declares an `rpId` and no `origins`.
+     *
+     * @param array<array-key, mixed> $passkey
+     */
+    public static function undeclaredOrigins(array $passkey): ?string
+    {
+        $rpId = $passkey['rpId'] ?? null;
+        if (!\is_string($rpId) || $rpId === '' || ($passkey['origins'] ?? null) !== null) {
+            return null;
+        }
+
+        return \sprintf(
+            'passkey.origins is not declared in config/app.php (a house made before 0.201): the passkey door holds every '
+            . 'ceremony to %s, the origins a new house gets for rpId "%s". Write them: `%scapabilities:enable identity --sign`.',
+            self::originsLine(Capabilities::originsFor($rpId)),
+            $rpId,
+            Capabilities::CLI,
+        );
+    }
+
+    /**
      * The relying party every ceremony is verified against, from `passkey.rpId` and `passkey.origins`.
      *
      * The origins are a DECLARED list, never the request's Host: WebAuthn's origin check exists to refuse
-     * a page the house does not serve, and a Host header is whatever that page's author sends. Missing or
-     * malformed, the house refuses to boot and says which key to write — milpa/auth's own validation
+     * a page the house does not serve, and a Host header is whatever that page's author sends. Malformed,
+     * the house refuses to boot and says which key to write — milpa/auth's own validation
      * (https only, plain http on loopback, a host under the rpId) speaks for everything past that.
      *
-     * @throws \InvalidArgumentException when `passkey.origins` is absent, empty, not a list of strings, or
-     *                                   rejected by {@see RelyingParty}
+     * @throws \InvalidArgumentException when `passkey.origins` is empty, not a list of strings, or rejected by
+     *                                   {@see RelyingParty} — absent, the caller passes the derived ones
      */
     private static function relyingParty(string $rpId, mixed $origins): RelyingParty
     {
         if (!\is_array($origins) || $origins === [] || !array_is_list($origins) || array_filter($origins, static fn (mixed $o): bool => !\is_string($o)) !== []) {
             throw new \InvalidArgumentException(\sprintf(
-                'passkey.rpId is "%s" but passkey.origins is %s: declare the exact origins the house is served from, '
-                . 'as a list, in config/app.php — for example \'origins\' => [\'https://%s\']. Every passkey ceremony is '
+                'passkey.rpId is "%s" but passkey.origins is not a non-empty list of strings: declare the exact origins '
+                . 'the house is served from, as a list, in config/app.php — for example %s. Every passkey ceremony is '
                 . 'checked against them, and they are never guessed from the request.',
                 $rpId,
-                $origins === null ? 'missing' : 'not a non-empty list of strings',
-                $rpId,
+                self::originsLine(Capabilities::originsFor($rpId)),
             ));
         }
 
@@ -307,6 +336,12 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
         } catch (\InvalidArgumentException $e) {
             throw new \InvalidArgumentException('passkey.origins in config/app.php: ' . $e->getMessage(), 0, $e);
         }
+    }
+
+    /** @param list<string> $origins */
+    private static function originsLine(array $origins): string
+    {
+        return "'origins' => [" . implode(', ', array_map(static fn (string $o): string => var_export($o, true), $origins)) . ']';
     }
 
     /**

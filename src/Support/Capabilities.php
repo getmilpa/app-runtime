@@ -400,7 +400,8 @@ final class Capabilities
      * @param array<string, mixed> $manifest the package's `extra.milpa.capability`
      *
      * @return list<string> the classes still to declare, operations first — and `passkey.rpId` when the
-     *                      manifest is identity's and config/app.php does not declare it yet
+     *                      manifest is identity's and config/app.php does not declare it yet, or
+     *                      `passkey.origins` when it declares the id without them (a house from before 0.201)
      */
     public static function unwired(string $root, array $manifest): array
     {
@@ -424,33 +425,43 @@ final class Capabilities
         }
 
         // THE DOOR'S RELYING PARTY is declared by the same enable (greenhouse evidence/1041): identity with
-        // its plugin named and no `passkey.rpId` is a door that does not open, not a wired capability.
-        if (self::relyingPartyPending($root, $manifest)) {
-            $missing[] = 'passkey.rpId';
+        // its plugin named and no `passkey.rpId` is a door that does not open, not a wired capability. An id
+        // without its origins is a declaration half made (greenhouse decisions/0533): the door boots on origins
+        // derived in memory, and the enable writes them where the person reads config.
+        $relyingParty = self::relyingPartyMissing($root, $manifest);
+        if ($relyingParty !== null) {
+            $missing[] = $relyingParty;
         }
 
         return $missing;
     }
 
     /**
-     * Whether identity's relying party is still to declare: the manifest is identity's, the app has a
-     * config/app.php to declare it in, and nothing there declares `passkey.rpId`. The same presence rule
-     * {@see self::declareRelyingParty()} writes by, so «is it declared» has one answer.
+     * What of identity's relying party is still to declare, or null: the manifest is identity's, the app has
+     * a config/app.php to declare it in, and nothing there declares `passkey.rpId` — or it declares the id
+     * and no `passkey.origins`. The same presence rule {@see self::declareRelyingParty()} writes by, so «is
+     * it declared» has one answer.
      *
      * @param array<string, mixed> $manifest the package's `extra.milpa.capability`
+     *
+     * @return 'passkey.rpId'|'passkey.origins'|null
      */
-    private static function relyingPartyPending(string $root, array $manifest): bool
+    private static function relyingPartyMissing(string $root, array $manifest): ?string
     {
         if (($manifest['id'] ?? null) !== 'identity') {
-            return false;
+            return null;
         }
         $file = rtrim($root, '/') . '/config/app.php';
         if (!is_file($file)) {
-            return false;
+            return null;
         }
-        $declared = self::loadConfig($file)['passkey']['rpId'] ?? null;
+        $passkey = self::loadConfig($file)['passkey'] ?? null;
+        $declared = \is_array($passkey) ? ($passkey['rpId'] ?? null) : null;
+        if (!\is_string($declared) || $declared === '') {
+            return 'passkey.rpId';
+        }
 
-        return !\is_string($declared) || $declared === '';
+        return ($passkey['origins'] ?? null) === null ? 'passkey.origins' : null;
     }
 
     /**
@@ -760,7 +771,7 @@ final class Capabilities
                 'registered' => self::registerOperations($at, self::providersFor($requirement['manifest'])),
                 'plugins_declared' => self::registerPlugins($at, self::pluginsFor($requirement['manifest'])),
             ];
-            if (\in_array('passkey.rpId', $requirement['pending'], true)) {
+            if (array_intersect(['passkey.rpId', 'passkey.origins'], $requirement['pending']) !== []) {
                 $entry['relying_party'] = self::declareRelyingParty($at);
             }
             $wired[] = $entry;
@@ -789,7 +800,7 @@ final class Capabilities
         }
         $providers = self::providersFor($manifest);
         foreach ($pending as $item) {
-            $file = $item === 'passkey.rpId' ? 'config/app.php'
+            $file = str_starts_with($item, 'passkey.') ? 'config/app.php'
                 : (\in_array($item, $providers, true) ? 'config/operations.php' : 'config/plugins.php');
             if (!DeclarationLedger::accounted($root, $file)) {
                 return "cannot tell never-declared from removed: {$file} was edited outside the house's declaration writers";
@@ -839,17 +850,34 @@ final class Capabilities
     }
 
     /**
+     * The origins a relying party gets when the house declares them: `localhost` gets the origin `php bin/coa
+     * serve` answers on, `http://localhost:8000`; any other id gets `https://<id>`.
+     *
+     * ONE RULE (greenhouse decisions/0533): {@see self::declareRelyingParty()} writes by it, and the passkey
+     * door holds a house that declared its id without origins — every house `capabilities:enable identity`
+     * made before 0.201 — to exactly these, in memory, until they are written. Derived from the DECLARED id,
+     * never from a request.
+     *
+     * @return list<string>
+     */
+    public static function originsFor(string $rpId): array
+    {
+        return [$rpId === 'localhost' ? 'http://localhost:8000' : 'https://' . $rpId];
+    }
+
+    /**
      * Declares `passkey.rpId` — and the `passkey.origins` it is held to — in `config/app.php` when nothing
      * declares it yet, and VERIFIES the
      * declaration by loading the file back: a write that did not land is reverted and reported, not
      * assumed. The value is written where the human edits config, with the lines that say who wrote it
      * and why — a declaration on disk, not a default in code.
      *
-     * The origins go with the id because the passkey plugin refuses to boot without them (milpa/auth 0.11
-     * checks every ceremony's origin): `localhost` gets the origin `php bin/coa serve` answers on,
-     * `http://localhost:8000`; any other id gets `https://<id>`.
+     * The origins go with the id because milpa/auth 0.11 checks every ceremony's origin
+     * ({@see self::originsFor()}). A house that declares the id WITHOUT origins — what this writer wrote
+     * before 0.201 — gets them completed in place, right after its `'rpId' => '…'`, and nothing else in the
+     * file changes; an id the writer cannot find as a literal is left alone and the answer says what to write.
      *
-     * @return array{rpId: string, written: bool, file: string, error?: string}|null `null` when the app has no config/app.php
+     * @return array{rpId: string, written: bool, file: string, origins?: list<string>, error?: string}|null `null` when the app has no config/app.php
      */
     public static function declareRelyingParty(string $root, string $rpId = 'localhost'): ?array
     {
@@ -860,14 +888,16 @@ final class Capabilities
         $current = self::loadConfig($file);
         $declared = $current['passkey']['rpId'] ?? null;
         if (\is_string($declared) && $declared !== '') {
-            return ['rpId' => $declared, 'written' => false, 'file' => 'config/app.php'];
+            return ($current['passkey']['origins'] ?? null) === null
+                ? self::completeOrigins($file, $current, $declared)
+                : ['rpId' => $declared, 'written' => false, 'file' => 'config/app.php'];
         }
         $src = (string) file_get_contents($file);
         $pos = strrpos($src, '];');
         if ($pos === false) {
             return ['rpId' => '', 'written' => false, 'file' => 'config/app.php', 'error' => 'config/app.php does not end with the returned array; declare passkey.rpId by hand'];
         }
-        $origins = [$rpId === 'localhost' ? 'http://localhost:8000' : 'https://' . $rpId];
+        $origins = self::originsFor($rpId);
         $block = "\n    // Declared by `capabilities:enable identity`: the relying-party id passkey assertions bind to, and\n"
             . "    // the exact origins a ceremony may come from. They must equal what the browser's address bar shows\n"
             . "    // (`php bin/coa serve` answers at http://localhost:8000). Change both to your domain before enrolling\n"
@@ -883,6 +913,46 @@ final class Capabilities
         }
 
         return ['rpId' => $rpId, 'written' => true, 'file' => 'config/app.php'];
+    }
+
+    /**
+     * Writes `'origins' => [...]` right after the one `'rpId' => '<id>'` literal of config/app.php, and keeps
+     * it only if the file loads back as exactly what it was plus those origins.
+     *
+     * @param array<string, mixed> $before config/app.php as it loads now
+     *
+     * @return array{rpId: string, written: bool, file: string, origins?: list<string>, error?: string}
+     */
+    private static function completeOrigins(string $file, array $before, string $rpId): array
+    {
+        $origins = self::originsFor($rpId);
+        $line = "'origins' => [" . implode(', ', array_map(static fn (string $o): string => var_export($o, true), $origins)) . ']';
+        $cannot = ['rpId' => $rpId, 'written' => false, 'file' => 'config/app.php',
+            'error' => "passkey.origins could not be written beside passkey.rpId in config/app.php; add it by hand: {$line}"];
+
+        $src = (string) file_get_contents($file);
+        $literal = '/([\'"])rpId\1\s*=>\s*' . preg_quote(var_export($rpId, true), '/') . '/';
+        if (preg_match_all($literal, $src, $found, \PREG_OFFSET_CAPTURE) !== 1) {
+            return $cannot;
+        }
+        $at = $found[0][0][1] + \strlen($found[0][0][0]);
+        file_put_contents($file, substr($src, 0, $at) . ', ' . $line . substr($src, $at));
+
+        $expected = $before;
+        $expected['passkey'] = [];
+        foreach ((array) $before['passkey'] as $key => $value) {
+            $expected['passkey'][$key] = $value;
+            if ($key === 'rpId') {
+                $expected['passkey']['origins'] = $origins;
+            }
+        }
+        if (self::loadConfig($file) !== $expected) {
+            file_put_contents($file, $src);
+
+            return $cannot;
+        }
+
+        return ['rpId' => $rpId, 'written' => true, 'file' => 'config/app.php', 'origins' => $origins];
     }
 
     /** @return array<string, mixed> */
@@ -1204,7 +1274,7 @@ final class Capabilities
             [$wrote, $boot] = self::declareIfItBoots($root, static fn (string $at): array => [
                 self::registerOperations($at, self::providersFor($manifest)),
                 self::registerPlugins($at, self::pluginsFor($manifest)),
-                self::relyingPartyPending($at, $manifest) ? self::declareRelyingParty($at) : null,
+                self::relyingPartyMissing($at, $manifest) !== null ? self::declareRelyingParty($at) : null,
                 self::applyRequirements($at, $requirements['wire']),
             ], $witness);
             if ($boot['refused'] !== null) {
