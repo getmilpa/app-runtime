@@ -216,11 +216,11 @@ final class LaunchGrants
             $store->ask($sessionId, new PendingQuestion(
                 id: 'perm:' . $entry['operation'],
                 question: "Launch grant: whoever ran this agent authorizes «{$entry['operation']}» in this session.",
-                options: ['sí', 'no'],
+                options: AffirmativeAnswer::OPTIONS,
                 why: $why === false ? null : $why,
                 reason: 'permission',
             ));
-            $store->answer($sessionId, 'perm:' . $entry['operation'], 'sí', $by, self::EXECUTOR);
+            $store->answer($sessionId, 'perm:' . $entry['operation'], AffirmativeAnswer::YES, $by, self::EXECUTOR);
             $store->grant($sessionId, $entry['operation']);
 
             $seeded[] = $entry['operation'];

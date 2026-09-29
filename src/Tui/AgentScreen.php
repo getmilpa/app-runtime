@@ -586,7 +586,7 @@ final class AgentScreen implements SurfaceBroadcaster
      */
     private function afordancias(array $opciones): string
     {
-        $etiquetas = [$opciones[0] ?? 'sí', $opciones[1] ?? 'no', 'escribir la mía'];
+        $etiquetas = [$opciones[0] ?? \Milpa\AppRuntime\Agent\AffirmativeAnswer::YES, $opciones[1] ?? 'no', 'escribir la mía'];
         $pintadas = [];
         foreach ($etiquetas as $i => $etiqueta) {
             $pintadas[] = $i === $this->opcionPregunta ? "▸ {$etiqueta}" : "  {$etiqueta}";
@@ -738,7 +738,7 @@ final class AgentScreen implements SurfaceBroadcaster
 
             if ($key === 'enter') {
                 $eleccion = match ($this->opcionPregunta) {
-                    0 => $abierta[0] ?? 'sí',
+                    0 => $abierta[0] ?? \Milpa\AppRuntime\Agent\AffirmativeAnswer::YES,
                     1 => $abierta[1] ?? 'no',
                     // La tuya: si no escribiste nada, no se manda una cadena vacía como respuesta.
                     default => trim($this->entrada),
@@ -751,7 +751,7 @@ final class AgentScreen implements SurfaceBroadcaster
                     $this->conversation[] = [
                         'quien' => 'agente',
                         'voz' => 'sistema',
-                        'texto' => '· escribe tu respuesta antes de Enter, o elige «' . ($abierta[0] ?? 'sí')
+                        'texto' => '· escribe tu respuesta antes de Enter, o elige «' . ($abierta[0] ?? \Milpa\AppRuntime\Agent\AffirmativeAnswer::YES)
                             . '» o «' . ($abierta[1] ?? 'no') . '» con ← →',
                     ];
                     $this->loop->repintarTodo();
@@ -922,7 +922,7 @@ final class AgentScreen implements SurfaceBroadcaster
                 $this->conversation[] = [
                     'quien' => 'agente',
                     'voz' => 'sistema',
-                    'texto' => '· para autorizarla, elige «' . ($sesion->question->options[0] ?? 'sí')
+                    'texto' => '· para autorizarla, elige «' . ($sesion->question->options[0] ?? \Milpa\AppRuntime\Agent\AffirmativeAnswer::YES)
                         . '» con ← → y Enter; para seguir sin ella, pide otra cosa',
                 ];
                 $this->loop->repintarTodo();

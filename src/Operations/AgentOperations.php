@@ -1684,6 +1684,17 @@ class AgentOperations implements CommandProvider
     }
 
     /**
+     * The CLI's answer prompt for a parked session: it speaks the question's language and names the options the
+     * question carries — `yes|no` since greenhouse decisions/0518; a question an older house parked still shows its
+     * own «sí|no», and the house still reads that answer.
+     */
+    private static function answerHint(string $sessionId, \Milpa\Agent\PendingQuestion $question): string
+    {
+        return 'answer with: ' . Capabilities::CLI . 'agent:answer --session=' . $sessionId
+            . ' --answer=<' . implode('|', $question->options ?: ['your answer']) . '>';
+    }
+
+    /**
      * La pregunta parqueada, como la lee una SUPERFICIE (greenhouse decisions/0254).
      *
      * Tiene nombre propio porque es lo único que una superficie con botones necesita, y porque el `hint`
@@ -2852,8 +2863,7 @@ class AgentOperations implements CommandProvider
         $pausada = $sessionId !== '' && $store !== null ? $store->load($sessionId) : null;
         if ($pausada?->question !== null) {
             $resultado['paused'] = true;
-            $resultado['hint'] = 'contesta con: ' . Capabilities::CLI . 'agent:answer --session=' . $sessionId
-                . ' --answer=<' . implode('|', $pausada->question->options ?: ['tu respuesta']) . '>';
+            $resultado['hint'] = self::answerHint($sessionId, $pausada->question);
             $resultado['question'] = self::preguntaPausada($pausada->question);
         }
 

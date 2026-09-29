@@ -138,6 +138,7 @@ final class LaunchGrantsTest extends TestCase
         $decision = $sesion->decisions[0] ?? null;
         self::assertIsArray($decision);
         self::assertSame('permission', $decision['reason']);
+        self::assertSame('yes', $decision['answer'] ?? null, 'the launch grant records the answer the wire speaks (decisions/0518)');
         self::assertSame(LaunchGrants::EXECUTOR, $decision['executor'], 'an auditor tells a launch grant from a mid-session yes');
         self::assertInstanceOf(Principal::class, $decision['by']);
         self::assertSame('cli:rod@lab', $decision['by']->id);
