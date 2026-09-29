@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Tests\Support;
 
 use Milpa\AppRuntime\Support\BrokenBootAnswer;
 use Milpa\AppRuntime\Tests\Fixtures\TinyHouse;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -105,6 +106,33 @@ final class ABrokenBootAnswers503Test extends TestCase
         self::assertSame($display, ini_get('display_errors'));
         self::assertSame($level, ob_get_level());
         self::assertSame('held', ob_get_clean(), 'what was held went out when the boot finished');
+    }
+
+    /** The emission itself, in a process of its own (its headers are not sent yet): what was held is dropped, the 503 is written. */
+    #[RunInSeparateProcess]
+    public function testTheAnswerDropsWhatWasHeldAndWritesThe503(): void
+    {
+        ob_start();
+        $watch = BrokenBootAnswer::watch(self::ROOT);
+        echo 'half a page the boot printed';
+
+        $answered = $watch->answer(['type' => \E_COMPILE_ERROR, 'message' => 'Class A contains 1 abstract method', 'file' => '/srv/house/src/A.php', 'line' => 3]);
+        $out = (string) ob_get_clean();
+
+        self::assertTrue($answered);
+        self::assertStringStartsWith('This house does not boot: Fatal error: Class A contains 1 abstract method in src/A.php on line 3', $out);
+        self::assertStringNotContainsString('half a page', $out);
+    }
+
+    /** What the shutdown function does when the process ends without a fatal: nothing. */
+    public function testTheShutdownOfABootThatEndedWellAnswersNothing(): void
+    {
+        ob_start();
+        $watch = BrokenBootAnswer::watch(self::ROOT);
+        $watch->booted();
+        (new \ReflectionMethod($watch, 'shutdown'))->invoke($watch);
+
+        self::assertSame('', ob_get_clean());
     }
 
     /** On a real `php -S`: the unwatched front controller is the defect (200 + fatal); the watched one answers 503. */

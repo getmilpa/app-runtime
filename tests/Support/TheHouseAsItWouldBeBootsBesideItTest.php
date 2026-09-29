@@ -123,6 +123,39 @@ return $loader;
         self::assertFileExists($this->root . '/vendor/acme/Tool.php');
     }
 
+    /** A link in the house stays a link in the candidate; a change that writes over a link writes a file, and the house's link is untouched. */
+    public function testLinksAreCopiedAsLinksAndAWriteOverOneIsAFile(): void
+    {
+        symlink('../config/app.php', $this->root . '/public/app-link.php');
+        symlink('../config/app.php', $this->root . '/public/overwritten.php');
+
+        $candidate = BootCandidate::of($this->root, ['public/overwritten.php' => '<?php return 1;'], ['public/app-link.php']);
+        try {
+            self::assertFileDoesNotExist($candidate->path . '/public/app-link.php');
+            self::assertFalse(is_link($candidate->path . '/public/overwritten.php'));
+            self::assertSame('<?php return 1;', file_get_contents($candidate->path . '/public/overwritten.php'));
+        } finally {
+            $candidate->remove();
+        }
+        self::assertTrue(is_link($this->root . '/public/app-link.php'));
+        self::assertSame('<?php return [];', file_get_contents($this->root . '/public/overwritten.php'), 'the link in the house still points where it did');
+
+        $kept = BootCandidate::of($this->root, []);
+        try {
+            self::assertTrue(is_link($kept->path . '/public/app-link.php'), 'an untouched link is copied as a link');
+        } finally {
+            $kept->remove();
+        }
+    }
+
+    /** A house with no `vendor/` has nothing to boot with — said, never read as «boots». */
+    public function testAHouseWithoutVendorIsSaid(): void
+    {
+        TinyHouse::remove($this->root . '/vendor');
+
+        self::assertSame('the house has no vendor/autoload.php', (new BootProbe())->whyNotWith($this->root, []));
+    }
+
     public function testAPathThatLeavesTheHouseIsRefused(): void
     {
         $why = (new BootProbe())->whyNotWith($this->root, ['../escaped.php' => '<?php']);
