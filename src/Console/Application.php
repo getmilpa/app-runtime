@@ -89,6 +89,9 @@ final class Application
     /** @var list<Operation>|null resueltos una vez por corrida */
     private ?array $operations = null;
 
+    /** The watch of the screen running now, when a supervisor started it — what a chat asks before it sends (0519). */
+    private ?StaleWatchTerminal $vigia = null;
+
     /** Sobre cuál sesión corre `coa chat`. Se fija al despachar el comando. */
     private string $sesionDelChatId = 'chat';
 
@@ -386,12 +389,35 @@ final class Application
         // trae y contesta, y esto CONVERSA — captura teclas hasta que alguien sale. Que vivan aquí y
         // no en `config/operations.php` es la misma distinción que dejó fuera a `coa:run`.
         if ($comando === 'shell') {
-            return $this->pantalla(new OperationsScreen(
+            // THE SHELL OUTLIVES WHAT DEFINES IT TOO (greenhouse decisions/0519, the same split as the panel's in
+            // 0507): its list is the catalogue of the kernel it booted, so a plugin disabled in another terminal kept
+            // its operations on screen. On a terminal the process the person sees holds no kernel; a child does, and
+            // a clean one opens on the operation that had the focus.
+            if (!\in_array('--child', $argv, true) && \function_exists('stream_isatty') && @stream_isatty(\STDIN)) {
+                return KernelSupervisor::terminal(
+                    fn (?string $foco): array => [PhpBinary::path(), $this->coa(), 'shell', '--child'],
+                    $this->root,
+                    surface: 'shell',
+                );
+            }
+
+            $definicion = \in_array('--child', $argv, true) ? KernelDefinition::before($this->root) : null;
+            $foco = $definicion !== null ? KernelSupervisor::handedOver() : null;
+            $shell = new OperationsScreen(
                 $this->all(),
                 $this->kernel()->container(),
                 ...$this->tamano(),
                 dispatcher: $this->kernel()->dispatcher(),
-            ));
+            );
+            $definicion?->takeInIncluded();
+            // Only an operation this kernel still offers: one that left with its plugin is not a place to reopen on.
+            foreach ($shell->operations() as $operacion) {
+                if ('op:' . $operacion->name === $foco) {
+                    $shell->loop()->focus($foco);
+                }
+            }
+
+            return $this->pantalla($shell, $definicion);
         }
 
         // THE THIRD SCREEN: the app's own panel, in the terminal.
@@ -447,6 +473,32 @@ final class Application
         }
 
         if ($comando === 'chat') {
+            // ── THE CHAT OUTLIVES WHAT DEFINES IT (greenhouse decisions/0519) ────────────────────────
+            //
+            // A person keeps a chat open for an afternoon; the kernel it booted offered the agent the same tools and
+            // the same model all along — a plugin disabled elsewhere kept answering, a model written with
+            // `config:set` never reached a turn (evidence/1053, p0). The split of 0507: on a terminal the process
+            // the person sees holds no kernel; a child does, and when it finds itself stale a clean one opens on the
+            // SAME session, with what the person was typing.
+            $hijo = \in_array('--child', $argv, true);
+            if (!$hijo && \function_exists('stream_isatty') && @stream_isatty(\STDIN)) {
+                $pedidos = array_values(array_filter(\array_slice($argv, 2), static fn (string $a): bool => $a !== '--child'));
+
+                return KernelSupervisor::terminal(
+                    function (?string $entrega) use ($pedidos): array {
+                        $sesion = ChatHandoff::decode($entrega)?->session;
+
+                        return [PhpBinary::path(), $this->coa(), 'chat', ...($sesion !== null ? [$sesion] : $pedidos), '--child'];
+                    },
+                    $this->root,
+                    surface: 'chat',
+                    held: ChatHandoff::lostOnClose(...),
+                );
+            }
+
+            $definicionDelChat = $hijo ? KernelDefinition::before($this->root) : null;
+            $entregada = $definicionDelChat !== null ? ChatHandoff::decode(KernelSupervisor::handedOver()) : null;
+
             // ── CADA CHAT ES UNA SESIÓN NUEVA, salvo que digas lo contrario ─────────────────────
             //
             // Antes todo caía en una sesión llamada `chat`, y eso mezclaba trabajos que no tenían
@@ -493,7 +545,7 @@ final class Application
                     'model' => $this->modeloDelAgente(),
                     'tools' => \count($this->all()),
                     'session' => $this->sesionDelChatId,
-                    'nueva' => $pedido !== '--continue' && $pedido !== '-c',
+                    'nueva' => $pedido !== '--continue' && $pedido !== '-c' && $entregada === null,
                 ],
                 catalogo: $this->sesionesParaElegir(...),
                 continuar: function (string $id): void {
@@ -515,6 +567,10 @@ final class Application
 
                     return ['ok' => false, 'error' => 'no board'];
                 },
+                vigente: $definicionDelChat !== null ? fn (): bool => $this->vigia?->staleNow() === null : null,
+                borrador: $entregada->draft ?? '',
+                enviarAlAbrir: $entregada->send ?? false,
+                contraoferta: $entregada->counter ?? false,
             );
 
             // THE SCREEN REGISTERS AS A SURFACE, which is how it receives what the agent does while
@@ -534,8 +590,9 @@ final class Application
             if ($contenedor instanceof \Milpa\Container\DIContainer) {
                 SurfaceComposition::compose($contenedor, $chat);
             }
+            $definicionDelChat?->takeInIncluded();
 
-            return $this->pantalla($chat);
+            return $this->pantalla($chat, $definicionDelChat);
         }
 
         $operacion = $this->find($comando);
@@ -804,6 +861,7 @@ final class Application
     {
         $terminal = new StreamTerminal('coa');
         $vigia = $definicion !== null ? new StaleWatchTerminal($terminal, $definicion) : null;
+        $this->vigia = $vigia;
 
         // CON QUÉ PINTAR SIN SALIR DEL BUCLE: la pantalla del agente es síncrona y, mientras el
         // agente trabaja, el bucle no vuelve a pasar. Sin esto se queda idéntica los ~16 segundos que
@@ -814,12 +872,19 @@ final class Application
 
         $pantalla->loop()->runOn($vigia ?? $terminal);
 
-        // A stale child leaves with what it was showing, so its supervisor opens the next one there.
-        if ($vigia !== null && $vigia->staleBecause() !== null && $pantalla instanceof ConsoleScreen) {
+        // A stale child leaves with what it was showing, so its supervisor opens the next one there: the section of
+        // the panel, the operation the shell had the focus on, the chat's session and what the person had typed —
+        // and whether it was already sent and held (greenhouse decisions/0507, 0519).
+        if ($vigia !== null && $vigia->staleBecause() !== null) {
             $definicion->forgetCompiled();
+            $mostrando = match (true) {
+                $pantalla instanceof ConsoleScreen => $pantalla->currentSectionId(),
+                $pantalla instanceof OperationsScreen => $pantalla->loop()->focusedId(),
+                default => (new ChatHandoff($this->sesionDelChatId, $pantalla->borrador(), $pantalla->retenida(), $pantalla->contraofertaRetenida()))->encode(),
+            };
             $entrega = @fopen('php://fd/3', 'w');
             if (\is_resource($entrega)) {
-                fwrite($entrega, $pantalla->currentSectionId());
+                fwrite($entrega, $mostrando . "\n" . ($vigia->settled() ? KernelSupervisor::SETTLED : ''));
                 fclose($entrega);
             }
 
