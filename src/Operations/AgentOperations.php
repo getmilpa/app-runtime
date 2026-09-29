@@ -46,7 +46,7 @@ use Milpa\AppRuntime\Agent\DeliveryExpectation;
 use Milpa\AppRuntime\Agent\DeliveryContext;
 use Milpa\AppRuntime\Agent\RunContext;
 use Milpa\AppRuntime\Agent\RunLease;
-use Milpa\AppRuntime\Agent\DeliveryClosure;
+use Milpa\AppRuntime\Agent\LegClosure;
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Auth\PresentedToken;
 use Milpa\ToolRuntime\Contracts\ToolContext;
@@ -1931,32 +1931,66 @@ class AgentOperations implements CommandProvider
     }
 
     /**
-     * The line's refusal for a turn that continues someone else's session, or null (greenhouse decisions/0497).
+     * The line's refusal for a turn that continues someone else's session, or null (greenhouse decisions/0497) —
+     * and, once the line passes, the leg ARMED to record its own death (decisions/0517).
+     *
+     * The check reads the session's opening event only: who opened it is all it asks. It used to fold the whole
+     * session, and a session too big to read once died right here, before anything was armed, and left no
+     * `session.run_terminated` (evidence/1045 §3). Arming BEFORE the check would let a caller the line refuses
+     * get a termination written into someone else's session; arming after it, on the opening alone, lets the
+     * first full read die on the record.
      *
      * @param array<string, mixed> $input
      *
      * @return array{ok: false, error: string, hint: string}|null
      */
-    private function outsiderOf(array $input, ?InvocationContext $context): ?array
+    private function holdTheLine(array $input, ?InvocationContext $context): ?array
     {
         $sessionId = \is_string($input['session'] ?? null) ? trim($input['session']) : '';
         $store = $sessionId !== '' ? $this->sessions() : null;
-        if ($store === null || $store->load($sessionId) === null) {
+        if ($store === null || $store->opening($sessionId) === null) {
             return null;
         }
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        $refusal = SessionLine::refusal($store, $sessionId, $context, 'run', $kernel instanceof Kernel ? $kernel->root() : null);
+        if ($refusal !== null) {
+            return $refusal;
+        }
+        FatalTermination::arm(static function (array $termination) use ($store, $sessionId): void {
+            $store->recordRunTermination($sessionId, $termination);
+        });
 
-        return SessionLine::refusal($store, $sessionId, $context, 'run', $kernel instanceof Kernel ? $kernel->root() : null);
+        return null;
     }
 
     /**
      * Corre el bucle y devuelve lo que el agente contestó.
+     *
+     * The leg is disarmed on every way out (greenhouse decisions/0517): the line check arms the record of a
+     * death as soon as it passes, and a leg that returns early — no key, no tools, a refused grant — must not
+     * leave it armed for whatever the process does next.
      *
      * @param array<string, mixed> $input
      *
      * @return array{ok: bool, answer?: string, session?: string|null, steps?: int, tools?: int, error?: string, hint?: string, question?: array{id: string, text: string, options: list<string>, why: string|null, reason: string|null, expires_at: string|null}, paused?: bool, exhausted?: bool, contextExhausted?: bool, stalled?: bool, receipt?: array<string, mixed>, houseDebt?: bool, interrupted?: bool, termination?: array{reason: string, receipt: array<string, mixed>|null}, closure?: array{verified: bool, reasons: list<string>}}
      */
     private function run(array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array
+    {
+        try {
+            return $this->leg($input, $context, $authority);
+        } finally {
+            FatalTermination::disarm();
+        }
+    }
+
+    /**
+     * One leg of the loop, armed from the line check on — see {@see self::run()}.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array{ok: bool, answer?: string, session?: string|null, steps?: int, tools?: int, error?: string, hint?: string, question?: array{id: string, text: string, options: list<string>, why: string|null, reason: string|null, expires_at: string|null}, paused?: bool, exhausted?: bool, contextExhausted?: bool, stalled?: bool, receipt?: array<string, mixed>, houseDebt?: bool, interrupted?: bool, termination?: array{reason: string, receipt: array<string, mixed>|null}, closure?: array{verified: bool, reasons: list<string>}}
+     */
+    private function leg(array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array
     {
         // WHO CALLED THE TURN, kept for the tools it runs (greenhouse evidence/0561): over HTTP the actor is
         // the passkey the door verified, and every effect the agent materialises on this turn is his.
@@ -1977,7 +2011,7 @@ class AgentOperations implements CommandProvider
         // goal, and its tool calls land on the session's ledger. Over a channel that promises identity, only the
         // principal that opened it, or the line that enrolled its seat, sends it the next turn — judged first,
         // before the provider is even looked for. A session that does not exist yet has nobody to ask.
-        $outsider = $this->outsiderOf($input, $context);
+        $outsider = $this->holdTheLine($input, $context);
         if ($outsider !== null) {
             return $outsider;
         }
@@ -3536,29 +3570,13 @@ class AgentOperations implements CommandProvider
     }
 
     /** Read fresh files only at the natural end; persist the sampled evidence beside its verdict.
+     * The same function the epilogue opens on (greenhouse decisions/0517): {@see LegClosure}.
+     *
      * @return array<string,mixed>
      */
     private function deliveryClosure(SessionStore $store, Session $session): array
     {
-        try {
-            $declaration = DeliveryScope::read($store->stream($session->id), $session->id);
-            if ($declaration === null) {
-                $expectation = DeliveryExpectation::read($store->stream($session->id), $session->id);
-                if ($expectation !== null) {
-                    return DeliveryClosure::derive($session, $store->facts($session->id), [], null)
-                        + ['expectation' => ['declarationSeq' => $expectation['seq'], 'sha256' => $expectation['sha256']],
-                            'bindingState' => 'awaiting_candidate'];
-                }
-                return ClosureVerdict::derive($session, $store->facts($session->id), $store->stream($session->id));
-            }
-            $contract = ['session' => $session->id] + $declaration['scope'];
-            $evidence = $this->acceptanceEvidence($contract);
-            return DeliveryClosure::derive($session, $store->facts($session->id), $contract, $evidence)
-                + ['delivery' => ['declarationSeq' => $declaration['seq'], 'sha256' => $declaration['sha256']],
-                    'observation' => $evidence];
-        } catch (\Throwable) {
-            return DeliveryClosure::derive($session, $store->facts($session->id), [], null);
-        }
+        return LegClosure::atTheEnd($session, $store->stream($session->id), fn (array $contract): array => $this->acceptanceEvidence($contract));
     }
 
     /**

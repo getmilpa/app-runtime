@@ -18,6 +18,7 @@ use Milpa\Agent\SessionProjector;
 use Milpa\Agent\SessionStore;
 use Milpa\EventStore\Event;
 use Milpa\EventStore\EventStoreInterface;
+use Milpa\EventStore\FirstEventInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
@@ -60,7 +61,7 @@ use Psr\Log\NullLogger;
  * Y los eventos que el proyector traduce a `null` tampoco: ese `null` es la afirmación de que ese
  * hecho no cambia lo que se ve, no un descarte por descuido.
  */
-final readonly class BroadcastingEventStore implements EventStoreInterface
+final readonly class BroadcastingEventStore implements EventStoreInterface, FirstEventInterface
 {
     public const TOPIC_PREFIX = 'milpa/sessions/';
 
@@ -130,5 +131,24 @@ final readonly class BroadcastingEventStore implements EventStoreInterface
     public function replayAll(): array
     {
         return $this->inner->replayAll();
+    }
+
+    /**
+     * The first event of a type in a stream — read by the wrapped store without the stream when it can
+     * (greenhouse decisions/0517), from the stream otherwise. The bridge must not hide the cheap read: every
+     * session the house writes goes through it.
+     */
+    public function first(string $streamId, string $type): ?Event
+    {
+        if ($this->inner instanceof FirstEventInterface) {
+            return $this->inner->first($streamId, $type);
+        }
+        foreach ($this->inner->replay($streamId) as $event) {
+            if ($event->type === $type) {
+                return $event;
+            }
+        }
+
+        return null;
     }
 }

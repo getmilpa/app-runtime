@@ -15,7 +15,6 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Agent;
 
 use Milpa\Agent\ProgressReceipt;
-use Milpa\Agent\SessionFacts;
 use Milpa\Agent\SessionReducer;
 use Milpa\Agent\SessionStore;
 use Milpa\AiGateway\ProgressProbe;
@@ -259,11 +258,12 @@ final class SessionProgressProbe implements ProgressProbe
     /**
      * Whether the house verified the work phase closed, and how — `null` while it did not.
      *
-     * A session with todos keeps its own record: every one done AND backed by verifiable evidence
-     * ({@see \Milpa\Agent\Session::isDoneVerified()}) answers `[]`. A session that never opened a todo
-     * kept no record, so the HOUSE derives the closure from its own receipts — the one verdict the final
-     * answer records ({@see ClosureVerdict}, greenhouse decisions/0487) — and answers what it derived it
-     * from. Read from the stream, never inferred from prose; a store that cannot answer says «not closed».
+     * The SAME verdict the final answer records ({@see LegClosure}, greenhouse decisions/0517): every todo done with
+     * evidence, every touched artifact verified, no red judge or red last test run, and — when the house observed
+     * what landed — its observation (decisions/0487, 0509). It answers what the house derived it from (`[]` when
+     * the session's own record closed it). It used to ask the todos alone whenever a session had any, and could open
+     * an epilogue the final verdict then denied. Read from the stream, never inferred from prose; a store that
+     * cannot answer, or a verdict only the natural end can read, says «not closed».
      *
      * @param list<Event> $stream
      *
@@ -282,18 +282,12 @@ final class SessionProgressProbe implements ProgressProbe
         } catch (\Throwable) {
             return null;
         }
-        if ($session->todos === []) {
-            $verdict = ClosureVerdict::derive($session, SessionFacts::fromEvents($this->sessionId, $stream), $stream);
-
-            return $verdict['verified'] && isset($verdict['derivedFrom']) ? $verdict['derivedFrom'] : null;
-        }
-        foreach ($session->todos as $todo) {
-            if (! $session->isDoneVerified($todo->id)) {
-                return null;
-            }
+        $verdict = LegClosure::betweenSteps($session, $stream);
+        if ($verdict === null || ($verdict['verified'] ?? false) !== true) {
+            return null;
         }
 
-        return [];
+        return \is_array($verdict['derivedFrom'] ?? null) ? $verdict['derivedFrom'] : [];
     }
 
     /**
