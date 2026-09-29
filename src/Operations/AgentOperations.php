@@ -39,6 +39,7 @@ use Milpa\AppRuntime\Support\Foundation;
 use Milpa\Http\Routing\Route;
 use Milpa\Http\Routing\Router;
 use Milpa\AppRuntime\Agent\ArchitectureSummaryProjector;
+use Milpa\AppRuntime\Agent\ClosedSessionDoor;
 use Milpa\AppRuntime\Agent\ClosureVerdict;
 use Milpa\AppRuntime\Agent\SessionLine;
 use Milpa\AppRuntime\Agent\DeliveryScope;
@@ -1981,7 +1982,7 @@ class AgentOperations implements CommandProvider
      *
      * @param array<string, mixed> $input
      *
-     * @return array{ok: bool, answer?: string, session?: string|null, steps?: int, tools?: int, error?: string, hint?: string, question?: array{id: string, text: string, options: list<string>, why: string|null, reason: string|null, expires_at: string|null}, paused?: bool, exhausted?: bool, contextExhausted?: bool, stalled?: bool, receipt?: array<string, mixed>, houseDebt?: bool, interrupted?: bool, termination?: array{reason: string, receipt: array<string, mixed>|null}, closure?: array{verified: bool, reasons: list<string>}}
+     * @return array{ok: bool, answer?: string, session?: string|null, steps?: int, tools?: int, error?: string, hint?: string, question?: array{id: string, text: string, options: list<string>, why: string|null, reason: string|null, expires_at: string|null}, paused?: bool, exhausted?: bool, contextExhausted?: bool, stalled?: bool, receipt?: array<string, mixed>, houseDebt?: bool, interrupted?: bool, termination?: array{reason: string, receipt: array<string, mixed>|null}, closure?: array<string, mixed>, answeredWithoutModel?: bool, closureSeq?: int}
      */
     private function run(array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array
     {
@@ -1997,7 +1998,7 @@ class AgentOperations implements CommandProvider
      *
      * @param array<string, mixed> $input
      *
-     * @return array{ok: bool, answer?: string, session?: string|null, steps?: int, tools?: int, error?: string, hint?: string, question?: array{id: string, text: string, options: list<string>, why: string|null, reason: string|null, expires_at: string|null}, paused?: bool, exhausted?: bool, contextExhausted?: bool, stalled?: bool, receipt?: array<string, mixed>, houseDebt?: bool, interrupted?: bool, termination?: array{reason: string, receipt: array<string, mixed>|null}, closure?: array{verified: bool, reasons: list<string>}}
+     * @return array{ok: bool, answer?: string, session?: string|null, steps?: int, tools?: int, error?: string, hint?: string, question?: array{id: string, text: string, options: list<string>, why: string|null, reason: string|null, expires_at: string|null}, paused?: bool, exhausted?: bool, contextExhausted?: bool, stalled?: bool, receipt?: array<string, mixed>, houseDebt?: bool, interrupted?: bool, termination?: array{reason: string, receipt: array<string, mixed>|null}, closure?: array<string, mixed>, answeredWithoutModel?: bool, closureSeq?: int}
      */
     private function leg(array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array
     {
@@ -2043,6 +2044,14 @@ class AgentOperations implements CommandProvider
         }
 
         [$proveedor, $llave, $modelo] = $credencial;
+
+        // A SESSION THE HOUSE ALREADY VERIFIED DOES NOT PAY THE MODEL TO SAY SO AGAIN (greenhouse decisions/0529) —
+        // judged after the line, so a stranger learns nothing about it, and before anything is recorded or sent. After
+        // the key too: a leg with no one to ask returns without reading its session (decisions/0517).
+        $closed = $this->answerAClosedSession($input);
+        if ($closed !== null) {
+            return $closed;
+        }
 
         $pasos = \is_int($input['steps'] ?? null) && $input['steps'] > 0 ? $input['steps'] : self::PASOS_POR_DEFECTO;
 
@@ -3576,6 +3585,52 @@ class AgentOperations implements CommandProvider
             maxTokens: $maxTokens,
             windowBudget: $contexto,
         );
+    }
+
+    /**
+     * The house's answer to a leg that asks nothing new of a session it already verified — or `null`, and the leg
+     * runs as always ({@see ClosedSessionDoor}, greenhouse decisions/0529).
+     *
+     * Three readings must agree: the leg carries a pure continuation and nothing else, the last verdict the house
+     * RECORDED is verified with nothing but quiet events after it, and {@see LegClosure} — the same function that
+     * recorded it — still says verified on the stream as it stands now. No turn is recorded, no lease taken, no window
+     * composed: only the fact that the door answered.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>|null
+     */
+    private function answerAClosedSession(array $input): ?array
+    {
+        $sessionId = \is_string($input['session'] ?? null) ? trim($input['session']) : '';
+        $store = $sessionId !== '' ? $this->sessions() : null;
+        if ($store === null || $this->sessionEvents === null || !ClosedSessionDoor::legAsksNothing($input)) {
+            return null;
+        }
+        $session = $store->load($sessionId);
+        if ($session === null || !$session->isRunnable() || !ClosedSessionDoor::keepsTheMode($input, $session)) {
+            return null;
+        }
+        $closureSeq = ClosedSessionDoor::standingVerdict($store->stream($sessionId));
+        if ($closureSeq === null) {
+            return null;
+        }
+        $closure = $this->deliveryClosure($store, $session);
+        if (($closure['verified'] ?? null) !== true) {
+            return null;
+        }
+        ClosedSessionDoor::record($this->sessionEvents, $sessionId, (string) $input['prompt'], $closureSeq);
+
+        return [
+            'ok' => true,
+            'answer' => ClosedSessionDoor::answer($closureSeq, $closure),
+            'session' => $sessionId,
+            'steps' => 0,
+            'tools' => 0,
+            'answeredWithoutModel' => true,
+            'closureSeq' => $closureSeq,
+            'closure' => $closure,
+        ];
     }
 
     /** Read fresh files only at the natural end; persist the sampled evidence beside its verdict.

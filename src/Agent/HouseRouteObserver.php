@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Agent;
 
+use Milpa\AppRuntime\Support\ChildProcess;
 use Milpa\AppRuntime\Support\PhpBinary;
 use Milpa\Attributes\PluginMetadata;
 use Milpa\Http\HttpMethod;
@@ -190,13 +191,12 @@ final class HouseRouteObserver
     private function run(array $arguments): array
     {
         $command = ['timeout', '-k', '2', (string) $this->timeoutSeconds, $this->php, '-d', 'display_errors=stderr', $this->script, ...$arguments];
-        $proc = proc_open(implode(' ', array_map('escapeshellarg', $command)), [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
-        if (!\is_resource($proc)) {
+        // No `/dev/null` for the child: inside a rehearsal's trial it cannot be opened (evidence/1060).
+        $run = ChildProcess::run($command);
+        if ($run === null) {
             return [127, []];
         }
-        $stdout = (string) stream_get_contents($pipes[1]);
-        fclose($pipes[1]);
-        $exit = proc_close($proc);
+        ['exit' => $exit, 'stdout' => $stdout] = $run;
 
         $answer = [];
         foreach (explode("\n", $stdout) as $line) {

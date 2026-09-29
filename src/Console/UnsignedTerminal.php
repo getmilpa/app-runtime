@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Console;
 
+use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\Command\Effect\Mutation;
 use Milpa\Command\Operation;
 use Milpa\Console\Consent;
@@ -115,5 +116,94 @@ final class UnsignedTerminal
                 : '  It does not run as the terminal either. Nothing ran.',
             '  Sign it with --sign, or continue a sequence whose receipt still stands.',
         ];
+    }
+
+    /**
+     * The refusal owed to an unsigned call over a surface that cannot sign a call — `coa mcp`, `coa chat`, `coa shell`
+     * — or null when it may run, or continue under a standing receipt (greenhouse decisions/0526).
+     *
+     * The same line as {@see refusal()}, read from the same declaration, with one difference: on those surfaces nobody
+     * asks for a signature. At the terminal a call that demands consent is the runner's — it asks for `--sign` and runs
+     * nothing without it. Over MCP the tool runtime answered it with a confirm token the same client echoes back
+     * (measured, evidence/1060: `config_set` ran on the echo), and a TUI has no key to hold. A consent that names
+     * nobody is the terminal's default under another name, so here it is refused too, with the line that signs it.
+     *
+     * A call that continues a sequence whose receipt stands is NOT refused: the surface cites the receipt through the
+     * terminal's runner, which re-verifies it and runs the call as its signer — or refuses (decisions/0500).
+     *
+     * @param string               $surface what the person or client is using, as they would name it (`coa mcp`)
+     * @param array<string, mixed> $input
+     *
+     * @return list<string>|null the refusal's lines
+     */
+    public static function refusalOver(string $surface, Operation $op, array $input, ?SequenceReceipts $receipts): ?array
+    {
+        if (self::continuesASignedSequence($op, $input, $receipts)) {
+            return null;
+        }
+        $line = '  Run it signed from the terminal: ' . self::signedLine($op, $input);
+        if (Consent::demanded($op, $input)) {
+            return [
+                "«{$op->name}» demands consent, and consent is a signature over THIS call — {$surface} cannot carry one. Nothing ran.",
+                $line,
+            ];
+        }
+        if (!self::lasts($op, $input)) {
+            return null;
+        }
+        $declared = $op->effects === null
+            ? 'never declared its effects'
+            : "declares a {$op->effects->mutation->value} change ({$op->effects->authority->value})";
+        $sequence = $receipts !== null ? $op->sequenceFor($input) : null;
+
+        return [
+            "This call is not signed, and an unsigned call changes nothing that lasts: «{$op->name}» {$declared}.",
+            $sequence !== null
+                ? "  No signed receipt stands for «{$sequence}», so it does not continue as anyone, and over {$surface} it does not run as the terminal. Nothing ran."
+                : "  Over {$surface} it does not run as the terminal either. Nothing ran.",
+            $line,
+            $sequence !== null
+                ? "  One signed call opens «{$sequence}»; the calls after it — here too — continue under its receipt."
+                : '  Or present a token the house minted (MILPA_TOKEN): its scopes are what the call runs with.',
+        ];
+    }
+
+    /**
+     * The terminal line that runs THIS call signed — typed, not described (greenhouse decisions/0305).
+     *
+     * @param array<string, mixed> $input
+     */
+    public static function signedLine(Operation $op, array $input): string
+    {
+        $line = Capabilities::CLI . str_replace(['_', '.'], ':', $op->name);
+        foreach ($input as $name => $value) {
+            $flag = '--' . str_replace('_', '-', (string) $name);
+            $line .= match (true) {
+                $value === true => ' ' . $flag,
+                $value === false || $value === null => '',
+                \is_scalar($value) => ' ' . $flag . '=' . escapeshellarg((string) $value),
+                default => ' ' . $flag . '=' . escapeshellarg((string) json_encode($value, \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE)),
+            };
+        }
+
+        return $line . ' --sign';
+    }
+
+    /**
+     * The same operation with another handler — everything it declares, kept.
+     *
+     * `Operation` is readonly; a surface that must stand a door in front of a handler it does not call itself (the
+     * shell's form calls it) builds this copy. Every promoted argument is carried by name, so a declaration added to
+     * `Operation` later travels too instead of being dropped by a hand-written copy.
+     */
+    public static function withHandler(Operation $op, callable $handler): Operation
+    {
+        $arguments = [];
+        foreach ((new \ReflectionMethod(Operation::class, '__construct'))->getParameters() as $parameter) {
+            $name = $parameter->getName();
+            $arguments[$name] = $name === 'handler' ? $handler : $op->{$name};
+        }
+
+        return new Operation(...$arguments);
     }
 }

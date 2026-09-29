@@ -66,42 +66,13 @@ final class BootProbe
 
         $command = ['timeout', '-k', '2', (string) $this->timeoutSeconds, $this->php,
             '-d', 'display_errors=stderr', '-d', 'log_errors=0', '-d', 'html_errors=0', $this->script, 'boot', $root];
-        $proc = proc_open(
-            implode(' ', array_map('escapeshellarg', $command)),
-            [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes,
-        );
-        if (!\is_resource($proc)) {
+        // No `/dev/null` for the child: inside a rehearsal's trial it cannot be opened (evidence/1060), and a
+        // witness that cannot start its child refuses every write it witnesses. {@see ChildProcess}.
+        $run = ChildProcess::run($command);
+        if ($run === null) {
             return 'no process could be started to boot the house';
         }
-        // stderr is read after stdout: a boot that fills the stderr pipe first would block on it, so both
-        // are drained without blocking until the child is gone.
-        stream_set_blocking($pipes[1], false);
-        stream_set_blocking($pipes[2], false);
-        $stdout = '';
-        $stderr = '';
-        while (true) {
-            $read = [$pipes[1], $pipes[2]];
-            $write = null;
-            $except = null;
-            if (@stream_select($read, $write, $except, 1) === false) {
-                break;
-            }
-            foreach ($read as $pipe) {
-                $chunk = (string) fread($pipe, 65536);
-                if ($pipe === $pipes[1]) {
-                    $stdout .= $chunk;
-                } else {
-                    $stderr .= $chunk;
-                }
-            }
-            if (feof($pipes[1]) && feof($pipes[2])) {
-                break;
-            }
-        }
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $exit = proc_close($proc);
+        ['exit' => $exit, 'stdout' => $stdout, 'stderr' => $stderr] = $run;
 
         $answer = null;
         foreach (explode("\n", $stdout) as $line) {

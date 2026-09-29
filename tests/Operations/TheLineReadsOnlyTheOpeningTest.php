@@ -23,6 +23,8 @@ use Milpa\AppRuntime\Agent\SeatFrontier;
 use Milpa\AppRuntime\Agent\SurfaceBroadcaster;
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
 use Milpa\AppRuntime\Identity\IdentityEnrolled;
+use Milpa\AppRuntime\Agent\ClosedSessionDoor;
+use Milpa\AppRuntime\Agent\ClosureVerdict;
 use Milpa\AppRuntime\Operations\AgentOperations;
 use Milpa\Command\InvocationContext;
 use Milpa\Container\DIContainer;
@@ -141,6 +143,34 @@ final class TheLineReadsOnlyTheOpeningTest extends TestCase
 
         self::assertFalse($spy->deathRecorded, 'a fatal while judging a stranger records nothing');
         self::assertCount($before, $spy->events());
+    }
+
+    /**
+     * The door that answers a closed session without the model (greenhouse decisions/0529) stands AFTER the line: a
+     * stranger's «continue» on a session the house verified gets the line's refusal, never the house's answer about
+     * the session — and the enroller's same leg, the positive control, does get it.
+     */
+    public function testAStrangerNeverReachesTheDoorOfAClosedSession(): void
+    {
+        [$c, $spy, $sessions] = $this->house();
+        $spy->watching = false;
+        $sessions->recordToolCall(self::SESSION, 'sandbox_promote', ['workspace' => 'wabc'], (string) json_encode(['ok' => true,
+            'evidence' => ['predicate' => 'promoted', 'subject' => 'wabc', 'environment' => ['kind' => 'house']]]), mutating: true);
+        $sessions->recordToolCall(self::SESSION, 'screen_observe', ['name' => 'blog'], (string) json_encode(['ok' => true,
+            'evidence' => ['predicate' => 'served', 'subject' => 'blog', 'environment' => ['kind' => 'house']]]));
+        ClosureVerdict::record($spy, self::SESSION, ['verified' => true, 'reasons' => []]);
+
+        $stranger = $this->turn($c, ['prompt' => 'continue', 'session' => self::SESSION], $this->web(self::STRANGER_PASSKEY));
+        $door = static fn (): array => array_filter($spy->events(), static fn (Event $e): bool => $e->type === ClosedSessionDoor::EVENT);
+
+        self::assertFalse($stranger['ok']);
+        self::assertStringContainsString('you do not answer for session', (string) $stranger['error']);
+        self::assertArrayNotHasKey('answeredWithoutModel', $stranger);
+        self::assertSame([], $door());
+
+        $enroller = $this->turn($c, ['prompt' => 'continue', 'session' => self::SESSION], $this->web(self::PASSKEY));
+        self::assertTrue($enroller['answeredWithoutModel'] ?? false, (string) json_encode($enroller));
+        self::assertCount(1, $door());
     }
 
     public function testALegThatReturnsEarlyLeavesNothingArmed(): void

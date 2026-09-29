@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Operations;
 use Milpa\AppRuntime\Identity\InstallIdentity;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\HouseBootWitness;
+use Milpa\AppRuntime\Support\StagedComposerRunner;
 use Milpa\AppRuntime\Support\CapabilityIndex;
 use Milpa\DevTools\Doctor\Repair;
 use Milpa\Command\CommandProvider;
@@ -410,16 +411,21 @@ final readonly class CapabilityOperations implements CommandProvider
             ];
         }
 
+        // LA RAÍZ ES LA DE LA APP, no la de este paquete. Decía `dirname(__DIR__, 2)` —correcto
+        // cuando este archivo vivía dentro de la app— y al mudarse pasó a apuntar al paquete: la
+        // reparación comprobaba si el paquete había llegado leyendo el `vendor/` equivocado, y
+        // contestaba «composer terminó en 0 y no aparece instalado» sobre algo que sí estaba.
+        $root = Capabilities::raizDeLaApp();
+        // THE COMPOSER IT RUNS BOOTS A STAGE FIRST (greenhouse decisions/0527) — as recovery: what a repair
+        // installs is what a house that may not boot is missing.
+        $staged = $corredor === null ? new StagedComposerRunner($root, new HouseBootWitness($root), recovery: true) : null;
+
         return Repair::apply(
-            // LA RAÍZ ES LA DE LA APP, no la de este paquete. Decía `dirname(__DIR__, 2)` —correcto
-            // cuando este archivo vivía dentro de la app— y al mudarse pasó a apuntar al paquete: la
-            // reparación comprobaba si el paquete había llegado leyendo el `vendor/` equivocado, y
-            // contestaba «composer terminó en 0 y no aparece instalado» sobre algo que sí estaba.
-            Capabilities::raizDeLaApp(),
+            $root,
             \is_string($input['package'] ?? null) ? $input['package'] : '',
             ($input['dry_run'] ?? false) === true,
             $recomendados,
-            $corredor,
-        );
+            $corredor ?? $staged,
+        ) + ($staged?->said() ?? []);
     }
 }

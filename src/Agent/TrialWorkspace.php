@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Agent;
 
+use Milpa\AppRuntime\Support\ChildProcess;
 use Milpa\Command\Effect\Subject;
 use Milpa\Plugin\Contracts\BootWitnessInterface;
 
@@ -420,7 +421,8 @@ final class TrialWorkspace
 
     private static function hasRsync(): bool
     {
-        exec('command -v rsync 2>/dev/null', $out, $code);
+        // `command -v` is a shell builtin; the shell's own stderr is a pipe, never `/dev/null` (evidence/1060).
+        [$code] = ChildProcess::lines(['sh', '-c', 'command -v rsync']);
 
         return $code === 0;
     }
