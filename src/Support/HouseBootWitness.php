@@ -60,7 +60,11 @@ final class HouseBootWitness implements BootWitnessInterface
         private readonly BootProbe $probe = new BootProbe(),
         private readonly bool $probeBefore = true,
     ) {
-        $this->root = rtrim($root, '/');
+        // THE ROOT BY ITS REAL NAME (greenhouse evidence/1061). The house's root often arrives spelled through its own
+        // `vendor/` (`…/vendor/composer/../..`, how Capabilities::raizDeLaApp() finds it); once a swap renames
+        // `vendor/` away that spelling resolves to nothing, and every path after it with it.
+        $real = realpath($root);
+        $this->root = rtrim($real !== false ? $real : $root, '/');
     }
 
     /**
@@ -244,7 +248,14 @@ final class HouseBootWitness implements BootWitnessInterface
                 'output' => $out,
             ];
         } finally {
-            $stage->remove();
+            // NEVER THE ONLY vendor/ THE HOUSE HAS (evidence/1061). If a swap left the house without one, the previous
+            // one goes back before the stage is removed — and a stage still holding it is kept, not deleted.
+            if (!is_dir($this->root . '/vendor') && is_dir($stage->path . '/vendor.previous')) {
+                @rename($stage->path . '/vendor.previous', $this->root . '/vendor');
+            }
+            if (is_dir($this->root . '/vendor') || !is_dir($stage->path . '/vendor.previous')) {
+                $stage->remove();
+            }
         }
     }
 

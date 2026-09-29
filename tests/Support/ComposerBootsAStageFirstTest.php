@@ -315,6 +315,39 @@ final class ComposerBootsAStageFirstTest extends TestCase
         }
     }
 
+    public function testARootSpelledThroughItsOwnVendorStillLands(): void
+    {
+        // How Capabilities::raizDeLaApp() finds the house: from inside vendor/. Once the swap renames vendor/ away,
+        // that spelling resolves to nothing — evidence/1061, run 1, lost the house's vendor/ exactly so.
+        mkdir($this->root . '/vendor/composer', 0o777, true);
+
+        $composed = (new HouseBootWitness($this->root . '/vendor/composer/../..'))->composeIfItBoots('composer require lab/good', $this->composer());
+
+        self::assertNull($composed['refused'], (string) $composed['refused']);
+        self::assertSame('swap', $composed['said']['landed_by']);
+        self::assertFileExists($this->root . '/vendor/autoload.php', 'the house keeps a vendor/');
+        self::assertFileExists($this->root . '/vendor/lab/good/files.php');
+        self::assertDirectoryDoesNotExist($this->root . '/var/boot-candidates');
+    }
+
+    public function testALinkComposerRemadeAbsoluteFromTheStageGetsBackTheHousesString(): void
+    {
+        mkdir($this->root . '/packages/kept', 0o777, true);
+        mkdir($this->root . '/vendor/lab', 0o777, true);
+        symlink('../../packages/kept/', $this->root . '/vendor/lab/kept');
+
+        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer update', function (string $command, string $cwd): array {
+            // What Composer did in run 1: the stage's url is absolute, so the link it re-made is absolute too.
+            unlink($cwd . '/vendor/lab/kept');
+            symlink($this->root . '/packages/kept/', $cwd . '/vendor/lab/kept');
+
+            return [0, []];
+        });
+
+        self::assertNull($composed['refused']);
+        self::assertSame('../../packages/kept/', readlink($this->root . '/vendor/lab/kept'), 'the house\'s own string, trailing slash and all');
+    }
+
     public function testTheRunnerDevtoolsIsHandedStagesComposerAndRunsTheRestInTheHouse(): void
     {
         $runner = new StagedComposerRunner($this->root, new HouseBootWitness($this->root));

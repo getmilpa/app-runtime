@@ -175,15 +175,22 @@ final class BootCandidate
     {
         $vendor = $this->path . '/vendor';
         foreach (self::linksIn($vendor) as $relative => $target) {
-            if (isset($this->relinked[$relative]) && $target === $this->relinked[$relative]['set']) {
-                $new = $this->relinked[$relative]['was'];
+            $resolved = self::normalize(str_starts_with($target, '/') ? $target : \dirname($vendor . '/' . $relative) . '/' . $target);
+            if (str_starts_with($resolved, $vendor . '/')) {
+                continue;
+            }
+            if (isset($this->relinked[$relative])) {
+                // A link the house had relative: its own string when it still points where it did (Composer may have
+                // re-made it, absolute, from the stage's absolute url), else relative from the house to where it points.
+                $new = $resolved === $this->relinked[$relative]['set']
+                    ? $this->relinked[$relative]['was']
+                    : self::relativeFrom(\dirname(rtrim($liveVendor, '/') . '/' . $relative), $resolved);
             } elseif (!str_starts_with($target, '/')) {
-                $resolved = self::normalize(\dirname($vendor . '/' . $relative) . '/' . $target);
-                if (str_starts_with($resolved, $vendor . '/')) {
-                    continue;
-                }
                 $new = self::relativeFrom(\dirname(rtrim($liveVendor, '/') . '/' . $relative), $resolved);
             } else {
+                continue;
+            }
+            if ($new === $target) {
                 continue;
             }
             unlink($vendor . '/' . $relative);
