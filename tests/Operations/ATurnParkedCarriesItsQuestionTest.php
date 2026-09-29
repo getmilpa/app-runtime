@@ -86,6 +86,23 @@ final class ATurnParkedCarriesItsQuestionTest extends TestCase
         self::assertStringNotContainsString('coa agent:answer', json_encode($proyectada, \JSON_THROW_ON_ERROR));
     }
 
+    /**
+     * 4 · the CLI's answer prompt speaks English and names the options the question carries (decisions/0518):
+     * `yes|no` for a question this house parks, «sí|no» for one an older house parked — both still answerable.
+     */
+    public function testTheCliPromptSpeaksEnglishAndNamesTheQuestionsOwnOptions(): void
+    {
+        $m = new \ReflectionMethod(AgentOperations::class, 'answerHint');
+        $m->setAccessible(true);
+
+        self::assertSame(
+            'answer with: php bin/coa agent:answer --session=s1 --answer=<yes|no>',
+            $m->invoke(null, 's1', new PendingQuestion(id: 'perm:make', question: 'Allow?', options: ['yes', 'no'])),
+        );
+        self::assertStringEndsWith('--answer=<sí|no>', (string) $m->invoke(null, 's1', new PendingQuestion(id: 'perm:make', question: '¿Autorizas?', options: ['sí', 'no'])));
+        self::assertStringEndsWith('--answer=<your answer>', (string) $m->invoke(null, 's1', new PendingQuestion(id: 'q', question: 'What now?')));
+    }
+
     /** @return array<string, mixed> */
     private static function project(PendingQuestion $pregunta): array
     {
