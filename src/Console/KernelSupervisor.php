@@ -208,6 +208,11 @@ final class KernelSupervisor
     public static function terminal(callable $child, string $cwd, ?string $showing = null, string $surface = 'panel', ?callable $held = null, $errors = null): int
     {
         $errors ??= \STDERR;
+        // The terminal as the person handed it over, before any child made it raw. A child restores it on its way
+        // out — a key, a signal it can catch, a fatal error —; a child killed outright (SIGKILL, or a signal where
+        // there is no pcntl, as in the house's images) cannot, and would leave the person without echo. The
+        // supervisor outlives every child, so it puts the terminal back after each one (greenhouse decisions/0524).
+        $asHanded = self::terminalSettings();
         try {
             $inARow = 0;
             $handoff = null;
@@ -225,9 +230,11 @@ final class KernelSupervisor
                 [$written, $settled] = explode("\n", (string) stream_get_contents($pipes[3]), 2) + [1 => ''];
                 $written = trim($written);
                 fclose($pipes[3]);
-                $code = proc_close($process);
+                [$code, $signaled] = self::exitOf($process);
+                self::restoreTerminal($asHanded);
                 if ($code !== self::STALE) {
-                    if ($code !== 0 && $code !== 130) {
+                    // A child ended by a signal was stopped by someone; the house did not fail to start.
+                    if ($code !== 0 && $code !== 130 && !$signaled) {
                         fwrite($errors, "✗ the house did not start (exit {$code}); the {$surface} closed. What it said is above; undo what changed and open it again.\n");
                         $lost = $handoff !== null && $held !== null ? $held($handoff) : null;
                         if ($lost !== null && $lost !== '') {
@@ -253,6 +260,46 @@ final class KernelSupervisor
         } finally {
             // The supervisor's own environment carries nothing past the children it handed it to.
             putenv(self::HANDOFF);
+        }
+    }
+
+    /**
+     * How a terminal child ended: its exit code, or 128 + the signal that ended it — the shell's convention, so a
+     * child stopped by SIGTERM does not read as one that exited 15.
+     *
+     * @param resource $process
+     *
+     * @return array{0: int, 1: bool} the code, and whether a signal ended it
+     */
+    private static function exitOf($process): array
+    {
+        do {
+            $status = proc_get_status($process);
+            if ($status['running']) {
+                usleep(2000);
+            }
+        } while ($status['running']);
+        proc_close($process);
+
+        return $status['signaled'] ? [128 + $status['termsig'], true] : [$status['exitcode'], false];
+    }
+
+    /** The `stty -g` of this process's terminal — null when its input is no terminal, so there is nothing to restore. */
+    private static function terminalSettings(): ?string
+    {
+        if (!\function_exists('stream_isatty') || !@stream_isatty(\STDIN) || !\function_exists('shell_exec')) {
+            return null;
+        }
+        $settings = trim((string) shell_exec('stty -g 2>/dev/null'));
+
+        return $settings !== '' ? $settings : null;
+    }
+
+    /** Puts the terminal back as it was handed over; a child that already restored it changes nothing. */
+    private static function restoreTerminal(?string $settings): void
+    {
+        if ($settings !== null) {
+            shell_exec('stty ' . escapeshellarg($settings) . ' 2>/dev/null');
         }
     }
 

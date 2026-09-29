@@ -599,6 +599,115 @@ final class AgentScreenTest extends TestCase
     }
 
     /**
+     * Ctrl-C during a turn leaves now — it is a key, not a signal, and the turn holds the loop (greenhouse decisions/0524).
+     *
+     * What was typed ahead of it stays for the loop; nothing reaches the model once the person asked to leave.
+     */
+    public function testCtrlCPressedWhileTheTurnRunsLeavesAndWhatWasTypedAheadIsKept(): void
+    {
+        $terminal = new class () implements \Milpa\Live\Contracts\Tui\TerminalInterface {
+            /** @var list<string> */
+            public array $input = ["x\x03"];
+
+            public function start(callable $onInput, callable $onResize): void
+            {
+            }
+
+            public function stop(): void
+            {
+            }
+
+            public function write(string $data): void
+            {
+            }
+
+            public function pollInput(): string
+            {
+                return array_shift($this->input) ?? '';
+            }
+
+            public function atEndOfInput(): bool
+            {
+                return false;
+            }
+
+            public function columns(): int
+            {
+                return 80;
+            }
+
+            public function rows(): int
+            {
+                return 24;
+            }
+
+            public function moveBy(int $lines): void
+            {
+            }
+
+            public function hideCursor(): void
+            {
+            }
+
+            public function showCursor(): void
+            {
+            }
+
+            public function clearLine(): void
+            {
+            }
+
+            public function clearFromCursor(): void
+            {
+            }
+
+            public function clearScreen(): void
+            {
+            }
+
+            public function setTitle(string $title): void
+            {
+            }
+        };
+        $asked = [];
+        $pantalla = new AgentScreen(static function (string $p) use (&$asked): array {
+            $asked[] = $p;
+
+            return ['ok' => true, 'answer' => 'ok'];
+        });
+        $interrupted = 0;
+        $pantalla->paintOn($terminal, static function () use (&$interrupted): never {
+            ++$interrupted;
+
+            throw new \RuntimeException('left');
+        });
+
+        $pantalla->loop()->dispatchKey('h');
+        try {
+            $pantalla->loop()->dispatchKey("\r");
+        } catch (\RuntimeException $left) {
+            self::assertSame('left', $left->getMessage());
+        }
+
+        self::assertSame(1, $interrupted, 'Ctrl-C in the middle of the turn left');
+        self::assertSame([], $asked, 'nothing went to the model after the person asked to leave');
+    }
+
+    public function testTypingAheadDuringATurnDoesNotLeave(): void
+    {
+        $terminal = new \Milpa\Live\Tui\StreamTerminal(null, fopen('php://memory', 'r+'), fopen('php://memory', 'r+'));
+        $pantalla = new AgentScreen(static fn (string $p): array => ['ok' => true, 'answer' => 'ok']);
+        $pantalla->paintOn($terminal, static function (): never {
+            throw new \LogicException('typing ahead is not leaving');
+        });
+
+        $pantalla->loop()->dispatchKey('h');
+        $pantalla->loop()->dispatchKey("\r");
+
+        self::assertStringContainsString('ok', $pantalla->render());
+    }
+
+    /**
      * La pantalla recibe la actividad POR EL MISMO PUENTE que alimentaría a una página web.
      *
      * No hay canal propio: se registra como `SurfaceBroadcaster` y `BroadcastingEventStore` le empuja
