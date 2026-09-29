@@ -46,6 +46,7 @@ use Milpa\AppRuntime\Agent\DeliveryExpectation;
 use Milpa\AppRuntime\Agent\DeliveryContext;
 use Milpa\AppRuntime\Agent\RunContext;
 use Milpa\AppRuntime\Agent\RunLease;
+use Milpa\AppRuntime\Agent\LastingCalls;
 use Milpa\AppRuntime\Agent\LegClosure;
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Auth\PresentedToken;
@@ -196,6 +197,13 @@ class AgentOperations implements CommandProvider
 
     /** The lease this invocation holds on the session it runs, while it runs (greenhouse decisions/0513 §3). */
     private ?RunLease $runLease = null;
+
+    /**
+     * {@see self::lastingCalls()}, once read — `false` until then.
+     *
+     * @var (\Closure(string, array<string, mixed>): ?bool)|false|null
+     */
+    private \Closure|false|null $lastingCalls = false;
 
     /**
      * What {@see LegMemory::declare()} answered when this run started.
@@ -1803,7 +1811,7 @@ class AgentOperations implements CommandProvider
         // sea. Lo que no se hace nunca es meterlas al catálogo como si la app las ofreciera sin una.
         $id = $sessionId !== '' ? $sessionId : '·enumerando·';
 
-        $ops = (new SessionBookkeeping($store, $id, $this->sessionEvents))->operations();
+        $ops = (new SessionBookkeeping($store, $id, $this->sessionEvents, $this->lastingCalls()))->operations();
 
         if (!class_exists(SubAgentSpawner::class)) {
             return $ops;
@@ -2314,7 +2322,7 @@ class AgentOperations implements CommandProvider
                 // ATADAS a esta sesión: el id se captura, no se le pide al modelo. Uno que el modelo
                 // pudiera nombrar es uno que puede errar, y escribirle el plan a otra sesión no es una
                 // equivocación recuperable — quien la lea mañana verá un plan que su agente no escribió.
-                $contabilidad = (new SessionBookkeeping($store, $sessionId, $this->sessionEvents))->operations();
+                $contabilidad = (new SessionBookkeeping($store, $sessionId, $this->sessionEvents, $this->lastingCalls()))->operations();
 
                 // LA DELEGACIÓN (Q-P19-P). El hijo es una sesión con `parentId` corriendo por los
                 // MISMOS rieles: mismo orquestador, misma compuerta —que ya pide el techo del linaje
@@ -2363,7 +2371,7 @@ class AgentOperations implements CommandProvider
 
                         $registroHijo = $this->toolsOfThisApp(
                             [
-                                ...(new SessionBookkeeping($store, $hijoId, $this->sessionEvents))->operations(),
+                                ...(new SessionBookkeeping($store, $hijoId, $this->sessionEvents, $this->lastingCalls()))->operations(),
                                 $canalDelHijo->messageOperation(),
                             ],
                             registroPropio: true,
@@ -3410,7 +3418,7 @@ class AgentOperations implements CommandProvider
             return null;
         }
 
-        return new SessionProgressProbe($this->sessionEvents, $this->sesionDeLosPermisos);
+        return new SessionProgressProbe($this->sessionEvents, $this->sesionDeLosPermisos, $this->lastingCalls());
     }
 
     /**
@@ -3577,7 +3585,28 @@ class AgentOperations implements CommandProvider
      */
     private function deliveryClosure(SessionStore $store, Session $session): array
     {
-        return LegClosure::atTheEnd($session, $store->stream($session->id), fn (array $contract): array => $this->acceptanceEvidence($contract));
+        return LegClosure::atTheEnd($session, $store->stream($session->id), fn (array $contract): array => $this->acceptanceEvidence($contract), $this->lastingCalls());
+    }
+
+    /**
+     * Which recorded calls changed the house in a way that lasts, by their operation's own declaration — read once
+     * per invocation from the app's catalogue ({@see LastingCalls}, greenhouse decisions/0523). Every closure reader
+     * of this leg gets the same one: the final answer, the epilogue's probe and the claim door. Null when the app has
+     * no kernel to assemble a catalogue from; the readers then keep the recorded `mutating` flag.
+     *
+     * @return (\Closure(string, array<string, mixed>): ?bool)|null
+     */
+    private function lastingCalls(): ?\Closure
+    {
+        if ($this->lastingCalls !== false) {
+            return $this->lastingCalls;
+        }
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        try {
+            return $this->lastingCalls = $kernel instanceof Kernel ? LastingCalls::of(Operations::all($kernel, $kernel->root())) : null;
+        } catch (\Throwable) {
+            return $this->lastingCalls = null;
+        }
     }
 
     /**

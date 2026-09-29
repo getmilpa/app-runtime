@@ -96,9 +96,15 @@ final class SessionProgressProbe implements ProgressProbe
      *                                        probe cannot measure and never has an opinion
      * @param string               $sessionId the session whose stream is measured
      */
+    /**
+     * @param (\Closure(string, array<string, mixed>): ?bool)|null $lasting which calls last, by their own declaration
+     *                                                                      ({@see LastingCalls}, decisions/0523) — the same reading
+     *                                                                      the final answer's verdict makes
+     */
     public function __construct(
         private readonly ?EventStoreInterface $events,
         private readonly string $sessionId,
+        private readonly ?\Closure $lasting = null,
     ) {
         $stream = $this->replayed();
         $this->checkpointSeq = $stream === null ? null : $this->seqOfLast($stream);
@@ -282,7 +288,7 @@ final class SessionProgressProbe implements ProgressProbe
         } catch (\Throwable) {
             return null;
         }
-        $verdict = LegClosure::betweenSteps($session, $stream);
+        $verdict = LegClosure::betweenSteps($session, $stream, $this->lasting);
         if ($verdict === null || ($verdict['verified'] ?? false) !== true) {
             return null;
         }
