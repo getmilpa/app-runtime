@@ -78,7 +78,10 @@ final class SeatFrontier
      */
     public function seatOf(string $session): ?string
     {
-        return $this->seatIn($this->sessions->stream($session));
+        // The opening event alone (greenhouse decisions/0517): the line check asks this of every session it judges.
+        $opening = $this->sessions->opening($session);
+
+        return $opening === null ? null : $this->seatIn([$opening]);
     }
 
     /** Whether this principal answers for the session's seat. */

@@ -45,15 +45,12 @@ final class SessionLine
         if ($ctx === null || $ctx->channel === 'cli') {
             return null;
         }
-        $opener = null;
-        foreach ($sessions->stream($id) as $event) {
-            if ($event->type === 'session.started') {
-                $by = \is_array($event->payload['by'] ?? null) ? $event->payload['by'] : [];
-                $opener = ($by['verified'] ?? false) === true && \is_string($by['id'] ?? null) ? $by['id'] : null;
-
-                break;
-            }
-        }
+        // WHO OPENED IT, AND NOTHING ELSE (greenhouse decisions/0517): the opening event, read without the session.
+        // Reading the whole stream here was where a session too big to read died — before the leg could arm the
+        // record of its own death (evidence/1045 §3).
+        $opening = $sessions->opening($id);
+        $by = \is_array($opening?->payload['by'] ?? null) ? $opening->payload['by'] : [];
+        $opener = ($by['verified'] ?? false) === true && \is_string($by['id'] ?? null) ? $by['id'] : null;
         $actor = self::bare((string) $ctx->actor);
         if ($opener === null || self::bare($opener) === $actor) {
             return null;
