@@ -89,6 +89,9 @@ final class KernelDefinition
      */
     public const RECHECK_SECONDS = 5;
 
+    /** What `Milpa-House-Does-Not-Boot` carries when the house is not in `app.debug` (decisions/0512, Rod 2026-09-29). */
+    public const HIDDEN_REASON = 'reason hidden; app.debug shows it';
+
     private function __construct(
         private readonly string $root,
         private readonly string $vendor,
@@ -270,28 +273,45 @@ final class KernelDefinition
      * answers. Leaving is no answer either: the replacement dies at boot, in a loop, and requests hang
      * (evidence/1038, n5). So the process stays, answers every request with this, and leaves the moment the
      * house boots again. `503` with `Retry-After`: this is a state of the house, not of the request.
+     * The reason is in the answer only when `$showReason` (the house's `app.debug`) — decisions/0512.
      */
-    public static function houseDoesNotBoot(string $why, ResponseFactoryInterface $factory): ResponseInterface
+    public static function houseDoesNotBoot(string $why, ResponseFactoryInterface $factory, bool $showReason = false): ResponseInterface
     {
-        $line = (string) preg_replace('/[^\x20-\x7E]/', '?', $why);
         $response = $factory->createResponse(503)
             ->withHeader('Content-Type', 'text/plain; charset=utf-8')
             ->withHeader('Cache-Control', 'no-store')
             ->withHeader('Retry-After', (string) self::RECHECK_SECONDS)
-            ->withHeader('Milpa-House-Does-Not-Boot', $line);
-        $response->getBody()->write(self::doesNotBootText($why));
+            ->withHeader('Milpa-House-Does-Not-Boot', self::doesNotBootHeader($why, $showReason));
+        $response->getBody()->write(self::doesNotBootText($why, $showReason));
 
         return $response;
+    }
+
+    /**
+     * The `Milpa-House-Does-Not-Boot` value: the reason on one printable line with `app.debug`, a fixed sentence without it.
+     *
+     * Rod accepted 0512 with one change (2026-09-29): a class name and a house path are for whoever runs the
+     * house, not for whoever asks the page. The header stays either way — a client can still tell «this house
+     * does not boot» from any other 503 — but only a house in debug says why. The log always says why.
+     */
+    public static function doesNotBootHeader(string $why, bool $showReason = false): string
+    {
+        return $showReason ? (string) preg_replace('/[^\x20-\x7E]/', '?', $why) : self::HIDDEN_REASON;
     }
 
     /**
      * The body of a `503` for a house that does not boot — one text for every server that answers it.
      *
      * A worker answers it with the kernel it holds; a front controller whose own boot failed answers it from a
-     * shutdown function ({@see BrokenBootAnswer}, greenhouse decisions/0512). Both say the same thing.
+     * shutdown function ({@see BrokenBootAnswer}, greenhouse decisions/0512). Both say the same thing. Without
+     * `app.debug` ({@see $showReason} false) it is one generic line: no class name, no path.
      */
-    public static function doesNotBootText(string $why): string
+    public static function doesNotBootText(string $why, bool $showReason = false): string
     {
+        if (!$showReason) {
+            return "This house does not boot; it answers again as soon as it does.\n";
+        }
+
         return "This house does not boot: {$why}\n\n"
             . 'Nothing was served with the kernel from before the change. Undo it from a terminal (`' . Capabilities::CLI . " sandbox:undo --workspace=<trial>`,\n"
             . 'or `' . Capabilities::CLI . " plugins:disable-unsafe --name=<plugin> --sign`) or fix it; this server answers again as soon as the house boots.\n";

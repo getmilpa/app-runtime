@@ -32,7 +32,8 @@ namespace Milpa\AppRuntime\Support;
  * its container. Between the two, errors are not DISPLAYED (so none reaches the client and none sends the
  * headers) and output is held. If the process ends between the two with a fatal, a shutdown function
  * drops what was held and answers what the worker answers: `503`, `Retry-After`, `no-store`,
- * `Milpa-House-Does-Not-Boot: <why>` and {@see KernelDefinition::doesNotBootText()}. The reason is the
+ * `Milpa-House-Does-Not-Boot` and {@see KernelDefinition::doesNotBootText()} — the reason only once
+ * {@see showReasons()} was told `app.debug` is on (Rod, 2026-09-29), a generic line otherwise. The reason is the
  * one {@see BootProbe} gives — the house's root stripped, any other absolute path cut to its file name.
  * PHP's own log still gets the whole fatal, as before. After {@see booted()} nothing here acts: a fatal
  * while SERVING is the 500 of `ExceptionMiddleware`, not a house that does not boot.
@@ -42,6 +43,8 @@ final class BrokenBootAnswer
     private const FATAL = \E_ERROR | \E_PARSE | \E_CORE_ERROR | \E_COMPILE_ERROR | \E_USER_ERROR | \E_RECOVERABLE_ERROR;
 
     private bool $booted = false;
+
+    private bool $showReason = false;
 
     private function __construct(
         private readonly string $root,
@@ -59,6 +62,18 @@ final class BrokenBootAnswer
         register_shutdown_function($watch->shutdown(...));
 
         return $watch;
+    }
+
+    /**
+     * Whether the answer may say WHY: the house's `app.debug`, told as soon as the configuration is read.
+     *
+     * Until then — and in a house not in debug — a boot that fails answers a generic 503 with no class name and
+     * no path (Rod, 2026-09-29, accepting decisions/0512). A configuration that itself fails to load is never
+     * read as «debug is on».
+     */
+    public function showReasons(bool $debug): void
+    {
+        $this->showReason = $debug;
     }
 
     /** The boot finished: errors display as the deployment configured, and what was held goes out. */
@@ -96,9 +111,9 @@ final class BrokenBootAnswer
                 'Content-Type' => 'text/plain; charset=utf-8',
                 'Cache-Control' => 'no-store',
                 'Retry-After' => (string) KernelDefinition::RECHECK_SECONDS,
-                'Milpa-House-Does-Not-Boot' => (string) preg_replace('/[^\x20-\x7E]/', '?', $why),
+                'Milpa-House-Does-Not-Boot' => KernelDefinition::doesNotBootHeader($why, $this->showReason),
             ],
-            'body' => KernelDefinition::doesNotBootText($why),
+            'body' => KernelDefinition::doesNotBootText($why, $this->showReason),
         ];
     }
 

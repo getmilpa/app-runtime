@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Support;
 
 use Milpa\AppRuntime\Support\BrokenBootAnswer;
+use Milpa\AppRuntime\Support\KernelDefinition;
 use Milpa\AppRuntime\Tests\Fixtures\TinyHouse;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
@@ -76,9 +77,17 @@ final class ABrokenBootAnswers503Test extends TestCase
         $watch->booted();
         $fresh = (new \ReflectionClass(BrokenBootAnswer::class))->newInstanceWithoutConstructor();
         (new \ReflectionProperty(BrokenBootAnswer::class, 'root'))->setValue($fresh, self::ROOT);
+        $fatal = ['type' => \E_ERROR, 'message' => 'Uncaught RuntimeException: no in /srv/house/x.php:1', 'file' => '/srv/house/x.php', 'line' => 1];
 
-        $answer = $fresh->answerFor(['type' => \E_ERROR, 'message' => 'Uncaught RuntimeException: no in /srv/house/x.php:1', 'file' => '/srv/house/x.php', 'line' => 1]);
+        // Not told app.debug (the default): generic — the header name stays, the reason does not.
+        $generic = $fresh->answerFor($fatal);
+        self::assertNotNull($generic);
+        self::assertSame(503, $generic['status']);
+        self::assertSame(KernelDefinition::HIDDEN_REASON, $generic['headers']['Milpa-House-Does-Not-Boot']);
+        self::assertSame("This house does not boot; it answers again as soon as it does.\n", $generic['body']);
 
+        $fresh->showReasons(true);
+        $answer = $fresh->answerFor($fatal);
         self::assertNotNull($answer);
         self::assertSame(503, $answer['status']);
         self::assertSame('RuntimeException: no', $answer['headers']['Milpa-House-Does-Not-Boot']);
@@ -114,6 +123,7 @@ final class ABrokenBootAnswers503Test extends TestCase
     {
         ob_start();
         $watch = BrokenBootAnswer::watch(self::ROOT);
+        $watch->showReasons(true);
         echo 'half a page the boot printed';
 
         $answered = $watch->answer(['type' => \E_COMPILE_ERROR, 'message' => 'Class A contains 1 abstract method', 'file' => '/srv/house/src/A.php', 'line' => 3]);
@@ -144,6 +154,7 @@ final class ABrokenBootAnswers503Test extends TestCase
 require __DIR__ . "/../vendor/autoload.php";
 $root = dirname(__DIR__);
 $watch = %s;
+$watch?->showReasons(is_file($root . "/var/debug")); // the house\'s app.debug, read before anything that can fail
 $boot = require $root . "/config/boot.php";
 $kernel = \Milpa\Runtime\Kernel::boot(["root" => $root, "plugins" => $boot["plugins"], "config" => [], "container" => $boot["container"]]);
 $watch?->booted();
@@ -162,6 +173,14 @@ echo "served";
                 self::assertStringContainsString('Fatal error', $bareBody);
                 self::assertStringContainsString($root, $bareBody, 'POSITIVE CONTROL: and the page carries the house\'s path');
 
+                // Not in debug: generic.
+                [$status, $body, $headers] = $this->get($port, '/index.php');
+                self::assertSame(503, $status);
+                self::assertSame(KernelDefinition::HIDDEN_REASON, $headers['milpa-house-does-not-boot'] ?? null);
+                self::assertSame("This house does not boot; it answers again as soon as it does.\n", $body);
+
+                // In debug: the reason, still without a path.
+                touch($root . '/var/debug');
                 [$status, $body, $headers] = $this->get($port, '/index.php');
                 self::assertSame(503, $status);
                 self::assertSame('ArgumentCountError: Too few arguments', $headers['milpa-house-does-not-boot'] ?? null);
@@ -169,13 +188,18 @@ echo "served";
                 self::assertStringNotContainsString($root, $body);
                 self::assertStringNotContainsString('Stack trace', $body);
 
-                // evidence/1038 n5's shape: a compile fatal nobody can catch.
+                // evidence/1038 n5's shape: a compile fatal nobody can catch — in debug, then not.
                 file_put_contents($root . '/src/Plugins/Blog/Blog.php', TinyHouse::pluginSource('Blog', broken: true));
                 [$status, $body, $headers] = $this->get($port, '/index.php');
                 self::assertSame(503, $status);
                 self::assertStringStartsWith('Fatal error: Class App\Plugins\Blog\Blog contains 1 abstract method', $headers['milpa-house-does-not-boot'] ?? '');
                 self::assertStringContainsString('in src/Plugins/Blog/Blog.php on line', $body);
                 self::assertStringNotContainsString($root, $body);
+                unlink($root . '/var/debug');
+                [$status, $body, $headers] = $this->get($port, '/index.php');
+                self::assertSame(503, $status);
+                self::assertSame(KernelDefinition::HIDDEN_REASON, $headers['milpa-house-does-not-boot'] ?? null);
+                self::assertStringNotContainsString('Blog', $body);
 
                 TinyHouse::plugin($root, 'Blog');
                 self::assertSame([200, 'served'], array_slice($this->get($port, '/index.php'), 0, 2), 'fixed, it serves again');
