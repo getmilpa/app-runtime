@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Operations;
 
 use Milpa\AppRuntime\Agent\FatalTermination;
+use Milpa\AppRuntime\Agent\LegMemory;
 use Milpa\AppRuntime\Agent\CandidateState;
 use Milpa\AppRuntime\Agent\AcceptanceEvidence;
 use Milpa\AppRuntime\Web\ScreenDrafts;
@@ -180,10 +181,28 @@ class AgentOperations implements CommandProvider
      */
     private ?EventStoreInterface $sessionEvents = null;
 
+    /**
+     * The session log last composed over an app's own `var/agent-sessions.jsonl`, shared by every
+     * {@see self::sessions()} of this process — the leg's seven and the console's receipt — so one leg
+     * reads its session once (greenhouse evidence/1045). One entry: another path replaces it, so a
+     * long-lived process keeps at most one log and the one stream that log last replayed; the log asks
+     * its file on every call whether it is still the one it read.
+     *
+     * @var array{0: string, 1: FileEventStore}|null
+     */
+    private static ?array $sessionLog = null;
+
     private ?RunTermination $runTermination = null;
 
     /** The lease this invocation holds on the session it runs, while it runs (greenhouse decisions/0513 §3). */
     private ?RunLease $runLease = null;
+
+    /**
+     * What {@see LegMemory::declare()} answered when this run started.
+     *
+     * @var array{declared: string, before: string, effective: string}|null
+     */
+    private ?array $memoriaDeLaPierna = null;
 
     /** The main session's gate for the run in progress — the one that can ask what an answer put in prose (0473). */
     private ?SessionToolGate $compuertaDeLaVuelta = null;
@@ -1932,6 +1951,9 @@ class AgentOperations implements CommandProvider
         // the passkey the door verified, and every effect the agent materialises on this turn is his.
         $this->contextoDeLaVuelta = $context;
         $this->toolAuthority = $authority;
+        // THE LEG'S MEMORY IS THE HOUSE'S, declared before the first read of its session (greenhouse decisions/0511):
+        // every surface that runs a leg passes here, and php.ini's 128 MB is where 1036's session died.
+        $this->memoriaDeLaPierna = LegMemory::declare();
         if ($context?->channel === 'web' && $authority === null) {
             return ['ok' => false, 'error' => 'The web invocation did not carry tool authority. Upgrade milpa/console; a web caller cannot inherit the local wildcard.'];
         }
@@ -2806,6 +2828,8 @@ class AgentOperations implements CommandProvider
         $salida = AgentEndpoint::effectiveOutputTokens($configuracion instanceof Config ? $configuracion : null);
         $resultado['outputTokens'] = $salida['tokens'];
         $resultado['outputTokensSource'] = $salida['source'];
+        // The memory the leg ran with: what the house declared, what the process had, what it got (decisions/0511).
+        $resultado['memoryLimit'] = $this->memoriaDeLaPierna;
 
         if ($sessionId !== '') {
             $resultado['session'] = $sessionId;
@@ -4409,7 +4433,16 @@ class AgentOperations implements CommandProvider
             return null;
         }
 
-        $archivo = $this->conPuente(new FileEventStore($directorio . '/agent-sessions.jsonl'));
+        // ONE log per process, not one per question: a leg asks for its store seven times (the outsider check, the
+        // run, the intake observer, the orchestrator, the system prompt, the ask) and the console once more for the
+        // sequence receipt, and each fresh store read the whole session again and kept its own copy — four copies
+        // of a 21 MB session alive at once was the 128 MB death of greenhouse evidence/1042. The same store
+        // remembers what it read and asks the file only for what was appended since (greenhouse evidence/1045).
+        $ruta = $directorio . '/agent-sessions.jsonl';
+        if (self::$sessionLog === null || self::$sessionLog[0] !== $ruta) {
+            self::$sessionLog = [$ruta, new FileEventStore($ruta)];
+        }
+        $archivo = $this->conPuente(self::$sessionLog[1]);
         $this->sessionEvents = $archivo;
 
         return new SessionStore($archivo);
