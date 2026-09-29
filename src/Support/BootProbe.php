@@ -128,6 +128,42 @@ final class BootProbe
         return "the house did not boot (exit {$exit})";
     }
 
+    /**
+     * Null when the house at `$root` WOULD boot with `$writes` written and `$deletes` removed — asked before anything is written.
+     *
+     * The change is applied to a {@see BootCandidate} beside the house, never to the house, and a fresh process
+     * boots that (greenhouse decisions/0512): the live tree is not touched to find out. The reason names paths
+     * relative to the house, exactly as {@see whyNot()} does. A candidate that cannot be built is a reason too.
+     *
+     * @param array<string, string> $writes  path relative to the root → the bytes it would hold
+     * @param list<string>          $deletes paths relative to the root that would be removed
+     */
+    public function whyNotWith(string $root, array $writes, array $deletes = []): ?string
+    {
+        try {
+            $candidate = BootCandidate::of($root, $writes, $deletes);
+        } catch (\RuntimeException $e) {
+            return 'the house as it would be could not be built to boot it: ' . self::short($e->getMessage(), $root);
+        }
+        try {
+            $why = $this->whyNot($candidate->path);
+        } finally {
+            $candidate->remove();
+        }
+
+        return $why === null ? null : self::short($why, $root);
+    }
+
+    /**
+     * One line, the roots stripped from paths, bounded — a reason travels in a header, a log and a page.
+     *
+     * Public because a front controller that meets a boot that fails says it the same way (decisions/0512).
+     */
+    public static function oneLine(string $reason, string $root): string
+    {
+        return self::short($reason, $root);
+    }
+
     /** One line, the root stripped from paths, bounded — a reason travels in a header and in a log. */
     private static function short(string $reason, string $root): string
     {
@@ -135,6 +171,11 @@ final class BootProbe
         foreach (array_filter([rtrim($root, '/') . '/', $real !== false ? $real . '/' : null]) as $prefix) {
             $reason = str_replace($prefix, '', $reason);
         }
+        // A candidate lives under the house's own `var/`: its prefix is stripped too, so a reason names `src/…`.
+        $reason = (string) preg_replace('~var/boot-candidates/[0-9a-f]+/~', '', $reason);
+        // Whatever absolute path is left is outside the house (a path repository, the system's PHP): it is cut
+        // to its file name, because a reason is shown to whoever asked (decisions/0512).
+        $reason = (string) preg_replace('~(?<![\w.:/])/(?:[^\s/:()\'"]+/)+([^\s/:()\'"]+)~', '…/$1', $reason);
         $reason = trim((string) preg_replace('/\s+/', ' ', $reason));
 
         return mb_strlen($reason) > 300 ? mb_substr($reason, 0, 297) . '...' : $reason;
