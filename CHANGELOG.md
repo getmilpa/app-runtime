@@ -1,6 +1,17 @@
 # Changelog
 
 
+## [0.201.0](https://github.com/getmilpa/app-runtime/compare/v0.200.3...v0.201.0) (2026-09-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* **passkey:** passkey.origins is required whenever passkey.rpId is declared; PasskeyController, PasskeyIntentController, PasskeyIntentProof and PasskeyIntentAdmission::admit take a RelyingParty where they took the rpId string; assertions and registrations without UV or from an unlisted origin are refused; milpa/auth < 0.11 conflicts. See README, Upgrading.
+
+### Features
+
+* **passkey:** every ceremony answers only to the house's declared origins and a verified user, and the ledgers are the container's ([#658](https://github.com/getmilpa/app-runtime/issues/658)) ([a877906](https://github.com/getmilpa/app-runtime/commit/a877906db53157d11bd49ddf14db2eb3b31ca379))
+
 ## [0.200.3](https://github.com/getmilpa/app-runtime/compare/v0.200.2...v0.200.3) (2026-09-29)
 
 
