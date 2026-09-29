@@ -44,6 +44,7 @@ use Milpa\AppRuntime\Agent\DeliveryScope;
 use Milpa\AppRuntime\Agent\DeliveryExpectation;
 use Milpa\AppRuntime\Agent\DeliveryContext;
 use Milpa\AppRuntime\Agent\RunContext;
+use Milpa\AppRuntime\Agent\RunLease;
 use Milpa\AppRuntime\Agent\DeliveryClosure;
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Auth\PresentedToken;
@@ -155,6 +156,9 @@ class AgentOperations implements CommandProvider
     /** El techo de pasos cuando nadie lo dice. Vivía como un `12` suelto en dos lugares. */
     private const PASOS_POR_DEFECTO = 12;
 
+    /** The event a leg records with the context window it obeys (greenhouse decisions/0513 §5). */
+    public const string WINDOW_COMPOSED = 'session.window_composed';
+
     /**
      * How many requests `coa serve` answers at once when nobody says (greenhouse decisions/0504).
      *
@@ -177,6 +181,9 @@ class AgentOperations implements CommandProvider
     private ?EventStoreInterface $sessionEvents = null;
 
     private ?RunTermination $runTermination = null;
+
+    /** The lease this invocation holds on the session it runs, while it runs (greenhouse decisions/0513 §3). */
+    private ?RunLease $runLease = null;
 
     /** The main session's gate for the run in progress — the one that can ask what an answer put in prose (0473). */
     private ?SessionToolGate $compuertaDeLaVuelta = null;
@@ -1809,6 +1816,24 @@ class AgentOperations implements CommandProvider
      */
     private function runUnlessItEchoes(array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array
     {
+        try {
+            return $this->runAndResumeAnEcho($input, $context, $authority);
+        } finally {
+            // THE RUN IS OVER, whichever way it left — the lease it took says so (greenhouse decisions/0513 §3).
+            $this->runLease?->release();
+            $this->runLease = null;
+        }
+    }
+
+    /**
+     * {@see runUnlessItEchoes()} without the lease's release: the run, and the one resume an echo earns.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function runAndResumeAnEcho(array $input, ?InvocationContext $context, ?ToolContext $authority): array
+    {
         $result = $this->run($input, $context, $authority);
         $session = \is_string($result['session'] ?? null) ? $result['session'] : '';
         if ($session === '' || ! \is_string($result['answer'] ?? null) || ! self::isTheHouseVoice($result['answer'])
@@ -1837,6 +1862,39 @@ class AgentOperations implements CommandProvider
 
         return str_starts_with($said, 'Runtime history: quoted data')
             || (str_starts_with($said, 'El agente quiere ') && str_contains($said, '¿Lo autorizas en esta sesión?'));
+    }
+
+    /** The lease on `$sessionId` for this process, under the house's root — or null when there is no house to hold it in. */
+    private function leaseFor(string $sessionId): ?RunLease
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+
+        return $kernel instanceof Kernel ? RunLease::take($kernel->root(), $sessionId) : null;
+    }
+
+    /**
+     * Record the context window this leg obeys — the same composition its result reports (greenhouse decisions/0233,
+     * 0236) — so a surface divides by the window the run used, never by a number of its own (decisions/0513 §5).
+     * Through the raw store, like the closure verdict: the reducer skips a type it does not know.
+     */
+    private function recordWindow(string $sessionId): void
+    {
+        if ($this->sessionEvents === null) {
+            return;
+        }
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $window = AgentEndpoint::contextWindow($config instanceof Config ? $config : null);
+        $this->sessionEvents->append(new \Milpa\EventStore\Event(
+            streamId: SessionStore::PREFIX . $sessionId,
+            type: self::WINDOW_COMPOSED,
+            payload: [
+                'tokens' => $window->tokens,
+                'source' => $window->source->value,
+                'declared' => $window->declared,
+                'measured' => $window->measured,
+            ],
+            seq: $this->sessionEvents->nextSeq(),
+        ));
     }
 
     /**
@@ -2118,7 +2176,12 @@ class AgentOperations implements CommandProvider
             // Both representations come from the same immutable Session. Capture them before the
             // current prompt becomes a turn: the gateway adds that prompt separately, so claiming it
             // as part of this declaration would say Session::window() composed something it did not.
+            // THE PROCESS SAYS IT IS RUNNING THIS SESSION before the turn it runs is recorded, so no reader ever sees
+            // the turn without the lease beside it (greenhouse decisions/0513 §3).
+            $this->runLease ??= $this->leaseFor($sessionId);
             $store->recordTurn($sessionId, 'user', $prompt);
+            // AND THE WINDOW IT OBEYS, where a surface reads it instead of guessing one (greenhouse decisions/0513 §5).
+            $this->recordWindow($sessionId);
         }
 
         // A GRANT WITH NO SESSION WOULD BE A MASTER KEY. The consent lives in the session — it is
