@@ -75,7 +75,8 @@ final class OutputBudgetWiringTest extends TestCase
                 $http = $this->createMock(ClientInterface::class);
                 $http->expects(self::once())->method('sendRequest')->willReturnCallback(function (RequestInterface $request) use ($limit, $diagnostic): Response {
                     $q = json_decode((string)$request->getBody(), true);
-                    self::assertSame($limit ?? 4096, $q['max_completion_tokens']);
+                    // Undeclared, the house derives a sixth of the 32,768 window (decisions/0514).
+                    self::assertSame($limit ?? 5120, $q['max_completion_tokens']);
                     self::assertSame($diagnostic, isset($q['response_format']));
                     return new Response(200, [], json_encode(['choices' => [['finish_reason' => 'stop','message' => ['role' => 'assistant','content' => 'The complete answer.']]]]));
                 });
@@ -85,7 +86,7 @@ final class OutputBudgetWiringTest extends TestCase
                 $tools->expects(self::never())->method('callTool');
                 $loop = (new \ReflectionMethod(AgentOperations::class, 'orchestrator'))->invoke($ops, $llm, $tools, 1, null, false, null);
                 $loop->run('Answer.');
-                self::assertSame(['max_completion_tokens' => $limit ?? 4096], $observer->intake->outputBudget);
+                self::assertSame(['max_completion_tokens' => $limit ?? 5120], $observer->intake->outputBudget);
             }
         }
     }

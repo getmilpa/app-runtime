@@ -69,6 +69,9 @@ final class AShortNameNamesItsClassTest extends TestCase
         if ($parks) {
             self::assertNotNull($refusal, "«{$ask}» does not name «{$target}»");
             self::assertSame('target_not_named', $store->load('s1')?->question?->reason);
+            // Asked in the house's language (decisions/0514): 1036 parked this question in Spanish.
+            self::assertDoesNotMatchRegularExpression('/[áéíóúñ¿¡]|\\b(que|para|desde|del|los|las|una|esta|este|siguiente|corre|arranca|nombre|pendiente|objetivo|sesi[oó]n|autorizas?|petici[oó]n|nombra|hecho|resumen|herramientas|contesta|pídele|dile|confirmas|sobre|quiere|correr)\\b/iu', (string) $store->load('s1')?->question?->question);
+            self::assertMatchesRegularExpression('/^The request does not name «[^»]+»\. Confirm \S+ on «[^»]+»\?$/u', (string) $store->load('s1')?->question?->question);
         } else {
             self::assertNull($refusal, "«{$ask}» names «{$target}»");
             self::assertNull($store->load('s1')?->question, 'nothing is left parked');

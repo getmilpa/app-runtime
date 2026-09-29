@@ -126,6 +126,47 @@ final class AgentEndpoint
         return $declared;
     }
 
+    /**
+     * The output limit this house asks of its model when nobody declared one: a sixth of the window
+     * that governs, in steps of 1024 tokens, between 4096 and 16,384 — or `null` when there is no
+     * window to derive it from (a window under 24,576 tokens included), which keeps the gateway's own
+     * default (greenhouse decisions/0514).
+     *
+     * WHY A SIXTH. The loop already keeps a quarter of the window free of input (its leg budget is
+     * three quarters), and evidence/1048 measured the size estimate running up to ~7% under the
+     * provider's own count. A sixth fits inside that free quarter with that error to spare, so a
+     * larger answer costs the input nothing: on the 49,152-token window of evidence/1036 it is 8192,
+     * where the old fixed 4096 cut two answers and reserved nothing for either.
+     *
+     * A declared `agent.outputTokens` always wins ({@see effectiveOutputTokens()}).
+     */
+    public static function derivedOutputTokens(?Config $config): ?int
+    {
+        $window = self::contextTokens($config);
+        if ($window === null || $window < 6 * 4096) {
+            return null;
+        }
+
+        return max(4096, min(16384, intdiv(intdiv($window, 6), 1024) * 1024));
+    }
+
+    /**
+     * The output limit the house sends and reserves, and who decided it: the declared one, else the
+     * one derived from the governing window, else none (the gateway keeps its default).
+     *
+     * @return array{tokens: int|null, source: 'declared'|'derived'|'default'}
+     */
+    public static function effectiveOutputTokens(?Config $config): array
+    {
+        $declared = self::outputTokens($config);
+        if ($declared !== null) {
+            return ['tokens' => $declared, 'source' => 'declared'];
+        }
+        $derived = self::derivedOutputTokens($config);
+
+        return $derived !== null ? ['tokens' => $derived, 'source' => 'derived'] : ['tokens' => null, 'source' => 'default'];
+    }
+
     /** Explicit MiniMax-M3 thinking mode; absence retains the provider's default. */
     public static function miniMaxThinking(?Config $config): ?string
     {

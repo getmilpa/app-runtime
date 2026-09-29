@@ -161,16 +161,26 @@ final class ABrokenBootIsNotLeftForTest extends TestCase
     }
 
     /** While the house does not boot the answer is a refusal that says why — 503, never the old kernel's answer (Rod, 2026-09-28). */
-    public function testTheRefusalSaysWhyAndIsNotCached(): void
+    public function testTheRefusalSaysWhyOnlyInDebugAndIsNotCached(): void
     {
-        $response = KernelDefinition::houseDoesNotBoot('ArgumentCountError: Too few arguments — «Blog»', new \Nyholm\Psr7\Factory\Psr17Factory());
+        $why = 'ArgumentCountError: Too few arguments in src/Plugins/Blog/Blog.php — «Blog»';
+        $response = KernelDefinition::houseDoesNotBoot($why, new \Nyholm\Psr7\Factory\Psr17Factory(), true);
 
         self::assertSame(503, $response->getStatusCode());
         self::assertSame('no-store', $response->getHeaderLine('Cache-Control'));
         self::assertSame((string) KernelDefinition::RECHECK_SECONDS, $response->getHeaderLine('Retry-After'));
-        self::assertSame('ArgumentCountError: Too few arguments ??? ??Blog??', $response->getHeaderLine('Milpa-House-Does-Not-Boot'), 'a header carries printable ASCII only');
-        self::assertStringStartsWith('This house does not boot: ArgumentCountError: Too few arguments — «Blog»', (string) $response->getBody());
+        self::assertSame('ArgumentCountError: Too few arguments in src/Plugins/Blog/Blog.php ??? ??Blog??', $response->getHeaderLine('Milpa-House-Does-Not-Boot'), 'a header carries printable ASCII only');
+        self::assertStringStartsWith('This house does not boot: ' . $why, (string) $response->getBody());
         self::assertStringContainsString(\Milpa\AppRuntime\Support\Capabilities::CLI . ' sandbox:undo', (string) $response->getBody());
+
+        // Without app.debug (the default, Rod 2026-09-29): the same 503 and header name, one generic line, no class, no path.
+        $generic = KernelDefinition::houseDoesNotBoot($why, new \Nyholm\Psr7\Factory\Psr17Factory());
+        self::assertSame(503, $generic->getStatusCode());
+        self::assertSame(KernelDefinition::HIDDEN_REASON, $generic->getHeaderLine('Milpa-House-Does-Not-Boot'));
+        self::assertSame("This house does not boot; it answers again as soon as it does.\n", (string) $generic->getBody());
+        foreach (['ArgumentCountError', 'src/', 'Blog'] as $secret) {
+            self::assertStringNotContainsString($secret, (string) $generic->getBody() . $generic->getHeaderLine('Milpa-House-Does-Not-Boot'));
+        }
     }
 
     /** Asked before any request was checked, it reads the house first — a verdict never comes from an empty digest. */

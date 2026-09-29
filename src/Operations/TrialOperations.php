@@ -59,6 +59,9 @@ final class TrialOperations implements CommandProvider
         private readonly ?HouseRouteObserver $observer = new HouseRouteObserver(),
         // Whether the house still boots after a promotion writes (greenhouse decisions/0506); null asks nothing.
         private readonly ?BootProbe $bootProbe = new BootProbe(),
+        // Whether the house AS IT WOULD BE is booted before anything is written (decisions/0512); false is the
+        // 0506 order — write, ask, roll back — kept as the positive control of the window it leaves.
+        private readonly bool $probeBeforeWriting = true,
     ) {
     }
 
@@ -223,9 +226,22 @@ final class TrialOperations implements CommandProvider
                 return ['ok' => false, 'error' => 'the target moved while preparing its promotion'];
             }
         }
-        $preDir = $ws->baseDirectory() . '/pre';
         $paths = array_keys($diff);
         sort($paths);
+
+        // PROBE BEFORE WRITING (greenhouse decisions/0512). 0506 asked after the write and rolled back — and for
+        // the ~0.1–0.3 s its witness took, the broken file was on disk: a server that revalidates every request
+        // served one fatal answer in ~60 (evidence/1039, B5). So the house AS IT WOULD BE is built beside it and
+        // booted first; a promotion it cannot boot with never touches the live tree. The ask after the write
+        // stays below, for what a candidate cannot see (a boot that depends on the house's own `var/`).
+        $wouldBreak = $this->probeBeforeWriting && is_file($root . '/vendor/autoload.php')
+            ? $this->bootProbe?->whyNotWith($root, $payload, array_keys(array_filter($diff, static fn (array $entry): bool => $entry['status'] === 'deleted')))
+            : null;
+        if ($wouldBreak !== null) {
+            return $this->refuseUnwritten($root, $paths, $wouldBreak);
+        }
+
+        $preDir = $ws->baseDirectory() . '/pre';
         foreach ($paths as $rel) {
             $status = $diff[$rel]['status'];
             $hostFile = $root . '/' . $rel;
@@ -293,6 +309,33 @@ final class TrialOperations implements CommandProvider
             ...(isset($observation['error']) ? ['observation_error' => $observation['error']] : []),
             'note' => 'Promoted into the house. What the trial observed (served, passed) was observed in the '
                 . 'copy; observe it here before claiming it about the house.' . self::whatTheHouseSaw($observation),
+        ];
+    }
+
+    /**
+     * Refuse a promotion the house would not boot with — nothing was written, so nothing is put back.
+     *
+     * The trial is kept (its copy is what the author fixes) and no pre-image was taken. The live house is
+     * asked too, only here, so the answer can say whether it boots as it is — a promotion that would have
+     * FIXED a broken house boots in its candidate and lands.
+     *
+     * @param list<string> $paths
+     *
+     * @return array<string, mixed>
+     */
+    private function refuseUnwritten(string $root, array $paths, string $broken): array
+    {
+        $now = $this->bootProbe?->whyNot($root);
+
+        return [
+            'ok' => false,
+            'error' => 'the house does not boot with this promotion: ' . $broken,
+            'unwritten' => $paths,
+            'house_boots' => $now === null,
+            'note' => 'Nothing was written: the house was booted as it would be, beside it, and did not boot — the live '
+                . 'files were never touched. The trial is kept; fix it there and promote again.' . ($now === null
+                    ? ' The house boots as it is.'
+                    : ' The house does not boot as it is either: ' . $now . '.'),
         ];
     }
 
