@@ -86,6 +86,13 @@ use Milpa\Runtime\Http\RouteProviderInterface;
  * house gets written ({@see Capabilities::originsFor()}, from the declared id, never the request), and
  * `coa doctor` says so and names the act that writes them ({@see self::undeclaredOrigins()}).
  *
+ * THE PROCESS THAT SERVES THE HOUSE MAY NAME WHERE IT SERVES IT (greenhouse decisions/0534). The Desktop runs
+ * the house in a container on the port IT chose (8899, or MILPA_PORT) — an address bar neither the declared
+ * nor the derived origins know, so every ceremony there was refused. The process that binds the port says so
+ * in {@see self::SERVED_ORIGINS_ENV}; those origins are ADDED to the declared (or derived) ones, checked by the
+ * same {@see RelyingParty} rules, and a malformed one refuses to boot naming the variable. It is set by
+ * whoever starts the server — who could as well edit config/app.php — and never read from a request.
+ *
  * THE LEDGERS ARE THE CONTAINER'S TOO. The relying party ({@see RelyingParty}), the credential ledger
  * ({@see PasskeyCredentialStore}), the ids it holds ({@see RegisteredCredentialIds}) and the enrollment
  * ledger ({@see EnrollmentStore}) are registered under those names, so a host that verifies its own
@@ -96,7 +103,8 @@ use Milpa\Runtime\Http\RouteProviderInterface;
  *
  *     'passkey' => [
  *         'rpId'     => 'example.com',                  // required — the relying-party id assertions bind to
- *         'origins'  => ['https://example.com'],        // with rpId — the exact origins ceremonies run on (absent: Capabilities::originsFor)
+ *         'origins'  => ['https://example.com'],        // with rpId — the exact origins ceremonies run on (absent: Capabilities::originsFor;
+ *                                                       //   MILPA_PASSKEY_ORIGINS in the server's environment adds to them)
  *         'cookie'   => 'milpa_session',                // optional — the session cookie name (the gate reads it)
  *         'ttl'      => 3600,                           // optional — session lifetime in seconds
  *         'sessions' => '/abs/path/sessions.json',      // optional — where the provided FileSessionStore writes
@@ -126,6 +134,12 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
 
     /** Where the enrollment ledger lives, under the app root — the one the gpg-key path reads too. */
     public const ENROLLMENTS_PATH = 'storage/identity/enrollments.json';
+
+    /**
+     * The environment variable in which the process that serves the house names the origins it serves it on —
+     * comma- or space-separated, e.g. `MILPA_PASSKEY_ORIGINS=http://localhost:8899` (greenhouse decisions/0534).
+     */
+    public const SERVED_ORIGINS_ENV = 'MILPA_PASSKEY_ORIGINS';
 
     /** The attachments WebAuthn knows. Omitting it — the default — admits both. */
     private const ATTACHMENTS = ['platform', 'cross-platform'];
@@ -169,7 +183,7 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
             return; // fail closed: no relying party, no routes (see the class docblock)
         }
 
-        $relyingParty = self::relyingParty($rpId, $config['origins'] ?? Capabilities::originsFor($rpId));
+        $relyingParty = self::relyingParty($rpId, $config['origins'] ?? Capabilities::originsFor($rpId), self::servedOrigins());
         $root = $this->root();
 
         // The door provides what the door needs (decisions/0206): a host that registered no session
@@ -308,6 +322,49 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
     }
 
     /**
+     * The origins the process serving this house declared in {@see self::SERVED_ORIGINS_ENV}, in order, without
+     * repeats; empty when it declared none.
+     *
+     * Read from the process environment — what `docker run -e`, the Desktop or a service unit set — never from a
+     * request. Validation is {@see RelyingParty}'s, at boot, like the declared ones.
+     *
+     * @return list<string>
+     */
+    public static function servedOrigins(): array
+    {
+        $declared = getenv(self::SERVED_ORIGINS_ENV);
+        if (!\is_string($declared)) {
+            return [];
+        }
+
+        return array_values(array_unique(preg_split('/[\s,]+/', $declared, -1, \PREG_SPLIT_NO_EMPTY) ?: []));
+    }
+
+    /**
+     * What `coa doctor` says of the origins the serving process adds, or null when it adds none.
+     *
+     * Null unless `$passkey` declares an `rpId` and {@see self::servedOrigins()} is not empty — so a person
+     * reading the doctor inside the Desktop's container sees why its port is admitted though config/app.php
+     * does not name it.
+     *
+     * @param array<array-key, mixed> $passkey
+     */
+    public static function servedOriginsNotice(array $passkey): ?string
+    {
+        $rpId = $passkey['rpId'] ?? null;
+        $served = self::servedOrigins();
+        if (!\is_string($rpId) || $rpId === '' || $served === []) {
+            return null;
+        }
+
+        return \sprintf(
+            'the process serving this house also admits passkey ceremonies from %s (%s), besides the origins config/app.php holds it to.',
+            implode(', ', $served),
+            self::SERVED_ORIGINS_ENV,
+        );
+    }
+
+    /**
      * The relying party every ceremony is verified against, from `passkey.rpId` and `passkey.origins`.
      *
      * The origins are a DECLARED list, never the request's Host: WebAuthn's origin check exists to refuse
@@ -315,10 +372,16 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
      * the house refuses to boot and says which key to write — milpa/auth's own validation
      * (https only, plain http on loopback, a host under the rpId) speaks for everything past that.
      *
+     * The origins the serving process declares ({@see self::servedOrigins()}) are added after them; one
+     * {@see RelyingParty} rejects refuses to boot too, naming {@see self::SERVED_ORIGINS_ENV} instead of the file.
+     *
+     * @param list<string> $served
+     *
      * @throws \InvalidArgumentException when `passkey.origins` is empty, not a list of strings, or rejected by
-     *                                   {@see RelyingParty} — absent, the caller passes the derived ones
+     *                                   {@see RelyingParty} — absent, the caller passes the derived ones — or
+     *                                   when a served origin is rejected
      */
-    private static function relyingParty(string $rpId, mixed $origins): RelyingParty
+    private static function relyingParty(string $rpId, mixed $origins, array $served = []): RelyingParty
     {
         if (!\is_array($origins) || $origins === [] || !array_is_list($origins) || array_filter($origins, static fn (mixed $o): bool => !\is_string($o)) !== []) {
             throw new \InvalidArgumentException(\sprintf(
@@ -332,9 +395,18 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
 
         try {
             /** @var list<string> $origins */
-            return new RelyingParty($rpId, self::RELYING_PARTY_NAME, $origins);
+            $declared = new RelyingParty($rpId, self::RELYING_PARTY_NAME, $origins);
         } catch (\InvalidArgumentException $e) {
             throw new \InvalidArgumentException('passkey.origins in config/app.php: ' . $e->getMessage(), 0, $e);
+        }
+        if ($served === []) {
+            return $declared;
+        }
+
+        try {
+            return new RelyingParty($rpId, self::RELYING_PARTY_NAME, array_values(array_unique([...$origins, ...$served])));
+        } catch (\InvalidArgumentException $e) {
+            throw new \InvalidArgumentException(self::SERVED_ORIGINS_ENV . ', set by the process serving this house: ' . $e->getMessage(), 0, $e);
         }
     }
 

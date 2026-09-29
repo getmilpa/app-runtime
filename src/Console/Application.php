@@ -1352,8 +1352,15 @@ final class Application
         if ($origenes !== null) {
             $this->line('  ! ' . $origenes);
         }
+        // …and the origins the process serving it adds (greenhouse decisions/0534): the Desktop's port is in no file.
+        $servidos = \in_array(PasskeyPlugin::class, $clases, true) && \is_array($delApp['passkey'] ?? null)
+            ? PasskeyPlugin::servedOriginsNotice($delApp['passkey'])
+            : null;
+        if ($servidos !== null) {
+            $this->line('  · ' . $servidos);
+        }
 
-        if ($enAmbos !== [] || $origenes !== null) {
+        if ($enAmbos !== [] || $origenes !== null || $servidos !== null) {
             $this->line('');
         }
 
