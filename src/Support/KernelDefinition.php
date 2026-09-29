@@ -279,11 +279,22 @@ final class KernelDefinition
             ->withHeader('Cache-Control', 'no-store')
             ->withHeader('Retry-After', (string) self::RECHECK_SECONDS)
             ->withHeader('Milpa-House-Does-Not-Boot', $line);
-        $response->getBody()->write("This house does not boot: {$why}\n\n"
-            . 'Nothing was served with the kernel from before the change. Undo it from a terminal (`' . Capabilities::CLI . " sandbox:undo --workspace=<trial>`,\n"
-            . 'or `' . Capabilities::CLI . " plugins:disable-unsafe --name=<plugin> --sign`) or fix it; this server answers again as soon as the house boots.\n");
+        $response->getBody()->write(self::doesNotBootText($why));
 
         return $response;
+    }
+
+    /**
+     * The body of a `503` for a house that does not boot — one text for every server that answers it.
+     *
+     * A worker answers it with the kernel it holds; a front controller whose own boot failed answers it from a
+     * shutdown function ({@see BrokenBootAnswer}, greenhouse decisions/0512). Both say the same thing.
+     */
+    public static function doesNotBootText(string $why): string
+    {
+        return "This house does not boot: {$why}\n\n"
+            . 'Nothing was served with the kernel from before the change. Undo it from a terminal (`' . Capabilities::CLI . " sandbox:undo --workspace=<trial>`,\n"
+            . 'or `' . Capabilities::CLI . " plugins:disable-unsafe --name=<plugin> --sign`) or fix it; this server answers again as soon as the house boots.\n";
     }
 
     private static function fingerprint(string $file): string

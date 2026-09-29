@@ -22,17 +22,20 @@ use Milpa\Container\DIContainer;
 use PHPUnit\Framework\TestCase;
 
 /**
- * A promotion the house cannot boot with does not land (greenhouse decisions/0506).
+ * A promotion the house cannot boot with does not land (greenhouse decisions/0506) — and, since 0512, it never
+ * touches the live tree: the house AS IT WOULD BE is booted beside it first.
  *
  * Measured on the published train (greenhouse evidence/1036, R1, seq 442): the resident promoted a seeder
  * whose constructor wanted a repository its plugin's `boot()` did not pass. The receipt said `ok: true`
  * beside «the house did not boot», and from then on every door of the house died at boot. Here the same
  * shape — and the compile-fatal shape of evidence/1038 n5 — are promoted into real houses on disk.
  *
- * @guards the house is asked in a fresh process after the write; a boot it cannot do is answered `ok: false`
- *         with the reason, the pre-image goes back, the trial is kept, and a later fixed promotion lands
+ * @guards the house as it would be is booted in a fresh process BEFORE the write; a boot it cannot do is answered
+ *         `ok: false` with the reason, the live files are never replaced (same inode), no pre-image is taken, the
+ *         trial is kept, and a later fixed promotion lands
  *
- * @refuses nothing — the positive control is the same promotion with no probe, which lands and breaks the house
+ * @refuses nothing — the positive controls are the same promotion with no probe (it lands and breaks the house) and
+ *          the 0506 order (write, ask, roll back: the file IS replaced, twice, and put back)
  *
  * @subject-in milpa/app-runtime
  */
@@ -65,18 +68,63 @@ final class APromotionThatDoesNotBootDoesNotLandTest extends TestCase
     public function testTheSeq442ShapeIsRefusedAndTheHouseKeepsBooting(): void
     {
         $before = (string) file_get_contents($this->root . '/src/Plugins/Blog/Blog.php');
+        $inode = fileinode($this->root . '/src/Plugins/Blog/Blog.php');
 
         $receipt = $this->promote('w1', ['src/Plugins/Blog/BlogSeeder.php' => self::SEEDER, 'src/Plugins/Blog/Blog.php' => $this->seederPlugin(false)]);
 
         self::assertFalse($receipt['ok'], (string) json_encode($receipt));
         self::assertStringStartsWith('the house does not boot with this promotion: ArgumentCountError: Too few arguments to function App\Plugins\Blog\BlogSeeder::__construct()', $receipt['error']);
-        self::assertSame(['src/Plugins/Blog/Blog.php', 'src/Plugins/Blog/BlogSeeder.php'], $receipt['rolled_back']);
+        self::assertStringContainsString('passed in src/Plugins/Blog/Blog.php on line', $receipt['error'], 'the path is the house\'s, relative — never the candidate\'s');
+        self::assertStringNotContainsString($this->root, $receipt['error']);
+        self::assertSame(['src/Plugins/Blog/Blog.php', 'src/Plugins/Blog/BlogSeeder.php'], $receipt['unwritten']);
+        self::assertArrayNotHasKey('rolled_back', $receipt, 'nothing was written, so nothing was put back');
         self::assertTrue($receipt['house_boots']);
-        self::assertSame($before, file_get_contents($this->root . '/src/Plugins/Blog/Blog.php'), 'the edited file is back');
-        self::assertFileDoesNotExist($this->root . '/src/Plugins/Blog/BlogSeeder.php', 'the added file is gone');
+        self::assertSame($inode, fileinode($this->root . '/src/Plugins/Blog/Blog.php'), 'the live file was never replaced');
+        self::assertSame($before, file_get_contents($this->root . '/src/Plugins/Blog/Blog.php'));
+        self::assertFileDoesNotExist($this->root . '/src/Plugins/Blog/BlogSeeder.php');
+        self::assertDirectoryDoesNotExist($this->root . '/var/trials/w1/pre', 'no pre-image: the house was not about to change');
+        self::assertDirectoryDoesNotExist($this->root . '/var/boot-candidates', 'the candidate is gone');
         self::assertNull((new BootProbe())->whyNot($this->root));
         self::assertFileDoesNotExist($this->root . '/var/trials/w1/promoted.json', 'nothing to undo: nothing landed');
         self::assertDirectoryExists($this->root . '/var/trials/w1/copy', 'the trial is kept to be fixed');
+    }
+
+    /** POSITIVE CONTROL of the window — the 0506 order: the broken file IS written, then put back. That write is what a request could see. */
+    public function testThe0506OrderWritesTheBrokenFileAndPutsItBack(): void
+    {
+        $inode = fileinode($this->root . '/src/Plugins/Blog/Blog.php');
+
+        $receipt = $this->promote('w1', ['src/Plugins/Blog/BlogSeeder.php' => self::SEEDER, 'src/Plugins/Blog/Blog.php' => $this->seederPlugin(false)], probeBeforeWriting: false);
+
+        self::assertFalse($receipt['ok']);
+        self::assertSame(['src/Plugins/Blog/Blog.php', 'src/Plugins/Blog/BlogSeeder.php'], $receipt['rolled_back']);
+        self::assertNotSame($inode, fileinode($this->root . '/src/Plugins/Blog/Blog.php'), 'the live file was replaced (and replaced back)');
+        self::assertNull((new BootProbe())->whyNot($this->root));
+    }
+
+    /** A promotion that FIXES a house that does not boot is booted as it would be — and lands: the refusal is about the change, not the house. */
+    public function testAPromotionThatFixesABrokenHouseLands(): void
+    {
+        file_put_contents($this->root . '/src/Plugins/Blog/Blog.php', TinyHouse::pluginSource('Blog', broken: true));
+        self::assertNotNull((new BootProbe())->whyNot($this->root));
+
+        $receipt = $this->promote('w1', ['src/Plugins/Blog/Blog.php' => TinyHouse::pluginSource('Blog')]);
+
+        self::assertTrue($receipt['ok'], (string) json_encode($receipt));
+        self::assertNull((new BootProbe())->whyNot($this->root));
+    }
+
+    /** A promotion that does not fix a house that already does not boot says so — and still writes nothing. */
+    public function testARefusalSaysWhenTheHouseDidNotBootEither(): void
+    {
+        file_put_contents($this->root . '/src/Plugins/Blog/Blog.php', TinyHouse::pluginSource('Blog', broken: true));
+
+        $receipt = $this->promote('w1', ['src/Plugins/Blog/BlogSeeder.php' => self::SEEDER]);
+
+        self::assertFalse($receipt['ok']);
+        self::assertFalse($receipt['house_boots']);
+        self::assertStringContainsString('The house does not boot as it is either', $receipt['note']);
+        self::assertFileDoesNotExist($this->root . '/src/Plugins/Blog/BlogSeeder.php');
     }
 
     /** The fix, made in the SAME trial, lands — the refusal did not spend it. */
@@ -122,7 +170,7 @@ final class APromotionThatDoesNotBootDoesNotLandTest extends TestCase
      *
      * @return array<string, mixed>
      */
-    private function promote(string $id, array $files, bool $probe = true): array
+    private function promote(string $id, array $files, bool $probe = true, bool $probeBeforeWriting = true): array
     {
         $ws = TrialWorkspace::materialize($this->root, $id, \dirname(__DIR__) . '/Fixtures/trial-stub-runner.php');
         foreach ($files as $path => $contents) {
@@ -130,13 +178,13 @@ final class APromotionThatDoesNotBootDoesNotLandTest extends TestCase
             file_put_contents($ws->copy . '/' . $path, $contents);
         }
 
-        return $this->promoteTrial($id, $probe);
+        return $this->promoteTrial($id, $probe, $probeBeforeWriting);
     }
 
     /** @return array<string, mixed> */
-    private function promoteTrial(string $id, bool $probe = true): array
+    private function promoteTrial(string $id, bool $probe = true, bool $probeBeforeWriting = true): array
     {
-        foreach ((new TrialOperations(new DIContainer(), null, $this->root, null, $probe ? new BootProbe() : null))->operations() as $op) {
+        foreach ((new TrialOperations(new DIContainer(), null, $this->root, null, $probe ? new BootProbe() : null, $probeBeforeWriting))->operations() as $op) {
             if ($op->name === 'sandbox:promote') {
                 return ($op->handler)(['workspace' => $id]);
             }
