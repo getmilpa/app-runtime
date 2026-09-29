@@ -48,21 +48,32 @@ use Milpa\EventStore\Event;
  *
  * ── WHAT IT DOES NOT PROVE ──────────────────────────────────────────────────────────────────────
  *
- * That the observed screen is the one the goal asked for, that it satisfies criteria never declared, or
- * that every subject a change touched was observed: a promotion names paths, not screens. The scope says
- * so — `house_observation` — beside the verdict.
+ * That the observed subject satisfies criteria never declared, or that every subject a change touched was
+ * observed: a promotion names paths, not screens. The scope says so — `house_observation` — beside the verdict.
+ *
+ * ── ONLY WHAT THE GOAL NAMES CLOSES (greenhouse decisions/0522) ─────────────────────────────────
+ *
+ * Given the subjects the goal names ({@see StandingAsk::namesSubject()}), an observation of any OTHER subject is
+ * not an observation of the work: it never closes, and the reason says what was seen instead. Measured
+ * (evidence/1050): registering an empty plugin made the house observe `GET /` → 200, and that closed a session
+ * whose goal was `GET /blog` — while `/blog` answered 404 and the resident itself said the goal was not met.
+ * Every route the house answered still counts against it: a server error on an unnamed route is still an error.
  */
 final class HouseObservedClosure
 {
     /**
      * Derive whether the house observed itself serving after the last change that landed in it.
      *
-     * @param list<Event> $stream the session's own stream, in order
+     * @param list<Event>                   $stream the session's own stream, in order
+     * @param (\Closure(string): bool)|null $named  whether the goal names an observed subject; null counts every subject
      *
      * @return array{derived: bool, reason: ?string, observation: ?array{subject: string, seq: int}, lastChangeSeq: ?int, landed: list<int>}
      */
-    public static function of(array $stream, SessionFacts $facts): array
+    public static function of(array $stream, SessionFacts $facts, ?\Closure $named = null): array
     {
+        $counts = $named ?? static fn (string $subject): bool => true;
+        // The last observation of a subject the goal does not name: said in the reason, never counted.
+        $unnamed = null;
         $lastChange = null;
         $landed = [];
         $observation = null;
@@ -91,7 +102,11 @@ final class HouseObservedClosure
             }
             if (($evidence['predicate'] ?? null) === 'served' && $environment === 'house'
                 && ($evidence['invalidates'] ?? false) !== true && \is_string($evidence['subject'] ?? null)) {
-                $observation = ['subject' => $evidence['subject'], 'seq' => $event->seq];
+                if ($counts($evidence['subject'])) {
+                    $observation = ['subject' => $evidence['subject'], 'seq' => $event->seq];
+                } else {
+                    $unnamed = ['subject' => $evidence['subject'], 'seq' => $event->seq];
+                }
             }
             if ($rehearsed) {
                 continue;
@@ -111,7 +126,11 @@ final class HouseObservedClosure
                 $isServed = ($entry['predicate'] ?? null) === 'served' && $status === 200;
                 $routes[$entry['subject']] = ['seq' => $event->seq, 'status' => $status, 'served' => $isServed,
                     'everServed' => $isServed || ($routes[$entry['subject']]['everServed'] ?? false)];
-                $served ??= $isServed ? ['subject' => $entry['subject'], 'seq' => $event->seq] : null;
+                if ($isServed && ! $counts($entry['subject'])) {
+                    $unnamed = ['subject' => $entry['subject'], 'seq' => $event->seq];
+                } else {
+                    $served ??= $isServed ? ['subject' => $entry['subject'], 'seq' => $event->seq] : null;
+                }
             }
             $observation = $served ?? $observation;
         }
@@ -133,12 +152,16 @@ final class HouseObservedClosure
             $reason = "the house could not be observed after the change at seq {$unobservable['seq']}: {$unobservable['error']}";
         } elseif ($failing !== []) {
             $reason = implode('; ', $failing);
+        } elseif ($observation === null && $unnamed !== null) {
+            // A route that went stale is the stronger fact; otherwise, say what was seen instead of the work.
+            $reason = $stale !== [] ? implode('; ', $stale)
+                : "the house observed «{$unnamed['subject']}» served (seq {$unnamed['seq']}), a subject the goal does not name";
         } elseif ($observation === null) {
             $reason = 'nothing observed served in the house';
-        } elseif ($lastChange !== null && $lastChange > $observation['seq']) {
-            $reason = "the house changed at seq {$lastChange} after its last observation (seq {$observation['seq']})";
         } elseif ($stale !== []) {
             $reason = implode('; ', $stale);
+        } elseif ($lastChange !== null && $lastChange > $observation['seq']) {
+            $reason = "the house changed at seq {$lastChange} after its last observation (seq {$observation['seq']})";
         } elseif (! isset($routes[$observation['subject']])
             && ($facts->evidenceByPredicate('served', $observation['subject'])['evidence']['fresh'] ?? false) !== true) {
             $reason = "the house observation of «{$observation['subject']}» went stale";

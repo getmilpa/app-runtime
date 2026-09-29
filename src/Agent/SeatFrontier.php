@@ -314,16 +314,11 @@ final class SeatFrontier
     }
 
     /**
-     * Whether the standing ask names this plugin as a whole identifier, ignoring case.
-     *
-     * Stricter than the `target_not_named` gate (decisions/0009), which only relaxes a question and so
-     * accepts a substring: a grant is authority over one identifier, so «a plugin named Blog» names
-     * `Blog` and `blog`, but neither `BlogPlugin` nor `log`. Ignoring case has a named cost: a common
-     * word of the goal names itself, so that sentence also names `Plugin`.
+     * Whether the standing ask names this plugin as a whole identifier, ignoring case ({@see StandingAsk}).
      */
     private static function names(string $standing, string $plugin): bool
     {
-        return preg_match('/(?<![A-Za-z0-9_])' . preg_quote($plugin, '/') . '(?![A-Za-z0-9_])/iu', $standing) === 1;
+        return StandingAsk::ofText($standing)->namesIdentifier($plugin);
     }
 
     /**
@@ -333,26 +328,12 @@ final class SeatFrontier
      */
     private static function standingAskIn(array $events): string
     {
-        $ask = [self::goalIn($events)];
-        foreach ($events as $event) {
-            if ($event->type === 'session.turn' && ($event->payload['role'] ?? null) === 'user' && \is_string($event->payload['content'] ?? null)) {
-                $ask[] = $event->payload['content'];
-            }
-        }
-
-        return implode("\n", $ask);
+        return StandingAsk::in($events)->text();
     }
 
     /** @param list<Event> $events */
     private static function goalIn(array $events): string
     {
-        $goal = '';
-        foreach ($events as $event) {
-            if (\in_array($event->type, ['session.started', 'session.goal_changed'], true) && \is_string($event->payload['goal'] ?? null)) {
-                $goal = $event->payload['goal'];
-            }
-        }
-
-        return $goal;
+        return StandingAsk::goalIn($events);
     }
 }

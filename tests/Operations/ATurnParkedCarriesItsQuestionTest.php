@@ -96,7 +96,7 @@ final class ATurnParkedCarriesItsQuestionTest extends TestCase
         $m->setAccessible(true);
 
         self::assertSame(
-            'answer with: php bin/coa agent:answer --session=s1 --answer=<yes|no>',
+            'answer with: php bin/coa agent:answer --session=s1 --answer=<yes|no> --sign',
             $m->invoke(null, 's1', new PendingQuestion(id: 'perm:make', question: 'Allow?', options: ['yes', 'no'])),
         );
         self::assertStringEndsWith('--answer=<sí|no>', (string) $m->invoke(null, 's1', new PendingQuestion(id: 'perm:make', question: '¿Autorizas?', options: ['sí', 'no'])));
