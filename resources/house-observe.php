@@ -20,6 +20,7 @@ declare(strict_types=1);
  *
  *   php house-observe.php routes <root> '<json dirs>'   the GET routes without parameters the touched plugins declare
  *   php house-observe.php get <root> <path>             what the house's own front controller answers an anonymous GET
+ *   php house-observe.php boot <root>                   whether the house, as it is now, boots at all (decisions/0506)
  *
  * `get` goes through `public/index.php` itself — the file a browser reaches — with no credentials, so what it
  * answers is what a visitor is served. The body is captured, never printed; only its size and digest travel.
@@ -28,11 +29,28 @@ const HOUSE_OBSERVE_MARK = '@@house-observe ';
 
 $mode = $argv[1] ?? '';
 $root = $argv[2] ?? '';
-if (!\in_array($mode, ['routes', 'get'], true) || !is_dir($root)) {
-    fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => false, 'error' => 'usage: house-observe.php routes|get <root> <argument>']) . "\n");
+if (!\in_array($mode, ['routes', 'get', 'boot'], true) || !is_dir($root)) {
+    fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => false, 'error' => 'usage: house-observe.php routes|get|boot <root> <argument>']) . "\n");
     exit(2);
 }
 $root = (string) realpath($root);
+
+// BOOT: the same kernel `coa` boots, and nothing else. A boot that throws says what it threw; one that dies of a
+// fatal the engine does not let anybody catch (a class missing an interface method) says nothing here — it leaves
+// its message on stderr and a non-zero exit, and the caller reads both (Milpa\AppRuntime\Support\BootProbe).
+if ($mode === 'boot') {
+    chdir($root);
+    require $root . '/vendor/autoload.php';
+    try {
+        $app = new Milpa\AppRuntime\Console\Application($root);
+        (new ReflectionMethod($app, 'kernel'))->invoke($app);
+    } catch (Throwable $e) {
+        fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => false, 'error' => $e::class . ': ' . $e->getMessage()], \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE) . "\n");
+        exit(1);
+    }
+    fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => true]) . "\n");
+    exit(0);
+}
 
 if ($mode === 'routes') {
     $dirs = json_decode($argv[3] ?? '[]', true);

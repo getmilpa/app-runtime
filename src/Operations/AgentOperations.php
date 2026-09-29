@@ -1439,7 +1439,13 @@ class AgentOperations implements CommandProvider
             return ['ok' => false, 'error' => $workers];
         }
         $router = is_file($root . '/public/router.php') ? 'public/router.php' : null;
-        $command = [\PHP_BINARY, '-S', $host . ':' . $port, '-t', 'public'];
+        // THE HOUSE CHANGES UNDER ITS SERVER, so the server looks at every request (greenhouse decisions/0506).
+        // `php -S` is a web SAPI to OPcache (`opcache.enable`, not `enable_cli`), which revalidates a file at
+        // most every `revalidate_freq` seconds — 2 by default: after a promotion written by another process
+        // (the resident's `coa`), the server answered with the OLD code for ~2.35 s (evidence/1038, o4). At 0
+        // it stats each file per request instead; a file younger than `file_update_protection` (2 s) is never
+        // cached at all, so a same-second rewrite is not kept either.
+        $command = [\PHP_BINARY, '-d', 'opcache.revalidate_freq=0', '-S', $host . ':' . $port, '-t', 'public'];
         if ($router !== null) {
             $command[] = $router;
         }

@@ -24,6 +24,8 @@ use Milpa\ToolRuntime\Identity\VerifiedSigner;
 use Milpa\AppRuntime\Agent\SurfaceBroadcaster;
 use Milpa\AppRuntime\Agent\SurfaceComposition;
 use Milpa\AppRuntime\Support\Capabilities;
+use Milpa\AppRuntime\Support\KernelDefinition;
+use Milpa\AppRuntime\Support\PhpBinary;
 use Milpa\DevTools\Doctor\Repair;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Operation;
@@ -81,6 +83,9 @@ use Milpa\Runtime\Kernel;
  */
 final class Application
 {
+    /** The recovery doors that run when the house does not boot (greenhouse decisions/0506) — nothing else does. */
+    private const RECUPERACION = ['sandbox:undo', 'plugins:disable-unsafe'];
+
     /** @var list<Operation>|null resueltos una vez por corrida */
     private ?array $operations = null;
 
@@ -229,8 +234,18 @@ final class Application
         return $filas;
     }
 
-    public function __construct(private readonly string $root)
-    {
+    /**
+     * @param string                                             $root        where the app lives
+     * @param \Milpa\Console\OperationSigner|null                $firmante    who signs a `--sign` on either door — the ordinary one and the one
+     *                                                                        without a kernel ({@see recuperarSinKernel()}); null is gpg
+     * @param \Milpa\ToolRuntime\Identity\SignatureVerifier|null $verificador who verifies it; null is gpg. Both exist so the two doors can be
+     *                                                                        asked the same question with the same key (greenhouse decisions/0506)
+     */
+    public function __construct(
+        private readonly string $root,
+        private readonly ?\Milpa\Console\OperationSigner $firmante = null,
+        private readonly ?\Milpa\ToolRuntime\Identity\SignatureVerifier $verificador = null,
+    ) {
     }
 
     /**
@@ -290,6 +305,13 @@ final class Application
         // Las dos guardas de abajo dicen lo mismo y a propósito no comparten un helper: cada una
         // nombra SU capability y SU `composer require`, y un helper genérico las habría vuelto un
         // «falta algo, mira el catálogo» que obliga a un segundo paso para saber cuál.
+        // THE MCP SURFACE, as an operation of the runtime and not a file the skeleton copied (greenhouse
+        // decisions/0507): a copied `bin/mcp-server.php` never receives a fix, and the one every house received
+        // booted a different kernel than this one — without the machine's config or its secrets.
+        if ($comando === 'mcp') {
+            return $this->mcp($argv);
+        }
+
         if ($comando === 'doctor' && !Capabilities::installed('devtools')) {
             return $this->faltaCapability(
                 '`doctor` lives in the dev tools, and this app does not have them yet.',
@@ -345,6 +367,21 @@ final class Application
             return $this->repararSinKernel(\array_slice($argv, 2));
         }
 
+        // ── DESHACER TAMPOCO PUEDE NECESITAR QUE ARRANQUE (greenhouse decisions/0506) ────────────
+        //
+        // Lo mismo que `doctor`, `repair` y `update`, medido en evidence/1038 (n5): una promoción que
+        // rompe el arranque deja a `sandbox:undo` muriendo del mismo fatal que vino a deshacer. Un fatal
+        // no se atrapa: se pregunta ANTES, en un proceso aparte, si la casa arranca. Si arranca, nada
+        // cambia; si no, la reversa corre sin tocar un solo archivo de la app.
+        // Y la otra vía de recuperación que la casa ya ofrecía, `plugins:disable-unsafe` («Recovery only»):
+        // en evidence/1036 (R1) también murió al arrancar, igual que `coa list`.
+        if (\in_array($comando, self::RECUPERACION, true)) {
+            $porQue = (new \Milpa\AppRuntime\Support\BootProbe())->whyNot($this->root);
+            if ($porQue !== null) {
+                return $this->recuperarSinKernel($comando, \array_slice($argv, 2), $porQue);
+            }
+        }
+
         // Las dos pantallas. No son operaciones y no lo fingen: una operación se ejecuta con lo que
         // trae y contesta, y esto CONVERSA — captura teclas hasta que alguien sale. Que vivan aquí y
         // no en `config/operations.php` es la misma distinción que dejó fuera a `coa:run`.
@@ -369,6 +406,24 @@ final class Application
         // saying a word about a terminal. With nothing installed that exposes state, the screen says so
         // rather than pretending: that is why the help below only announces it when the panel is here.
         if ($comando === 'panel') {
+            $json = \in_array('--json', $argv, true);
+            $hijo = \in_array('--child', $argv, true);
+            $pedida = \is_string($argv[2] ?? null) && !str_starts_with($argv[2], '-') ? $argv[2] : null;
+
+            // THE PANEL OUTLIVES WHAT DEFINES IT (greenhouse decisions/0507). A person keeps it open while a plugin
+            // is installed, disabled or promoted and a config is written; the kernel it booted saw none of it — a
+            // disabled plugin's section stayed on screen (evidence/1040, p0). So on a terminal the process the
+            // person sees holds no kernel: it opens a child that does, and opens a clean one, on the same section,
+            // whenever that child finds itself stale.
+            if (!$json && !$hijo && \function_exists('stream_isatty') && @stream_isatty(\STDIN)) {
+                return KernelSupervisor::terminal(
+                    fn (?string $mostrando): array => [PhpBinary::path(), $this->coa(), 'panel', ...($mostrando !== null ? [$mostrando] : []), '--child'],
+                    $this->root,
+                    $pedida,
+                );
+            }
+
+            $definicion = $hijo ? KernelDefinition::before($this->root) : null;
             $secciones = new InspectableSections($this->kernel()->plugins());
 
             // THE TWO AUDIENCES, ONE ENGINE. `InspectableSections`' own docblock says it exists so the
@@ -379,9 +434,9 @@ final class Application
                 return $this->panelEnJson($secciones);
             }
 
-            $pedida = \is_string($argv[2] ?? null) && !str_starts_with($argv[2], '-') ? $argv[2] : null;
+            $definicion?->takeInIncluded();
 
-            return $this->pantalla(new ConsoleScreen($secciones, ...$this->tamano(), initialSection: $pedida));
+            return $this->pantalla(new ConsoleScreen($secciones, ...$this->tamano(), initialSection: $pedida), $definicion);
         }
 
         if ($comando === 'chat' && !Capabilities::installed('agent')) {
@@ -528,29 +583,15 @@ final class Application
         }
 
         return (new CliRunner(
+            signer: $this->firmante,
             renderer: $renderer,
+            verifier: $this->verificador,
             callerAuthority: new ToolContext(
                 principal: $identity->actor->id ?? $base->principal,
                 channel: $base->channel,
                 scopes: PresentedToken::scopes($identity, $base->scopes),
             ),
-            signerAuthority: function (VerifiedSigner $signer) use ($identity): ?ToolContext {
-                $root = $this->kernel()->root();
-                $signed = (new SignerAuthority(
-                    new FileEnrollmentStore($root . '/storage/identity/enrollments.json'),
-                    PolicyConfig::load($root),
-                ))->forSigner($signer);
-                // A second credential cannot widen a presented token for delegated tools.
-                $tokenScopes = PresentedToken::scopes($identity, ['*']);
-                if ($signed === null && $identity === null) {
-                    return null;
-                }
-                $signedScopes = $signed->scopes ?? ['*'];
-                $scopes = \in_array('*', $tokenScopes, true) ? $signedScopes
-                    : (\in_array('*', $signedScopes, true) ? $tokenScopes : array_values(array_intersect($tokenScopes, $signedScopes)));
-
-                return new ToolContext(principal: 'key:' . $signer->fingerprint, channel: 'cli', scopes: $scopes);
-            },
+            signerAuthority: fn (VerifiedSigner $signer): ?ToolContext => $this->autoridadDelFirmante($signer, $identity),
             // El despachador del kernel viaja al runner: sin él, un listener que audita operaciones
             // las vería por MCP y no por la terminal — que es el hueco que el runner vino a cerrar.
             dispatcher: $this->kernel()->dispatcher(),
@@ -576,6 +617,127 @@ final class Application
      * The same sections, in the same order, with the state read the same way: what the dashboard paints
      * is what this prints.
      */
+    /**
+     * `coa mcp`: the house's operations over MCP on stdio — a supervisor that holds the pipe, and a child with the kernel.
+     *
+     * STDOUT is the protocol, one JSON-RPC message per line; everything a person reads goes to STDERR. The process
+     * the client started never boots a kernel ({@see KernelSupervisor}): `--child` is the one that does, and it
+     * leaves with {@see KernelSupervisor::STALE} when what it read changed (greenhouse decisions/0507).
+     *
+     * @param list<string> $argv
+     */
+    private function mcp(array $argv): int
+    {
+        // The MCP surface is opt-in: `milpa/mcp-server` does not ship with the app. An app without it is the honest
+        // default, not an error — the same exit the skeleton's `bin/mcp-server.php` always gave, on STDERR because
+        // STDOUT belongs to the protocol.
+        if (!Capabilities::installed('mcp') || !class_exists(\Milpa\McpServer\JsonRpcService::class)) {
+            fwrite(\STDERR, 'MCP surface not enabled. Run: php bin/coa capabilities:enable milpa/mcp-server  (or: composer require milpa/mcp-server)' . \PHP_EOL);
+
+            return 0;
+        }
+
+        if (\in_array('--child', $argv, true)) {
+            // A kernel that refuses to boot must not say so on STDOUT: `run()` would print its `✗` there, and there
+            // is the protocol. It goes to STDERR, where the supervisor reads the last line to tell the client why.
+            try {
+                return $this->mcpChild();
+            } catch (\Throwable $e) {
+                fwrite(\STDERR, '✗ ' . $e->getMessage() . \PHP_EOL);
+
+                return 1;
+            }
+        }
+
+        $hijo = [PhpBinary::path(), $this->coa(), 'mcp', '--child'];
+        fwrite(\STDERR, 'milpa · ' . Capabilities::CLI . 'mcp — MCP stdio server ready (close stdin to stop)' . \PHP_EOL);
+
+        return (new KernelSupervisor(static fn (): array => $hijo, $this->root, \STDIN, \STDOUT, \STDERR))->relay();
+    }
+
+    /**
+     * The child of `coa mcp`: boots the SAME kernel as `coa` and serves until the client closes or the house changes.
+     *
+     * It asks {@see KernelDefinition} twice per request. BEFORE: if another process changed the house, this child
+     * does not run the request — it leaves, and the supervisor hands the same line to a clean child. AFTER: if the
+     * request itself changed the house (a promotion, a plugin enabled, a config written), it has already answered;
+     * it leaves so the next request meets the kernel of now.
+     */
+    private function mcpChild(): int
+    {
+        $definicion = KernelDefinition::before($this->root);
+        $kernel = $this->kernel();
+        $registro = $kernel->toolRegistry();
+        if (!$registro instanceof \Milpa\ToolRuntime\ToolRegistry) {
+            fwrite(\STDERR, 'milpa · ' . Capabilities::CLI . 'mcp — no tool registry wired, exiting.' . \PHP_EOL);
+
+            return 1;
+        }
+        // Everything the app declares, not only what the plugins booted — the same catalogue the skeleton's
+        // `bin/mcp-server.php` projected, so a client sees the same tools it always saw.
+        (new McpProjector())->projectAll(\Milpa\AppRuntime\Support\Operations::all($kernel, $this->root), $registro, $kernel->container());
+        $servicio = new \Milpa\McpServer\JsonRpcService($registro);
+        $definicion->takeInIncluded();
+
+        $escribir = static function (array $respuesta): void {
+            fwrite(\STDOUT, json_encode($respuesta, \JSON_UNESCAPED_SLASHES) . "\n");
+            fflush(\STDOUT);
+        };
+
+        while (($linea = fgets(\STDIN)) !== false) {
+            $linea = trim($linea);
+            if ($linea === '') {
+                continue;
+            }
+            if (($porque = $definicion->staleBecause()) !== null) {
+                return $this->mcpSale($definicion, $porque, 'before running a request');
+            }
+
+            $pedido = json_decode($linea, true);
+            if (!\is_array($pedido)) {
+                $escribir(['jsonrpc' => '2.0', 'error' => ['code' => -32700, 'message' => 'Parse error'], 'id' => null]);
+                continue;
+            }
+
+            if (($pedido['method'] ?? null) === 'ping') {
+                // MCP's liveness check — and the supervisor's way to ask, in silence, whether this kernel is current.
+                if (\array_key_exists('id', $pedido)) {
+                    $escribir(['jsonrpc' => '2.0', 'id' => $pedido['id'], 'result' => new \stdClass()]);
+                }
+            } else {
+                // This transport carries no auth: ToolContext::stdio() is the context for exactly this case.
+                /** @var array<string, mixed> $pedido */
+                $respuesta = $servicio->handle($pedido, ToolContext::stdio((string) ($pedido['id'] ?? uniqid('mcp-', true))));
+                if ($respuesta !== null) {
+                    $escribir($respuesta);
+                }
+            }
+
+            if (($porque = $definicion->staleBecause()) !== null) {
+                return $this->mcpSale($definicion, $porque, 'after the request that changed it');
+            }
+        }
+
+        return 0;
+    }
+
+    /** A stale child of `coa mcp` leaves: it says why on STDERR and lets the next process compile what changed. */
+    private function mcpSale(KernelDefinition $definicion, string $porque, string $cuando): int
+    {
+        $definicion->forgetCompiled();
+        fwrite(\STDERR, 'milpa · ' . Capabilities::CLI . "mcp — the house changed ({$porque}), {$cuando}: a clean process takes over" . \PHP_EOL);
+
+        return KernelSupervisor::STALE;
+    }
+
+    /** The script a supervisor starts its children with — this app's `bin/coa`. */
+    private function coa(): string
+    {
+        $script = $this->root . '/bin/coa';
+
+        return is_file($script) ? $script : (string) (realpath((string) ($_SERVER['SCRIPT_FILENAME'] ?? '')) ?: $script);
+    }
+
     private function panelEnJson(InspectableSections $secciones): int
     {
         $salida = [];
@@ -592,7 +754,7 @@ final class Application
         return 0;
     }
 
-    private function pantalla(OperationsScreen|AgentScreen|ConsoleScreen $pantalla): int
+    private function pantalla(OperationsScreen|AgentScreen|ConsoleScreen $pantalla, ?KernelDefinition $definicion = null): int
     {
         if (!(\function_exists('stream_isatty') && @stream_isatty(\STDIN))) {
             $this->line($pantalla->render());
@@ -625,7 +787,7 @@ final class Application
         \Milpa\AppRuntime\Support\StderrLogger::pantallaTomada(true);
 
         try {
-            return $this->correrPantalla($pantalla);
+            return $this->correrPantalla($pantalla, $definicion);
         } finally {
             \Milpa\AppRuntime\Support\StderrLogger::pantallaTomada(false);
             // Se restaura PASE LO QUE PASE: dejar los avisos apagados después de salir del TUI
@@ -638,9 +800,10 @@ final class Application
     }
 
     /** El bucle en sí, para que el restaurador de arriba tenga un `finally` que lo abrace. */
-    private function correrPantalla(OperationsScreen|AgentScreen|ConsoleScreen $pantalla): int
+    private function correrPantalla(OperationsScreen|AgentScreen|ConsoleScreen $pantalla, ?KernelDefinition $definicion = null): int
     {
         $terminal = new StreamTerminal('coa');
+        $vigia = $definicion !== null ? new StaleWatchTerminal($terminal, $definicion) : null;
 
         // CON QUÉ PINTAR SIN SALIR DEL BUCLE: la pantalla del agente es síncrona y, mientras el
         // agente trabaja, el bucle no vuelve a pasar. Sin esto se queda idéntica los ~16 segundos que
@@ -649,7 +812,19 @@ final class Application
             $pantalla->paintOn($terminal);
         }
 
-        $pantalla->loop()->runOn($terminal);
+        $pantalla->loop()->runOn($vigia ?? $terminal);
+
+        // A stale child leaves with what it was showing, so its supervisor opens the next one there.
+        if ($vigia !== null && $vigia->staleBecause() !== null && $pantalla instanceof ConsoleScreen) {
+            $definicion->forgetCompiled();
+            $entrega = @fopen('php://fd/3', 'w');
+            if (\is_resource($entrega)) {
+                fwrite($entrega, $pantalla->currentSectionId());
+                fclose($entrega);
+            }
+
+            return KernelSupervisor::STALE;
+        }
 
         return 0;
     }
@@ -1305,6 +1480,143 @@ final class Application
     }
 
     private ?Kernel $booted = null;
+
+    /**
+     * What a verified signer may do in this house — one judgment for every door of the terminal.
+     *
+     * The enrollment ledger and the policy file are read from disk, never from the kernel: the same
+     * judgment has to hold when the kernel does not boot ({@see recuperarSinKernel()}), and two copies
+     * of it would disagree the day it matters.
+     */
+    private function autoridadDelFirmante(VerifiedSigner $signer, ?\Milpa\Auth\AuthContext $identity): ?ToolContext
+    {
+        $signed = (new SignerAuthority(
+            new FileEnrollmentStore($this->root . '/storage/identity/enrollments.json'),
+            PolicyConfig::load($this->root),
+        ))->forSigner($signer);
+        // A second credential cannot widen a presented token for delegated tools.
+        $tokenScopes = PresentedToken::scopes($identity, ['*']);
+        if ($signed === null && $identity === null) {
+            return null;
+        }
+        $signedScopes = $signed->scopes ?? ['*'];
+        $scopes = \in_array('*', $tokenScopes, true) ? $signedScopes
+            : (\in_array('*', $signedScopes, true) ? $tokenScopes : array_values(array_intersect($tokenScopes, $signedScopes)));
+
+        return new ToolContext(principal: 'key:' . $signer->fingerprint, channel: 'cli', scopes: $scopes);
+    }
+
+    /**
+     * `sandbox:undo` and `plugins:disable-unsafe` for a house that does not boot — the ways back that used to exist only by hand.
+     *
+     * Measured in greenhouse evidence/1038 (n5): a promotion registered a plugin whose class misses an
+     * interface method, and `coa sandbox:undo` booted that same house and died of the same compile fatal.
+     * The pre-image (decisions/0069) was there, and only a person with a shell and the know-how could
+     * put it back; on the published train the same happened to `plugins:disable-unsafe` (evidence/1036, R1).
+     * A fatal cannot be caught; it can be avoided: this path boots nothing of the app — it reads `vendor/`,
+     * `var/trials/`, `storage/` and the identity files, and `config/plugins.php` only as a list of names.
+     *
+     * THE SAME AUTHORITY, NEVER A WIDER ONE (greenhouse decisions/0506). The call goes through the same
+     * `CliRunner` as always: the consent gate asks for `--sign`, the signer is judged by the same
+     * enrollment ledger and policy file ({@see autoridadDelFirmante()}), and the house's own boundary
+     * ({@see PluginAuthoringPolicy}) judges the write set of the undo — the same checks, from the same
+     * files. What is NOT here is refused rather than skipped: a presented `MILPA_TOKEN` is judged by the
+     * token store a plugin registers, which lives in the kernel that does not boot — so it is refused,
+     * never read as «no token» (that would widen a narrow token to the terminal's wildcard). And a signed
+     * sequence is not continued from its receipt: every call here signs.
+     *
+     * @param list<string> $argv tokens after the command name
+     */
+    private function recuperarSinKernel(string $comando, array $argv, string $porQue): int
+    {
+        $this->line('✗ The house does not boot: ' . $porQue);
+        $this->line('  Recovering without booting it: only ' . $comando . ' runs here, under the same signature, scope and write-set checks.');
+
+        $token = getenv(PresentedToken::ENV);
+        if (\is_string($token) && trim($token) !== '') {
+            $this->line('✗ ' . PresentedToken::ENV . ' is presented, and a token is judged by the token store the house registers when it boots — it does not boot.');
+            $this->line('  Nothing ran. Unset ' . PresentedToken::ENV . ' and sign the call with --sign.');
+
+            return 1;
+        }
+
+        $container = new \Milpa\Container\DIContainer();
+        $container->registerService(\Milpa\Plugin\Contracts\AppRoot::class, new \Milpa\Plugin\Contracts\AppRoot($this->root));
+        $policy = new \Milpa\AppRuntime\Agent\PluginAuthoringPolicy($this->root);
+        $container->registerService(\Milpa\ToolRuntime\Contracts\CallPolicy::class, $policy);
+        $container->registerService(\Milpa\Console\OperationBoundary::class, $policy);
+        $operacion = null;
+        foreach ($this->operacionesDeRecuperacion($container) as $op) {
+            if (str_replace(['_', '.'], ':', $op->name) === $comando) {
+                $operacion = $op;
+            }
+        }
+        if ($operacion === null) {
+            $this->line('✗ ' . $comando . ' cannot be offered without the kernel on this install.');
+
+            return 1;
+        }
+
+        $renderer = \in_array('--json', $argv, true) ? new JsonCliRenderer() : new PlainTextCliRenderer();
+        $base = ToolContext::cli();
+        // The same scope check the ordinary door runs before the runner (`plugins:disable-unsafe` declares
+        // `plugins:write`); with no token here, the local shell's default is what it judges.
+        $scope = (new PolicyGate())->authorizeScopes($base, McpProjector::toolName($operacion->name), $operacion->scopes);
+        if (!$scope->allowed) {
+            foreach ($renderer->presentError((string) $scope->reason) as $line) {
+                $this->line($line);
+            }
+
+            return 1;
+        }
+        $salida = (new CliRunner(
+            signer: $this->firmante,
+            renderer: $renderer,
+            callerAuthority: $base,
+            verifier: $this->verificador,
+            signerAuthority: fn (VerifiedSigner $signer): ?ToolContext => $this->autoridadDelFirmante($signer, null),
+        ))->run($operacion, $this->tokens($operacion, $argv), $container, $this->line(...));
+
+        if ($salida === 0) {
+            $despues = (new \Milpa\AppRuntime\Support\BootProbe())->whyNot($this->root);
+            $this->line($despues === null ? '✓ The house boots again.' : '✗ The house still does not boot: ' . $despues);
+        }
+
+        return $salida;
+    }
+
+    /**
+     * The recovery operations, built from disk alone: the trial doors and the plugin registry's own file.
+     *
+     * `plugins.disable-unsafe` is milpa/plugin's, over the same `storage/plugins.json` the boot reads
+     * (`ActivePlugins::wire`). Its record of a declared plugin is read from the class's metadata, so the
+     * declared list is read from `config/plugins.php` — and if that very file is what broke, from nothing:
+     * a stored record can still be turned off. A declared class whose file does not even compile would take
+     * this process down when its metadata is read; that shape is `sandbox:undo`'s, which reads no app code.
+     *
+     * @return list<Operation>
+     */
+    private function operacionesDeRecuperacion(\Milpa\Container\DIContainer $container): array
+    {
+        $ops = (new \Milpa\AppRuntime\Operations\TrialOperations($container, null, $this->root, null))->operations();
+        if (class_exists(\Milpa\Plugin\Operations\PluginOperations::class)) {
+            $declarados = [];
+            try {
+                $leidos = is_file($this->root . '/config/plugins.php') ? require $this->root . '/config/plugins.php' : [];
+                $declarados = \is_array($leidos) ? array_values(array_filter($leidos, 'is_string')) : [];
+            } catch (\Throwable) {
+            }
+            $registro = new \Milpa\Plugin\Registry\FilePluginRegistry($this->root . '/storage/plugins.json');
+            $container->registerService(\Milpa\Plugin\Contracts\PluginRegistryInterface::class, $registro);
+            foreach ((new \Milpa\Plugin\Operations\PluginOperations($registro, null, $declarados, null, $this->root))->operations() as $op) {
+                if ($op->name === 'plugins.disable-unsafe') {
+                    $ops[] = $op;
+                }
+            }
+        }
+
+        return $ops;
+    }
 
     private function kernel(): Kernel
     {

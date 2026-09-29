@@ -330,6 +330,9 @@ final class TrialWorkspace
             }
         }
 
+        // The way back is visible on the next request too, not after OPcache's revalidation (decisions/0506).
+        \Milpa\AppRuntime\Support\CompiledCode::forget($root, $paths);
+
         self::rmrf($base);
 
         return ['ok' => true, 'undone' => $paths];

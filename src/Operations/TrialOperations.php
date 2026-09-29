@@ -21,6 +21,8 @@ use Milpa\AppRuntime\Agent\HouseRouteObserver;
 use Milpa\AppRuntime\Agent\PluginAuthoringPolicy;
 use Milpa\AppRuntime\Agent\KeyedDeclarations;
 use Milpa\AppRuntime\Agent\TrialWorkspace;
+use Milpa\AppRuntime\Support\BootProbe;
+use Milpa\AppRuntime\Support\CompiledCode;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\EffectProfile;
@@ -55,6 +57,8 @@ final class TrialOperations implements CommandProvider
         private readonly ?SessionStore $sessions = null,
         private readonly ?string $root = null,
         private readonly ?HouseRouteObserver $observer = new HouseRouteObserver(),
+        // Whether the house still boots after a promotion writes (greenhouse decisions/0506); null asks nothing.
+        private readonly ?BootProbe $bootProbe = new BootProbe(),
     ) {
     }
 
@@ -239,6 +243,22 @@ final class TrialOperations implements CommandProvider
             $this->write($hostFile, $payload[$rel]);
         }
 
+        // THE NEXT REQUEST RUNS WHAT LANDED (greenhouse decisions/0506): when this process is the server, its
+        // OPcache would otherwise serve the old bytecode for up to `revalidate_freq` seconds (evidence/1038, o4).
+        CompiledCode::forget($root, $paths);
+
+        // A PROMOTION THAT THE HOUSE CANNOT BOOT WITH DOES NOT LAND (greenhouse decisions/0506). Measured on
+        // the published train (evidence/1036, R1, seq 442): a seeder whose constructor wanted a repository its
+        // plugin did not pass was promoted, the receipt said `ok: true` beside «the house did not boot», and
+        // from then on the panel answered 500 and EVERY `coa` died at boot — undo and disable-unsafe included,
+        // and the resident's own next leg. Only a hand copy of the pre-image brought the house back. So the
+        // house is asked, in a process of its own, right after the write; if it does not boot, the pre-image
+        // goes back in, the trial is kept to be fixed, and the answer is a refusal that says why.
+        $broken = is_file($root . '/vendor/autoload.php') ? $this->bootProbe?->whyNot($root) : null;
+        if ($broken !== null) {
+            return $this->rollBack($root, $ws->baseDirectory(), $paths, $broken);
+        }
+
         $this->recordPromotion($sessions, $input, $id, $paths, $diff);
 
         // What sandbox:undo reads to reverse this: the diff, whose sha256 per path is exactly the
@@ -273,6 +293,42 @@ final class TrialOperations implements CommandProvider
             ...(isset($observation['error']) ? ['observation_error' => $observation['error']] : []),
             'note' => 'Promoted into the house. What the trial observed (served, passed) was observed in the '
                 . 'copy; observe it here before claiming it about the house.' . self::whatTheHouseSaw($observation),
+        ];
+    }
+
+    /**
+     * Put back what a promotion just wrote, from the pre-image it kept — the promotion never landed.
+     *
+     * The trial is NOT collapsed: its copy is what the author fixes and promotes again. Its pre-image is
+     * removed, so a later promotion of the same trial keeps a fresh one of the house as it is then.
+     *
+     * @param list<string> $paths
+     *
+     * @return array<string, mixed>
+     */
+    private function rollBack(string $root, string $base, array $paths, string $broken): array
+    {
+        $preDir = $base . '/pre';
+        foreach ($paths as $rel) {
+            if (is_file($preDir . '/' . $rel)) {
+                $this->write($root . '/' . $rel, (string) file_get_contents($preDir . '/' . $rel));
+            } else {
+                @unlink($root . '/' . $rel); // the promotion added it; the house never had it
+            }
+        }
+        CompiledCode::forget($root, $paths);
+        exec('rm -rf ' . escapeshellarg($preDir));
+        $after = $this->bootProbe?->whyNot($root);
+
+        return [
+            'ok' => false,
+            'error' => 'the house does not boot with this promotion: ' . $broken,
+            'rolled_back' => $paths,
+            'house_boots' => $after === null,
+            'note' => 'Nothing landed: every file this promotion wrote is back as it was, and the trial is kept — fix it '
+                . 'there and promote again.' . ($after === null
+                    ? ' The house boots as it did before.'
+                    : ' The house did not boot before this promotion either: ' . $after . '.'),
         ];
     }
 
