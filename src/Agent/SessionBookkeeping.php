@@ -22,6 +22,7 @@ use Milpa\Agent\Todo;
 use Milpa\Agent\TodoStatus;
 use Milpa\Command\Operation;
 use Milpa\Console\McpProjector;
+use Milpa\EventStore\Event;
 use Milpa\EventStore\EventStoreInterface;
 /**
  * Las herramientas con las que el agente escribe su propio plan y mueve sus pendientes (P16.3).
@@ -392,7 +393,7 @@ final readonly class SessionBookkeeping implements ContractProducer
             // decisions/0487, evidence/1022): the advice below would send it to open a todo only to close it,
             // and in the epilogue that ritual spent the budget the final answer needed.
             if ($sesion->todos === [] && $this->events !== null) {
-                $stream = $this->events->replay(SessionStore::PREFIX . $this->sessionId);
+                $stream = $this->stream();
                 $closure = ClosureVerdict::derive($sesion, SessionFacts::fromEvents($this->sessionId, $stream), $stream);
                 $subject = $closure['derivedFrom']['observation']['subject'] ?? null;
                 if ($closure['verified'] && \is_string($subject)) {
@@ -422,7 +423,13 @@ final readonly class SessionBookkeeping implements ContractProducer
             ];
         }
 
-        $facts = SessionFacts::of($this->events, $this->sessionId);
+        // THE STREAM IS READ ONCE PER CLAIM (greenhouse decisions/0509 §6). Measured (evidence/1036): a claim with
+        // a prose reference walked the candidates of its refusal, and every candidate read the whole event file
+        // again — the verification, the green test, the promotions, and a second SessionFacts — until a 21 MB
+        // ledger took four legs past PHP's 128 MB, each dying with no termination event. The judge below asks
+        // this one list everything it asks.
+        $stream = $this->stream();
+        $facts = SessionFacts::fromEvents($this->sessionId, $stream);
 
         // A recorded RED verdict for the reference refuses the claim outright, whatever the kind:
         // claiming done over a red is exactly the assertion this door exists to stop.
@@ -441,7 +448,7 @@ final readonly class SessionBookkeeping implements ContractProducer
         }
 
         $staleRefusal = null;
-        $covering = $this->coveringFact($facts, $kind, $reference, $verdict, $staleRefusal);
+        $covering = $this->coveringFact($facts, $stream, $kind, $reference, $verdict, $staleRefusal);
         if ($covering === null) {
             if ($staleRefusal !== null) {
                 return ['ok' => false, 'error' => $staleRefusal];
@@ -450,7 +457,7 @@ final readonly class SessionBookkeeping implements ContractProducer
             // THE REFUSAL TEACHES THE REFERENCE (greenhouse decisions/0482). Measured: 63% of claims refused,
             // most with a reference written as prose (a sentence about the screen instead of its name). The
             // judge stays exact; what it would accept is named, so the model copies instead of guessing.
-            $candidates = $this->candidates($kind);
+            $candidates = $this->candidates($kind, $facts, $stream);
 
             return [
                 'ok' => false,
@@ -501,12 +508,13 @@ final readonly class SessionBookkeeping implements ContractProducer
      * — a served receipt that went stale — the reason is written to `$refusal`, so the caller can
      * teach with it instead of the generic not-found message.
      *
+     * @param list<Event>          $stream  the session's own stream, read once by the caller
      * @param array<string, mixed> $verdict the already-fetched {@see SessionFacts::lastVerificationOf()} answer
      * @param string|null          $refusal out: a specific refusal reason when one applies
      *
      * @return array<string, mixed>|null
      */
-    private function coveringFact(SessionFacts $facts, EvidenceKind $kind, string $reference, array $verdict, ?string &$refusal = null): ?array
+    private function coveringFact(SessionFacts $facts, array $stream, EvidenceKind $kind, string $reference, array $verdict, ?string &$refusal = null): ?array
     {
         if ($kind === EvidenceKind::TestPassed) {
             // A producer-declared verification verdict is the strongest fact the stream holds.
@@ -518,10 +526,21 @@ final readonly class SessionBookkeeping implements ContractProducer
                 ];
             }
 
-            // Or the last recorded green `test` call DECLARING the reference as its filter or path.
-            $declared = $this->lastGreenTestDeclaring($reference);
-            if ($declared !== null) {
-                return $declared;
+            // Or the last recorded `test` run DECLARING the reference as its filter or path — when that last run
+            // is GREEN. A red run after a green one is the judge's last word, and a todo is not done against a
+            // red judge (greenhouse decisions/0509 §4): the claim used to take the last green, whatever followed.
+            $last = LastTestRun::of($stream, $reference);
+            if ($last !== null && ! $last['green']) {
+                $refusal = sprintf(
+                    'the claim is refused: the last test run declaring «%s» is RED (seq %d). Fix it and run it green before claiming',
+                    $reference,
+                    $last['seq'],
+                );
+
+                return null;
+            }
+            if ($last !== null) {
+                return ['fact' => 'call', 'operation' => 'test', 'seq' => $last['seq']];
             }
 
             return null;
@@ -595,7 +614,7 @@ final readonly class SessionBookkeeping implements ContractProducer
 
         // A PROMOTION MATERIALISES ITS PATHS (greenhouse decisions/0482, 0463): the promotion that carried a
         // path into the house is the fact that put it there — only the paths it names, never any other.
-        foreach ($this->promotedPaths() as $path => $seq) {
+        foreach ($this->promotedPaths($stream) as $path => $seq) {
             if ($path === $reference) {
                 return ['fact' => 'promotion', 'artifact' => $reference, 'seq' => $seq];
             }
@@ -608,15 +627,14 @@ final readonly class SessionBookkeeping implements ContractProducer
      * What this session's stream holds for a kind, spelled exactly as the judge accepts it as a reference
      * (greenhouse decisions/0482) — the teaching half of a refusal.
      *
+     * @param list<Event> $stream the session's own stream, read once by the caller
+     *
      * @return list<string>
      */
-    private function candidates(EvidenceKind $kind): array
+    private function candidates(EvidenceKind $kind, SessionFacts $facts, array $stream): array
     {
-        if ($this->events === null) {
-            return [];
-        }
         $found = [];
-        foreach ($this->events->replay(SessionStore::PREFIX . $this->sessionId) as $event) {
+        foreach ($stream as $event) {
             if ($event->type !== 'session.tool_called' || ($event->payload['ok'] ?? null) !== true) {
                 continue;
             }
@@ -636,18 +654,17 @@ final readonly class SessionBookkeeping implements ContractProducer
             };
         }
         if ($kind === EvidenceKind::ArtifactCreated) {
-            foreach (array_keys($this->promotedPaths()) as $path) {
+            foreach (array_keys($this->promotedPaths($stream)) as $path) {
                 $found[$path] = true;
             }
         }
         // Only what the judge would accept today: a served subject that went stale is not offered.
-        $facts = SessionFacts::of($this->events, $this->sessionId);
         $accepted = [];
         foreach (array_keys($found) as $candidate) {
             $candidate = (string) $candidate;
             $verdict = $facts->lastVerificationOf($candidate);
             $refusal = null;
-            if ($this->coveringFact($facts, $kind, $candidate, $verdict, $refusal) !== null) {
+            if ($this->coveringFact($facts, $stream, $kind, $candidate, $verdict, $refusal) !== null) {
                 $accepted[] = $candidate;
             }
         }
@@ -658,15 +675,14 @@ final readonly class SessionBookkeeping implements ContractProducer
     /**
      * The paths each successful `sandbox:promote` of this session carried into the house, with its seq.
      *
+     * @param list<Event> $stream the session's own stream, read once by the caller
+     *
      * @return array<string, int>
      */
-    private function promotedPaths(): array
+    private function promotedPaths(array $stream): array
     {
-        if ($this->events === null) {
-            return [];
-        }
         $paths = [];
-        foreach ($this->events->replay(SessionStore::PREFIX . $this->sessionId) as $event) {
+        foreach ($stream as $event) {
             if ($event->type !== 'session.tool_called' || ($event->payload['tool'] ?? null) !== 'sandbox_promote') {
                 continue;
             }
@@ -684,50 +700,13 @@ final readonly class SessionBookkeeping implements ContractProducer
     }
 
     /**
-     * SUMMARY: The last recorded green `test` call that DECLARES `$reference` as its filter or path
-     * — exact equality on the recorded arguments, never free text.
+     * SUMMARY: The session's own stream, read from the event store — once per claim, by the claim.
      *
-     * The first cut matched a substring of the call RESULT, and the adversarial verify measured what
-     * that buys: the reference «green» completed against any green suite output. A result is prose a
-     * reference can hide in; a recorded argument is what the caller DECLARED — and the narrow
-     * projection does not carry `filter` at all, so this reads the session's own stream (the same
-     * replay every projection derives from) and accepts only an exact match.
-     *
-     * @return array<string, mixed>|null
+     * @return list<Event>
      */
-    private function lastGreenTestDeclaring(string $reference): ?array
+    private function stream(): array
     {
-        if ($this->events === null) {
-            return null;
-        }
-
-        $covering = null;
-        foreach ($this->events->replay(SessionStore::PREFIX . $this->sessionId) as $event) {
-            // The stream fact's own spelling — the same string the recorder writes.
-            if ($event->type !== 'session.tool_called') {
-                continue;
-            }
-            $payload = $event->payload;
-            if (($payload['tool'] ?? null) !== 'test' || ($payload['ok'] ?? null) !== true) {
-                continue;
-            }
-            $arguments = \is_array($payload['arguments'] ?? null) ? $payload['arguments'] : [];
-            // Any DECLARED argument names identity when it matches exactly — filter and path are the
-            // natural spellings for a test run, the rest are the same family the projections document.
-            $declared = false;
-            foreach (['filter', 'path', 'name', 'class', 'artifact', 'target', 'file'] as $key) {
-                if (($arguments[$key] ?? null) === $reference) {
-                    $declared = true;
-
-                    break;
-                }
-            }
-            if ($declared) {
-                $covering = ['fact' => 'call', 'operation' => 'test', 'seq' => $event->seq];
-            }
-        }
-
-        return $covering;
+        return $this->events === null ? [] : $this->events->replay(SessionStore::PREFIX . $this->sessionId);
     }
 
     /** SUMMARY: Name exactly what the judge looked for, so a refusal corrects instead of stonewalling. */

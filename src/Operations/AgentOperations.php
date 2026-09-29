@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Operations;
 
+use Milpa\AppRuntime\Agent\FatalTermination;
 use Milpa\AppRuntime\Agent\CandidateState;
 use Milpa\AppRuntime\Agent\AcceptanceEvidence;
 use Milpa\AppRuntime\Web\ScreenDrafts;
@@ -2523,6 +2524,13 @@ class AgentOperations implements CommandProvider
         $vigia = $vigia instanceof StepWatcher ? $vigia : null;
 
         $this->runTermination = null;
+        // A LEG THAT DIES STILL SAYS SO (greenhouse decisions/0509 §6): a fatal error never reaches the `finally`
+        // below, so a shutdown function records the termination instead while this run is armed.
+        if ($sessionId !== '' && $store !== null) {
+            FatalTermination::arm(static function (array $termination) use ($store, $sessionId): void {
+                $store->recordRunTermination($sessionId, $termination);
+            });
+        }
         try {
             // Lo que ESTA sesión ya consintió, puesto donde `ask()` lo lee sin cambiar su firma:
             // `ask()` es protected y el esqueleto lo sobrescribe, así que crecerle parámetros lo rompe.
@@ -2616,6 +2624,7 @@ class AgentOperations implements CommandProvider
             // no existe, la red— y quien lo lee necesita esa frase, no una reformulación.
             return ['ok' => false, 'error' => $e->getMessage(), 'termination' => $this->terminationObservation()];
         } finally {
+            FatalTermination::disarm();
             // One observation for each attempt that reached ask, including exceptional exits.
             // The host's pending question remains independent of the producer's return cause.
             //

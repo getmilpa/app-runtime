@@ -278,6 +278,37 @@ final class TerminationWiringTest extends TestCase
         self::assertArrayNotHasKey('closure', $second);
         self::assertSame($second['termination'], $this->terminalEvents()[1]->payload);
     }
+    /**
+     * A leg that dies still says so (greenhouse decisions/0509 §6): while the run is inside its orchestrator the
+     * fatal recorder is ARMED with this session's store, and once the run returned it is not — so a fatal at that
+     * moment would leave `failed` with the fatal named, and a normal end records once, through its `finally`.
+     */
+    public function testTheRunIsArmedAgainstAFatalOnlyWhileItRuns(): void
+    {
+        $llm = $this->llm(['role' => 'assistant','content' => self::ANSWER]);
+        $loop = new class ($llm, $this->tools()) extends AgentOrchestrator {
+            public function run(string $prompt, string $systemPrompt = 'You are a helpful assistant.', array $history = [], ?callable $onStep = null): string
+            {
+                \Milpa\AppRuntime\Agent\FatalTermination::recordIfFatal(['type' => \E_ERROR, 'message' => 'Allowed memory size exhausted', 'file' => 'FileEventStore.php', 'line' => 165]);
+
+                return parent::run($prompt, $systemPrompt, $history, $onStep);
+            }
+        };
+
+        $this->invoke($this->ops($loop));
+
+        $terminal = $this->terminalEvents();
+        self::assertCount(2, $terminal, 'the simulated death, then the run\'s own end');
+        self::assertSame(['reason' => 'failed', 'receipt' => null, 'fatal' => ['message' => 'Allowed memory size exhausted', 'file' => 'FileEventStore.php', 'line' => 165]], $terminal[0]->payload);
+    }
+
+    public function testARunThatReturnedIsNoLongerArmed(): void
+    {
+        $this->invoke($this->ops(new AgentOrchestrator($this->llm(['role' => 'assistant','content' => self::ANSWER]), $this->tools())));
+
+        self::assertFalse(\Milpa\AppRuntime\Agent\FatalTermination::recordIfFatal(['type' => \E_ERROR, 'message' => 'after', 'file' => 'x', 'line' => 1]), 'disarmed once the run returned');
+        self::assertCount(1, $this->terminalEvents(), 'its own end, recorded once by its finally');
+    }
     public function testAnOverriddenRunCannotLendItsEarlierBaseObservation(): void
     {
         $llm = $this->llm(['role' => 'assistant','content' => self::ANSWER]);
