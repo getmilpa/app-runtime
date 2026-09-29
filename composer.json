@@ -39,6 +39,7 @@
         "milpa/devtools": ">=0.34 <1.0",
         "milpa/event-store": ">=0.3 <1.0",
         "milpa/events": ">=0.4 <1.0",
+        "milpa/mcp-server": ">=0.7 <1.0",
         "milpa/mercure": "*",
         "phpstan/phpdoc-parser": "^2.3",
         "phpstan/phpstan": "^2.1",
@@ -65,6 +66,7 @@
         "milpa/data": "Persisting those tokens.",
         "milpa/devtools": "`coa doctor`, `coa repair` and `coa update`.",
         "milpa/event-store": "Append-only session streams. Needed by the agent operations.",
-        "milpa/live-web": "Mounts the live wire (LivePlugin): server-rendered components take actions over HTTP with signed state, CSRF and replay protection \u2014 dashboards, admin panels."
+        "milpa/live-web": "Mounts the live wire (LivePlugin): server-rendered components take actions over HTTP with signed state, CSRF and replay protection \u2014 dashboards, admin panels.",
+        "milpa/mcp-server": "`coa mcp`: the operations, exposed to an MCP client over stdio."
     }
 }

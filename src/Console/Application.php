@@ -24,6 +24,8 @@ use Milpa\ToolRuntime\Identity\VerifiedSigner;
 use Milpa\AppRuntime\Agent\SurfaceBroadcaster;
 use Milpa\AppRuntime\Agent\SurfaceComposition;
 use Milpa\AppRuntime\Support\Capabilities;
+use Milpa\AppRuntime\Support\KernelDefinition;
+use Milpa\AppRuntime\Support\PhpBinary;
 use Milpa\DevTools\Doctor\Repair;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Operation;
@@ -290,6 +292,13 @@ final class Application
         // Las dos guardas de abajo dicen lo mismo y a propósito no comparten un helper: cada una
         // nombra SU capability y SU `composer require`, y un helper genérico las habría vuelto un
         // «falta algo, mira el catálogo» que obliga a un segundo paso para saber cuál.
+        // THE MCP SURFACE, as an operation of the runtime and not a file the skeleton copied (greenhouse
+        // decisions/0507): a copied `bin/mcp-server.php` never receives a fix, and the one every house received
+        // booted a different kernel than this one — without the machine's config or its secrets.
+        if ($comando === 'mcp') {
+            return $this->mcp($argv);
+        }
+
         if ($comando === 'doctor' && !Capabilities::installed('devtools')) {
             return $this->faltaCapability(
                 '`doctor` lives in the dev tools, and this app does not have them yet.',
@@ -369,6 +378,24 @@ final class Application
         // saying a word about a terminal. With nothing installed that exposes state, the screen says so
         // rather than pretending: that is why the help below only announces it when the panel is here.
         if ($comando === 'panel') {
+            $json = \in_array('--json', $argv, true);
+            $hijo = \in_array('--child', $argv, true);
+            $pedida = \is_string($argv[2] ?? null) && !str_starts_with($argv[2], '-') ? $argv[2] : null;
+
+            // THE PANEL OUTLIVES WHAT DEFINES IT (greenhouse decisions/0507). A person keeps it open while a plugin
+            // is installed, disabled or promoted and a config is written; the kernel it booted saw none of it — a
+            // disabled plugin's section stayed on screen (evidence/1040, p0). So on a terminal the process the
+            // person sees holds no kernel: it opens a child that does, and opens a clean one, on the same section,
+            // whenever that child finds itself stale.
+            if (!$json && !$hijo && \function_exists('stream_isatty') && @stream_isatty(\STDIN)) {
+                return KernelSupervisor::terminal(
+                    fn (?string $mostrando): array => [PhpBinary::path(), $this->coa(), 'panel', ...($mostrando !== null ? [$mostrando] : []), '--child'],
+                    $this->root,
+                    $pedida,
+                );
+            }
+
+            $definicion = $hijo ? KernelDefinition::before($this->root) : null;
             $secciones = new InspectableSections($this->kernel()->plugins());
 
             // THE TWO AUDIENCES, ONE ENGINE. `InspectableSections`' own docblock says it exists so the
@@ -379,9 +406,9 @@ final class Application
                 return $this->panelEnJson($secciones);
             }
 
-            $pedida = \is_string($argv[2] ?? null) && !str_starts_with($argv[2], '-') ? $argv[2] : null;
+            $definicion?->takeInIncluded();
 
-            return $this->pantalla(new ConsoleScreen($secciones, ...$this->tamano(), initialSection: $pedida));
+            return $this->pantalla(new ConsoleScreen($secciones, ...$this->tamano(), initialSection: $pedida), $definicion);
         }
 
         if ($comando === 'chat' && !Capabilities::installed('agent')) {
@@ -576,6 +603,127 @@ final class Application
      * The same sections, in the same order, with the state read the same way: what the dashboard paints
      * is what this prints.
      */
+    /**
+     * `coa mcp`: the house's operations over MCP on stdio — a supervisor that holds the pipe, and a child with the kernel.
+     *
+     * STDOUT is the protocol, one JSON-RPC message per line; everything a person reads goes to STDERR. The process
+     * the client started never boots a kernel ({@see KernelSupervisor}): `--child` is the one that does, and it
+     * leaves with {@see KernelSupervisor::STALE} when what it read changed (greenhouse decisions/0507).
+     *
+     * @param list<string> $argv
+     */
+    private function mcp(array $argv): int
+    {
+        // The MCP surface is opt-in: `milpa/mcp-server` does not ship with the app. An app without it is the honest
+        // default, not an error — the same exit the skeleton's `bin/mcp-server.php` always gave, on STDERR because
+        // STDOUT belongs to the protocol.
+        if (!Capabilities::installed('mcp') || !class_exists(\Milpa\McpServer\JsonRpcService::class)) {
+            fwrite(\STDERR, 'MCP surface not enabled. Run: php bin/coa capabilities:enable milpa/mcp-server  (or: composer require milpa/mcp-server)' . \PHP_EOL);
+
+            return 0;
+        }
+
+        if (\in_array('--child', $argv, true)) {
+            // A kernel that refuses to boot must not say so on STDOUT: `run()` would print its `✗` there, and there
+            // is the protocol. It goes to STDERR, where the supervisor reads the last line to tell the client why.
+            try {
+                return $this->mcpChild();
+            } catch (\Throwable $e) {
+                fwrite(\STDERR, '✗ ' . $e->getMessage() . \PHP_EOL);
+
+                return 1;
+            }
+        }
+
+        $hijo = [PhpBinary::path(), $this->coa(), 'mcp', '--child'];
+        fwrite(\STDERR, 'milpa · ' . Capabilities::CLI . 'mcp — MCP stdio server ready (close stdin to stop)' . \PHP_EOL);
+
+        return (new KernelSupervisor(static fn (): array => $hijo, $this->root, \STDIN, \STDOUT, \STDERR))->relay();
+    }
+
+    /**
+     * The child of `coa mcp`: boots the SAME kernel as `coa` and serves until the client closes or the house changes.
+     *
+     * It asks {@see KernelDefinition} twice per request. BEFORE: if another process changed the house, this child
+     * does not run the request — it leaves, and the supervisor hands the same line to a clean child. AFTER: if the
+     * request itself changed the house (a promotion, a plugin enabled, a config written), it has already answered;
+     * it leaves so the next request meets the kernel of now.
+     */
+    private function mcpChild(): int
+    {
+        $definicion = KernelDefinition::before($this->root);
+        $kernel = $this->kernel();
+        $registro = $kernel->toolRegistry();
+        if (!$registro instanceof \Milpa\ToolRuntime\ToolRegistry) {
+            fwrite(\STDERR, 'milpa · ' . Capabilities::CLI . 'mcp — no tool registry wired, exiting.' . \PHP_EOL);
+
+            return 1;
+        }
+        // Everything the app declares, not only what the plugins booted — the same catalogue the skeleton's
+        // `bin/mcp-server.php` projected, so a client sees the same tools it always saw.
+        (new McpProjector())->projectAll(\Milpa\AppRuntime\Support\Operations::all($kernel, $this->root), $registro, $kernel->container());
+        $servicio = new \Milpa\McpServer\JsonRpcService($registro);
+        $definicion->takeInIncluded();
+
+        $escribir = static function (array $respuesta): void {
+            fwrite(\STDOUT, json_encode($respuesta, \JSON_UNESCAPED_SLASHES) . "\n");
+            fflush(\STDOUT);
+        };
+
+        while (($linea = fgets(\STDIN)) !== false) {
+            $linea = trim($linea);
+            if ($linea === '') {
+                continue;
+            }
+            if (($porque = $definicion->staleBecause()) !== null) {
+                return $this->mcpSale($definicion, $porque, 'before running a request');
+            }
+
+            $pedido = json_decode($linea, true);
+            if (!\is_array($pedido)) {
+                $escribir(['jsonrpc' => '2.0', 'error' => ['code' => -32700, 'message' => 'Parse error'], 'id' => null]);
+                continue;
+            }
+
+            if (($pedido['method'] ?? null) === 'ping') {
+                // MCP's liveness check — and the supervisor's way to ask, in silence, whether this kernel is current.
+                if (\array_key_exists('id', $pedido)) {
+                    $escribir(['jsonrpc' => '2.0', 'id' => $pedido['id'], 'result' => new \stdClass()]);
+                }
+            } else {
+                // This transport carries no auth: ToolContext::stdio() is the context for exactly this case.
+                /** @var array<string, mixed> $pedido */
+                $respuesta = $servicio->handle($pedido, ToolContext::stdio((string) ($pedido['id'] ?? uniqid('mcp-', true))));
+                if ($respuesta !== null) {
+                    $escribir($respuesta);
+                }
+            }
+
+            if (($porque = $definicion->staleBecause()) !== null) {
+                return $this->mcpSale($definicion, $porque, 'after the request that changed it');
+            }
+        }
+
+        return 0;
+    }
+
+    /** A stale child of `coa mcp` leaves: it says why on STDERR and lets the next process compile what changed. */
+    private function mcpSale(KernelDefinition $definicion, string $porque, string $cuando): int
+    {
+        $definicion->forgetCompiled();
+        fwrite(\STDERR, 'milpa · ' . Capabilities::CLI . "mcp — the house changed ({$porque}), {$cuando}: a clean process takes over" . \PHP_EOL);
+
+        return KernelSupervisor::STALE;
+    }
+
+    /** The script a supervisor starts its children with — this app's `bin/coa`. */
+    private function coa(): string
+    {
+        $script = $this->root . '/bin/coa';
+
+        return is_file($script) ? $script : (string) (realpath((string) ($_SERVER['SCRIPT_FILENAME'] ?? '')) ?: $script);
+    }
+
     private function panelEnJson(InspectableSections $secciones): int
     {
         $salida = [];
@@ -592,7 +740,7 @@ final class Application
         return 0;
     }
 
-    private function pantalla(OperationsScreen|AgentScreen|ConsoleScreen $pantalla): int
+    private function pantalla(OperationsScreen|AgentScreen|ConsoleScreen $pantalla, ?KernelDefinition $definicion = null): int
     {
         if (!(\function_exists('stream_isatty') && @stream_isatty(\STDIN))) {
             $this->line($pantalla->render());
@@ -625,7 +773,7 @@ final class Application
         \Milpa\AppRuntime\Support\StderrLogger::pantallaTomada(true);
 
         try {
-            return $this->correrPantalla($pantalla);
+            return $this->correrPantalla($pantalla, $definicion);
         } finally {
             \Milpa\AppRuntime\Support\StderrLogger::pantallaTomada(false);
             // Se restaura PASE LO QUE PASE: dejar los avisos apagados después de salir del TUI
@@ -638,9 +786,10 @@ final class Application
     }
 
     /** El bucle en sí, para que el restaurador de arriba tenga un `finally` que lo abrace. */
-    private function correrPantalla(OperationsScreen|AgentScreen|ConsoleScreen $pantalla): int
+    private function correrPantalla(OperationsScreen|AgentScreen|ConsoleScreen $pantalla, ?KernelDefinition $definicion = null): int
     {
         $terminal = new StreamTerminal('coa');
+        $vigia = $definicion !== null ? new StaleWatchTerminal($terminal, $definicion) : null;
 
         // CON QUÉ PINTAR SIN SALIR DEL BUCLE: la pantalla del agente es síncrona y, mientras el
         // agente trabaja, el bucle no vuelve a pasar. Sin esto se queda idéntica los ~16 segundos que
@@ -649,7 +798,19 @@ final class Application
             $pantalla->paintOn($terminal);
         }
 
-        $pantalla->loop()->runOn($terminal);
+        $pantalla->loop()->runOn($vigia ?? $terminal);
+
+        // A stale child leaves with what it was showing, so its supervisor opens the next one there.
+        if ($vigia !== null && $vigia->staleBecause() !== null && $pantalla instanceof ConsoleScreen) {
+            $definicion->forgetCompiled();
+            $entrega = @fopen('php://fd/3', 'w');
+            if (\is_resource($entrega)) {
+                fwrite($entrega, $pantalla->currentSectionId());
+                fclose($entrega);
+            }
+
+            return KernelSupervisor::STALE;
+        }
 
         return 0;
     }
