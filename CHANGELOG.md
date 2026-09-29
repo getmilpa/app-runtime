@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [0.200.0](https://github.com/getmilpa/app-runtime/compare/v0.199.0...v0.200.0) (2026-09-29)
+
+
+### Features
+
+* **console:** coa chat and coa shell know when their kernel went stale ([#645](https://github.com/getmilpa/app-runtime/issues/645)) ([106a402](https://github.com/getmilpa/app-runtime/commit/106a4024d3cc40d896f67640461c2ead989bd319))
+
+
+### Bug Fixes
+
+* **agent:** the line check reads the session's opening, and the epilogue reads the final verdict ([#643](https://github.com/getmilpa/app-runtime/issues/643)) ([b085a94](https://github.com/getmilpa/app-runtime/commit/b085a94e9fce754bb920a66d72f97738f9d1db6c))
+* **capabilities:** enable declares installed identity's relying party and wires what it requires ([#640](https://github.com/getmilpa/app-runtime/issues/640)) ([ee0bd14](https://github.com/getmilpa/app-runtime/commit/ee0bd14630880765beee9ce42af3f7fbdb80f57c))
+* the consent wire answers yes/no; a recorded or posted sí still reads as yes ([#644](https://github.com/getmilpa/app-runtime/issues/644)) ([384581b](https://github.com/getmilpa/app-runtime/commit/384581ba0503fd0abfa640aff2128ac8c788b2ef))
+
 ## [0.199.0](https://github.com/getmilpa/app-runtime/compare/v0.198.0...v0.199.0) (2026-09-29)
 
 
