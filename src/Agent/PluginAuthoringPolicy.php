@@ -286,7 +286,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
 
                 continue;
             }
-            // The plugin switch crosses the same way (greenhouse decisions/0531). `plugins.enable` / `plugins.disable`
+            // The plugin switch crosses the same way (greenhouse decisions/0532). `plugins.enable` / `plugins.disable`
             // write the registry the boot reads, and `plugins.lock` writes the lock — all three under
             // `plugins:write`. Since 0530 they run inside a leg's trial, and without this branch a seat could
             // switch a plugin in the rehearsal and never in the house. The same authority, and nothing else.

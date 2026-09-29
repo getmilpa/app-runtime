@@ -21,7 +21,7 @@ use Milpa\ToolRuntime\ToolDefinition;
 use PHPUnit\Framework\TestCase;
 
 /**
- * A seat that switches a plugin off in a leg's trial can carry that switch into the house (greenhouse decisions/0531).
+ * A seat that switches a plugin off in a leg's trial can carry that switch into the house (greenhouse decisions/0532).
  *
  * Since 0530 `plugins_disable` / `plugins_enable` run inside a leg's trial and write the registry the boot reads,
  * `storage/plugins.json`. Its promotion was refused for every seat — «Export 'storage/plugins.json' is outside a
