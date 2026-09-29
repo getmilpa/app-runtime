@@ -459,12 +459,23 @@ final class AgentScreen implements SurfaceBroadcaster
      * probable sin ella. Y usa `nextFrameBytes()`, el mismo diff que escribe el bucle en cada vuelta:
      * un frame pintado a media espera no pelea con el siguiente, ES el siguiente, adelantado.
      */
-    public function paintOn(TerminalInterface $terminal): void
+    public function paintOn(TerminalInterface $terminal, ?\Closure $interrupted = null): void
     {
-        $this->paintWith(function () use ($terminal): void {
+        $interrupted ??= static function (): never {
+            // Ends the process as Ctrl-C did when it was a signal — the exit code a shell reports for it — but
+            // through exit(), so the terminal's shutdown restore runs and the person gets their echo back.
+            exit(130);
+        };
+        $this->paintWith(function () use ($terminal, $interrupted): void {
             $bytes = $this->loop->nextFrameBytes();
             if ($bytes !== '') {
                 $terminal->write($bytes);
+            }
+            // A turn holds the loop, and Ctrl-C is a key now, not a signal (greenhouse decisions/0524): the screen
+            // promises «Ctrl-C to leave» while it asks, so each repaint of the turn reads what was typed. Typing
+            // ahead is kept for after the turn; Ctrl-C leaves now.
+            if ($this->loop->readWhileBusy($terminal)) {
+                $interrupted();
             }
         });
     }

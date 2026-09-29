@@ -29,4 +29,10 @@ if ($left > 0) {
     fclose($handoff);
     exit(75);
 }
-exit((int) @file_get_contents($state . '/exit'));
+$exit = trim((string) @file_get_contents($state . '/exit'));
+// `kill:<n>`: ends by signal n, as a child stopped from outside does (greenhouse decisions/0524).
+if (str_starts_with($exit, 'kill:') && function_exists('posix_kill')) {
+    posix_kill(getmypid(), (int) substr($exit, 5));
+    sleep(5);
+}
+exit((int) $exit);
