@@ -68,7 +68,7 @@ final class ATestRunIsNotAHouseChangeTest extends TestCase
     {
         $blog = $this->promote([$this->served('/blog')]);
         $this->testRun();
-        $this->testRun();
+        $this->testRun([]);
         $this->testRun();
 
         $closure = $this->verdict($this->lasting());
@@ -113,6 +113,39 @@ final class ATestRunIsNotAHouseChangeTest extends TestCase
 
         self::assertFalse($closure['verified']);
         self::assertContains("the house changed at seq {$write} after its last observation (seq {$blog})", $closure['reasons']);
+    }
+
+    /** The declaration is witnessed: a test run whose result says it wrote the house is a change, whatever it declares. */
+    public function testATestRunThatWroteTheHouseStillStalesIt(): void
+    {
+        $blog = $this->promote([$this->served('/blog')]);
+        $this->testRun([]);
+        $wrote = $this->testRun(['var/data/posts.sqlite']);
+
+        $closure = $this->verdict($this->lasting());
+
+        self::assertFalse($closure['verified']);
+        self::assertContains("the house changed at seq {$wrote} after its last observation (seq {$blog})", $closure['reasons']);
+    }
+
+    public function testATestRunThatCouldNotTellWhatItWroteCounts(): void
+    {
+        $this->promote([$this->served('/blog')]);
+        $unknown = $this->testRun(null);
+
+        $house = HouseObservedClosure::of($this->store->stream('s'), $this->store->facts('s'), null, $this->lasting());
+
+        self::assertSame($unknown, $house['lastChangeSeq']);
+    }
+
+    public function testATestRunWhoseRecordedResultCannotBeReadWholeCounts(): void
+    {
+        $this->promote([$this->served('/blog')]);
+        $cut = $this->store->recordToolCall('s', 'test', ['filter' => 'BlogRouteTest'], '{"ok":true,"ran":true,"output":"PHPUnit 11', mutating: true, resultChars: 14000);
+
+        $house = HouseObservedClosure::of($this->store->stream('s'), $this->store->facts('s'), null, $this->lasting());
+
+        self::assertSame($cut, $house['lastChangeSeq'], 'a cut result hides its witness: it counts');
     }
 
     public function testAnOperationThatNeverDeclaredItsEffectsCounts(): void
@@ -287,11 +320,20 @@ final class ATestRunIsNotAHouseChangeTest extends TestCase
         ];
     }
 
-    private function testRun(): int
+    /**
+     * A green `test` call as the stream records it; `$writes` is its `house_writes` report, or absent (a devtools
+     * that did not witness) when not given.
+     *
+     * @param list<string>|null|false $writes
+     */
+    private function testRun(array|null|false $writes = false): int
     {
-        return $this->store->recordToolCall('s', 'test', ['filter' => 'BlogRouteTest'], (string) json_encode(
-            ['ok' => true, 'ran' => true, 'tests' => 2, 'assertions' => 10, 'failures' => 0, 'errors' => 0],
-        ), mutating: true);
+        $result = ['ok' => true, 'ran' => true, 'tests' => 2, 'assertions' => 10, 'failures' => 0, 'errors' => 0];
+        if ($writes !== false) {
+            $result['house_writes'] = $writes;
+        }
+
+        return $this->store->recordToolCall('s', 'test', ['filter' => 'BlogRouteTest'], (string) json_encode($result), mutating: true);
     }
 
     /** @param list<array<string, mixed>> $observed */

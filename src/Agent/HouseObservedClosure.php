@@ -64,7 +64,9 @@ use Milpa\EventStore\Event;
  * Given the house's catalogue ({@see LastingCalls}), a recorded mutating call counts as a change only when its
  * operation's own declaration says it lasts. Measured (evidence/1050): three green `test` calls after /blog was
  * observed served made the observation «stale», and the closure never came. The declaration only SUBTRACTS: a call
- * recorded as not mutating never becomes a change, and a tool the catalogue does not declare keeps its flag.
+ * recorded as not mutating never becomes a change, and a tool the catalogue does not declare keeps its flag. And a
+ * declaration is witnessed where the operation reports it: a call whose result names what it wrote into the house
+ * (`house_writes`, milpa/devtools' test run) counts when it wrote anything, or when it could not tell (null).
  */
 final class HouseObservedClosure
 {
@@ -95,6 +97,7 @@ final class HouseObservedClosure
             }
             $payload = $event->payload;
             $result = json_decode(\is_string($payload['result'] ?? null) ? $payload['result'] : '', true);
+            $readable = \is_array($result);
             $result = \is_array($result) ? $result : [];
             if (($payload['ok'] ?? true) !== true || ($result['ok'] ?? true) === false) {
                 continue;
@@ -105,7 +108,7 @@ final class HouseObservedClosure
             $rehearsed = ($result['ran_in_trial'] ?? false) === true && ($result['applied'] ?? false) !== true;
 
             if (($payload['mutating'] ?? false) === true && ($payload['awaitingConfirmation'] ?? null) !== true
-                && $environment !== 'trial' && !$rehearsed && self::lasts($payload, $lasting)) {
+                && $environment !== 'trial' && !$rehearsed && self::lasts($payload, $readable ? $result : null, $lasting)) {
                 $lastChange = $event->seq;
                 $landed[] = $event->seq;
             }
@@ -180,14 +183,20 @@ final class HouseObservedClosure
     }
 
     /**
-     * Whether the call's own declaration says it lasts — true when there is no classifier or it does not know the tool.
+     * Whether the call's own declaration says it lasts — true when there is no classifier or it does not know the tool,
+     * and true whatever it declares when its result says it wrote into the house, or could not tell — or when the
+     * recorded result cannot be read whole, so its witness cannot be either.
      *
      * @param array<string, mixed>                                 $payload
+     * @param array<mixed>|null                                    $result  null when the recorded result is not a readable object
      * @param (\Closure(string, array<string, mixed>): ?bool)|null $lasting
      */
-    private static function lasts(array $payload, ?\Closure $lasting): bool
+    private static function lasts(array $payload, ?array $result, ?\Closure $lasting): bool
     {
-        if ($lasting === null || ! \is_string($payload['tool'] ?? null)) {
+        if ($lasting === null || ! \is_string($payload['tool'] ?? null) || $result === null) {
+            return true;
+        }
+        if (\array_key_exists('house_writes', $result) && $result['house_writes'] !== []) {
             return true;
         }
 
