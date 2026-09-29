@@ -138,6 +138,9 @@ final class AgentScreen implements SurfaceBroadcaster
     /** Los tokens que esta sesión lleva gastados, tal como los reporta cada vuelta. */
     private int $tokensGastados = 0;
 
+    /** Whether the person pressed Enter on a stale kernel: what they typed is still {@see borrador()}, unsent (0519). */
+    private bool $retenida = false;
+
     /** Si ya se trajo a la pantalla lo que la sesión traía — una sola vez por pantalla. */
     private bool $rehidratada = false;
 
@@ -245,7 +248,22 @@ final class AgentScreen implements SurfaceBroadcaster
          * @var \Closure(): array<string, mixed>|null
          */
         private readonly ?\Closure $tablero = null,
+        /**
+         * Whether the kernel behind this screen is still the one the house would boot now — asked right before
+         * anything the person typed goes out. `null`: nobody watches (a test, a screen with no supervisor).
+         *
+         * @var \Closure(): bool|null
+         */
+        private readonly ?\Closure $vigente = null,
+        /** What the person was typing when the previous process of this chat left for a clean one (greenhouse decisions/0519). */
+        string $borrador = '',
+        /** Whether that text had already been sent — and held, because the kernel had gone stale — so it goes out on opening. */
+        private bool $enviarAlAbrir = false,
+        /** Whether what was held was a counter-offer (the «yours» option to an open question), so it goes out as one. */
+        bool $contraoferta = false,
     ) {
+        $this->entrada = $borrador;
+        $this->contraofertando = $contraoferta;
         $this->loop = new RetainedTuiLoop(
             new RetainedTuiRenderer(new SimpleTuiLayoutEngine(), self::renderers()),
             fn (): TuiNode => $this->tree(),
@@ -263,6 +281,14 @@ final class AgentScreen implements SurfaceBroadcaster
                     ++$this->granos;
                 }
                 ++$this->pulso;
+                // WHAT THE LAST PROCESS HELD GOES OUT HERE, ONCE (greenhouse decisions/0519): the person pressed
+                // Enter on a kernel that had gone stale; it never ran there, so it runs now, on this one. The
+                // session's history comes first — a conversation with a turn in it no longer rehydrates.
+                if ($this->enviarAlAbrir) {
+                    $this->enviarAlAbrir = false;
+                    $this->rehidratar();
+                    $this->preguntar();
+                }
             },
             // SIN `escape` Y SIN `q`.
             //
@@ -457,6 +483,24 @@ final class AgentScreen implements SurfaceBroadcaster
         return $this->loop->renderScreen();
     }
 
+    /** What the person has typed and not sent — what a clean process of this chat opens with (greenhouse decisions/0519). */
+    public function borrador(): string
+    {
+        return $this->entrada;
+    }
+
+    /** Whether {@see borrador()} was already sent and held because the kernel had gone stale — the next process sends it. */
+    public function retenida(): bool
+    {
+        return $this->retenida;
+    }
+
+    /** Whether what is held goes out as a counter-offer to the open question, not as an answer. */
+    public function contraofertaRetenida(): bool
+    {
+        return $this->retenida && $this->contraofertando;
+    }
+
     /** Manda una tecla, como si alguien la hubiera tecleado. */
     public function press(string $key): bool
     {
@@ -586,7 +630,7 @@ final class AgentScreen implements SurfaceBroadcaster
      */
     private function afordancias(array $opciones): string
     {
-        $etiquetas = [$opciones[0] ?? 'sí', $opciones[1] ?? 'no', 'escribir la mía'];
+        $etiquetas = [$opciones[0] ?? \Milpa\AppRuntime\Agent\AffirmativeAnswer::YES, $opciones[1] ?? 'no', 'escribir la mía'];
         $pintadas = [];
         foreach ($etiquetas as $i => $etiqueta) {
             $pintadas[] = $i === $this->opcionPregunta ? "▸ {$etiqueta}" : "  {$etiqueta}";
@@ -738,7 +782,7 @@ final class AgentScreen implements SurfaceBroadcaster
 
             if ($key === 'enter') {
                 $eleccion = match ($this->opcionPregunta) {
-                    0 => $abierta[0] ?? 'sí',
+                    0 => $abierta[0] ?? \Milpa\AppRuntime\Agent\AffirmativeAnswer::YES,
                     1 => $abierta[1] ?? 'no',
                     // La tuya: si no escribiste nada, no se manda una cadena vacía como respuesta.
                     default => trim($this->entrada),
@@ -751,7 +795,7 @@ final class AgentScreen implements SurfaceBroadcaster
                     $this->conversation[] = [
                         'quien' => 'agente',
                         'voz' => 'sistema',
-                        'texto' => '· escribe tu respuesta antes de Enter, o elige «' . ($abierta[0] ?? 'sí')
+                        'texto' => '· escribe tu respuesta antes de Enter, o elige «' . ($abierta[0] ?? \Milpa\AppRuntime\Agent\AffirmativeAnswer::YES)
                             . '» o «' . ($abierta[1] ?? 'no') . '» con ← →',
                     ];
                     $this->loop->repintarTodo();
@@ -819,6 +863,16 @@ final class AgentScreen implements SurfaceBroadcaster
             // conversación que tapa, y el pintado por diferencias dejaría las de abajo intactas —
             // el selector saldría montado sobre la charla anterior.
             $this->loop->repintarTodo();
+
+            return;
+        }
+
+        // A STALE KERNEL DOES NOT RUN IT (greenhouse decisions/0519). Another process changed the house since
+        // this one booted — a plugin disabled, a config written —, and a turn here would offer the agent the
+        // tools and the model of before. Nothing is sent and nothing is cleared: the screen closes, and the
+        // clean process that opens on this session sends exactly this.
+        if ($this->vigente !== null && !($this->vigente)()) {
+            $this->retenida = true;
 
             return;
         }
@@ -922,7 +976,7 @@ final class AgentScreen implements SurfaceBroadcaster
                 $this->conversation[] = [
                     'quien' => 'agente',
                     'voz' => 'sistema',
-                    'texto' => '· para autorizarla, elige «' . ($sesion->question->options[0] ?? 'sí')
+                    'texto' => '· para autorizarla, elige «' . ($sesion->question->options[0] ?? \Milpa\AppRuntime\Agent\AffirmativeAnswer::YES)
                         . '» con ← → y Enter; para seguir sin ella, pide otra cosa',
                 ];
                 $this->loop->repintarTodo();

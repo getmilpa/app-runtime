@@ -182,6 +182,7 @@ final class GateAdmitsConfirmedIntentTest extends TestCase
         $question = $store->load('s1')?->question;
         self::assertNotNull($question);
         self::assertSame('target_not_named', $question->reason, 'the pause is the intent question, not perm:');
+        self::assertSame(['yes', 'no'], $question->options, 'an English question offers English answers (decisions/0518)');
 
         // The human answers the intent question — ONCE.
         $store->answer('s1', $question->id, 'sí');

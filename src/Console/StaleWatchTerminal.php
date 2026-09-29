@@ -34,6 +34,9 @@ final class StaleWatchTerminal implements TerminalInterface
 
     private ?string $stale = null;
 
+    /** Whether the kernel was found current at least once — a house that had settled when this screen ran (0519). */
+    private bool $settled = false;
+
     /** Wraps the real terminal and the definition of the kernel the screen was built from; asks every `$every` seconds. */
     public function __construct(
         private readonly TerminalInterface $terminal,
@@ -47,6 +50,41 @@ final class StaleWatchTerminal implements TerminalInterface
     public function staleBecause(): ?string
     {
         return $this->stale;
+    }
+
+    /**
+     * Asks NOW, not at the next tick — for a screen about to act on what the person just pressed (greenhouse decisions/0519).
+     *
+     * The tick asks every {@see self::EVERY} seconds, so an Enter that lands inside that half second would run on a
+     * kernel another process already changed. A stale answer is kept: the loop receives the closing key on its next
+     * poll, exactly as if the tick had found it.
+     */
+    public function staleNow(): ?string
+    {
+        if ($this->stale === null) {
+            $this->asked = microtime(true);
+            $this->ask();
+        }
+
+        return $this->stale;
+    }
+
+    /**
+     * Whether any question found the kernel current before it went stale.
+     *
+     * The line between a house that changed while a person used the screen — every change a person makes, however
+     * many in a row — and a boot that rewrites what it reads, which is stale at its very first question and would
+     * restart forever (greenhouse decisions/0519, the ceiling of 0507 §8 made exact).
+     */
+    public function settled(): bool
+    {
+        return $this->settled;
+    }
+
+    private function ask(): void
+    {
+        $this->stale = $this->definition->staleBecause();
+        $this->settled = $this->settled || $this->stale === null;
     }
 
     /** Starts the real terminal. */
@@ -76,7 +114,7 @@ final class StaleWatchTerminal implements TerminalInterface
         $now = microtime(true);
         if ($now - $this->asked >= $this->every) {
             $this->asked = $now;
-            $this->stale = $this->definition->staleBecause();
+            $this->ask();
             if ($this->stale !== null) {
                 return "\x03";
             }
