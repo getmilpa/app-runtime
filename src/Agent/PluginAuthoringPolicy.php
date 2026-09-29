@@ -179,6 +179,9 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
     {
         $context = $authority ?? ToolContext::cli();
         $name = McpProjector::toolName($operation->name);
+        if (self::permissionJudgedOnTheWeb($operation, $name, $context)) {
+            return $next();
+        }
         $tool = new ToolDefinition(
             $name,
             $operation->description,
@@ -231,6 +234,22 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             $data['to_apply'] = ['operation' => 'sandbox:promote', 'arguments' => ['workspace' => $plan->workspace->id]];
         }
         return $data;
+    }
+
+    /**
+     * A mutation typed by `permission` declares its authority, and over HTTP that authority was already judged.
+     *
+     * `Operation` holds `scopes` XOR `permission`, so empty scopes do not mean "declares no authority".
+     * `HttpProjector` serves a permissioned operation only through an `OperationHttpPolicy`, which enforces the
+     * permission before the runner reaches this boundary. Other channels keep the refusal. Authoring and sandbox
+     * calls keep their own checks.
+     */
+    private static function permissionJudgedOnTheWeb(Operation $operation, string $name, ToolContext $context): bool
+    {
+        return $operation->permission !== null
+            && $operation->scopes === []
+            && $context->channel === 'web'
+            && !in_array($name, [...self::BUILD, 'sandbox_promote', 'sandbox_undo', 'sandbox_discard'], true);
     }
 
     /**
