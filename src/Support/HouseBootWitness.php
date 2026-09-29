@@ -284,6 +284,10 @@ final class HouseBootWitness implements BootWitnessInterface
             }
             if (is_file($staged)) {
                 $bytes = strtr((string) file_get_contents($staged), $urls);
+                if (is_file($this->root . '/' . $file) && file_get_contents($this->root . '/' . $file) === $bytes) {
+                    // What Composer left as it was is not written: an update does not touch composer.json.
+                    continue;
+                }
                 // WRITE-THEN-RENAME: the house never reads a half-written composer.json.
                 file_put_contents($this->root . '/' . $file . '.witness-tmp', $bytes);
                 rename($this->root . '/' . $file . '.witness-tmp', $this->root . '/' . $file);

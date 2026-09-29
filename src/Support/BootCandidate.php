@@ -139,7 +139,8 @@ final class BootCandidate
     {
         $root = rtrim($root, '/');
         $path = $root . '/var/boot-candidates/' . bin2hex(random_bytes(6));
-        if (!mkdir($path . '/var', 0o777, true) && !is_dir($path . '/var')) {
+        // Silenced: its failure is said by the exception, as the refusal's reason.
+        if (!@mkdir($path . '/var', 0o777, true) && !is_dir($path . '/var')) {
             throw new \RuntimeException('could not make a directory for the stage');
         }
         $candidate = new self($path);
