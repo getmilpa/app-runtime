@@ -60,6 +60,18 @@ final class KernelSupervisor
      */
     public const STALE_IN_A_ROW = 5;
 
+    /**
+     * What a terminal child writes on the second line of its handoff when its kernel had been found current at least once.
+     *
+     * Only children that never saw a settled house count toward {@see STALE_IN_A_ROW}: five changes a person makes in
+     * ten seconds are five healthy children, not a loop (greenhouse evidence/1053 — the time window of 0507 closed the
+     * chat, the shell and the panel on them).
+     */
+    public const SETTLED = 'settled';
+
+    /** Where a terminal child finds what the stale one before it handed over (greenhouse decisions/0519). */
+    public const HANDOFF = 'MILPA_TERMINAL_HANDOFF';
+
     /** @var \Closure(): list<string> */
     private readonly \Closure $child;
 
@@ -182,41 +194,79 @@ final class KernelSupervisor
      * Run a terminal child until it leaves for a reason other than a stale kernel — its exit code.
      *
      * The child inherits the terminal itself (no relay: a screen is keystrokes and paint, not messages) plus a pipe
-     * on descriptor 3 where a stale child writes what it was showing, so the next one opens there.
+     * on descriptor 3 where a stale child writes what it was showing, so the next one opens there. What it wrote
+     * also reaches the next child in its environment ({@see HANDOFF}) and not only in the argv `$child` builds: a
+     * chat hands over the text the person was typing, and an argv is readable by every user of the machine
+     * (greenhouse decisions/0519).
      *
-     * @param callable(?string): list<string> $child the command that starts a child, given what the last one showed
+     * @param callable(?string): list<string> $child   the command that starts a child, given what the last one showed
+     * @param string                          $surface what the person calls this screen — `panel`, `chat`, `shell` — in what it is told
+     * @param null|callable(string): ?string  $held    what the person would lose if the next child never boots, read from the
+     *                                                 last handoff — said once, with the reason, instead of vanishing
+     * @param resource|null                   $errors  where the supervisor's own lines go — the terminal's STDERR unless a test listens
      */
-    public static function terminal(callable $child, string $cwd, ?string $showing = null): int
+    public static function terminal(callable $child, string $cwd, ?string $showing = null, string $surface = 'panel', ?callable $held = null, $errors = null): int
     {
-        $inARow = 0;
-        $since = microtime(true);
-        while (true) {
-            $process = proc_open($child($showing), [0 => \STDIN, 1 => \STDOUT, 2 => \STDERR, 3 => ['pipe', 'w']], $pipes, $cwd);
-            if (!\is_resource($process)) {
-                fwrite(\STDERR, "✗ the panel could not start a process of the house\n");
+        $errors ??= \STDERR;
+        try {
+            $inARow = 0;
+            $handoff = null;
+            while (true) {
+                // In THIS process's environment, which the child inherits whole. Handing proc_open an array instead
+                // rebuilds it, and PHP drops every variable whose value is empty — measured: the child lost one the
+                // person's shell had set (evidence/1053). The child must see the environment the person started with.
+                putenv($handoff !== null ? self::HANDOFF . '=' . $handoff : self::HANDOFF);
+                $process = proc_open($child($showing), [0 => \STDIN, 1 => \STDOUT, 2 => \STDERR, 3 => ['pipe', 'w']], $pipes, $cwd);
+                if (!\is_resource($process)) {
+                    fwrite($errors, "✗ the {$surface} could not start a process of the house\n");
 
-                return 1;
-            }
-            $handoff = trim((string) stream_get_contents($pipes[3]));
-            fclose($pipes[3]);
-            $code = proc_close($process);
-            if ($code !== self::STALE) {
-                if ($code !== 0 && $code !== 130) {
-                    fwrite(\STDERR, "✗ the house did not start (exit {$code}); the panel closed. What it said is above; undo what changed and open it again.\n");
+                    return 1;
                 }
+                [$written, $settled] = explode("\n", (string) stream_get_contents($pipes[3]), 2) + [1 => ''];
+                $written = trim($written);
+                fclose($pipes[3]);
+                $code = proc_close($process);
+                if ($code !== self::STALE) {
+                    if ($code !== 0 && $code !== 130) {
+                        fwrite($errors, "✗ the house did not start (exit {$code}); the {$surface} closed. What it said is above; undo what changed and open it again.\n");
+                        $lost = $handoff !== null && $held !== null ? $held($handoff) : null;
+                        if ($lost !== null && $lost !== '') {
+                            fwrite($errors, $lost . "\n");
+                        }
+                    }
 
-                return $code;
-            }
-            $showing = $handoff !== '' ? $handoff : $showing;
-            // The same ceiling as the relay: a kernel stale on every boot must not become a flickering loop.
-            $inARow = microtime(true) - $since < 10.0 ? $inARow + 1 : 1;
-            $since = microtime(true);
-            if ($inARow >= self::STALE_IN_A_ROW) {
-                fwrite(\STDERR, '✗ the house changed ' . self::STALE_IN_A_ROW . " times in a row while the panel was starting; it stopped. Open it again when it settles.\n");
+                    return $code;
+                }
+                if ($written !== '') {
+                    $handoff = $written;
+                    $showing = $written;
+                }
+                // The same ceiling as the relay, with the same measure: stale exits of children that never served. A child
+                // whose kernel was current at least once served the person — however soon the next change came.
+                $inARow = trim($settled) === self::SETTLED ? 0 : $inARow + 1;
+                if ($inARow >= self::STALE_IN_A_ROW) {
+                    fwrite($errors, '✗ the house changed ' . self::STALE_IN_A_ROW . " times in a row while the {$surface} was starting; it stopped. Open it again when it settles.\n");
 
-                return 1;
+                    return 1;
+                }
             }
+        } finally {
+            // The supervisor's own environment carries nothing past the children it handed it to.
+            putenv(self::HANDOFF);
         }
+    }
+
+    /**
+     * What the last child of {@see terminal()} handed to this one — null when this is the first, or not a terminal child.
+     *
+     * Read once: the variable is removed from this process, so a tool the child runs does not inherit it.
+     */
+    public static function handedOver(): ?string
+    {
+        $handoff = getenv(self::HANDOFF);
+        putenv(self::HANDOFF);
+
+        return \is_string($handoff) && $handoff !== '' ? $handoff : null;
     }
 
     /** A line from the client: remember every request until its answer comes back, then hand it to the child. */
