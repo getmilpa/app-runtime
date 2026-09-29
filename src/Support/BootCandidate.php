@@ -47,9 +47,18 @@ final class BootCandidate
      * Files that hold secrets: LINKED into the candidate, never copied — a secret does not get a second file.
      *
      * `.milpa/secrets.json` is where `provider:declare` keeps a credential (SecretOverlay); the first candidate
-     * copied it with the rest of `.milpa/` (found in greenhouse decisions/0515).
+     * copied it with the rest of `.milpa/` (found in greenhouse decisions/0515). `auth.json` is Composer's own
+     * credential file (a registry token): a staged composer run reads it through the link (decisions/0527).
      */
-    private const LINKED = ['.env', '.milpa/secrets.json'];
+    private const LINKED = ['.env', '.milpa/secrets.json', 'auth.json'];
+
+    /**
+     * Symlinks in a staged `vendor/` that pointed OUTSIDE it by a relative path (a Composer path repository),
+     * made absolute so they resolve from the stage — link path relative to the stage → what it held.
+     *
+     * @var array<string, array{was: string, set: string}>
+     */
+    private array $relinked = [];
 
     private function __construct(public readonly string $path)
     {
@@ -105,6 +114,81 @@ final class BootCandidate
         }
 
         return $candidate;
+    }
+
+    /**
+     * A candidate Composer can WRITE: the house copied as {@see of()} does, but `vendor/` a full copy of its own.
+     *
+     * ── WHY NOT THE LINKED `vendor/` (greenhouse decisions/0527) ────────────────────────────────────
+     *
+     * {@see of()} links every package directory to the live one: nothing in the candidate writes there. A
+     * staged `composer require`/`update`/`remove` writes exactly there — it removes a package's directory and
+     * unpacks another, rewrites `vendor/composer/`, and a Composer plugin may write where it likes. Through a
+     * link, every one of those writes would land on the LIVE `vendor/`, and the copy would be the house. So
+     * the stage's `vendor/` is a real copy: `cp -a --reflink=auto`, which on a copy-on-write filesystem (btrfs,
+     * XFS, APFS through its own `cp`) costs no data blocks, and elsewhere is a plain copy. Hard links were
+     * refused: a file rewritten in place (`installed.json`, a bin proxy, a plugin's own output) is the same
+     * inode in both trees.
+     *
+     * A relative link that pointed outside `vendor/` (a path repository) would resolve from the stage to
+     * nowhere; it is made absolute here and given back its own form by {@see relinkFor()} before it lands.
+     *
+     * @throws \RuntimeException when the stage cannot be built
+     */
+    public static function staged(string $root): self
+    {
+        $root = rtrim($root, '/');
+        $path = $root . '/var/boot-candidates/' . bin2hex(random_bytes(6));
+        if (!mkdir($path . '/var', 0o777, true) && !is_dir($path . '/var')) {
+            throw new \RuntimeException('could not make a directory for the stage');
+        }
+        $candidate = new self($path);
+        try {
+            self::copyTree($root, $path, true);
+            foreach (self::LINKED as $secret) {
+                if (is_file($root . '/' . $secret)) {
+                    if (!is_dir(\dirname($path . '/' . $secret))) {
+                        mkdir(\dirname($path . '/' . $secret), 0o777, true);
+                    }
+                    symlink($root . '/' . $secret, $path . '/' . $secret);
+                }
+            }
+            if (is_dir($root . '/vendor')) {
+                self::copyVendor($root . '/vendor', $path . '/vendor');
+                $candidate->relinked = self::absolutize($root . '/vendor', $path . '/vendor');
+            }
+        } catch (\Throwable $e) {
+            $candidate->remove();
+
+            throw $e instanceof \RuntimeException ? $e : new \RuntimeException($e->getMessage(), 0, $e);
+        }
+
+        return $candidate;
+    }
+
+    /**
+     * Give the stage's `vendor/` the links it will need once it is the house's: every link that leaves it is
+     * re-pointed from `$liveVendor` — the one this stage made absolute back to its own string, one Composer
+     * wrote relative to the stage re-computed relative to the house.
+     */
+    public function relinkFor(string $liveVendor): void
+    {
+        $vendor = $this->path . '/vendor';
+        foreach (self::linksIn($vendor) as $relative => $target) {
+            if (isset($this->relinked[$relative]) && $target === $this->relinked[$relative]['set']) {
+                $new = $this->relinked[$relative]['was'];
+            } elseif (!str_starts_with($target, '/')) {
+                $resolved = self::normalize(\dirname($vendor . '/' . $relative) . '/' . $target);
+                if (str_starts_with($resolved, $vendor . '/')) {
+                    continue;
+                }
+                $new = self::relativeFrom(\dirname(rtrim($liveVendor, '/') . '/' . $relative), $resolved);
+            } else {
+                continue;
+            }
+            unlink($vendor . '/' . $relative);
+            symlink($new, $vendor . '/' . $relative);
+        }
     }
 
     /** Remove the candidate — links are removed, never followed. */
@@ -169,6 +253,106 @@ final class BootCandidate
                 symlink($from . '/' . $name, $to . '/' . $name);
             }
         }
+    }
+
+    /**
+     * `vendor/` copied whole, copy-on-write where the filesystem can: GNU `cp`, and a plain copy when it is absent.
+     */
+    private static function copyVendor(string $from, string $to): void
+    {
+        $out = [];
+        $code = 1;
+        if (\function_exists('exec')) {
+            @exec('cp -a --reflink=auto ' . escapeshellarg($from) . ' ' . escapeshellarg($to) . ' 2>&1', $out, $code);
+        }
+        if ($code === 0 && is_dir($to)) {
+            return;
+        }
+        if (is_dir($to)) {
+            (new self($to))->remove();
+        }
+        mkdir($to, 0o777);
+        self::copyTree($from, $to, false);
+    }
+
+    /**
+     * Make absolute every relative link in the staged `vendor/` that leaves it; return what each one held.
+     *
+     * @return array<string, array{was: string, set: string}>
+     */
+    private static function absolutize(string $liveVendor, string $stagedVendor): array
+    {
+        $held = [];
+        foreach (self::linksIn($stagedVendor) as $relative => $target) {
+            if (str_starts_with($target, '/')) {
+                continue;
+            }
+            $resolved = self::normalize(\dirname($liveVendor . '/' . $relative) . '/' . $target);
+            if (str_starts_with($resolved, rtrim($liveVendor, '/') . '/')) {
+                continue;
+            }
+            unlink($stagedVendor . '/' . $relative);
+            symlink($resolved, $stagedVendor . '/' . $relative);
+            $held[$relative] = ['was' => $target, 'set' => $resolved];
+        }
+
+        return $held;
+    }
+
+    /**
+     * Every symlink under a directory (links are not followed), relative path → what it holds.
+     *
+     * @return array<string, string>
+     */
+    private static function linksIn(string $directory): array
+    {
+        $links = [];
+        if (!is_dir($directory)) {
+            return $links;
+        }
+        $entries = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST,
+        );
+        foreach ($entries as $entry) {
+            /** @var \SplFileInfo $entry */
+            if ($entry->isLink()) {
+                $links[substr($entry->getPathname(), \strlen($directory) + 1)] = (string) readlink($entry->getPathname());
+            }
+        }
+
+        return $links;
+    }
+
+    /** `..` and `.` folded out of an absolute path, without asking the filesystem (the target may not exist). */
+    private static function normalize(string $path): string
+    {
+        $parts = [];
+        foreach (explode('/', $path) as $part) {
+            if ($part === '' || $part === '.') {
+                continue;
+            }
+            if ($part === '..') {
+                array_pop($parts);
+            } else {
+                $parts[] = $part;
+            }
+        }
+
+        return '/' . implode('/', $parts);
+    }
+
+    /** The relative path from directory `$from` to `$to`, both absolute. */
+    private static function relativeFrom(string $from, string $to): string
+    {
+        $a = array_values(array_filter(explode('/', self::normalize($from)), static fn (string $p): bool => $p !== ''));
+        $b = array_values(array_filter(explode('/', self::normalize($to)), static fn (string $p): bool => $p !== ''));
+        $common = 0;
+        while ($common < \count($a) && $common < \count($b) && $a[$common] === $b[$common]) {
+            ++$common;
+        }
+
+        return str_repeat('../', \count($a) - $common) . implode('/', \array_slice($b, $common));
     }
 
     private static function made(string $directory): string

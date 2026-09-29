@@ -24,8 +24,10 @@ use Milpa\ToolRuntime\Identity\VerifiedSigner;
 use Milpa\AppRuntime\Agent\SurfaceBroadcaster;
 use Milpa\AppRuntime\Agent\SurfaceComposition;
 use Milpa\AppRuntime\Support\Capabilities;
+use Milpa\AppRuntime\Support\HouseBootWitness;
 use Milpa\AppRuntime\Support\KernelDefinition;
 use Milpa\AppRuntime\Support\PhpBinary;
+use Milpa\AppRuntime\Support\StagedComposerRunner;
 use Milpa\DevTools\Doctor\Repair;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Operation;
@@ -1182,7 +1184,9 @@ final class Application
         $seco = \in_array('--dry-run', $resto, true);
         $paquetes = array_values(array_filter($resto, static fn (string $a): bool => !str_starts_with($a, '-')));
 
-        $r = \Milpa\DevTools\Doctor\Update::apply($this->root, $seco, $paquetes);
+        // THE UPDATE BOOTS A STAGE BEFORE IT LANDS (greenhouse decisions/0527): no kernel is needed for that either.
+        $staged = new StagedComposerRunner($this->root, new HouseBootWitness($this->root));
+        $r = \Milpa\DevTools\Doctor\Update::apply($this->root, $seco, $paquetes, $staged) + $staged->said();
 
         foreach ($r as $clave => $valor) {
             if ($clave === 'would' && \is_array($valor)) {
@@ -1233,7 +1237,9 @@ final class Application
             return 1;
         }
 
-        $r = Repair::apply($this->root, $paquete, $seco);
+        // As recovery (decisions/0527): what a repair installs is what a house that may not boot is missing.
+        $staged = new StagedComposerRunner($this->root, new HouseBootWitness($this->root), recovery: true);
+        $r = Repair::apply($this->root, $paquete, $seco, null, $staged) + $staged->said();
 
         foreach ($r as $clave => $valor) {
             $this->line(sprintf('%-12s %s', $clave . ':', \is_scalar($valor) ? (string) $valor : (string) json_encode($valor)));

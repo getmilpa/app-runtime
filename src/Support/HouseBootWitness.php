@@ -42,6 +42,10 @@ use Milpa\Plugin\Contracts\BootWitnessInterface;
  *
  * A house with no `vendor/autoload.php` is not a house that boots at all; there is nothing to witness, and
  * the write happens as it always did — the same condition `sandbox:promote` uses.
+ *
+ * Composer is a writer of what the house boots too — `vendor/`, `composer.json`, `composer.lock` — and its
+ * bytes cannot be named before it runs, so it has its own door, {@see composeIfItBoots()}, under the same
+ * three rules (decisions/0527).
  */
 final class HouseBootWitness implements BootWitnessInterface
 {
@@ -124,5 +128,262 @@ final class HouseBootWitness implements BootWitnessInterface
             'refused' => 'The house did not boot after this change was written: ' . rtrim($after, '.') . '. It was put back to what it held.',
             'said' => ['rolled_back' => $paths, 'house_boots' => $this->probe->whyNot($this->root) === null, 'reason' => $after],
         ];
+    }
+
+    /**
+     * Run a Composer command on a staged copy of the house, boot it, and let it land only if it booted.
+     *
+     * ── WHY COMPOSER GETS ITS OWN DOOR (greenhouse decisions/0527) ──────────────────────────────────
+     *
+     * {@see writeIfItBoots()} is told the bytes before anything runs. Composer cannot say its bytes: what a
+     * `require` writes is decided by the resolver, the registry and the package's own archive, and
+     * `--dry-run` names packages, not files — it cannot be booted. So the command itself runs, on a stage
+     * ({@see BootCandidate::staged()}: the house copied, `vendor/` a copy-on-write copy of its own), and the
+     * stage is booted. The same three rules then hold:
+     *
+     *   1. The stage does not boot → nothing lands: the live `vendor/`, `composer.json` and `composer.lock` are
+     *      the ones that were there (`unwritten`), and `house_boots` says whether the house boots as it is.
+     *   2. With `$recovery`, a stage that does not boot on a house that does not boot either lands anyway
+     *      (`still_broken`); a «recovery» that would break a house that boots is refused.
+     *   3. What landed is asked again on the live house (0506's net); an ordinary change that fails it is put
+     *      back — the previous `vendor/` renamed back, the two files rewritten (`rolled_back`).
+     *
+     * It lands by SWAPPING, not by running Composer again: the live `vendor/` is renamed into the stage and the
+     * stage's `vendor/` renamed into the house — two renames on one filesystem, so the house never serves a
+     * half-installed tree, and what serves is the very tree that booted. Only `vendor/`, `composer.json` and
+     * `composer.lock` are taken from the stage; anything else a Composer plugin wrote there is left behind.
+     * When the stage is not on the house's filesystem the rename cannot happen, and the command runs again on
+     * the live house (`landed_by: rerun`), still only after its stage booted.
+     *
+     * A Composer failure (a conflict, no network) is Composer's answer, returned as `code`/`output` — and it
+     * touched only the stage.
+     *
+     * @param string                                                        $command the Composer command, without `--no-interaction`
+     * @param null|callable(string, string): array{0: int, 1: list<string>} $run     runs a command in a directory
+     *
+     * @return array{refused: ?string, said: array<string, mixed>, code: int, output: list<string>}
+     */
+    public function composeIfItBoots(string $command, ?callable $run = null, bool $recovery = false): array
+    {
+        $run ??= static function (string $cmd, string $cwd): array {
+            $out = [];
+            $code = 1;
+            exec('cd ' . escapeshellarg($cwd) . ' && ' . $cmd . ' 2>&1', $out, $code);
+
+            return [$code, $out];
+        };
+        $command .= ' --no-interaction';
+        if (!is_file($this->root . '/vendor/autoload.php')) {
+            [$code, $out] = $run($command, $this->root);
+
+            return ['refused' => null, 'said' => [], 'code' => $code, 'output' => $out];
+        }
+        $files = ['composer.json', 'composer.lock'];
+        $paths = [...$files, 'vendor/'];
+
+        try {
+            $stage = BootCandidate::staged($this->root);
+        } catch (\RuntimeException $e) {
+            return [
+                'refused' => 'The house as it would be could not be staged to boot it: ' . $e->getMessage() . '. Nothing was written.',
+                'said' => ['unwritten' => $paths, 'house_boots' => $this->probe->whyNot($this->root) === null, 'reason' => $e->getMessage()],
+                'code' => 1,
+                'output' => [],
+            ];
+        }
+        try {
+            $urls = self::pathRepositoriesMadeAbsolute($this->root, $stage->path);
+            [$code, $out] = $run($command, $stage->path);
+            if ($code !== 0) {
+                return ['refused' => null, 'said' => ['unwritten' => $paths], 'code' => $code, 'output' => $out];
+            }
+
+            $why = $this->probeBefore ? $this->probe->whyNot($stage->path) : null;
+            $why = $why === null ? null : BootProbe::oneLine($why, $stage->path);
+            if ($why !== null) {
+                $now = $this->probe->whyNot($this->root);
+                if (!$recovery || $now === null) {
+                    return [
+                        'refused' => 'The house does not boot with this change: ' . rtrim($why, '.') . '. Nothing was written; the house '
+                            . ($now === null ? 'boots as it is.' : 'does not boot as it is either: ' . $now . '.'),
+                        'said' => ['unwritten' => $paths, 'house_boots' => $now === null, 'reason' => $why],
+                        'code' => $code,
+                        'output' => $out,
+                    ];
+                }
+            }
+
+            $before = [];
+            foreach ($files as $file) {
+                $before[$file] = is_file($this->root . '/' . $file) ? (string) file_get_contents($this->root . '/' . $file) : null;
+            }
+            $landedBy = $this->swapIn($stage, $files, $urls);
+            if ($landedBy === null) {
+                [$code, $out] = $run($command, $this->root);
+                $landedBy = 'rerun';
+                if ($code !== 0) {
+                    return ['refused' => null, 'said' => ['landed_by' => $landedBy], 'code' => $code, 'output' => $out];
+                }
+            }
+            CompiledCode::forget($this->root, ['vendor/autoload.php', ...self::composerMaps($this->root)]);
+
+            $after = $this->probe->whyNot($this->root);
+            if ($after === null) {
+                return ['refused' => null, 'said' => ['house_boots' => true, 'landed_by' => $landedBy], 'code' => $code, 'output' => $out];
+            }
+            if ($recovery && $why !== null) {
+                return ['refused' => null, 'said' => ['house_boots' => false, 'still_broken' => $after, 'landed_by' => $landedBy], 'code' => $code, 'output' => $out];
+            }
+            $this->putBack($stage, $before);
+            CompiledCode::forget($this->root, ['vendor/autoload.php', ...self::composerMaps($this->root)]);
+
+            return [
+                'refused' => 'The house did not boot after this change was written: ' . rtrim($after, '.') . '. It was put back to what it held.',
+                'said' => ['rolled_back' => $paths, 'house_boots' => $this->probe->whyNot($this->root) === null, 'reason' => $after],
+                'code' => $code,
+                'output' => $out,
+            ];
+        } finally {
+            $stage->remove();
+        }
+    }
+
+    /**
+     * The stage's `vendor/` becomes the house's, and its two files are written — or null when a rename cannot.
+     *
+     * @param list<string>          $files
+     * @param array<string, string> $urls  what {@see pathRepositoriesMadeAbsolute()} changed, absolute → as written
+     */
+    private function swapIn(BootCandidate $stage, array $files, array $urls): ?string
+    {
+        $stage->relinkFor($this->root . '/vendor');
+        if (!@rename($this->root . '/vendor', $stage->path . '/vendor.previous')) {
+            return null;
+        }
+        if (!@rename($stage->path . '/vendor', $this->root . '/vendor')) {
+            rename($stage->path . '/vendor.previous', $this->root . '/vendor');
+
+            return null;
+        }
+        foreach ($files as $file) {
+            $staged = $stage->path . '/' . $file;
+            // The file that was here is kept aside by a second name (the same inode), so a put-back is a rename.
+            if (is_file($this->root . '/' . $file)) {
+                @link($this->root . '/' . $file, $stage->path . '/' . $file . '.previous');
+            }
+            if (is_file($staged)) {
+                $bytes = strtr((string) file_get_contents($staged), $urls);
+                // WRITE-THEN-RENAME: the house never reads a half-written composer.json.
+                file_put_contents($this->root . '/' . $file . '.witness-tmp', $bytes);
+                rename($this->root . '/' . $file . '.witness-tmp', $this->root . '/' . $file);
+            } elseif (is_file($this->root . '/' . $file)) {
+                unlink($this->root . '/' . $file);
+            }
+        }
+        if ($urls !== [] && is_file($this->root . '/composer.lock')) {
+            $lock = (string) file_get_contents($this->root . '/composer.lock');
+            $hash = self::contentHash((string) file_get_contents($this->root . '/composer.json'));
+            $lock = (string) preg_replace('/("content-hash":\s*")[0-9a-f]{32}(")/', '${1}' . $hash . '${2}', $lock, 1);
+            file_put_contents($this->root . '/composer.lock.witness-tmp', $lock);
+            rename($this->root . '/composer.lock.witness-tmp', $this->root . '/composer.lock');
+        }
+
+        return 'swap';
+    }
+
+    /**
+     * The `vendor/` that booted before goes back, and the two files get the bytes they held.
+     *
+     * @param array<string, ?string> $before
+     */
+    private function putBack(BootCandidate $stage, array $before): void
+    {
+        if (is_dir($stage->path . '/vendor.previous')) {
+            rename($this->root . '/vendor', $stage->path . '/vendor.rejected');
+            rename($stage->path . '/vendor.previous', $this->root . '/vendor');
+        }
+        foreach ($before as $file => $bytes) {
+            if ($bytes === null) {
+                @unlink($this->root . '/' . $file);
+
+                continue;
+            }
+            $kept = $stage->path . '/' . $file . '.previous';
+            if (is_file($kept) && file_get_contents($kept) === $bytes && @rename($kept, $this->root . '/' . $file)) {
+                continue;
+            }
+            file_put_contents($this->root . '/' . $file . '.witness-tmp', $bytes);
+            rename($this->root . '/' . $file . '.witness-tmp', $this->root . '/' . $file);
+        }
+    }
+
+    /**
+     * A path repository written relative resolves from the working directory; in the stage that is the wrong one.
+     * Its url string is made absolute in the STAGE's composer.json (the file's own formatting kept), and before
+     * it lands every recorded copy of it gets back the string as written.
+     *
+     * @return array<string, string> the quoted, JSON-escaped absolute url → the same for the url as written
+     */
+    private static function pathRepositoriesMadeAbsolute(string $root, string $stage): array
+    {
+        $file = $stage . '/composer.json';
+        $bytes = is_file($file) ? (string) file_get_contents($file) : '';
+        $json = json_decode($bytes, true);
+        if (!\is_array($json) || !\is_array($json['repositories'] ?? null)) {
+            return [];
+        }
+        $map = [];
+        foreach ($json['repositories'] as $repository) {
+            $url = \is_array($repository) ? ($repository['url'] ?? null) : null;
+            if (($repository['type'] ?? null) !== 'path' || !\is_string($url) || $url === '' || str_starts_with($url, '/')) {
+                continue;
+            }
+            $absolute = rtrim($root, '/') . '/' . $url;
+            foreach ([0, \JSON_UNESCAPED_SLASHES] as $flags) {
+                $map[(string) json_encode($absolute, $flags)] = (string) json_encode($url, $flags);
+            }
+        }
+        if ($map !== []) {
+            file_put_contents($file, strtr($bytes, array_flip($map)));
+        }
+
+        return $map;
+    }
+
+    /**
+     * Composer's own content hash of a composer.json (`Composer\Package\Locker::getContentHash()`), so a lock
+     * whose repository strings were given back still matches the file it locks.
+     */
+    public static function contentHash(string $composerJson): string
+    {
+        $content = json_decode($composerJson, true);
+        $content = \is_array($content) ? $content : [];
+        $relevant = [];
+        foreach (['name', 'version', 'require', 'require-dev', 'conflict', 'replace', 'provide', 'minimum-stability', 'prefer-stable', 'repositories', 'extra'] as $key) {
+            if (isset($content[$key])) {
+                $relevant[$key] = $content[$key];
+            }
+        }
+        if (isset($content['config']['platform'])) {
+            $relevant['config']['platform'] = $content['config']['platform'];
+        }
+        ksort($relevant);
+
+        return md5((string) json_encode($relevant));
+    }
+
+    /**
+     * The autoloader's own maps under `vendor/composer/` — the files OPcache must forget after a swap.
+     *
+     * @return list<string>
+     */
+    private static function composerMaps(string $root): array
+    {
+        $maps = [];
+        foreach (glob($root . '/vendor/composer/*.php') ?: [] as $file) {
+            $maps[] = 'vendor/composer/' . basename($file);
+        }
+
+        return $maps;
     }
 }
