@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [0.202.0](https://github.com/getmilpa/app-runtime/compare/v0.201.0...v0.202.0) (2026-09-29)
+
+
+### Features
+
+* **agent:** a session the house verified answers a continue without a model call ([#654](https://github.com/getmilpa/app-runtime/issues/654)) ([c612f22](https://github.com/getmilpa/app-runtime/commit/c612f22a33d65d06b1dcd6227d8e7bc3130f5587))
+* **witness:** composer boots a staged copy of the house before it lands ([#656](https://github.com/getmilpa/app-runtime/issues/656)) ([3016d21](https://github.com/getmilpa/app-runtime/commit/3016d2121693ee329c151a3121701e302b8a4f2a))
+
+
+### Bug Fixes
+
+* **agent:** a seat carries the plugin switch it made in its trial into the house ([#659](https://github.com/getmilpa/app-runtime/issues/659)) ([6f878c1](https://github.com/getmilpa/app-runtime/commit/6f878c17257195194f678bb9221fbd2046e73924))
+* **agent:** a writer the house boots a copy for still boots it inside a leg's trial ([#657](https://github.com/getmilpa/app-runtime/issues/657)) ([59346ff](https://github.com/getmilpa/app-runtime/commit/59346ff8527b1937b2e774f982db4b039982ff41))
+* **console:** coa chat, coa shell and coa mcp sign for nobody either ([#655](https://github.com/getmilpa/app-runtime/issues/655)) ([d977663](https://github.com/getmilpa/app-runtime/commit/d977663699135b927199594a7a02940d86774da5))
+* **passkey:** a house from 0.200.x keeps booting on 0.201, held to the origins a new house gets written ([#662](https://github.com/getmilpa/app-runtime/issues/662)) ([6b96e5a](https://github.com/getmilpa/app-runtime/commit/6b96e5a6f12da5a5e8ab54ad7b5ce4d9c32caa85))
+
 ## [0.201.0](https://github.com/getmilpa/app-runtime/compare/v0.200.3...v0.201.0) (2026-09-29)
 
 
