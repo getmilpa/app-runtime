@@ -15,7 +15,9 @@ declare(strict_types=1);
 // A stand-in for `coa mcp --child` with the same contract and none of the kernel: it remembers the generation it
 // booted with (`<state>/generation`) and leaves with 75 BEFORE running a request when that changed, or AFTER a
 // `bump` request that changes it. Every request it RUNS is appended to `<state>/ran.log`; every boot to
-// `<state>/starts.log`. `<state>/broken` makes it die at boot; `<state>/tools.json` is what it lists.
+// `<state>/starts.log`. `<state>/broken` makes it die at boot; `<state>/restless` makes every boot rewrite the
+// generation (a kernel that is stale the moment it starts); `die` ends the process mid-call; `<state>/tools.json` is
+// what it lists.
 $state = $argv[1];
 file_put_contents($state . '/starts.log', "start\n", \FILE_APPEND);
 if (is_file($state . '/broken')) {
@@ -24,6 +26,9 @@ if (is_file($state . '/broken')) {
 }
 $generation = static fn (): string => is_file($state . '/generation') ? (string) file_get_contents($state . '/generation') : '0';
 $booted = $generation();
+if (is_file($state . '/restless')) {
+    file_put_contents($state . '/generation', (string) ((int) $booted + 1));
+}
 $write = static function (array $message): void {
     fwrite(\STDOUT, json_encode($message) . "\n");
     fflush(\STDOUT);
@@ -42,6 +47,10 @@ while (($line = fgets(\STDIN)) !== false) {
     $tag = (string) ($request['params']['tag'] ?? '');
     if ($method !== 'ping' && $method !== 'tools/list') {
         file_put_contents($state . '/ran.log', "{$method} {$tag} {$booted}\n", \FILE_APPEND);
+    }
+    if ($method === 'die') {
+        fwrite(\STDERR, "✗ died while serving\n");
+        exit(3);
     }
     if ($method === 'echo-garbage') {
         fwrite(\STDOUT, "an echo somewhere in the house\n");

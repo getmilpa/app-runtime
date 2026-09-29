@@ -121,14 +121,13 @@ final class KernelSupervisor
         $this->start();
         $clientOpen = true;
 
-        while ($clientOpen || $this->pending !== []) {
-            $read = $clientOpen ? [$this->in] : [];
+        // Until the client closes its end — then nobody reads another answer. {@see stop()} lets the child finish the
+        // call it is running and leave; the relay does not wait for answers it could no longer deliver.
+        while ($clientOpen) {
+            $read = [$this->in];
             if ($this->process !== null) {
                 $read[] = $this->pipes[1];
                 $read[] = $this->pipes[2];
-            }
-            if ($read === []) {
-                break;
             }
             $write = $except = null;
             $quiet = $this->pending === [] && $this->process !== null;

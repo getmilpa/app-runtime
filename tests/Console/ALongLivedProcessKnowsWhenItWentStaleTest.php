@@ -24,21 +24,15 @@ use PHPUnit\Framework\TestCase;
 /**
  * `coa mcp` and `coa panel` outlive what defines the house (greenhouse decisions/0507, evidence/1040).
  *
- * The relay is driven for real, in its own process, over a stand-in child with the same contract as `coa mcp
- * --child` (exit 75 when stale, before or after a request): what is asserted is what crosses the client's wire and
- * what the children actually ran.
+ * The relay runs for real, IN this process, between two others: a scripted client (`Fixtures/supervisor/client.php`)
+ * on the client's side, and a stand-in child with the same contract as `coa mcp --child` (exit 75 when stale, before
+ * or after a request) on the other. What is asserted is what crossed the client's wire and what the children RAN.
  */
 final class ALongLivedProcessKnowsWhenItWentStaleTest extends TestCase
 {
+    private const INIT = ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize'];
+
     private string $state;
-
-    /** @var null|resource */
-    private $relay = null;
-
-    /** @var array<int, resource> */
-    private array $pipes = [];
-
-    private string $buffer = '';
 
     protected function setUp(): void
     {
@@ -48,118 +42,139 @@ final class ALongLivedProcessKnowsWhenItWentStaleTest extends TestCase
 
     protected function tearDown(): void
     {
-        if ($this->relay !== null) {
-            foreach ($this->pipes as $pipe) {
-                if (\is_resource($pipe)) {
-                    fclose($pipe);
-                }
-            }
-            // Terminated, not awaited: a relay that lost a request (a mutant) would otherwise keep this test hanging
-            // instead of failing it.
-            proc_terminate($this->relay);
-            proc_close($this->relay);
-        }
         foreach (glob($this->state . '/*') ?: [] as $file) {
-            unlink($file);
+            is_dir($file) ? rmdir($file) : unlink($file);
         }
         rmdir($this->state);
     }
 
     public function testARequestThatMeetsAStaleChildRunsOnceInTheNextOne(): void
     {
-        $this->start();
-        self::assertSame('0', $this->ask(1, 'work', 'a')['result']['generation']);
+        $seen = $this->relay([
+            ['send' => self::work(1, 'a')], ['expect' => 5],
+            ['write' => ['generation', '1']],
+            ['send' => self::work(2, 'b')], ['expect' => 5],
+        ]);
 
-        file_put_contents($this->state . '/generation', '1');
-        $answer = $this->ask(2, 'work', 'b');
-
-        self::assertSame('1', $answer['result']['generation'], 'the request was served by a kernel of now');
-        self::assertSame(["work a 0", "work b 1"], $this->lines('ran.log'), 'b ran exactly once — never in the stale child');
+        self::assertSame('0', $seen[0]['result']['generation']);
+        self::assertSame('1', $seen[1]['result']['generation'], 'the request was served by a kernel of now');
+        self::assertSame(['work a 0', 'work b 1'], $this->lines('ran.log'), 'b ran exactly once — never in the stale child');
         self::assertCount(2, $this->lines('starts.log'));
     }
 
     public function testPipelinedRequestsBehindAStaleChildAreAllAnsweredOnce(): void
     {
-        $this->start();
-        $this->ask(1, 'work', 'a');
-        file_put_contents($this->state . '/generation', '1');
-        $this->send(['jsonrpc' => '2.0', 'id' => 2, 'method' => 'work', 'params' => ['tag' => 'p1']]);
-        $this->send(['jsonrpc' => '2.0', 'id' => 'three', 'method' => 'work', 'params' => ['tag' => 'p2']]);
+        $seen = $this->relay([
+            ['send' => self::work(1, 'a')], ['expect' => 5],
+            ['write' => ['generation', '1']],
+            ['send' => self::work(2, 'p1')], ['send' => self::work('three', 'p2')],
+            ['expect' => 5], ['expect' => 5],
+        ]);
 
-        $answers = [$this->next(), $this->next()];
-
-        self::assertSame([2, 'three'], array_map(static fn (array $m): mixed => $m['id'], $answers), 'in order, string ids too');
-        self::assertSame(["work a 0", "work p1 1", "work p2 1"], $this->lines('ran.log'));
+        self::assertSame([1, 2, 'three'], array_map(static fn (array $m): mixed => $m['id'], $seen), 'in order, string ids too');
+        self::assertSame(['work a 0', 'work p1 1', 'work p2 1'], $this->lines('ran.log'));
     }
 
     public function testTheRequestThatChangedTheHouseIsAnsweredBeforeItsChildLeaves(): void
     {
-        $this->start();
-        $bumped = $this->ask(1, 'bump', 'x');
-        $after = $this->ask(2, 'work', 'y');
+        $seen = $this->relay([
+            ['send' => ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'bump', 'params' => ['tag' => 'x']]], ['expect' => 5],
+            ['send' => self::work(2, 'y')], ['expect' => 5],
+        ]);
 
-        self::assertSame('0', $bumped['result']['generation'], 'the change was answered by the child that made it');
-        self::assertSame('1', $after['result']['generation']);
-        self::assertSame(["bump x 0", "work y 1"], $this->lines('ran.log'));
+        self::assertSame('0', $seen[0]['result']['generation'], 'the change was answered by the child that made it');
+        self::assertSame('1', $seen[1]['result']['generation']);
+        self::assertSame(['bump x 0', 'work y 1'], $this->lines('ran.log'));
     }
 
     public function testTheClientIsToldOnceWhenTheToolsMovedAndNotWhenTheyDidNot(): void
     {
         file_put_contents($this->state . '/tools.json', json_encode([['name' => 'a']]));
-        $this->start();
-        $init = $this->ask(1, 'initialize');
-        self::assertTrue($init['result']['capabilities']['tools']['listChanged'], 'the relay declares what it can tell');
-        $this->ask(2, 'tools/list');
+        $seen = $this->relay([
+            ['send' => self::INIT], ['expect' => 5],
+            ['send' => ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list']], ['expect' => 5],
+            // A change that does not move the list: the idle ping finds it, and nothing is said.
+            ['write' => ['generation', '1']], ['quiet' => 1.2],
+            // A change that moves it, while the client asks nothing.
+            ['write' => ['tools.json', json_encode([['name' => 'a'], ['name' => 'b']])]],
+            ['write' => ['generation', '2']], ['quiet' => 1.5],
+        ]);
 
-        // A change that does not move the list: a restart, and silence.
-        file_put_contents($this->state . '/generation', '1');
-        self::assertNull($this->next(1.2), 'no notification for a list that did not move');
-        self::assertCount(2, $this->lines('starts.log'), 'the idle ping found the change without a client call');
-
-        // A change that moves it, while the client asks nothing.
-        file_put_contents($this->state . '/tools.json', json_encode([['name' => 'a'], ['name' => 'b']]));
-        file_put_contents($this->state . '/generation', '2');
-        $notice = $this->next(1.2);
-        self::assertSame(['jsonrpc' => '2.0', 'method' => 'notifications/tools/list_changed'], $notice);
-        self::assertNull($this->next(1.0), 'once');
+        self::assertTrue($seen[0]['result']['capabilities']['tools']['listChanged'], 'the relay declares what it can tell');
+        self::assertSame([['jsonrpc' => '2.0', 'method' => 'notifications/tools/list_changed']], \array_slice($seen, 2), 'once, and only for the move');
+        self::assertCount(3, $this->lines('starts.log'), 'both changes were found without a client call');
     }
 
     public function testAChildThatCannotBootIsAnErrorPerRequestAndNeverALoop(): void
     {
-        $this->start();
-        $this->ask(1, 'work', 'a');
-        touch($this->state . '/broken');
-        file_put_contents($this->state . '/generation', '1');
+        $seen = $this->relay([
+            ['send' => self::work(1, 'a')], ['expect' => 5],
+            ['touch' => 'broken'], ['write' => ['generation', '1']],
+            ['send' => self::work(2, 'b')], ['expect' => 5],
+            ['quiet' => 1.0],
+            ['remove' => 'broken'],
+            ['send' => self::work(3, 'c')], ['expect' => 5],
+        ]);
 
-        $refused = $this->ask(2, 'work', 'b');
-        self::assertSame(-32603, $refused['error']['code']);
-        self::assertStringContainsString('the house did not start', $refused['error']['message']);
-        self::assertStringContainsString('the plugin Broken is no plugin', $refused['error']['message'], 'the client reads why');
+        self::assertSame(-32603, $seen[1]['error']['code']);
+        self::assertStringContainsString('the house did not start', $seen[1]['error']['message']);
+        self::assertStringContainsString('the plugin Broken is no plugin', $seen[1]['error']['message'], 'the client reads why');
+        self::assertSame('1', $seen[2]['result']['generation'], 'the pipe stayed open; the next call works');
+        self::assertCount(3, $seen, 'nothing else on the wire while it was broken');
+        self::assertCount(3, $this->lines('starts.log'), 'silence while broken starts nothing');
+        self::assertSame(['work a 0', 'work c 1'], $this->lines('ran.log'), 'nothing ran while the house was broken');
+    }
 
-        usleep(1_500_000);
-        self::assertCount(2, $this->lines('starts.log'), 'silence while broken starts nothing');
+    public function testAChildThatDiesWhileServingSaysTheCallMayHaveRun(): void
+    {
+        $seen = $this->relay([
+            ['send' => self::work(1, 'a')], ['expect' => 5],
+            ['send' => ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'die']], ['expect' => 5],
+            ['send' => self::work(3, 'c')], ['expect' => 5],
+        ]);
 
-        unlink($this->state . '/broken');
-        self::assertSame('1', $this->ask(3, 'work', 'c')['result']['generation'], 'the pipe stayed open; the next call works');
-        self::assertSame(["work a 0", "work c 1"], $this->lines('ran.log'), 'nothing ran while the house was broken');
+        self::assertStringContainsString('ended while serving (exit 3): ✗ died while serving', $seen[1]['error']['message']);
+        self::assertStringContainsString('may or may not have taken effect', $seen[1]['error']['message']);
+        self::assertSame('c', $seen[2]['result']['tag'], 'the next call starts a new process');
+    }
+
+    public function testAHouseThatNeverSettlesIsRefusedAfterACeiling(): void
+    {
+        $seen = $this->relay([
+            ['send' => self::work(1, 'a')], ['expect' => 5],
+            ['touch' => 'restless'], ['write' => ['generation', '1']],
+            ['send' => self::work(2, 'b')], ['expect' => 10],
+        ]);
+
+        self::assertStringContainsString('changed ' . KernelSupervisor::STALE_IN_A_ROW . ' times in a row', $seen[1]['error']['message']);
+        self::assertSame(['work a 0'], $this->lines('ran.log'), 'b never ran in a kernel that was stale at birth');
+        self::assertCount(KernelSupervisor::STALE_IN_A_ROW, $this->lines('starts.log'), 'five stale exits in a row, then no sixth start');
     }
 
     public function testALineThatIsNoMessageNeverReachesTheClientsWire(): void
     {
-        $this->start();
-        $answer = $this->ask(1, 'echo-garbage');
+        $seen = $this->relay([
+            ['send' => ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'echo-garbage']], ['expect' => 5],
+            ['raw' => ''],
+            ['send' => ['jsonrpc' => '2.0', 'method' => 'notifications/initialized']],
+            ['send' => self::work(2, 'b')], ['expect' => 5],
+        ]);
 
-        self::assertSame(1, $answer['id'], 'the next thing on the wire is the answer, not the echo');
+        self::assertSame([1, 2], array_map(static fn (array $m): mixed => $m['id'], $seen), 'the answers, not the echo');
+        self::assertStringContainsString('an echo somewhere in the house', (string) file_get_contents($this->state . '/stderr.log'));
     }
 
     public function testNothingRestartsInSteadyState(): void
     {
-        $this->start();
+        $plan = [];
         for ($i = 1; $i <= 50; ++$i) {
-            $this->ask($i, 'work', "s{$i}");
+            $plan[] = ['send' => self::work($i, "s{$i}")];
+            $plan[] = ['expect' => 5];
         }
-        usleep(1_200_000);
+        $plan[] = ['quiet' => 1.2];
+        $seen = $this->relay($plan);
 
+        self::assertCount(50, $seen, 'fifty answers and not one line more');
         self::assertCount(1, $this->lines('starts.log'), '50 calls and four idle pings: one child');
     }
 
@@ -169,25 +184,23 @@ final class ALongLivedProcessKnowsWhenItWentStaleTest extends TestCase
         file_put_contents($this->state . '/showing', 'plugins');
         file_put_contents($this->state . '/exit', '0');
 
-        $code = KernelSupervisor::terminal(
-            fn (?string $showing): array => [\PHP_BINARY, __DIR__ . '/../Fixtures/supervisor/terminal-child.php', $this->state, ...($showing !== null ? [$showing] : [])],
-            $this->state,
-            'routes',
-        );
-
-        self::assertSame(0, $code);
+        self::assertSame(0, KernelSupervisor::terminal($this->panel(...), $this->state, 'routes'));
         self::assertSame(['routes', 'plugins', 'plugins'], $this->lines('opened.log'));
+    }
+
+    public function testAPanelWhoseHouseDoesNotStartLeavesWithItsCode(): void
+    {
+        file_put_contents($this->state . '/exit', '2');
+
+        self::assertSame(2, KernelSupervisor::terminal($this->panel(...), $this->state));
+        self::assertSame(['-'], $this->lines('opened.log'));
     }
 
     public function testAPanelThatWillNotSettleStops(): void
     {
         file_put_contents($this->state . '/stale', '99');
-        $code = KernelSupervisor::terminal(
-            fn (?string $showing): array => [\PHP_BINARY, __DIR__ . '/../Fixtures/supervisor/terminal-child.php', $this->state],
-            $this->state,
-        );
 
-        self::assertSame(1, $code);
+        self::assertSame(1, KernelSupervisor::terminal($this->panel(...), $this->state));
         self::assertCount(KernelSupervisor::STALE_IN_A_ROW, $this->lines('opened.log'));
     }
 
@@ -195,67 +208,7 @@ final class ALongLivedProcessKnowsWhenItWentStaleTest extends TestCase
     {
         mkdir($this->state . '/storage');
         file_put_contents($this->state . '/storage/plugins.json', '{"plugins":[]}');
-        $inner = new class () implements TerminalInterface {
-            public function start(callable $onInput, callable $onResize): void
-            {
-            }
-
-            public function stop(): void
-            {
-            }
-
-            public function write(string $data): void
-            {
-            }
-
-            public function pollInput(): string
-            {
-                return 'k';
-            }
-
-            public function atEndOfInput(): bool
-            {
-                return false;
-            }
-
-            public function columns(): int
-            {
-                return 80;
-            }
-
-            public function rows(): int
-            {
-                return 24;
-            }
-
-            public function moveBy(int $lines): void
-            {
-            }
-
-            public function hideCursor(): void
-            {
-            }
-
-            public function showCursor(): void
-            {
-            }
-
-            public function clearLine(): void
-            {
-            }
-
-            public function clearFromCursor(): void
-            {
-            }
-
-            public function clearScreen(): void
-            {
-            }
-
-            public function setTitle(string $title): void
-            {
-            }
-        };
+        $inner = new RecordingTerminal();
         $watch = new StaleWatchTerminal($inner, KernelDefinition::before($this->state), every: 0.0);
 
         self::assertSame('k', $watch->pollInput(), 'current: the person\'s keys pass');
@@ -267,8 +220,30 @@ final class ALongLivedProcessKnowsWhenItWentStaleTest extends TestCase
         self::assertSame("\x03", $watch->pollInput(), 'stale: the key that closes the screen');
         self::assertSame('storage/plugins.json', $watch->staleBecause());
         self::assertSame("\x03", $watch->pollInput(), 'and it stays closed');
-        rename($this->state . '/storage/plugins.json', $this->state . '/plugins.json.bak');
-        rmdir($this->state . '/storage');
+        unlink($this->state . '/storage/plugins.json');
+    }
+
+    public function testTheScreensTerminalIsTheRealOneForEverythingElse(): void
+    {
+        $inner = new RecordingTerminal();
+        $watch = new StaleWatchTerminal($inner, KernelDefinition::before($this->state));
+
+        $watch->start(static function (): void {
+        }, static function (): void {
+        });
+        $watch->write('frame');
+        $watch->moveBy(2);
+        $watch->hideCursor();
+        $watch->showCursor();
+        $watch->clearLine();
+        $watch->clearFromCursor();
+        $watch->clearScreen();
+        $watch->setTitle('coa');
+        $watch->stop();
+
+        self::assertSame(['start', 'write frame', 'moveBy 2', 'hideCursor', 'showCursor', 'clearLine', 'clearFromCursor', 'clearScreen', 'setTitle coa', 'stop'], $inner->calls);
+        self::assertSame([80, 24, false], [$watch->columns(), $watch->rows(), $watch->atEndOfInput()]);
+        self::assertSame('k', $watch->pollInput(), 'asked before its interval: the keys pass without a question');
     }
 
     public function testCoaMcpWithoutTheSurfaceSaysSoOnStderrAndKeepsStdoutEmpty(): void
@@ -286,65 +261,146 @@ final class ALongLivedProcessKnowsWhenItWentStaleTest extends TestCase
         self::assertSame(0, $code);
         self::assertSame('', $stdout, 'STDOUT is the protocol');
         unlink($this->state . '/config/app.php');
-        rmdir($this->state . '/config');
     }
 
-    private function start(): void
+    /**
+     * Run the relay here, against the scripted client of `$plan`, and return every message the client received.
+     *
+     * @param list<array<string, mixed>> $plan
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function relay(array $plan): array
     {
-        $process = proc_open(
-            [\PHP_BINARY, __DIR__ . '/../Fixtures/supervisor/relay.php', $this->state, \dirname(__DIR__, 2) . '/vendor/autoload.php', '0.3'],
-            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['file', $this->state . '/stderr.log', 'a']],
+        file_put_contents($this->state . '/plan.json', json_encode($plan));
+        $client = proc_open(
+            [\PHP_BINARY, __DIR__ . '/../Fixtures/supervisor/client.php', $this->state],
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['file', $this->state . '/client-stderr.log', 'a']],
             $pipes,
         );
-        self::assertIsResource($process);
-        $this->relay = $process;
-        $this->pipes = $pipes;
-        stream_set_blocking($pipes[1], false);
+        self::assertIsResource($client);
+        $errors = fopen($this->state . '/stderr.log', 'a');
+        self::assertIsResource($errors);
+
+        $state = $this->state;
+        $relay = new KernelSupervisor(
+            static fn (): array => [\PHP_BINARY, __DIR__ . '/../Fixtures/supervisor/child.php', $state],
+            $this->state,
+            $pipes[1],
+            $pipes[0],
+            $errors,
+            idle: 0.3,
+        );
+        self::assertSame(0, $relay->relay());
+        fclose($pipes[0]);
+        fclose($pipes[1]);
+        fclose($errors);
+        proc_close($client);
+
+        $seen = [];
+        foreach ($this->lines('transcript.jsonl') as $entry) {
+            $line = json_decode($entry, true)['line'] ?? null;
+            self::assertIsString($line, "a step waited for a line that never came: {$entry}");
+            $message = json_decode($line, true);
+            self::assertIsArray($message, "the client's wire carried a line that is no message: {$line}");
+            $seen[] = $message;
+        }
+
+        return $seen;
     }
 
-    /** @param array<string, mixed> $message */
-    private function send(array $message): void
+    /** @return list<string> the command of a stand-in panel child, opened on `$showing` */
+    private function panel(?string $showing): array
     {
-        fwrite($this->pipes[0], json_encode($message) . "\n");
+        return [\PHP_BINARY, __DIR__ . '/../Fixtures/supervisor/terminal-child.php', $this->state, ...($showing !== null ? [$showing] : [])];
     }
 
     /** @return array<string, mixed> */
-    private function ask(int $id, string $method, ?string $tag = null): array
+    private static function work(int|string $id, string $tag): array
     {
-        $this->send(['jsonrpc' => '2.0', 'id' => $id, 'method' => $method] + ($tag !== null ? ['params' => ['tag' => $tag]] : []));
-        $answer = $this->next(10.0);
-        self::assertIsArray($answer, "no answer to {$method} #{$id}");
-        self::assertSame($id, $answer['id'] ?? null);
-
-        return $answer;
-    }
-
-    /** @return null|array<string, mixed> the next line the client receives, or null after `$seconds` */
-    private function next(float $seconds = 5.0): ?array
-    {
-        $until = microtime(true) + $seconds;
-        while (($nl = strpos($this->buffer, "\n")) === false) {
-            $left = $until - microtime(true);
-            if ($left <= 0) {
-                return null;
-            }
-            $read = [$this->pipes[1]];
-            $write = $except = null;
-            if (stream_select($read, $write, $except, (int) $left, (int) (($left - (int) $left) * 1_000_000)) > 0) {
-                $this->buffer .= (string) fread($this->pipes[1], 65536);
-            }
-        }
-        $line = substr($this->buffer, 0, $nl);
-        $this->buffer = substr($this->buffer, $nl + 1);
-        $message = json_decode($line, true);
-        self::assertIsArray($message, "the client's wire carried a line that is no message: {$line}");
-
-        return $message;
+        return ['jsonrpc' => '2.0', 'id' => $id, 'method' => 'work', 'params' => ['tag' => $tag]];
     }
 
     /** @return list<string> */
     private function lines(string $file): array
     {
         return is_file($this->state . '/' . $file) ? array_values(array_filter(explode("\n", (string) file_get_contents($this->state . '/' . $file)))) : [];
+    }
+}
+
+/** A terminal that answers `k` and remembers what it was asked to do. */
+final class RecordingTerminal implements TerminalInterface
+{
+    /** @var list<string> */
+    public array $calls = [];
+
+    public function start(callable $onInput, callable $onResize): void
+    {
+        $this->calls[] = 'start';
+    }
+
+    public function stop(): void
+    {
+        $this->calls[] = 'stop';
+    }
+
+    public function write(string $data): void
+    {
+        $this->calls[] = 'write ' . $data;
+    }
+
+    public function pollInput(): string
+    {
+        return 'k';
+    }
+
+    public function atEndOfInput(): bool
+    {
+        return false;
+    }
+
+    public function columns(): int
+    {
+        return 80;
+    }
+
+    public function rows(): int
+    {
+        return 24;
+    }
+
+    public function moveBy(int $lines): void
+    {
+        $this->calls[] = 'moveBy ' . $lines;
+    }
+
+    public function hideCursor(): void
+    {
+        $this->calls[] = 'hideCursor';
+    }
+
+    public function showCursor(): void
+    {
+        $this->calls[] = 'showCursor';
+    }
+
+    public function clearLine(): void
+    {
+        $this->calls[] = 'clearLine';
+    }
+
+    public function clearFromCursor(): void
+    {
+        $this->calls[] = 'clearFromCursor';
+    }
+
+    public function clearScreen(): void
+    {
+        $this->calls[] = 'clearScreen';
+    }
+
+    public function setTitle(string $title): void
+    {
+        $this->calls[] = 'setTitle ' . $title;
     }
 }
