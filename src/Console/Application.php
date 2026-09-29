@@ -1374,7 +1374,7 @@ final class Application
         $token = getenv(PresentedToken::ENV);
         if (\is_string($token) && trim($token) !== '') {
             $this->line('✗ ' . PresentedToken::ENV . ' is presented, and a token is judged by the token store the house registers when it boots — it does not boot.');
-            $this->line('  Nothing ran. Unset ' . PresentedToken::ENV . ' and sign the undo with --sign.');
+            $this->line('  Nothing ran. Unset ' . PresentedToken::ENV . ' and sign the call with --sign.');
 
             return 1;
         }
