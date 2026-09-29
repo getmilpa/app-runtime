@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.200.2](https://github.com/getmilpa/app-runtime/compare/v0.200.1...v0.200.2) (2026-09-29)
+
+
+### Bug Fixes
+
+* **agent:** a derived closure names the goal's subject, and an unsigned call makes no lasting change as the terminal ([#650](https://github.com/getmilpa/app-runtime/issues/650)) ([f099dfd](https://github.com/getmilpa/app-runtime/commit/f099dfd78b86349b00d4f6325a3c259bea2f544a))
+
 ## [0.200.1](https://github.com/getmilpa/app-runtime/compare/v0.200.0...v0.200.1) (2026-09-29)
 
 
