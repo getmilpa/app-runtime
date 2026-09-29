@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.200.1](https://github.com/getmilpa/app-runtime/compare/v0.200.0...v0.200.1) (2026-09-29)
+
+
+### Bug Fixes
+
+* **config:** config:set declares its value as any JSON value by name ([#648](https://github.com/getmilpa/app-runtime/issues/648)) ([779aec9](https://github.com/getmilpa/app-runtime/commit/779aec9a78359b30bf61431b51ab0bb5f3332189))
+* **console:** the terminal comes back after every child, and Ctrl-C leaves a turn ([#647](https://github.com/getmilpa/app-runtime/issues/647)) ([2aed157](https://github.com/getmilpa/app-runtime/commit/2aed157049e9666ea4febe50025fd28c096988d1))
+
 ## [0.200.0](https://github.com/getmilpa/app-runtime/compare/v0.199.0...v0.200.0) (2026-09-29)
 
 
