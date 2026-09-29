@@ -72,6 +72,23 @@ final class KernelDefinition
     /** @var array<string, true> relative paths whose content no longer matches what was read */
     private array $changed = [];
 
+    /** A digest of the CURRENT content of every input, as the last {@see staleBecause()} read it. */
+    private string $now = '';
+
+    /** @var array{0: string, 1: ?string, 2: float}|null the digest a boot was last probed for, what the probe said, and when */
+    private ?array $probed = null;
+
+    /**
+     * While held, how often a broken verdict is asked again even if nothing this process read changed.
+     *
+     * The digest covers only what this kernel READ. The file that breaks the boot is usually one it
+     * never included — the promoted plugin's own class — and the fix is usually a write to that same
+     * file: keyed by the digest alone, the process would stay held forever after the house was fixed
+     * (found by this class's own test, decisions/0506). One boot in a child every few seconds per held
+     * process is the price, and only while the house is broken.
+     */
+    public const RECHECK_SECONDS = 5;
+
     private function __construct(
         private readonly string $root,
         private readonly string $vendor,
@@ -110,14 +127,47 @@ final class KernelDefinition
         $prefix = $this->root . '/';
 
         $first = null;
+        $now = [];
         foreach ($this->seen as $relative => $fingerprint) {
-            if (isset($this->changed[$relative]) || self::fingerprint($prefix . $relative) !== $fingerprint) {
+            $now[$relative] = self::fingerprint($prefix . $relative);
+            if (isset($this->changed[$relative]) || $now[$relative] !== $fingerprint) {
                 $this->changed[$relative] = true;
                 $first ??= $relative;
             }
         }
+        ksort($now);
+        $this->now = hash('xxh128', serialize($now));
 
         return $first;
+    }
+
+    /**
+     * Why a fresh process would NOT boot the house as it is now — or null when it would. Call it once stale, before leaving.
+     *
+     * A stale process leaves so a clean one takes its place (0505 §3). If the change broke the boot, the
+     * clean one dies before its first request and the supervisor starts another that dies the same way:
+     * measured on FrankenPHP (greenhouse evidence/1038, n5), 224 → 320 crashes and requests that waited
+     * with no answer, while the naive worker that never left kept serving. So the process asks FIRST, in
+     * a child of its own ({@see BootProbe}), and a house that does not boot is not left for: the process stays
+     * and answers {@see houseDoesNotBoot()} — never the old kernel's answer (Rod, 2026-09-28; decisions/0506).
+     *
+     * Asked once per distinct content of the inputs: a held process checks at every request, and a
+     * probe per request would boot the house on every request. The verdict is kept for the digest the
+     * last {@see staleBecause()} read, so a NEW write to what it read (an undo) asks again at once; a
+     * «does not boot» is also asked again after {@see RECHECK_SECONDS}, for the fix written elsewhere.
+     */
+    public function nextBootFails(BootProbe $probe = new BootProbe(), int $recheckSeconds = self::RECHECK_SECONDS): ?string
+    {
+        if ($this->now === '') {
+            $this->staleBecause();
+        }
+        $at = microtime(true);
+        if ($this->probed === null || $this->probed[0] !== $this->now
+            || ($this->probed[1] !== null && $at - $this->probed[2] >= $recheckSeconds)) {
+            $this->probed = [$this->now, $probe->whyNot($this->root), $at];
+        }
+
+        return $this->probed[1];
     }
 
     /**
@@ -207,6 +257,31 @@ final class KernelDefinition
             ->withHeader('Cache-Control', 'no-store')
             ->withHeader('Retry-After', '0')
             ->withHeader('Connection', 'close');
+    }
+
+    /**
+     * The answer while the house does not boot: a refusal that says why — never the old kernel's answer.
+     *
+     * Rod decided it (2026-09-28, greenhouse decisions/0506 and 0507 alike): when the house does not boot, a
+     * long-lived server STOPS HONESTLY and says why. Serving with the kernel from before would answer for a
+     * house that no longer exists — a promotion undone in appearance only, a plugin switched off that still
+     * answers. Leaving is no answer either: the replacement dies at boot, in a loop, and requests hang
+     * (evidence/1038, n5). So the process stays, answers every request with this, and leaves the moment the
+     * house boots again. `503` with `Retry-After`: this is a state of the house, not of the request.
+     */
+    public static function houseDoesNotBoot(string $why, ResponseFactoryInterface $factory): ResponseInterface
+    {
+        $line = (string) preg_replace('/[^\x20-\x7E]/', '?', $why);
+        $response = $factory->createResponse(503)
+            ->withHeader('Content-Type', 'text/plain; charset=utf-8')
+            ->withHeader('Cache-Control', 'no-store')
+            ->withHeader('Retry-After', (string) self::RECHECK_SECONDS)
+            ->withHeader('Milpa-House-Does-Not-Boot', $line);
+        $response->getBody()->write("This house does not boot: {$why}\n\n"
+            . 'Nothing was served with the kernel from before the change. Undo it from a terminal (`' . Capabilities::CLI . " sandbox:undo --workspace=<trial>`,\n"
+            . 'or `' . Capabilities::CLI . " plugins:disable-unsafe --name=<plugin> --sign`) or fix it; this server answers again as soon as the house boots.\n");
+
+        return $response;
     }
 
     private static function fingerprint(string $file): string

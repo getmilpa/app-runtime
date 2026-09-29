@@ -189,7 +189,7 @@ final class TheFirstHourTest extends TestCase
         $answer = $operations->serve(['dry_run' => true]);
         self::assertIsArray($answer);
         self::assertTrue($answer['ok']);
-        self::assertSame('PHP_CLI_SERVER_WORKERS=8 ' . \PHP_BINARY . ' -S 127.0.0.1:8000 -t public', $answer['command']);
+        self::assertSame('PHP_CLI_SERVER_WORKERS=8 ' . \PHP_BINARY . ' -d opcache.revalidate_freq=0 -S 127.0.0.1:8000 -t public', $answer['command']);
         self::assertSame('http://localhost:8000/', $answer['url'], 'the address the passkey door will accept');
         self::assertNull($answer['router'], 'without a router the built-in server serves files only');
 
@@ -197,7 +197,7 @@ final class TheFirstHourTest extends TestCase
         file_put_contents($this->root . '/public/router.php', '<?php return false;');
         $answer = $operations->serve(['dry_run' => true, 'host' => '0.0.0.0', 'port' => 8730]);
         self::assertIsArray($answer);
-        self::assertSame('PHP_CLI_SERVER_WORKERS=8 ' . \PHP_BINARY . ' -S 0.0.0.0:8730 -t public public/router.php', $answer['command']);
+        self::assertSame('PHP_CLI_SERVER_WORKERS=8 ' . \PHP_BINARY . ' -d opcache.revalidate_freq=0 -S 0.0.0.0:8730 -t public public/router.php', $answer['command']);
         self::assertSame('http://localhost:8730/', $answer['url'], 'bound everywhere, opened at the relying party');
         self::assertSame('public/router.php', $answer['router']);
     }
@@ -246,7 +246,7 @@ final class TheFirstHourTest extends TestCase
         $answer = $operations->serve(['dry_run' => true, 'host' => 'localhost', 'port' => '8730']);
         self::assertIsArray($answer);
         self::assertTrue($answer['ok']);
-        self::assertSame('PHP_CLI_SERVER_WORKERS=8 ' . \PHP_BINARY . ' -S localhost:8730 -t public', $answer['command']);
+        self::assertSame('PHP_CLI_SERVER_WORKERS=8 ' . \PHP_BINARY . ' -d opcache.revalidate_freq=0 -S localhost:8730 -t public', $answer['command']);
         self::assertSame($operations->serve(['dry_run' => true, 'port' => -5]), $operations->serve(['dry_run' => true, 'port' => '-5']));
     }
 
@@ -263,13 +263,13 @@ final class TheFirstHourTest extends TestCase
 
         $answer = $operations->serve(['dry_run' => true, 'workers' => '3']);
         self::assertIsArray($answer);
-        self::assertSame('PHP_CLI_SERVER_WORKERS=3 ' . \PHP_BINARY . ' -S 127.0.0.1:8000 -t public', $answer['command']);
+        self::assertSame('PHP_CLI_SERVER_WORKERS=3 ' . \PHP_BINARY . ' -d opcache.revalidate_freq=0 -S 127.0.0.1:8000 -t public', $answer['command']);
 
         // `workers: 1` is the bare server — the variable is NOT passed, because php -S would only warn about it.
         $answer = $operations->serve(['dry_run' => true, 'workers' => 1]);
         self::assertIsArray($answer);
         self::assertSame(1, $answer['workers']);
-        self::assertSame(\PHP_BINARY . ' -S 127.0.0.1:8000 -t public', $answer['command']);
+        self::assertSame(\PHP_BINARY . ' -d opcache.revalidate_freq=0 -S 127.0.0.1:8000 -t public', $answer['command']);
 
         // An inherited, valid value is the caller's choice and wins over the default; the input wins over both.
         putenv('PHP_CLI_SERVER_WORKERS=4');
@@ -420,7 +420,7 @@ final class TheFirstHourTest extends TestCase
             $answer = $operations->serve(['dry_run' => true, 'host' => $host, 'port' => 8731]);
             self::assertIsArray($answer);
             self::assertTrue($answer['ok'], $host);
-            self::assertSame('PHP_CLI_SERVER_WORKERS=8 ' . \PHP_BINARY . ' -S [::1]:8731 -t public', $answer['command']);
+            self::assertSame('PHP_CLI_SERVER_WORKERS=8 ' . \PHP_BINARY . ' -d opcache.revalidate_freq=0 -S [::1]:8731 -t public', $answer['command']);
             self::assertSame('http://localhost:8731/', $answer['url']);
         }
         // POSITIVE CONTROLS: what is not an address and not a name is refused by name.
