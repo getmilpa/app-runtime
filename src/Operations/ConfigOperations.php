@@ -46,6 +46,12 @@ use Milpa\Command\Operation;
 final class ConfigOperations implements CommandProvider, CatalogueBorrower
 {
     /**
+     * The JSON Schema spelling of «any JSON value»: what `config:set` accepts before a key's own
+     * declaration narrows it (greenhouse decisions/0525).
+     */
+    public const array ANY_JSON_VALUE = ['string', 'integer', 'number', 'boolean', 'array', 'object', 'null'];
+
+    /**
      * NO CONSTRUCTOR, and that is the point rather than an omission.
      *
      * `config/operations.php` is a list of class-strings, and the dispatcher builds each provider by
@@ -253,7 +259,16 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
                     'type' => 'object',
                     'properties' => [
                         'key' => ['type' => 'string', 'description' => 'Dotted path, as Config::get asks for it — e.g. agent.instructions'],
-                        'value' => ['description' => 'The value to write. Declared agent keys enforce the type shown by `php bin/coa config`.'],
+                        // 🚨 ANY JSON VALUE, SAID OUT LOUD. With no `type` at all the local resident read the
+                        // property as a place for structure: 0 of 8 calls sent the string it was asked to
+                        // write — `{"value": …}`, `{"__type": "string", "__value": …}`, `{"instructions": …}`,
+                        // even a list — and the declared string key refused every one. Naming every JSON
+                        // type admits the same values and 8 of 8 calls sent the plain string (greenhouse
+                        // evidence/1059). The key's own type is still enforced below, by AgentKeys.
+                        'value' => [
+                            'type' => self::ANY_JSON_VALUE,
+                            'description' => 'The value to write. Declared agent keys enforce the type shown by `php bin/coa config`.',
+                        ],
                     ],
                     'required' => ['key', 'value'],
                 ],

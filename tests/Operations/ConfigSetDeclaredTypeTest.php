@@ -141,6 +141,42 @@ final class ConfigSetDeclaredTypeTest extends TestCase
         self::assertSame('false', $this->writtenAgent()['reprojectPlan']);
     }
 
+    /** The agent path hands the value already decoded: a JSON string arrives, and is written, as a string. */
+    public function testANativeStringFromAToolCallIsWrittenAsTheString(): void
+    {
+        $result = $this->write('agent.instructions', 'Answer briefly.');
+
+        self::assertTrue($result['ok']);
+        self::assertSame('Answer briefly.', $this->writtenAgent()['instructions']);
+    }
+
+    /** The negative of 0525: an object-typed key still receives, and writes, an object. */
+    public function testANativeObjectFromAToolCallIsWrittenAsTheObject(): void
+    {
+        $result = $this->write('agent.compaction', ['maxTurns' => 12, 'keepLast' => 3]);
+
+        self::assertTrue($result['ok']);
+        $written = json_decode((string) file_get_contents($this->root . MachineOverlay::RUTA), flags: JSON_THROW_ON_ERROR);
+        self::assertInstanceOf(\stdClass::class, $written->agent->compaction);
+        self::assertSame(['maxTurns' => 12, 'keepLast' => 3], $this->writtenAgent()['compaction']);
+    }
+
+    /**
+     * The call greenhouse evidence/1052 recorded is still refused, and nothing is written.
+     *
+     * The operation does not unwrap: `{"__type": …, "__value": …}` was a shape the model invented, the next
+     * call spelled it `{"value": …}` and the one after `{"instructions": …}`. Reading one of them would be a
+     * second contract nobody declared. The cure is the declaration (decisions/0525), not a guess here.
+     */
+    public function testTheWrappedValueEvidence1052RecordedIsStillRefused(): void
+    {
+        $result = $this->write('agent.instructions', ['__type' => 'string', '__value' => 'Answer briefly.']);
+
+        self::assertFalse($result['ok']);
+        self::assertStringContainsString("Configuration key 'agent.instructions' declares string", $result['error']);
+        self::assertFileDoesNotExist($this->root . MachineOverlay::RUTA);
+    }
+
     /** @return array<string, mixed> */
     private function write(string $key, mixed $value): array
     {
