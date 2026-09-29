@@ -639,26 +639,49 @@ final class Application
             return 1;
         }
 
+        // ONE SIGNATURE PER SEQUENCE (greenhouse decisions/0458, 0500): the first signed call of
+        // a session keeps its receipt there, and the calls that continue it cite it instead of
+        // signing again. Without the agent package there are no sessions, and nothing to cite.
+        $receipts = class_exists(\Milpa\Agent\SessionStore::class)
+            ? new \Milpa\AppRuntime\Agent\SessionSequenceReceipts(fn (): ?\Milpa\Agent\SessionStore => $this->almacenDeSesiones())
+            : null;
+        $tokens = $this->tokens($operacion, $resto);
+        $caller = new ToolContext(
+            principal: $identity->actor->id ?? $base->principal,
+            channel: $base->channel,
+            scopes: PresentedToken::scopes($identity, $base->scopes),
+        );
+        // AN UNSIGNED CALL NEVER MAKES A LASTING CHANGE AS THE TERMINAL (greenhouse decisions/0522). With no signature
+        // and no token, a call that changes something that lasts either continues a sequence whose receipt stands — the
+        // runner cites it or refuses — or demands consent, or is refused here before anything runs. Measured
+        // (evidence/1050): with the seat's receipt released, 21 build operations of the resident ran as `local-shell`.
+        if ($identity === null && !\in_array('--sign', $tokens, true)) {
+            try {
+                $input = $operacion->inputSchema !== null ? (new CliRunner())->deriveInput($operacion, $tokens) : [];
+            } catch (\Throwable) {
+                $input = null; // the runner says what is wrong with the arguments, and runs nothing
+            }
+            $refusal = $input !== null ? UnsignedTerminal::refusal($operacion, $input, $receipts) : null;
+            if ($refusal !== null) {
+                foreach ($renderer->presentError(implode("\n", $refusal)) as $line) {
+                    $this->line($line);
+                }
+
+                return 1;
+            }
+        }
+
         return (new CliRunner(
             signer: $this->firmante,
             renderer: $renderer,
             verifier: $this->verificador,
-            callerAuthority: new ToolContext(
-                principal: $identity->actor->id ?? $base->principal,
-                channel: $base->channel,
-                scopes: PresentedToken::scopes($identity, $base->scopes),
-            ),
+            callerAuthority: $caller,
             signerAuthority: fn (VerifiedSigner $signer): ?ToolContext => $this->autoridadDelFirmante($signer, $identity),
             // El despachador del kernel viaja al runner: sin él, un listener que audita operaciones
             // las vería por MCP y no por la terminal — que es el hueco que el runner vino a cerrar.
             dispatcher: $this->kernel()->dispatcher(),
-            // ONE SIGNATURE PER SEQUENCE (greenhouse decisions/0458, 0500): the first signed call of
-            // a session keeps its receipt there, and the calls that continue it cite it instead of
-            // signing again. Without the agent package there are no sessions, and nothing to cite.
-            receipts: class_exists(\Milpa\Agent\SessionStore::class)
-                ? new \Milpa\AppRuntime\Agent\SessionSequenceReceipts(fn (): ?\Milpa\Agent\SessionStore => $this->almacenDeSesiones())
-                : null,
-        ))->run($operacion, $this->tokens($operacion, $resto), $this->kernel()->container(), $this->line(...));
+            receipts: $receipts,
+        ))->run($operacion, $tokens, $this->kernel()->container(), $this->line(...));
     }
 
     /**
@@ -1634,13 +1657,31 @@ final class Application
 
             return 1;
         }
+        // THE SAME RULE FOR AN UNSIGNED CALL AS THE ORDINARY DOOR (greenhouse decisions/0522): a lasting change is never
+        // made as the terminal. No receipt is cited here: every call signs.
+        $tokens = $this->tokens($operacion, $argv);
+        if (!\in_array('--sign', $tokens, true)) {
+            try {
+                $input = $operacion->inputSchema !== null ? (new CliRunner())->deriveInput($operacion, $tokens) : [];
+            } catch (\Throwable) {
+                $input = null; // the runner says what is wrong with the arguments, and runs nothing
+            }
+            $refusal = $input !== null ? UnsignedTerminal::refusal($operacion, $input, null) : null;
+            if ($refusal !== null) {
+                foreach ($renderer->presentError(implode("\n", $refusal)) as $line) {
+                    $this->line($line);
+                }
+
+                return 1;
+            }
+        }
         $salida = (new CliRunner(
             signer: $this->firmante,
             renderer: $renderer,
             callerAuthority: $base,
             verifier: $this->verificador,
             signerAuthority: fn (VerifiedSigner $signer): ?ToolContext => $this->autoridadDelFirmante($signer, null),
-        ))->run($operacion, $this->tokens($operacion, $argv), $container, $this->line(...));
+        ))->run($operacion, $tokens, $container, $this->line(...));
 
         if ($salida === 0) {
             $despues = (new \Milpa\AppRuntime\Support\BootProbe())->whyNot($this->root);

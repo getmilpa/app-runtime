@@ -62,7 +62,8 @@ final class ClosureVerdict
      *
      * A session that never opened a todo kept no record of its own; given its stream, the HOUSE derives
      * the closure from its own receipts instead ({@see HouseObservedClosure}, greenhouse decisions/0487):
-     * the house observed the work served in the house after the last change landed. A session with todos
+     * the house observed a subject the goal names served in the house after the last change landed
+     * (decisions/0522: an observation of anything else never closes). A session with todos
      * keeps its own record — every todo done with accepted evidence — and when the house observed what
      * landed, its observation stands beside that record: what never landed stops binding, and the scope
      * says both (`recorded_work_and_house_observation`, greenhouse decisions/0509). A done todo whose test
@@ -114,7 +115,14 @@ final class ClosureVerdict
         // /blog served after its last promotion — and the verdict stayed open on eight artifacts written in trials
         // (and one refused call) that no call could ever verify. When the house did not observe what landed, a
         // session with todos is judged as it always was, and the house's reason is not added (§3).
-        $house = $stream !== null ? HouseObservedClosure::of($stream, $facts) : null;
+        //
+        // AND IT SPEAKS ONLY OF WHAT THE GOAL NAMES (greenhouse decisions/0522). An observation of a subject the
+        // standing ask does not name is not an observation of the work: measured (evidence/1050), registering an
+        // empty plugin made the house see `GET /` → 200, and that closed a session whose goal was `GET /blog`.
+        $ask = $stream !== null ? StandingAsk::in($stream) : null;
+        $house = $stream !== null && $ask !== null
+            ? HouseObservedClosure::of($stream, $facts, static fn (string $subject): bool => $ask->namesSubject($subject))
+            : null;
         if ($session->todos !== [] && $house !== null && ! ($house['derived'] && $house['lastChangeSeq'] !== null)) {
             $house = null;
         }

@@ -165,23 +165,48 @@ final class OneSignaturePerSequenceTest extends TestCase
         self::assertSame(10, \count(array_keys($types, 'session.authorization_cited', true)));
     }
 
-    public function testAVerifiedClosureEndsTheSequenceAndTheNextTaskSignsAgain(): void
+    /**
+     * A verified closure is the house's judgment of the work, not the end of whose work it is (greenhouse
+     * decisions/0522). Measured (evidence/1050): a false closure at leg 2 released the seat's receipt, and legs 3–13
+     * ran as the terminal. Now the leg after a verified closure still runs as the seat.
+     */
+    public function testAVerifiedClosureKeepsTheSeatsReceiptAndTheNextLegRunsAsTheSeat(): void
     {
         $sessions = new SessionStore(new InMemoryEventStore());
         $op = $this->leg($sessions);
         $this->call($this->runner($sessions), $op, ['--session=s1', '--prompt=build', '--sign']);
 
         self::assertSame(0, $this->call($this->runner($sessions), $op, ['--session=s1', '--prompt=finish']));
-        self::assertNull($sessions->load('s1')?->sequenceAuthorization());
+        self::assertNotNull($sessions->load('s1')?->sequenceAuthorization());
 
-        // Unsigned now, the leg runs with the terminal's default — exactly as before 0500, not as the seat.
         self::assertSame(0, $this->call($this->runner($sessions), $op, ['--session=s1', '--prompt=next task']));
-        self::assertNull($this->legs[2][0]);
-        self::assertSame('local-shell', $this->legs[2][1]?->principal);
+        self::assertSame('key:' . self::SEAT, $this->legs[2][0]?->actor);
+        self::assertSame(['agent:run'], $this->legs[2][1]?->scopes);
+        $types = array_map(static fn ($e): string => $e->type, $sessions->stream('s1'));
+        self::assertNotContains('session.authorization_released', $types);
     }
 
-    public function testAnUnverifiedClosureKeepsTheSequenceOpen(): void
+    /** What does end it: the session ending (`agent:discard`, a closed answer window), or a new signed leg. */
+    public function testOnlyTheSessionEndingOrANewSignatureEndsTheReceipt(): void
     {
+        $sessions = new SessionStore(new InMemoryEventStore());
+        $op = $this->leg($sessions);
+        $this->call($this->runner($sessions), $op, ['--session=s1', '--prompt=build', '--sign']);
+        $first = $sessions->load('s1')?->sequenceAuthorization();
+
+        $this->call($this->runner($sessions), $op, ['--session=s1', '--prompt=again', '--sign']);
+        $second = $sessions->load('s1')?->sequenceAuthorization();
+        self::assertNotNull($second);
+        self::assertNotSame($first['seq'] ?? null, $second['seq']);
+
+        $sessions->end('s1', 'discarded by the human');
+        self::assertNull($sessions->load('s1')?->sequenceAuthorization());
+    }
+
+    public function testNoVerdictOfAnAgentLegEndsItsSequence(): void
+    {
+        self::assertNull(SessionSequenceReceipts::ended('agent', ['ok' => true, 'closure' => ['verified' => true, 'reasons' => [], 'scope' => 'house_observation']]));
+        self::assertNull(SessionSequenceReceipts::ended('agent', ['ok' => true, 'closure' => ['verified' => true, 'reasons' => [], 'scope' => 'recorded_work']]));
         self::assertNull(SessionSequenceReceipts::ended('agent', ['closure' => ['verified' => false, 'reasons' => ['pending']]]));
         self::assertNull(SessionSequenceReceipts::ended('agent', ['ok' => true, 'contextExhausted' => true]));
         self::assertNull(SessionSequenceReceipts::ended('recipe:apply', ['ok' => true, 'applied' => false, 'paused' => true]));

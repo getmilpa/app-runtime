@@ -74,7 +74,7 @@ final class BoardHtmlRenderer implements ComponentRendererInterface
             $session = \is_string($fold['session'] ?? null) ? $fold['session'] : '';
             $html .= '<p class="mui-alert mui-alert--warning milpa-board-waiting">' . $this->esc($question)
                 . ' <span class="milpa-board-waiting-hint">answer from the terminal: '
-                . '<code>php bin/coa agent:answer --session=' . $this->esc($session) . ' --answer=…</code></span></p>';
+                . '<code>php bin/coa agent:answer --session=' . $this->esc($session) . ' --answer=… --sign</code></span></p>';
         }
 
         $html .= '<div class="milpa-board-columns">';

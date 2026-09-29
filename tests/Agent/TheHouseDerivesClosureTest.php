@@ -49,7 +49,7 @@ final class TheHouseDerivesClosureTest extends TestCase
     {
         $this->events = new InMemoryEventStore();
         $this->store = new SessionStore($this->events);
-        $this->store->start('s', 'Build the page a reader reads');
+        $this->store->start('s', 'Build the blog page a reader reads');
     }
 
     public function testAPromotedRehearsalObservedInTheHouseIsAClosureTheHouseDerives(): void

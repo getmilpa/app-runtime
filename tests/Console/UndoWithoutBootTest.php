@@ -94,19 +94,22 @@ final class UndoWithoutBootTest extends TestCase
     }
 
     /**
-     * Unsigned, from a local shell, the undo runs — exactly as it does in a house that boots.
+     * Unsigned, from a local shell, the undo is refused — exactly as it is in a house that boots.
      *
      * `sandbox:undo` declares `WriteAsUser`, below the `Privileged` that makes the terminal demand a signature
-     * (Consent::demanded, rule S2), and an unidentified local shell keeps its wildcard (greenhouse decisions/0311).
-     * This door must not be STRICTER in secret either: the parity is asserted against the ordinary door below.
+     * (Consent::demanded, rule S2), and an unidentified local shell used to keep its wildcard (decisions/0311).
+     * It does not any more (greenhouse decisions/0522): an unsigned call runs only what reads, so an undo that
+     * writes the house needs --sign, and nothing is written. The parity is asserted against the ordinary door below.
      */
-    public function testAnUnsignedUndoFromALocalShellRunsAsItDoesWhenTheHouseBoots(): void
+    public function testAnUnsignedUndoFromALocalShellIsRefusedAsItIsWhenTheHouseBoots(): void
     {
         [$exit, $out] = $this->coa(['sandbox:undo', '--workspace=w1']);
 
-        self::assertSame(0, $exit, $out);
-        self::assertStringNotContainsString('authorized by', $out);
-        self::assertStringContainsString('✓ The house boots again.', $out);
+        self::assertSame(1, $exit, $out);
+        self::assertStringContainsString('This call is not signed, and an unsigned call changes nothing that lasts', $out);
+        self::assertStringContainsString('Sign it with --sign', $out);
+        self::assertStringNotContainsString('The house boots again', $out);
+        $this->assertStillBroken();
     }
 
     public function testAPresentedTokenIsRefusedNotReadAsNoToken(): void
@@ -143,7 +146,7 @@ final class UndoWithoutBootTest extends TestCase
      */
     public static function callers(): iterable
     {
-        yield 'unsigned local shell' => [[], null, 0];
+        yield 'unsigned local shell' => [[], null, 1];
         yield 'signed, key never enrolled' => [['--sign'], null, 0];
         yield 'signed, seat key without plugins.config:write' => [['--sign'], ['agent:run', 'plugins:write'], 1];
         yield 'signed, key that answers for the write set' => [['--sign'], ['plugins.config:write', 'plugins.Roto:write'], 0];

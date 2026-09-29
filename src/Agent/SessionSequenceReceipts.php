@@ -49,8 +49,8 @@ final class SessionSequenceReceipts implements SequenceReceipts
      *
      * A call that failed before its handler opened the session leaves nothing to continue, and a
      * receipt appended to a stream nobody started would be read back as a session of its own. A
-     * recipe applied in one signed call, or a task the house closed in its first leg, has nothing
-     * left to continue either: keeping the receipt would leave a key standing after the sequence.
+     * recipe applied in one signed call has nothing left to continue either: keeping the receipt
+     * would leave a key standing after the sequence.
      */
     public function record(string $sequence, string $operation, GrantedAuthorization $granted, mixed $result): void
     {
@@ -122,10 +122,13 @@ final class SessionSequenceReceipts implements SequenceReceipts
     /**
      * Why this result ends its sequence, or null while the sequence goes on.
      *
-     * Read from what each operation already answers, never re-derived: a recipe is over when it
-     * says `applied`, and an agent task when the house derived a VERIFIED closure for it
-     * (greenhouse decisions/0487). An unverified closure, a pause, a spent budget or a stall leave
-     * the work open — the sequence continues, and so does its receipt.
+     * Read from what the operation already answers, never re-derived: a recipe is over when it says `applied`.
+     *
+     * AN AGENT TASK NEVER ENDS ITS SEQUENCE BY A VERDICT (greenhouse decisions/0522). A derived closure is the
+     * house's judgment of the work, not the end of whose work it is: measured (evidence/1050), a false closure
+     * released the seat's receipt at leg 2 and legs 3–13 ran as the terminal user. The receipt of a session
+     * stands until the session ends (`agent:discard`, or an answer window that closed — the fold drops it), or
+     * until a new signed leg replaces it; nothing a leg answers releases it.
      */
     public static function ended(string $operation, mixed $result): ?string
     {
@@ -133,12 +136,7 @@ final class SessionSequenceReceipts implements SequenceReceipts
             return null;
         }
 
-        return match ($operation) {
-            'recipe:apply' => ($result['applied'] ?? false) === true ? 'the recipe was applied' : null,
-            'agent' => \is_array($result['closure'] ?? null) && ($result['closure']['verified'] ?? false) === true
-                ? 'the house derived a verified closure' : null,
-            default => null,
-        };
+        return $operation === 'recipe:apply' && ($result['applied'] ?? false) === true ? 'the recipe was applied' : null;
     }
 
     private function store(): ?SessionStore

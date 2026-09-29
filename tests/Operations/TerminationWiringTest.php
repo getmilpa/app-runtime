@@ -131,7 +131,7 @@ final class TerminationWiringTest extends TestCase
     {
         $this->events = new InMemoryEventStore();
         $this->sessions = new SessionStore($this->events);
-        $this->sessions->start('s', 'Build the page a reader reads');
+        $this->sessions->start('s', 'Build the blog page a reader reads');
         $this->sessions->recordToolCall('s', 'sandbox_promote', ['workspace' => 'wabc'], (string) json_encode(['ok' => true,
             'evidence' => ['predicate' => 'promoted', 'subject' => 'wabc', 'environment' => ['kind' => 'house']]]), mutating: true);
         $this->sessions->recordToolCall('s', 'screen_observe', ['name' => 'blog'], (string) json_encode(['ok' => true,
@@ -160,7 +160,7 @@ final class TerminationWiringTest extends TestCase
     {
         $this->events = new InMemoryEventStore();
         $this->sessions = new SessionStore($this->events);
-        $this->sessions->start('s', 'Build the page a reader reads');
+        $this->sessions->start('s', 'Build the blog page a reader reads');
         $this->sessions->recordToolCall('s', 'sandbox_promote', ['workspace' => 'wabc'], (string) json_encode(['ok' => true,
             'evidence' => ['predicate' => 'promoted', 'subject' => 'wabc', 'environment' => ['kind' => 'house']]]), mutating: true);
         $this->sessions->recordToolCall('s', 'screen_observe', ['name' => 'blog'], (string) json_encode(['ok' => true,
