@@ -172,4 +172,19 @@ final class ABrokenBootIsNotLeftForTest extends TestCase
         self::assertStringStartsWith('This house does not boot: ArgumentCountError: Too few arguments — «Blog»', (string) $response->getBody());
         self::assertStringContainsString(\Milpa\AppRuntime\Support\Capabilities::CLI . ' sandbox:undo', (string) $response->getBody());
     }
+
+    /** Asked before any request was checked, it reads the house first — a verdict never comes from an empty digest. */
+    public function testAskedFirstItReadsTheHouseBeforeProbing(): void
+    {
+        $definition = KernelDefinition::before($this->root);
+
+        self::assertNull($definition->nextBootFails());
+    }
+
+    /** Only PHP is forgotten: JSON, the plugin list store and a missing path drop nothing, with or without OPcache. */
+    public function testForgettingCompiledCodeTouchesOnlyPhp(): void
+    {
+        self::assertSame(0, \Milpa\AppRuntime\Support\CompiledCode::forget($this->root, ['storage/plugins.json', '.milpa/agent.json']));
+        self::assertSame(0, \Milpa\AppRuntime\Support\CompiledCode::forget($this->root, ['src/Plugins/Nowhere/Nowhere.php']), 'nothing cached, nothing dropped');
+    }
 }

@@ -44,7 +44,7 @@ final class APromotionIsServedOnTheNextRequestTest extends TestCase
 
     private function child(bool $forget): string
     {
-        exec(escapeshellarg(\PHP_BINARY) . ' -d opcache.enable_cli=1 -r ' . escapeshellarg('echo (int) function_exists("opcache_get_status") && is_array(@opcache_get_status(false));'), $probe);
+        exec(escapeshellarg(\PHP_BINARY) . ' -d opcache.enable_cli=1 -d opcache.jit=disable -r ' . escapeshellarg('echo (int) function_exists("opcache_get_status") && is_array(@opcache_get_status(false));'), $probe);
         if (($probe[0] ?? '0') !== '1') {
             self::markTestSkipped('this PHP has no OPcache to measure (the lab image has it: greenhouse evidence/1039)');
         }
@@ -63,7 +63,8 @@ touch($file, time() - 10); // the same second as the bytecode: only the content 
 echo $first, " ", include $file;
 ');
         try {
-            exec(escapeshellarg(\PHP_BINARY) . ' -d opcache.enable_cli=1 ' . escapeshellarg($script) . ' 2>&1', $out);
+            // stdout only, JIT off: a PHP with a debugger loaded warns «JIT disabled» on stderr, and that is not the answer.
+            exec(escapeshellarg(\PHP_BINARY) . ' -d opcache.enable_cli=1 -d opcache.jit=disable ' . escapeshellarg($script) . ' 2>/dev/null', $out);
         } finally {
             exec('rm -rf ' . escapeshellarg($root));
         }
