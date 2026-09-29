@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [0.197.0](https://github.com/getmilpa/app-runtime/compare/v0.196.0...v0.197.0) (2026-09-29)
+
+
+### Features
+
+* a broken promotion never strands the house (greenhouse 0506) ([#632](https://github.com/getmilpa/app-runtime/issues/632)) ([31fde28](https://github.com/getmilpa/app-runtime/commit/31fde280d1d98469700c3502cea99990a8adb3a3))
+* **closure:** the house closes work planned with todos; a claim reads its stream once; a dying leg says so ([#631](https://github.com/getmilpa/app-runtime/issues/631)) ([2085d06](https://github.com/getmilpa/app-runtime/commit/2085d065c47c7f37d86121360353899e573c3c3f))
+* **console:** coa mcp and coa panel restart their kernel when the house changes ([#629](https://github.com/getmilpa/app-runtime/issues/629)) ([5b57cae](https://github.com/getmilpa/app-runtime/commit/5b57cae5a15cad4a4ac605a404108193decac056))
+
+
+### Bug Fixes
+
+* **frontier:** a grant says what it opens, and write over existing work is never one touch ([#630](https://github.com/getmilpa/app-runtime/issues/630)) ([112483e](https://github.com/getmilpa/app-runtime/commit/112483e76165fddbba971a212626b74dedd93efa))
+
 ## [0.196.0](https://github.com/getmilpa/app-runtime/compare/v0.195.0...v0.196.0) (2026-09-28)
 
 
