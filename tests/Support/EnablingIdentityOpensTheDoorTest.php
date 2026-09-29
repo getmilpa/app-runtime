@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Support;
 
 use Milpa\AppRuntime\Support\Capabilities;
+use Milpa\AppRuntime\Tests\Fixtures\RecordingWitness;
 use Milpa\AppRuntime\Web\PasskeyPlugin;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -88,6 +89,37 @@ final class EnablingIdentityOpensTheDoorTest extends TestCase
         self::assertTrue($dry['ok']);
         self::assertSame('milpa/auth', $dry['capability'], 'the id resolves to the package that declares it');
         self::assertSame('composer require milpa/auth', $dry['command']);
+    }
+
+    /** WHAT IS DECLARED BOOTS FIRST (greenhouse decisions/0515): composer landed it; the house does not boot with it declared. */
+    #[Test]
+    public function a_door_the_house_cannot_boot_with_is_installed_and_left_undeclared(): void
+    {
+        $plugins = (string) file_get_contents($this->root . '/config/plugins.php');
+        $app = (string) file_get_contents($this->root . '/config/app.php');
+        $witness = new RecordingWitness('PasskeyPlugin cannot start');
+
+        $answer = Capabilities::install('identity', $this->vendorBefore, static fn (string $c): array => [0, ['ok']], vendorAfter: $this->vendorAfter, root: $this->root, witness: $witness);
+
+        self::assertFalse($answer['ok']);
+        self::assertTrue($answer['installed'], 'composer ran: the package is there');
+        self::assertStringContainsString('composer remove milpa/auth', (string) $answer['hint']);
+        self::assertSame(['config/app.php', 'config/plugins.php'], $answer['unwritten']);
+        self::assertStringEqualsFile($this->root . '/config/plugins.php', $plugins);
+        self::assertStringEqualsFile($this->root . '/config/app.php', $app);
+        self::assertStringContainsString(PasskeyPlugin::class, $witness->asked['config/plugins.php'] ?? '', 'the door was rehearsed');
+        self::assertStringContainsString("'rpId' => 'localhost'", $witness->asked['config/app.php'] ?? '', 'and so was its relying party');
+    }
+
+    #[Test]
+    public function a_door_the_house_boots_with_is_declared_and_says_so(): void
+    {
+        $answer = Capabilities::install('identity', $this->vendorBefore, static fn (string $c): array => [0, ['ok']], vendorAfter: $this->vendorAfter, root: $this->root, witness: new RecordingWitness(null));
+
+        self::assertTrue($answer['ok']);
+        self::assertTrue($answer['house_boots']);
+        self::assertSame([PasskeyPlugin::class], $answer['plugins_declared']);
+        self::assertSame(['rpId' => 'localhost', 'written' => true, 'file' => 'config/app.php'], $answer['relying_party']);
     }
 
     #[Test]

@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Agent;
 
 use Milpa\Command\Effect\Subject;
+use Milpa\Plugin\Contracts\BootWitnessInterface;
 
 /**
  * A DISPOSABLE COPY of the app root, where a trial may run and only the HOST decides what changed.
@@ -291,9 +292,14 @@ final class TrialWorkspace
      * target of Rule 1 (0065): undo refuses and names the paths, because reversing over a moved target
      * is a new proposal, not a recovery.
      *
+     * THE WAY BACK BOOTS FIRST TOO, AS RECOVERY (greenhouse decisions/0515). With a witness, the pre-image
+     * is booted in a copy before it is put back. It is never refused because the house is broken now —
+     * that is what an undo is for — but an undo that would break a house that boots is refused, with the
+     * paths it left `unwritten`.
+     *
      * @return array<string, mixed>
      */
-    public static function undo(string $root, string $id): array
+    public static function undo(string $root, string $id, ?BootWitnessInterface $witness = null): array
     {
         self::guardId($id);
         $base = self::baseDir($root, $id);
@@ -320,14 +326,35 @@ final class TrialWorkspace
 
         $paths = array_map('strval', array_keys($promoted));
         sort($paths);
+        $writes = [];
+        $deletes = [];
         foreach ($paths as $rel) {
-            $hostFile = $root . '/' . $rel;
             $preImage = $base . '/pre/' . $rel;
             if (is_file($preImage)) {
-                self::putFile($hostFile, (string) file_get_contents($preImage));
+                $writes[$rel] = (string) file_get_contents($preImage);
             } else {
-                @unlink($hostFile); // an added path had no pre-image; undo removes what promotion added
+                $deletes[] = $rel; // an added path had no pre-image; undo removes what promotion added
             }
+        }
+        $putBack = static function () use ($root, $writes, $deletes): void {
+            foreach ($writes as $rel => $bytes) {
+                self::putFile($root . '/' . $rel, $bytes);
+            }
+            foreach ($deletes as $rel) {
+                @unlink($root . '/' . $rel);
+            }
+        };
+
+        $said = [];
+        if ($witness !== null) {
+            $boot = $witness->writeIfItBoots($writes, $putBack, recovery: true, deletes: $deletes);
+            if ($boot['refused'] !== null) {
+                // The trial's record is kept: nothing was put back, so the promotion is still there to undo.
+                return ['ok' => false, 'error' => $boot['refused']] + $boot['said'];
+            }
+            $said = $boot['said'];
+        } else {
+            $putBack();
         }
 
         // The way back is visible on the next request too, not after OPcache's revalidation (decisions/0506).
@@ -335,7 +362,7 @@ final class TrialWorkspace
 
         self::rmrf($base);
 
-        return ['ok' => true, 'undone' => $paths];
+        return ['ok' => true, 'undone' => $paths] + $said;
     }
 
     private static function putFile(string $path, string $contents): void

@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Operations;
 
 use Milpa\AppRuntime\Framework\FrameworkUpdate;
+use Milpa\AppRuntime\Support\HouseBootWitness;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Effect\Authority;
@@ -150,7 +151,7 @@ final readonly class FrameworkOperations implements CommandProvider
                     subject: Subject::Executable,
                 ),
                 description: 'Take the files a newer milpa/framework changed that this house did not — never the ones it customized',
-                handler: static fn (array $input): array => FrameworkUpdate::apply(Capabilities::raizDeLaApp(), \is_string($input['version'] ?? null) ? $input['version'] : null),
+                handler: static fn (array $input): array => FrameworkUpdate::apply(Capabilities::raizDeLaApp(), \is_string($input['version'] ?? null) ? $input['version'] : null, new HouseBootWitness(Capabilities::raizDeLaApp())),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [

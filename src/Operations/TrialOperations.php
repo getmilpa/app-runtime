@@ -22,6 +22,7 @@ use Milpa\AppRuntime\Agent\PluginAuthoringPolicy;
 use Milpa\AppRuntime\Agent\KeyedDeclarations;
 use Milpa\AppRuntime\Agent\TrialWorkspace;
 use Milpa\AppRuntime\Support\BootProbe;
+use Milpa\AppRuntime\Support\HouseBootWitness;
 use Milpa\AppRuntime\Support\CompiledCode;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Effect\Authority;
@@ -453,7 +454,9 @@ final class TrialOperations implements CommandProvider
         if (!$verdict->allowed) {
             return ['ok' => false, 'error' => (string) $verdict->reason];
         }
-        return TrialWorkspace::undo($root, $id);
+        // The way back boots in a copy first, as RECOVERY: never refused because the house is broken now,
+        // refused only when it would break a house that boots (greenhouse decisions/0515).
+        return TrialWorkspace::undo($root, $id, $this->bootProbe !== null ? new HouseBootWitness($root, $this->bootProbe) : null);
     }
 
     /**

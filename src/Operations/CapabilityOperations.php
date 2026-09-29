@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Operations;
 
 use Milpa\AppRuntime\Identity\InstallIdentity;
 use Milpa\AppRuntime\Support\Capabilities;
+use Milpa\AppRuntime\Support\HouseBootWitness;
 use Milpa\AppRuntime\Support\CapabilityIndex;
 use Milpa\DevTools\Doctor\Repair;
 use Milpa\Command\CommandProvider;
@@ -362,6 +363,8 @@ final readonly class CapabilityOperations implements CommandProvider
             // The dated index, when one was derived: it widens `available` to what the registry
             // publishes, and it is the PROMISE the delivery gets compared against afterwards.
             index: CapabilityIndex::read(),
+            // What it declares boots in a copy of the house before it lands (greenhouse decisions/0515).
+            witness: new HouseBootWitness(Capabilities::raizDeLaApp()),
         );
         if ($dryRun || ($result['ok'] ?? false) !== true) {
             return $result;
