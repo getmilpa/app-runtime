@@ -37,6 +37,40 @@ final class DeclarationLedger
 {
     public const PATH = 'storage/capabilities/declarations.json';
 
+    /** The config lists the declaration writers touch. */
+    public const LISTS = ['config/operations.php', 'config/plugins.php', 'config/app.php'];
+
+    /**
+     * Run `$write` on the live house and record, for every list it changed, the bytes it found and the bytes it left.
+     *
+     * @template T
+     *
+     * @param callable(): T $write
+     *
+     * @return T what `$write` returned
+     */
+    public static function around(string $root, callable $write): mixed
+    {
+        $read = static function () use ($root): array {
+            $bytes = [];
+            foreach (self::LISTS as $list) {
+                $file = rtrim($root, '/') . '/' . $list;
+                $bytes[$list] = is_file($file) ? (string) file_get_contents($file) : null;
+            }
+
+            return $bytes;
+        };
+        $before = $read();
+        $result = $write();
+        foreach ($read() as $list => $after) {
+            if ($after !== null && $before[$list] !== null && $after !== $before[$list]) {
+                self::wrote($root, $list, $before[$list], $after);
+            }
+        }
+
+        return $result;
+    }
+
     /**
      * Record a write a declaration writer just made to `$relative`, given the bytes it found and the bytes it left.
      * A write that did not start from the bytes the house last knew breaks the chain for that file, permanently.

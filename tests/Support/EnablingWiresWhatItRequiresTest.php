@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Tests\Support;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\DeclarationLedger;
 use Milpa\AppRuntime\Web\PasskeyPlugin;
+use Milpa\Plugin\Contracts\BootWitnessInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -168,7 +169,7 @@ final class EnablingWiresWhatItRequiresTest extends TestCase
         $file = $this->root . '/config/plugins.php';
         file_put_contents($file, str_replace('HelloPlugin::class', 'HelloPlugin::class, // edited', (string) file_get_contents($file)));
         self::assertFalse(DeclarationLedger::accounted($this->root, 'config/plugins.php'), 'a hand edit is not the birth bytes');
-        Capabilities::registerPlugins($this->root, ['App\\Plugins\\Other\\Other']);
+        DeclarationLedger::around($this->root, fn (): array => Capabilities::registerPlugins($this->root, ['App\\Plugins\\Other\\Other']));
 
         self::assertFalse(DeclarationLedger::accounted($this->root, 'config/plugins.php'));
         $answer = Capabilities::install('admin', $this->baked, $this->composerThatMustNotRun(), root: $this->root);
@@ -221,6 +222,62 @@ final class EnablingWiresWhatItRequiresTest extends TestCase
         self::assertSame(['milpa/auth'], array_keys(Capabilities::requiredCapabilities('milpa/ui', $this->baked)));
         self::assertSame([], Capabilities::requiredCapabilities('milpa/auth', $this->baked));
         self::assertSame([], Capabilities::requiredCapabilities('milpa/admin', $this->root . '/no-vendor'));
+    }
+
+    #[Test]
+    public function the_boot_rehearsal_covers_what_the_requirement_writes_and_only_the_live_write_is_recorded(): void
+    {
+        $witness = $this->witness(boots: true);
+        $leftovers = \count(glob(sys_get_temp_dir() . '/milpa-declare-*') ?: []);
+
+        $answer = Capabilities::install('admin', $this->baked, $this->composerThatMustNotRun(), root: $this->root, witness: $witness);
+
+        self::assertTrue($answer['ok'], json_encode($answer, \JSON_THROW_ON_ERROR));
+        self::assertSame(['milpa/auth'], array_column($answer['wired_with_it'] ?? [], 'package'));
+        // The house was booted WITH the door: the rehearsal wrote what the live write then wrote.
+        self::assertStringContainsString(PasskeyPlugin::class, $witness->writes['config/plugins.php'] ?? '');
+        self::assertStringContainsString("'rpId' => 'localhost'", $witness->writes['config/app.php'] ?? '');
+        self::assertSame($witness->writes['config/plugins.php'], file_get_contents($this->root . '/config/plugins.php'));
+        self::assertTrue(DeclarationLedger::accounted($this->root, 'config/plugins.php'));
+        self::assertTrue(DeclarationLedger::accounted($this->root, 'config/app.php'));
+        self::assertSame($leftovers, \count(glob(sys_get_temp_dir() . '/milpa-declare-*') ?: []), 'the rehearsal leaves no copy behind');
+    }
+
+    #[Test]
+    public function a_house_that_would_not_boot_gets_nothing_and_records_nothing(): void
+    {
+        $files = $this->configBytes();
+
+        $answer = Capabilities::install('admin', $this->baked, $this->composerThatMustNotRun(), root: $this->root, witness: $this->witness(boots: false));
+
+        self::assertFalse($answer['ok']);
+        self::assertSame($files, $this->configBytes());
+        self::assertFileDoesNotExist($this->root . '/' . DeclarationLedger::PATH);
+        self::assertTrue(DeclarationLedger::accounted($this->root, 'config/plugins.php'), 'still the birth bytes');
+    }
+
+    /** A witness that boots (or not) whatever it is shown, and keeps what it was shown. */
+    private function witness(bool $boots): BootWitnessInterface
+    {
+        return new class ($boots) implements BootWitnessInterface {
+            /** @var array<string, string> */
+            public array $writes = [];
+
+            public function __construct(private readonly bool $boots)
+            {
+            }
+
+            public function writeIfItBoots(array $writes, callable $commit, bool $recovery = false, array $deletes = []): array
+            {
+                $this->writes = $writes;
+                if (!$this->boots) {
+                    return ['refused' => 'the house would not boot', 'said' => []];
+                }
+                $commit();
+
+                return ['refused' => null, 'said' => []];
+            }
+        };
     }
 
     /** @return array<string, string> */

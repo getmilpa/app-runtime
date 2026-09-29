@@ -157,6 +157,32 @@ final class APromotionThatDoesNotBootDoesNotLandTest extends TestCase
         self::assertStringStartsWith('ArgumentCountError: ', (string) (new BootProbe())->whyNot($this->root));
     }
 
+    /**
+     * THE NET, WITH THE COPY ON (decisions/0515, Rod's answer 4: the promotion writes through the one witness). A plugin
+     * whose `boot()` reads the house's own `var/` boots in the copy (its `var/` is empty) and not in the house: the copy
+     * lets it through, the ask after the write catches it, and what was written is put back — the trial kept.
+     */
+    public function testWhatOnlyTheLiveHouseShowsIsPutBackAfterTheCopyLetItThrough(): void
+    {
+        file_put_contents($this->root . '/var/poison', '1');
+        $stateful = str_replace(
+            'public function boot(): void {}',
+            'public function boot(): void { if (is_file(dirname(__DIR__, 3) . "/var/poison")) { throw new \RuntimeException("var/poison says no"); } }',
+            TinyHouse::pluginSource('Stateful'),
+        );
+
+        $receipt = $this->promote('w1', ['src/Plugins/Stateful/Stateful.php' => $stateful, 'config/plugins.php' => TinyHouse::pluginsFile('Blog', 'Stateful')]);
+
+        self::assertFalse($receipt['ok']);
+        self::assertSame(['config/plugins.php', 'src/Plugins/Stateful/Stateful.php'], $receipt['rolled_back']);
+        self::assertTrue($receipt['house_boots']);
+        self::assertStringContainsString('var/poison says no', $receipt['error']);
+        self::assertSame(TinyHouse::pluginsFile('Blog'), file_get_contents($this->root . '/config/plugins.php'));
+        self::assertFileDoesNotExist($this->root . '/src/Plugins/Stateful/Stateful.php', 'a file the promotion added is gone');
+        self::assertDirectoryDoesNotExist($this->root . '/var/trials/w1/pre', 'no pre-image of a promotion that never landed');
+        self::assertDirectoryExists($this->root . '/var/trials/w1/copy', 'the trial is kept to be fixed');
+    }
+
     public function testAGoodPromotionLandsAsBefore(): void
     {
         $receipt = $this->promote('w1', ['src/Plugins/Blog/BlogSeeder.php' => self::SEEDER, 'src/Plugins/Blog/Blog.php' => $this->seederPlugin(true)]);

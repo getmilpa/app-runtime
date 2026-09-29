@@ -14,6 +14,8 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Framework;
 
+use Milpa\Plugin\Contracts\BootWitnessInterface;
+
 /**
  * WHAT `framework:*` ACTUALLY DECIDES — separate from the operations, and TAKING a root.
  *
@@ -130,7 +132,7 @@ final class FrameworkUpdate
      *
      * @return array<string, mixed>
      */
-    public static function apply(string $root, ?string $version): array
+    public static function apply(string $root, ?string $version, ?BootWitnessInterface $witness = null): array
     {
         [$version, $ships, $refusal] = self::against($root, $version);
         if ($refusal !== null) {
@@ -171,7 +173,17 @@ final class FrameworkUpdate
             return ['applied' => [], 'left' => $left, 'refused' => 'the release could not be fetched to take its bytes from'];
         }
 
-        $applied = FrameworkApply::take($tree, $root, array_column($takeable, 'path'));
+        // THE HOUSE AS IT WOULD BE BOOTS FIRST (greenhouse decisions/0515): with a witness, a release the house
+        // cannot boot with writes nothing, and one that fails after landing is put back.
+        $taken = FrameworkApply::takeIfItBoots($tree, $root, array_column($takeable, 'path'), $witness);
+        if ($taken['refused'] !== null) {
+            FrameworkRelease::discard($tree);
+
+            return ['applied' => [], 'left' => $left, 'refused' => $taken['refused']] + $taken['said'];
+        }
+        $applied = $taken['applied'];
+        $said = $taken['said'];
+
         // WHAT IS TAKEN STAYS WRITTEN (greenhouse decisions/0483): measured on Surco, an apply that left no
         // record made the taken file read as the house's own edit and the version never moved.
         $hashes = [];
@@ -181,7 +193,7 @@ final class FrameworkUpdate
         FrameworkStamp::recordTaken($root, $version, $hashes);
         FrameworkRelease::discard($tree);
 
-        return ['applied' => $applied, 'left' => $left];
+        return ['applied' => $applied, 'left' => $left] + $said;
     }
 
     /**

@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Support;
 
+use Milpa\Plugin\Contracts\BootWitnessInterface;
 use Milpa\AppRuntime\Web\PasskeyPlugin;
 use Milpa\Attributes\PluginMetadata;
 use Milpa\Interfaces\Plugin\PluginInterface;
@@ -545,11 +546,66 @@ final class Capabilities
         }
 
         if ($escritas !== []) {
-            DeclarationLedger::wrote($root, 'config/operations.php', (string) file_get_contents($file), $src);
             file_put_contents($file, $src);
         }
 
         return $escritas;
+    }
+
+    /**
+     * Run the writers of `config/*.php` only if the house boots with what they would write (greenhouse decisions/0515).
+     *
+     * The writers are rehearsed on a scratch copy of the three lists they touch — `config/operations.php`,
+     * `config/plugins.php`, `config/app.php` — and the bytes they leave are what the witness boots a copy of the
+     * house with. Nothing changing asks nothing. Without a witness the writers run as they always did.
+     *
+     * @template T of array<mixed>
+     *
+     * @param callable(string): T $declare the writers, given the root they write under
+     *
+     * @return array{0: T|array{}, 1: array{refused: ?string, said: array<string, mixed>}}
+     */
+    private static function declareIfItBoots(string $root, callable $declare, ?BootWitnessInterface $witness): array
+    {
+        // What lands on the LIVE house is recorded in the declaration ledger (decisions/0520); the rehearsal's copy
+        // is not the house, and records nothing.
+        $live = static fn (): array => DeclarationLedger::around($root, static fn (): array => $declare($root));
+        if ($witness === null) {
+            return [$live(), ['refused' => null, 'said' => []]];
+        }
+        $lists = DeclarationLedger::LISTS;
+        $scratch = sys_get_temp_dir() . '/milpa-declare-' . bin2hex(random_bytes(6));
+        mkdir($scratch . '/config', 0o777, true);
+        $writes = [];
+        try {
+            foreach ($lists as $list) {
+                if (is_file($root . '/' . $list)) {
+                    copy($root . '/' . $list, $scratch . '/' . $list);
+                }
+            }
+            $declare($scratch);
+            foreach ($lists as $list) {
+                $after = is_file($scratch . '/' . $list) ? (string) file_get_contents($scratch . '/' . $list) : null;
+                if ($after !== null && $after !== (is_file($root . '/' . $list) ? file_get_contents($root . '/' . $list) : null)) {
+                    $writes[$list] = $after;
+                }
+            }
+        } finally {
+            foreach ($lists as $list) {
+                @unlink($scratch . '/' . $list);
+            }
+            @rmdir($scratch . '/config');
+            @rmdir($scratch);
+        }
+        if ($writes === []) {
+            return [$live(), ['refused' => null, 'said' => []]];
+        }
+        $report = [];
+        $boot = $witness->writeIfItBoots($writes, static function () use (&$report, $live): void {
+            $report = $live();
+        });
+
+        return [$report, $boot];
     }
 
     /**
@@ -606,7 +662,6 @@ final class Capabilities
             $written[] = $class;
         }
         if ($written !== []) {
-            DeclarationLedger::wrote($root, 'config/plugins.php', (string) file_get_contents($file), $src);
             file_put_contents($file, $src);
         }
 
@@ -651,22 +706,22 @@ final class Capabilities
     }
 
     /**
-     * Wires what `$package` requires that is installed and was NEVER declared — and nothing somebody removed
+     * Which of what `$package` requires — installed and never declared — this act wires, and which it must not
      * (greenhouse decisions/0520, Rod 2026-09-29). `enable admin` on a house where `milpa/auth` landed by composer
      * used to wire the panel and leave the door it requires unwired: the invitation the act printed answered 404.
      *
      * A requirement is wired whole or not at all — half a door is worse than none — and only when the house can
      * tell: none of its plugins is switched off in `storage/plugins.json` (an explicit disable), and every config
      * file it would write is accounted for by {@see DeclarationLedger} (so an absent class was never declared, not
-     * removed). When it cannot tell, it does not wire, and says why.
+     * removed). When it cannot tell, it does not wire, and says why. Judged on the LIVE root, never on a rehearsal.
      *
-     * @param list<string> $skip packages already wired by this act
+     * @param list<string> $skip packages this act wires on its own
      *
-     * @return array{wired: list<array<string, mixed>>, not_wired: list<array{package: string, pending: list<string>, why: string}>}
+     * @return array{wire: list<array{package: string, manifest: array<string, mixed>, pending: list<string>}>, not_wired: list<array{package: string, pending: list<string>, why: string}>}
      */
-    private static function wireRequirements(string $root, ?string $vendor, string $package, array $skip): array
+    private static function planRequirements(string $root, ?string $vendor, string $package, array $skip): array
     {
-        $wired = [];
+        $wire = [];
         $notWired = [];
         foreach (self::requiredCapabilities($package, $vendor) as $required => $manifest) {
             if (\in_array($required, $skip, true)) {
@@ -682,18 +737,36 @@ final class Capabilities
 
                 continue;
             }
+            $wire[] = ['package' => $required, 'manifest' => $manifest, 'pending' => $pending];
+        }
+
+        return ['wire' => $wire, 'not_wired' => $notWired];
+    }
+
+    /**
+     * Writes the requirements {@see self::planRequirements()} decided to wire, under `$at` — the rehearsal's copy or
+     * the house itself — with the same writers a fresh enable uses.
+     *
+     * @param list<array{package: string, manifest: array<string, mixed>, pending: list<string>}> $wire
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function applyRequirements(string $at, array $wire): array
+    {
+        $wired = [];
+        foreach ($wire as $requirement) {
             $entry = [
-                'package' => $required,
-                'registered' => self::registerOperations($root, self::providersFor($manifest)),
-                'plugins_declared' => self::registerPlugins($root, self::pluginsFor($manifest)),
+                'package' => $requirement['package'],
+                'registered' => self::registerOperations($at, self::providersFor($requirement['manifest'])),
+                'plugins_declared' => self::registerPlugins($at, self::pluginsFor($requirement['manifest'])),
             ];
-            if (\in_array('passkey.rpId', $pending, true)) {
-                $entry['relying_party'] = self::declareRelyingParty($root);
+            if (\in_array('passkey.rpId', $requirement['pending'], true)) {
+                $entry['relying_party'] = self::declareRelyingParty($at);
             }
             $wired[] = $entry;
         }
 
-        return ['wired' => $wired, 'not_wired' => $notWired];
+        return $wired;
     }
 
     /**
@@ -801,7 +874,6 @@ final class Capabilities
 
             return ['rpId' => '', 'written' => false, 'file' => 'config/app.php', 'error' => 'the declaration did not load back from config/app.php, so it was reverted; declare passkey.rpId by hand'];
         }
-        DeclarationLedger::wrote($root, 'config/app.php', $src, (string) file_get_contents($file));
 
         return ['rpId' => $rpId, 'written' => true, 'file' => 'config/app.php'];
     }
@@ -1060,6 +1132,8 @@ final class Capabilities
      *                                                                           artifact — the promise the delivery is compared against
      * @param null|string                                           $vendorAfter the vendor after
      *                                                                           the install; in production the same tree re-read
+     * @param null|BootWitnessInterface                             $witness     whether the house boots with
+     *                                                                           what is declared, asked before it is written (decisions/0515)
      *
      * @return array<string, mixed>
      */
@@ -1071,6 +1145,7 @@ final class Capabilities
         ?array $index = null,
         ?string $vendorAfter = null,
         ?string $root = null,
+        ?BootWitnessInterface $witness = null,
     ): array {
         $pedido = trim($pedido);
         if ($pedido === '') {
@@ -1110,18 +1185,27 @@ final class Capabilities
             }
 
             $root ??= self::raizDeLaApp();
-            $registered = self::registerOperations($root, self::providersFor($manifest));
-            $pluginsDeclared = self::registerPlugins($root, self::pluginsFor($manifest));
             // THE RELYING PARTY ON THIS BRANCH TOO (greenhouse evidence/1041). It was written only when
             // identity ARRIVED, so a house whose milpa/auth landed by composer beforehand — an image baked
             // from a lock — got its plugin named and its door left unconfigured: the invitation answered
             // 404. Same writer as a fresh enable: it declares when nothing does and never overwrites.
-            $relyingParty = self::relyingPartyPending($root, $manifest) ? self::declareRelyingParty($root) : null;
             // WHAT IT REQUIRES, installed and never declared, is wired with it (decisions/0520): `enable admin` on a
-            // house whose `milpa/auth` landed by composer opens the door the panel's invitation points at.
-            $requirements = self::wireRequirements($root, $vendor, (string) $puesta['package'], []);
-            $doorWired = $relyingParty !== null || self::wiresTheDoor($requirements['wired']);
-            if ($registered === [] && $pluginsDeclared === [] && $relyingParty === null && $requirements['wired'] === []) {
+            // house whose `milpa/auth` landed by composer opens the door the panel's invitation points at. Judged
+            // ONCE, on the live house, before the rehearsal: the scratch copy has no history to judge by.
+            $requirements = self::planRequirements($root, $vendor, (string) $puesta['package'], []);
+            [$wrote, $boot] = self::declareIfItBoots($root, static fn (string $at): array => [
+                self::registerOperations($at, self::providersFor($manifest)),
+                self::registerPlugins($at, self::pluginsFor($manifest)),
+                self::relyingPartyPending($at, $manifest) ? self::declareRelyingParty($at) : null,
+                self::applyRequirements($at, $requirements['wire']),
+            ], $witness);
+            if ($boot['refused'] !== null) {
+                return ['ok' => false, 'capability' => $puesta['package'], 'error' => $boot['refused']] + $boot['said']
+                    + ['hint' => 'it is installed; declaring it would leave this house unable to boot, so nothing was declared'];
+            }
+            [$registered, $pluginsDeclared, $relyingParty, $requiredWired] = $wrote + [[], [], null, []];
+            $doorWired = $relyingParty !== null || self::wiresTheDoor($requiredWired);
+            if ($registered === [] && $pluginsDeclared === [] && $relyingParty === null && $requiredWired === []) {
                 $done = ['ok' => true, 'capability' => $puesta['package'], 'hint' => 'already installed and declared — nothing to do'];
 
                 return $requirements['not_wired'] === [] ? $done : $done + ['not_wired' => $requirements['not_wired']];
@@ -1136,12 +1220,12 @@ final class Capabilities
                 'hint' => $doorWired
                     ? 'it was installed but not declared — the passkey door is declared now: run `' . self::CLI . 'serve` and open the first_passkey invitation a signed enable prints (`' . self::CLI . 'identity:invite --sign` mints another)'
                     : 'it was installed but not declared — declared now; run `' . self::CLI . 'list` to see its operations',
-            ];
+            ] + $boot['said'];
             if ($relyingParty !== null) {
                 $wired['relying_party'] = $relyingParty;
             }
-            if ($requirements['wired'] !== []) {
-                $wired['wired_with_it'] = $requirements['wired'];
+            if ($requiredWired !== []) {
+                $wired['wired_with_it'] = $requiredWired;
             }
             if ($requirements['not_wired'] !== []) {
                 $wired['not_wired'] = $requirements['not_wired'];
@@ -1266,36 +1350,58 @@ final class Capabilities
         // (greenhouse decisions/0226, measured on cattle). A fresh loader over the new maps, prepended.
         self::teachTheRunningLoader($vendorAfter ?? self::raizDeLaApp() . '/vendor');
         $root ??= self::raizDeLaApp();
-        $registered = self::registerOperations($root, self::providersFor($delivered0));
-        // THE DOOR, DECLARED: a capability that brings one of this package's plugins gets it named in
-        // config/plugins.php, and identity gets its relying party declared — the enable that leaves the
-        // human three hand edits away from the door has not enabled anything (decisions/0216, F6).
         $deliveredId = \is_string($delivered0['id'] ?? null) ? $delivered0['id'] : '';
         $announced = self::pluginsDeclaredBy($delivered0);
-        $pluginsDeclared = self::registerPlugins($root, self::pluginsFor($delivered0));
-        // WHAT ARRIVED WITH IT IS WIRED LIKE WHAT WAS ASKED FOR (greenhouse decisions/0498). A capability
-        // that another one requires lands by composer's hand, and «installed is not wired» (evidence/0993)
-        // held for it too: `milpa/admin` requires `milpa/auth`, and the panel arrived with a door nobody
-        // declared. Each capability that is new in this vendor gets the same two writers and, for the door,
-        // its relying party — and the result names it.
-        $arrived = [];
-        $identityArrived = false;
-        foreach (self::declaredBy($vendorAfter) as $package => $manifest) {
-            if ($package === (string) $objetivo['package'] || \in_array($package, $antes, true)) {
-                continue;
+        // WHAT IS DECLARED BOOTS FIRST (greenhouse decisions/0515). Composer has landed the code; the lines
+        // below name it in the lists the kernel boots from. They are written to a scratch `config/` first,
+        // the house is booted with them in a copy, and they land only if it booted — a package whose plugin
+        // does not compile stays installed and undeclared, and the house keeps booting.
+        // What it requires that was ALREADY installed, and never declared, is wired too (decisions/0520) — judged once,
+        // on the live house; what arrives by this act is `arrived_with_it`'s, not a requirement's.
+        $arriving = array_values(array_diff(array_keys(self::declaredBy($vendorAfter)), $antes, [(string) $objetivo['package']]));
+        $requirements = self::planRequirements($root, $vendorAfter, (string) $objetivo['package'], $arriving);
+        [$wrote, $boot] = self::declareIfItBoots($root, static function (string $at) use ($delivered0, $deliveredId, $objetivo, $antes, $vendorAfter, $requirements): array {
+            $registered = self::registerOperations($at, self::providersFor($delivered0));
+            // THE DOOR, DECLARED: a capability that brings one of this package's plugins gets it named in
+            // config/plugins.php, and identity gets its relying party declared — the enable that leaves the
+            // human three hand edits away from the door has not enabled anything (decisions/0216, F6).
+            $pluginsDeclared = self::registerPlugins($at, self::pluginsFor($delivered0));
+            // WHAT ARRIVED WITH IT IS WIRED LIKE WHAT WAS ASKED FOR (greenhouse decisions/0498). A capability
+            // that another one requires lands by composer's hand, and «installed is not wired» (evidence/0993)
+            // held for it too: `milpa/admin` requires `milpa/auth`, and the panel arrived with a door nobody
+            // declared. Each capability that is new in this vendor gets the same two writers and, for the door,
+            // its relying party — and the result names it.
+            $arrived = [];
+            $identityArrived = false;
+            foreach (self::declaredBy($vendorAfter) as $package => $manifest) {
+                if ($package === (string) $objetivo['package'] || \in_array($package, $antes, true)) {
+                    continue;
+                }
+                $arrived[] = [
+                    'package' => $package,
+                    'registered' => self::registerOperations($at, self::providersFor($manifest)),
+                    'plugins_declared' => self::registerPlugins($at, self::pluginsFor($manifest)),
+                ];
+                $identityArrived = $identityArrived || ($manifest['id'] ?? null) === 'identity';
             }
-            $arrived[] = [
-                'package' => $package,
-                'registered' => self::registerOperations($root, self::providersFor($manifest)),
-                'plugins_declared' => self::registerPlugins($root, self::pluginsFor($manifest)),
-            ];
-            $identityArrived = $identityArrived || ($manifest['id'] ?? null) === 'identity';
-        }
-        $relyingParty = $deliveredId === 'identity' || $identityArrived ? self::declareRelyingParty($root) : null;
-        // What it requires that was ALREADY installed, and never declared, is wired too (decisions/0520).
-        $requirements = self::wireRequirements($root, $vendorAfter, (string) $objetivo['package'], array_column($arrived, 'package'));
-        $doorWired = $deliveredId === 'identity' || $identityArrived || self::wiresTheDoor($requirements['wired']);
+            $relyingParty = $deliveredId === 'identity' || $identityArrived ? self::declareRelyingParty($at) : null;
+            $requiredWired = self::applyRequirements($at, $requirements['wire']);
 
+            return [$registered, $pluginsDeclared, $arrived, $identityArrived, $relyingParty, $requiredWired];
+        }, $witness);
+        if ($boot['refused'] !== null) {
+            return [
+                'ok' => false,
+                'capability' => $objetivo['package'],
+                'command' => $comando,
+                'error' => $boot['refused'],
+                'installed' => true,
+                'hint' => 'composer installed it, and the house does not boot with it declared, so nothing was declared: '
+                    . 'the house boots as before. Fix the package, or remove it with `composer remove ' . $objetivo['package'] . '`.',
+            ] + $boot['said'];
+        }
+        [$registered, $pluginsDeclared, $arrived, $identityArrived, $relyingParty, $requiredWired] = $wrote + [[], [], [], false, null, []];
+        $doorWired = $deliveredId === 'identity' || $identityArrived || self::wiresTheDoor($requiredWired);
         $okOut = [
             'ok' => true,
             'capability' => $objetivo['package'],
@@ -1321,14 +1427,15 @@ final class Capabilities
                 ? 'the passkey door is declared: run `' . self::CLI . 'serve` and open the first_passkey invitation this act printed (a signed enable on a house that recognizes nobody mints it; `' . self::CLI . 'identity:invite --sign` mints another)'
                 : 'run `' . self::CLI . 'list` to see the new operations',
         ];
+        $okOut += $boot['said'];
         if ($relyingParty !== null) {
             $okOut['relying_party'] = $relyingParty;
         }
         if ($arrived !== []) {
             $okOut['arrived_with_it'] = $arrived;
         }
-        if ($requirements['wired'] !== []) {
-            $okOut['wired_with_it'] = $requirements['wired'];
+        if ($requiredWired !== []) {
+            $okOut['wired_with_it'] = $requiredWired;
         }
         if ($requirements['not_wired'] !== []) {
             $okOut['not_wired'] = $requirements['not_wired'];
