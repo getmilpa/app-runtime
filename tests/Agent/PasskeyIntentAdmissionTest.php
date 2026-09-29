@@ -20,6 +20,7 @@ use Milpa\Auth\WebAuthn\ChallengeStore;
 use Milpa\Auth\WebAuthn\PasskeyAuthenticator;
 use Milpa\Auth\WebAuthn\PasskeyCredentialStore;
 use Milpa\Auth\WebAuthn\RegisteredCredential;
+use Milpa\Auth\WebAuthn\RelyingParty;
 use Milpa\Command\Consent\OperationId;
 use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\EffectProfile;
@@ -52,7 +53,7 @@ final class PasskeyIntentAdmissionTest extends TestCase
         $challenge = $admission->challengeFor(new OperationId('capabilities.enable'), ['name' => 'a2a'], 'ses-A');
         [$client, $data, $sig] = $this->assertion($priv, $challenge, counter: 3);
 
-        $grant = $admission->admit(self::RP_ID, self::CRED, $client, $data, $sig);
+        $grant = $admission->admit(new RelyingParty(self::RP_ID, 'Milpa', ['https://' . self::RP_ID]), self::CRED, $client, $data, $sig);
 
         self::assertNotNull($grant);
         self::assertSame('intent-grant', $grant->provenance);
@@ -85,7 +86,7 @@ final class PasskeyIntentAdmissionTest extends TestCase
 
         $challenge = $admission->challengeFor(new OperationId('capabilities.enable'), ['name' => 'a2a'], 'ses-A');
         [$client, $data, $sig] = $this->assertion($priv, $challenge, counter: 3);
-        $grant = $admission->admit(self::RP_ID, self::CRED, $client, $data, $sig);
+        $grant = $admission->admit(new RelyingParty(self::RP_ID, 'Milpa', ['https://' . self::RP_ID]), self::CRED, $client, $data, $sig);
 
         self::assertNotNull($grant);
         self::assertTrue(
@@ -107,7 +108,7 @@ final class PasskeyIntentAdmissionTest extends TestCase
         $challenge = $admission->challengeFor(new OperationId('capabilities.enable'), ['name' => 'a2a'], 'ses-A');
         [$client, $data, $sig] = $this->assertion($priv, $challenge);
 
-        self::assertNull($admission->admit(self::RP_ID, self::CRED, $client, $data, $sig), 'a signature from an unregistered key is not authority');
+        self::assertNull($admission->admit(new RelyingParty(self::RP_ID, 'Milpa', ['https://' . self::RP_ID]), self::CRED, $client, $data, $sig), 'a signature from an unregistered key is not authority');
     }
 
     /** A tampered signature proves nothing — no grant. */
@@ -119,7 +120,7 @@ final class PasskeyIntentAdmissionTest extends TestCase
         $challenge = $admission->challengeFor(new OperationId('capabilities.enable'), ['name' => 'a2a'], 'ses-A');
         [$client, $data, $sig] = $this->assertion($priv, $challenge);
 
-        self::assertNull($admission->admit(self::RP_ID, self::CRED, $client, $data, $sig . 'x'), 'a broken signature is not authority');
+        self::assertNull($admission->admit(new RelyingParty(self::RP_ID, 'Milpa', ['https://' . self::RP_ID]), self::CRED, $client, $data, $sig . 'x'), 'a broken signature is not authority');
     }
 
     /** A replayed assertion mints nothing — the challenge is spent once. */
@@ -131,8 +132,8 @@ final class PasskeyIntentAdmissionTest extends TestCase
         $challenge = $admission->challengeFor(new OperationId('capabilities.enable'), ['name' => 'a2a'], 'ses-A');
         [$client, $data, $sig] = $this->assertion($priv, $challenge, counter: 3);
 
-        self::assertNotNull($admission->admit(self::RP_ID, self::CRED, $client, $data, $sig), 'first use works');
-        self::assertNull($admission->admit(self::RP_ID, self::CRED, $client, $data, $sig), 'the challenge is single-use');
+        self::assertNotNull($admission->admit(new RelyingParty(self::RP_ID, 'Milpa', ['https://' . self::RP_ID]), self::CRED, $client, $data, $sig), 'first use works');
+        self::assertNull($admission->admit(new RelyingParty(self::RP_ID, 'Milpa', ['https://' . self::RP_ID]), self::CRED, $client, $data, $sig), 'the challenge is single-use');
     }
 
     /** A valid assertion over an UNBOUND challenge mints nothing — no call to authorise. */
@@ -146,7 +147,7 @@ final class PasskeyIntentAdmissionTest extends TestCase
         $challenge = $authenticator->challenge();
         [$client, $data, $sig] = $this->assertion($priv, $challenge);
 
-        self::assertNull($admission->admit(self::RP_ID, self::CRED, $client, $data, $sig), 'a proven assertion with no bound call authorises nothing');
+        self::assertNull($admission->admit(new RelyingParty(self::RP_ID, 'Milpa', ['https://' . self::RP_ID]), self::CRED, $client, $data, $sig), 'a proven assertion with no bound call authorises nothing');
     }
 
     // --- helpers ---
@@ -230,7 +231,7 @@ final class PasskeyIntentAdmissionTest extends TestCase
             'origin' => 'https://' . self::RP_ID,
         ]);
 
-        $authData = hash('sha256', self::RP_ID, true) . "\x01" . pack('N', $counter);
+        $authData = hash('sha256', self::RP_ID, true) . "\x05" . pack('N', $counter);
         $signedData = $authData . hash('sha256', $clientData, true);
         $sig = '';
         openssl_sign($signedData, $sig, $priv, \OPENSSL_ALGO_SHA256);

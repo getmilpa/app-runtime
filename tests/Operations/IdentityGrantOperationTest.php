@@ -27,6 +27,7 @@ use Milpa\Auth\WebAuthn\ChallengeStore;
 use Milpa\Auth\WebAuthn\PasskeyAuthenticator;
 use Milpa\Auth\WebAuthn\PasskeyCredentialStore;
 use Milpa\Auth\WebAuthn\RegisteredCredential;
+use Milpa\Auth\WebAuthn\RelyingParty;
 use Milpa\Command\Consent\OperationId;
 use Milpa\Container\DIContainer;
 use Milpa\EventStore\EventStoreInterface;
@@ -545,13 +546,13 @@ final class IdentityGrantOperationTest extends TestCase
         $details = openssl_pkey_get_details($key);
         self::assertIsArray($details);
         $admission = new PasskeyIntentAdmission($this->authenticator($credentialId, (string) $details['key']), new InMemoryIntentChallengeStore());
-        $proof = new PasskeyIntentProof($admission, self::RP_ID);
+        $proof = new PasskeyIntentProof($admission, new RelyingParty(self::RP_ID, 'Milpa', ['https://' . self::RP_ID]));
         $c->registerService(PasskeyIntentProof::class, $proof);
         $b64 = static fn (string $raw): string => rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
         $touch = static function (array $call) use ($admission, $key, $credentialId, $b64): array {
             $challenge = $admission->challengeFor(new OperationId('identity:grant'), $call, \is_string($call['session'] ?? null) ? $call['session'] : null);
             $clientData = (string) json_encode(['type' => 'webauthn.get', 'challenge' => $b64($challenge), 'origin' => 'https://' . self::RP_ID]);
-            $authData = hash('sha256', self::RP_ID, true) . "\x01" . pack('N', 1);
+            $authData = hash('sha256', self::RP_ID, true) . "\x05" . pack('N', 1);
             $signature = '';
             openssl_sign($authData . hash('sha256', $clientData, true), $signature, $key, \OPENSSL_ALGO_SHA256);
 

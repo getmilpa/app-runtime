@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Agent;
 
+use Milpa\Auth\WebAuthn\RelyingParty;
 use Milpa\Command\Consent\ConsentGrant;
 
 /**
@@ -29,7 +30,7 @@ final class PasskeyIntentProof
 {
     public function __construct(
         private readonly PasskeyIntentAdmission $admission,
-        private readonly string $rpId,
+        private readonly RelyingParty $relyingParty,
     ) {
     }
 
@@ -48,7 +49,7 @@ final class PasskeyIntentProof
             return null;
         }
 
-        return $this->admission->admit($this->rpId, $credentialId, $clientData, $authData, $signature);
+        return $this->admission->admit($this->relyingParty, $credentialId, $clientData, $authData, $signature);
     }
 
     private static function decode(mixed $value): ?string

@@ -162,7 +162,7 @@ final class PasskeyGateLoopTest extends TestCase
         }
 
         $c = new DIContainer();
-        $c->registerService(Config::class, new Config(['passkey' => ['rpId' => self::RP_ID, 'gate' => ['scope' => $gateScope]]]));
+        $c->registerService(Config::class, new Config(['passkey' => ['rpId' => self::RP_ID, 'origins' => ['https://' . self::RP_ID], 'gate' => ['scope' => $gateScope]]]));
         $c->registerService('gated.probe', new class () {
             /** What the gate let through: the principal and its scopes, from the attached AuthContext. */
             public function index(ServerRequestInterface $request): ResponseInterface
