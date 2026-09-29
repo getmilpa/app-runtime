@@ -250,10 +250,11 @@ final class HouseBootWitness implements BootWitnessInterface
         } finally {
             // NEVER THE ONLY vendor/ THE HOUSE HAS (evidence/1061). If a swap left the house without one, the previous
             // one goes back before the stage is removed — and a stage still holding it is kept, not deleted.
-            if (!is_dir($this->root . '/vendor') && is_dir($stage->path . '/vendor.previous')) {
-                @rename($stage->path . '/vendor.previous', $this->root . '/vendor');
+            $previous = self::previousIn($stage);
+            if (!is_dir($this->root . '/vendor') && $previous !== null) {
+                @rename($previous, $this->root . '/vendor');
             }
-            if (is_dir($this->root . '/vendor') || !is_dir($stage->path . '/vendor.previous')) {
+            if (is_dir($this->root . '/vendor') || self::previousIn($stage) === null) {
                 $stage->remove();
             }
         }
@@ -268,42 +269,75 @@ final class HouseBootWitness implements BootWitnessInterface
     private function swapIn(BootCandidate $stage, array $files, array $urls): ?string
     {
         $stage->relinkFor($this->root . '/vendor');
-        if (!@rename($this->root . '/vendor', $stage->path . '/vendor.previous')) {
-            return null;
-        }
-        if (!@rename($stage->path . '/vendor', $this->root . '/vendor')) {
-            rename($stage->path . '/vendor.previous', $this->root . '/vendor');
+        // ONE STEP WHERE THE SYSTEM HAS ONE (evidence/1061, run 7): between two renames the house has no vendor/ for a
+        // moment, and a request booting across it died of a class not found. renameat2's exchange swaps both paths at
+        // once — GNU `mv --exchange` (coreutils 9.5+, Linux). Where it is absent, the two renames, and the answer says so.
+        if (self::exchange($stage->path . '/vendor', $this->root . '/vendor')) {
+            $landedBy = 'exchange';
+            // The previous vendor/ now sits where the stage's was; it takes the name a put-back looks for.
+            @rename($stage->path . '/vendor', $stage->path . '/vendor.previous');
+        } else {
+            $landedBy = 'swap';
+            if (!@rename($this->root . '/vendor', $stage->path . '/vendor.previous')) {
+                return null;
+            }
+            if (!@rename($stage->path . '/vendor', $this->root . '/vendor')) {
+                rename($stage->path . '/vendor.previous', $this->root . '/vendor');
 
-            return null;
+                return null;
+            }
         }
+        // The bytes each file will hold: the stage's, with the path urls given back — and the lock's content hash
+        // taken again over the composer.json the house will have, so the lock still locks it.
+        $final = [];
         foreach ($files as $file) {
-            $staged = $stage->path . '/' . $file;
-            // The file that was here is kept aside by a second name (the same inode), so a put-back is a rename.
-            if (is_file($this->root . '/' . $file)) {
-                @link($this->root . '/' . $file, $stage->path . '/' . $file . '.previous');
-            }
-            if (is_file($staged)) {
-                $bytes = strtr((string) file_get_contents($staged), $urls);
-                if (is_file($this->root . '/' . $file) && file_get_contents($this->root . '/' . $file) === $bytes) {
-                    // What Composer left as it was is not written: an update does not touch composer.json.
-                    continue;
-                }
-                // WRITE-THEN-RENAME: the house never reads a half-written composer.json.
-                file_put_contents($this->root . '/' . $file . '.witness-tmp', $bytes);
-                rename($this->root . '/' . $file . '.witness-tmp', $this->root . '/' . $file);
-            } elseif (is_file($this->root . '/' . $file)) {
-                unlink($this->root . '/' . $file);
-            }
+            $final[$file] = is_file($stage->path . '/' . $file) ? strtr((string) file_get_contents($stage->path . '/' . $file), $urls) : null;
         }
-        if ($urls !== [] && is_file($this->root . '/composer.lock')) {
-            $lock = (string) file_get_contents($this->root . '/composer.lock');
-            $hash = self::contentHash((string) file_get_contents($this->root . '/composer.json'));
-            $lock = (string) preg_replace('/("content-hash":\s*")[0-9a-f]{32}(")/', '${1}' . $hash . '${2}', $lock, 1);
-            file_put_contents($this->root . '/composer.lock.witness-tmp', $lock);
-            rename($this->root . '/composer.lock.witness-tmp', $this->root . '/composer.lock');
+        if ($urls !== [] && isset($final['composer.lock'], $final['composer.json'])) {
+            $final['composer.lock'] = (string) preg_replace('/("content-hash":\s*")[0-9a-f]{32}(")/', '${1}' . self::contentHash($final['composer.json']) . '${2}', $final['composer.lock'], 1);
+        }
+        foreach ($final as $file => $bytes) {
+            $live = $this->root . '/' . $file;
+            if ($bytes !== null && is_file($live) && file_get_contents($live) === $bytes) {
+                // What Composer left as it was is not written — not even a second name, which moves its ctime.
+                continue;
+            }
+            // The file that was here is kept aside by a second name (the same inode), so a put-back is a rename.
+            if (is_file($live)) {
+                @link($live, $stage->path . '/' . $file . '.previous');
+            }
+            if ($bytes !== null) {
+                // WRITE-THEN-RENAME: the house never reads a half-written composer.json.
+                file_put_contents($live . '.witness-tmp', $bytes);
+                rename($live . '.witness-tmp', $live);
+            } elseif (is_file($live)) {
+                unlink($live);
+            }
         }
 
-        return 'swap';
+        return $landedBy;
+    }
+
+    /** Where the stage keeps the house's previous `vendor/` after a swap — null before one. */
+    private static function previousIn(BootCandidate $stage): ?string
+    {
+        return is_dir($stage->path . '/vendor.previous') ? $stage->path . '/vendor.previous' : null;
+    }
+
+    /**
+     * Exchange two directories in one step (renameat2 RENAME_EXCHANGE, through GNU `mv --exchange`) — false when the
+     * system cannot, and then nothing moved. Off with MILPA_WITNESS_NO_EXCHANGE, the two-rename arm evidence/1061 measures.
+     */
+    private static function exchange(string $a, string $b): bool
+    {
+        if (getenv('MILPA_WITNESS_NO_EXCHANGE') !== false || !\function_exists('exec')) {
+            return false;
+        }
+        $out = [];
+        $code = 1;
+        @exec('mv --exchange --no-target-directory ' . escapeshellarg($a) . ' ' . escapeshellarg($b) . ' 2>&1', $out, $code);
+
+        return $code === 0;
     }
 
     /**
@@ -313,9 +347,10 @@ final class HouseBootWitness implements BootWitnessInterface
      */
     private function putBack(BootCandidate $stage, array $before): void
     {
-        if (is_dir($stage->path . '/vendor.previous')) {
+        $previous = self::previousIn($stage);
+        if ($previous !== null && !self::exchange($previous, $this->root . '/vendor')) {
             rename($this->root . '/vendor', $stage->path . '/vendor.rejected');
-            rename($stage->path . '/vendor.previous', $this->root . '/vendor');
+            rename($previous, $this->root . '/vendor');
         }
         foreach ($before as $file => $bytes) {
             if ($bytes === null) {

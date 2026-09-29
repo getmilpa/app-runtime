@@ -56,6 +56,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
 
     protected function tearDown(): void
     {
+        putenv('MILPA_WITNESS_NO_EXCHANGE');
         TinyHouse::remove($this->root);
     }
 
@@ -168,7 +169,8 @@ final class ComposerBootsAStageFirstTest extends TestCase
         $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/good', $this->composer('$labGood = true;'));
 
         self::assertNull($composed['refused']);
-        self::assertSame(['house_boots' => true, 'landed_by' => 'swap'], $composed['said']);
+        self::assertTrue($composed['said']['house_boots']);
+        self::assertContains($composed['said']['landed_by'], ['exchange', 'swap'], 'one step where the system has one, two renames where not');
         self::assertSame(0, $composed['code']);
         self::assertFileExists($this->root . '/vendor/lab/good/files.php');
         self::assertStringContainsString('lab/good', (string) file_get_contents($this->root . '/composer.json'));
@@ -176,6 +178,50 @@ final class ComposerBootsAStageFirstTest extends TestCase
         self::assertNotSame($autoload, fileinode($this->root . '/vendor/autoload.php'), 'the vendor/ that serves is the one that booted');
         self::assertCount(1, $this->ranIn, 'composer ran once: the stage landed, it was not run again');
         self::assertDirectoryDoesNotExist($this->root . '/var/boot-candidates', 'the stage and the previous vendor/ are gone');
+    }
+
+    public function testWithoutAnExchangeTheSwapIsTwoRenamesAndSaysSo(): void
+    {
+        putenv('MILPA_WITNESS_NO_EXCHANGE=1');
+
+        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/good', $this->composer());
+
+        self::assertSame(['house_boots' => true, 'landed_by' => 'swap'], $composed['said']);
+        self::assertFileExists($this->root . '/vendor/lab/good/files.php');
+    }
+
+    public function testWhereTheSystemExchangesTheSwapIsOneStep(): void
+    {
+        $probe = sys_get_temp_dir() . '/milpa-exchange-' . bin2hex(random_bytes(4));
+        mkdir($probe . '/a', 0o777, true);
+        mkdir($probe . '/b');
+        exec('mv --exchange --no-target-directory ' . escapeshellarg($probe . '/a') . ' ' . escapeshellarg($probe . '/b') . ' 2>/dev/null', $out, $code);
+        rmdir($probe . '/a');
+        rmdir($probe . '/b');
+        rmdir($probe);
+        if ($code !== 0) {
+            self::markTestSkipped('this system has no `mv --exchange` (coreutils 9.5+): the two-rename arm is tested above');
+        }
+
+        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/good', $this->composer());
+
+        self::assertSame(['house_boots' => true, 'landed_by' => 'exchange'], $composed['said']);
+        self::assertFileExists($this->root . '/vendor/lab/good/files.php');
+        self::assertDirectoryDoesNotExist($this->root . '/var/boot-candidates', 'the previous vendor/ went with the stage');
+    }
+
+    public function testWhatOnlyTheLiveHouseShowsIsPutBackWithTwoRenamesToo(): void
+    {
+        putenv('MILPA_WITNESS_NO_EXCHANGE=1');
+        file_put_contents($this->root . '/var/poison', '1');
+        $before = $this->tree();
+
+        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/stateful', $this->composer(
+            "if (is_file(dirname(__DIR__, 3) . '/var/poison')) { throw new \\RuntimeException('var/poison says no'); }",
+        ));
+
+        self::assertArrayHasKey('rolled_back', $composed['said']);
+        self::assertSame($before, $this->tree());
     }
 
     public function testWhatOnlyTheLiveHouseShowsIsPutBack(): void
@@ -343,6 +389,8 @@ final class ComposerBootsAStageFirstTest extends TestCase
     public function testAFileComposerLeftAsItWasIsNotWritten(): void
     {
         $json = fileinode($this->root . '/composer.json');
+        $ctime = filectime($this->root . '/composer.json');
+        sleep(1);
 
         $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer update', function (string $command, string $cwd): array {
             file_put_contents($cwd . '/composer.lock', "{\n    \"content-hash\": \"2\"\n}\n");
@@ -351,20 +399,24 @@ final class ComposerBootsAStageFirstTest extends TestCase
         });
 
         self::assertNull($composed['refused']);
+        clearstatcache();
         self::assertSame($json, fileinode($this->root . '/composer.json'), 'an update leaves composer.json alone');
+        self::assertSame($ctime, filectime($this->root . '/composer.json'), 'not even a second name: its ctime is the same (evidence/1061)');
         self::assertStringContainsString('"2"', (string) file_get_contents($this->root . '/composer.lock'));
     }
 
     public function testARootSpelledThroughItsOwnVendorStillLands(): void
     {
         // How Capabilities::raizDeLaApp() finds the house: from inside vendor/. Once the swap renames vendor/ away,
-        // that spelling resolves to nothing — evidence/1061, run 1, lost the house's vendor/ exactly so.
+        // that spelling resolves to nothing — evidence/1061, run 1, lost the house's vendor/ exactly so. Two renames:
+        // an exchange resolves both paths in one call and would hide it.
+        putenv('MILPA_WITNESS_NO_EXCHANGE=1');
         mkdir($this->root . '/vendor/composer', 0o777, true);
 
         $composed = (new HouseBootWitness($this->root . '/vendor/composer/../..'))->composeIfItBoots('composer require lab/good', $this->composer());
 
         self::assertNull($composed['refused'], (string) $composed['refused']);
-        self::assertSame('swap', $composed['said']['landed_by']);
+        self::assertContains($composed['said']['landed_by'], ['exchange', 'swap']);
         self::assertFileExists($this->root . '/vendor/autoload.php', 'the house keeps a vendor/');
         self::assertFileExists($this->root . '/vendor/lab/good/files.php');
         self::assertDirectoryDoesNotExist($this->root . '/var/boot-candidates');
@@ -403,6 +455,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
 
     public function testWhenTheSwapCannotRenameComposerRunsAgainOnTheHouseOnlyAfterTheStageBooted(): void
     {
+        putenv('MILPA_WITNESS_NO_EXCHANGE=1');
         $composer = $this->composer();
         $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/good', function (string $command, string $cwd) use ($composer): array {
             if (str_contains($cwd, '/var/boot-candidates/')) {
@@ -423,6 +476,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
 
     public function testARerunThatFailsIsComposersAnswer(): void
     {
+        putenv('MILPA_WITNESS_NO_EXCHANGE=1');
         $calls = 0;
         $composer = $this->composer();
         $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/good', function (string $command, string $cwd) use ($composer, &$calls): array {
@@ -503,7 +557,8 @@ final class ComposerBootsAStageFirstTest extends TestCase
 
         self::assertSame(0, $code);
         self::assertSame(['  - Installing lab/good (1.0.0)'], $out);
-        self::assertSame(['house_boots' => true, 'landed_by' => 'swap'], $runner->said());
+        self::assertTrue($runner->said()['house_boots']);
+        self::assertContains($runner->said()['landed_by'], ['exchange', 'swap']);
     }
 
     public function testTheRunnerDevtoolsIsHandedStagesComposerAndRunsTheRestInTheHouse(): void
@@ -553,7 +608,8 @@ final class ComposerBootsAStageFirstTest extends TestCase
         $answer = Capabilities::install('lab/good', $vendor, $this->composer(), index: $index, vendorAfter: $this->delivered('lab/good'), root: $this->root, witness: new HouseBootWitness($this->root));
 
         self::assertTrue($answer['ok'], (string) ($answer['error'] ?? ''));
-        self::assertSame(['house_boots' => true, 'landed_by' => 'swap'], $answer['composer']);
+        self::assertTrue($answer['composer']['house_boots']);
+        self::assertContains($answer['composer']['landed_by'], ['exchange', 'swap']);
         self::assertFileExists($this->root . '/vendor/lab/good/files.php');
     }
 
