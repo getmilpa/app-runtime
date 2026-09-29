@@ -30,6 +30,9 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
 
     public const BUILD = ['make', 'implement', 'edit', 'test'];
 
+    /** The plugin state `plugins:write` exports: the registry the boot reads and the lock, by what each one is. */
+    private const PLUGIN_STATE = ['storage/plugins.json' => 'registry', 'milpa.lock' => 'lock'];
+
     /** @param (\Closure(): ?\Milpa\Agent\SessionStore)|null $sessions */
     public function __construct(
         private readonly string $root,
@@ -279,6 +282,17 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             if ($path === 'config/plugins.php') {
                 if (!$context->hasScope('plugins.config:write')) {
                     throw new MissingPermission('plugins.config:write', "Missing required permission 'plugins.config:write' for plugin configuration.");
+                }
+
+                continue;
+            }
+            // The plugin switch crosses the same way (greenhouse decisions/0532). `plugins.enable` / `plugins.disable`
+            // write the registry the boot reads, and `plugins.lock` writes the lock — all three under
+            // `plugins:write`. Since 0530 they run inside a leg's trial, and without this branch a seat could
+            // switch a plugin in the rehearsal and never in the house. The same authority, and nothing else.
+            if (isset(self::PLUGIN_STATE[$path])) {
+                if (!$context->hasScope('plugins:write')) {
+                    throw new MissingPermission('plugins:write', "Missing required permission 'plugins:write' for the plugin " . self::PLUGIN_STATE[$path] . '.');
                 }
 
                 continue;
