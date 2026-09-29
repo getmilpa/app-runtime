@@ -1295,9 +1295,12 @@ final class Capabilities
                 'command' => '',
                 'registered' => $registered,
                 'plugins_declared' => $pluginsDeclared,
-                'hint' => $doorWired
+                'hint' => isset($relyingParty['origins']) && $registered === [] && $pluginsDeclared === [] && $requiredWired === []
+                    // A HOUSE FROM BEFORE 0.201 (greenhouse decisions/0533): its door was open already, on derived origins.
+                    ? 'passkey.origins is declared now beside the rpId this house already had, with the origins its door was held to: nothing changes for anyone enrolled. List where else the house is served from there, if anywhere'
+                    : ($doorWired
                     ? 'it was installed but not declared — the passkey door is declared now: run `' . self::CLI . 'serve` and open the first_passkey invitation a signed enable prints (`' . self::CLI . 'identity:invite --sign` mints another)'
-                    : 'it was installed but not declared — declared now; run `' . self::CLI . 'list` to see its operations',
+                    : 'it was installed but not declared — declared now; run `' . self::CLI . 'list` to see its operations'),
             ] + $boot['said'];
             if ($relyingParty !== null) {
                 $wired['relying_party'] = $relyingParty;

@@ -207,6 +207,8 @@ final class EnablingInstalledIdentityDeclaresTheRelyingPartyTest extends TestCas
         self::assertTrue($answer['ok'], json_encode($answer, \JSON_THROW_ON_ERROR));
         self::assertSame(['rpId' => 'localhost', 'written' => true, 'file' => 'config/app.php', 'origins' => ['http://localhost:8000']], $answer['relying_party'] ?? null);
         self::assertStringNotContainsString('nothing to do', (string) $answer['hint']);
+        self::assertStringContainsString('passkey.origins is declared now', (string) $answer['hint']);
+        self::assertStringNotContainsString('first_passkey', (string) $answer['hint'], 'the door was open already: no invitation to chase');
 
         $config = (fn (): mixed => include $this->root . '/config/app.php')();
         self::assertIsArray($config);
