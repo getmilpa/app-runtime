@@ -224,7 +224,8 @@ final class SessionToolGateTest extends TestCase
         $motivo = $compuerta->refuse('plugins_remove', ['name' => 'X']);
 
         self::assertNotNull($motivo, 'auto no la salta: la confirmación es independiente del modo');
-        self::assertStringContainsString('autorizas', $motivo);
+        // milpa/agent asks in English since greenhouse decisions/0514 (agent 0.51.1).
+        self::assertStringContainsString('Do you allow it in this session?', $motivo);
         self::assertStringNotContainsString('--sign', $motivo, 'la 0177-B retiró la firma de esta clase');
 
         $sesion = $almacen->load('s1');
