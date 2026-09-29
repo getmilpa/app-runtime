@@ -99,8 +99,8 @@ final class ATurnParkedCarriesItsQuestionTest extends TestCase
             'answer with: php bin/coa agent:answer --session=s1 --answer=<yes|no> --sign',
             $m->invoke(null, 's1', new PendingQuestion(id: 'perm:make', question: 'Allow?', options: ['yes', 'no'])),
         );
-        self::assertStringEndsWith('--answer=<sí|no>', (string) $m->invoke(null, 's1', new PendingQuestion(id: 'perm:make', question: '¿Autorizas?', options: ['sí', 'no'])));
-        self::assertStringEndsWith('--answer=<your answer>', (string) $m->invoke(null, 's1', new PendingQuestion(id: 'q', question: 'What now?')));
+        self::assertStringEndsWith('--answer=<sí|no> --sign', (string) $m->invoke(null, 's1', new PendingQuestion(id: 'perm:make', question: '¿Autorizas?', options: ['sí', 'no'])));
+        self::assertStringEndsWith('--answer=<your answer> --sign', (string) $m->invoke(null, 's1', new PendingQuestion(id: 'q', question: 'What now?')));
     }
 
     /** @return array<string, mixed> */
