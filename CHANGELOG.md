@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.199.0](https://github.com/getmilpa/app-runtime/compare/v0.198.0...v0.199.0) (2026-09-29)
+
+
+### Features
+
+* **boot:** every writer of the house's definition boots a copy first ([#638](https://github.com/getmilpa/app-runtime/issues/638)) ([72128a6](https://github.com/getmilpa/app-runtime/commit/72128a65ebae7786d381f86a4766095cdd8a395b))
+
 ## [0.198.0](https://github.com/getmilpa/app-runtime/compare/v0.197.0...v0.198.0) (2026-09-29)
 
 
