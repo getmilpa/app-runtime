@@ -321,6 +321,61 @@ final class AChatAndAShellKnowWhenTheyWentStaleTest extends TestCase
         self::assertSame('', $errors, 'Ctrl-C is the person leaving, not the house failing');
     }
 
+    public function testAChildEndedBySignalIsSaidAsStoppedNotAsAHouseThatDidNotStart(): void
+    {
+        if (!\function_exists('posix_kill')) {
+            self::markTestSkipped('posix is needed for the child to signal itself.');
+        }
+        file_put_contents($this->state . '/exit', 'kill:15');
+
+        self::assertSame(143, $this->terminal($errors, 'chat'), '128 + SIGTERM, as a shell reports it');
+        self::assertSame('', $errors, 'someone stopped it; the house did not fail to start');
+        self::assertCount(1, $this->lines('opened.log'), 'a stopped child is not restarted');
+    }
+
+    public function testAChildThatExitsWithACodeAboveOneHundredTwentyEightStillFailedToStart(): void
+    {
+        // A PHP fatal error exits 255: a number, not a signal. It must still be said.
+        file_put_contents($this->state . '/exit', '255');
+
+        self::assertSame(255, $this->terminal($errors, 'shell'));
+        self::assertStringContainsString('the house did not start (exit 255); the shell closed', $errors);
+    }
+
+    public function testAChildKilledWithTheTerminalRawLeavesThePersonTheirTerminalBack(): void
+    {
+        if (\PHP_OS_FAMILY !== 'Linux' || !\function_exists('posix_kill') || !is_executable('/usr/bin/setsid') && !is_executable('/bin/setsid')) {
+            self::markTestSkipped('Needs Linux, posix and setsid to give the supervisor a controlling terminal.');
+        }
+        // A real pseudo-terminal: over a pipe `stty` has no terminal to change, and this would prove nothing.
+        $process = @proc_open(
+            ['setsid', '-c', \PHP_BINARY, __DIR__ . '/../Fixtures/supervisor/raw-then-killed.php', 'supervise'],
+            [0 => ['pty'], 1 => ['pty'], 2 => ['pty']],
+            $pipes,
+        );
+        if (!\is_resource($process)) {
+            self::markTestSkipped('This PHP cannot open a pseudo-terminal.');
+        }
+        stream_set_blocking($pipes[1], false);
+        $output = '';
+        $deadline = microtime(true) + 15.0;
+        while (!str_contains($output, 'end') && microtime(true) < $deadline) {
+            $chunk = @fread($pipes[1], 8192);
+            $output .= \is_string($chunk) ? $chunk : '';
+            usleep(10000);
+        }
+        proc_terminate($process, 9);
+        proc_close($process);
+
+        self::assertMatchesRegularExpression('/raw:.*(?<![\w-])-echo\b/s', $output, 'the child did make it raw');
+        self::assertStringContainsString('code:137', $output, '128 + SIGKILL');
+        self::assertStringNotContainsString('did not start', $output, 'a killed child is not a house that did not start');
+        $after = substr($output, (int) strpos($output, 'after:'));
+        foreach (['echo', 'icanon', 'isig'] as $flag) {
+            self::assertMatchesRegularExpression('/(?<![\w-])' . $flag . '\b/', $after, "{$flag} did not come back: {$after}");
+        }
+    }
+
     /**
      * Run the terminal supervisor here over the stand-in child; `$errors` receives what it told the person.
      *
