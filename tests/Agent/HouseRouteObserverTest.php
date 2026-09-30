@@ -76,7 +76,9 @@ return $loader;
             $kernel = \Milpa\Runtime\Kernel::boot(['root' => $root, 'plugins' => $boot['plugins'], 'config' => require $root . '/config/app.php', 'container' => $boot['container']]);
             $psr17 = new \Nyholm\Psr7\Factory\Psr17Factory();
             $request = new \Nyholm\Psr7\ServerRequest($_SERVER['REQUEST_METHOD'], $_SERVER['REQUEST_URI'], [], null, '1.1', $_SERVER);
-            $response = (new \Milpa\Runtime\Http\ExceptionMiddleware($psr17))->process($request, new \Milpa\Runtime\Http\RequestHandler($kernel, $psr17));
+            // The house's own log, wired as the skeleton wires it — unless this house swapped it for one that writes elsewhere.
+            $logger = is_file($root . '/var/logs-elsewhere') ? null : new \Milpa\Runtime\Observability\ErrorLogLogger();
+            $response = (new \Milpa\Runtime\Http\ExceptionMiddleware($psr17, $logger))->process($request, new \Milpa\Runtime\Http\RequestHandler($kernel, $psr17));
             (new \Milpa\Runtime\Http\ResponseEmitter())->emit($response);
             if (is_file($root . '/var/die-after')) {
                 exit(4);
@@ -132,10 +134,88 @@ return $loader;
 
     public function testARouteThatThrowsAnswers500AndIsNotServed(): void
     {
+        touch($this->root . '/var/logs-elsewhere');
+
         $receipt = $this->promote(['src/Plugins/Blog/Controller.php' => $this->controller('boom', throws: true)]);
 
         self::assertSame([['route' => 'GET /blog', 'subject' => '/blog', 'status' => 500, 'environment' => ['kind' => 'house']]], $receipt['observed'] ?? null);
         self::assertStringContainsString('GET /blog answered HTTP 500', (string) $receipt['note']);
+        self::assertStringContainsString('the house logged no cause this observer could read', (string) $receipt['note'], 'a house whose logger writes elsewhere leaves no cause, and the receipt says so');
+    }
+
+    /** Greenhouse evidence/1071 B2: the house had the cause of /blog's 500 in its hand and threw it away (decisions/0539). */
+    public function testARouteThatThrowsCarriesTheCauseTheHouseLoggedInTheReceipt(): void
+    {
+        $receipt = $this->promote(['src/Plugins/Blog/Controller.php' => $this->controller('boom', throws: true)]);
+
+        $cause = $receipt['observed'][0]['cause'] ?? null;
+        self::assertIsArray($cause, (string) json_encode($receipt));
+        self::assertSame('RuntimeException', $cause['class'] ?? null);
+        self::assertSame('boom', $cause['message'] ?? null);
+        self::assertSame('src/Plugins/Blog/Controller.php:8', $cause['at'] ?? null, 'relative to the house');
+        self::assertMatchesRegularExpression('/^[0-9a-f]{16}$/', (string) ($cause['reference'] ?? ''));
+        self::assertStringContainsString('GET /blog answered HTTP 500 — RuntimeException: boom (at src/Plugins/Blog/Controller.php:8)', (string) $receipt['note']);
+        self::assertStringNotContainsString($this->root, (string) json_encode($receipt, \JSON_UNESCAPED_SLASHES), 'no absolute path of the host travels');
+    }
+
+    /** Decisions/0506 stands: what the receipt says, the visitor is never shown. */
+    public function testThePublicAnswerStaysMuteAboutTheCause(): void
+    {
+        $this->promote(['src/Plugins/Blog/Controller.php' => $this->controller('boom', throws: true)]);
+
+        [$status, $body] = $this->visit('/blog');
+
+        self::assertSame(500, $status);
+        self::assertStringContainsString('Reference', $body);
+        self::assertStringNotContainsString('boom', $body);
+        self::assertStringNotContainsString('RuntimeException', $body);
+        self::assertStringNotContainsString('Controller.php', $body);
+    }
+
+    public function testTheCauseKeepsTheHousesSecretsAndTheHostsPathsOut(): void
+    {
+        mkdir($this->root . '/.milpa');
+        file_put_contents($this->root . '/.milpa/secrets.json', (string) json_encode(['agent' => ['apiKey' => 'sk-live-0123456789abcdef']]));
+        $message = 'key sk-live-0123456789abcdef at https://ana:hunter2@db.example.com/x password=letmein token: abc.def '
+            . 'Authorization: Bearer eyJhbGciOi.payload.sig in ' . $this->root . '/src/Plugins/Blog/Controller.php and /opt/elsewhere/lib/thing.php';
+
+        $receipt = $this->promote(['src/Plugins/Blog/Controller.php' => $this->controller('boom', throws: true, message: $message)]);
+
+        $said = (string) ($receipt['observed'][0]['cause']['message'] ?? '');
+        self::assertSame('key [secret] at https://ana:[secret]@db.example.com/x password=[secret] token: [secret] '
+            . 'Authorization: Bearer [secret] in src/Plugins/Blog/Controller.php and …/thing.php', $said);
+        $whole = (string) json_encode($receipt, \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE);
+        foreach (['sk-live-0123456789abcdef', 'hunter2', 'letmein', 'abc.def', 'eyJhbGciOi', '/opt/elsewhere', $this->root] as $leak) {
+            self::assertStringNotContainsString($leak, $whole);
+        }
+    }
+
+    /** A server whose php.ini sends `error_log()` to a file still hands the observer its line: the child overrides it. */
+    public function testTheCauseReachesTheObserverWhateverLogTheServerConfigured(): void
+    {
+        file_put_contents($this->root . '/src/Plugins/Blog/Controller.php', $this->controller('boom', throws: true));
+        $php = $this->root . '/var/php-with-a-log-file';
+        file_put_contents($php, "#!/bin/sh\nexec " . escapeshellarg(\PHP_BINARY) . ' -d error_log=' . escapeshellarg($this->root . '/var/server.log') . ' "$@"' . "\n");
+        chmod($php, 0o755);
+
+        $seen = (new HouseRouteObserver($php))->observe($this->root, ['src/Plugins/Blog/Controller.php']);
+
+        self::assertSame('boom', $seen['observed'][0]['cause']['message'] ?? null, (string) json_encode($seen));
+        self::assertFileDoesNotExist($this->root . '/var/server.log', 'the observing process did not write the server\'s log');
+    }
+
+    public function testAFatalNobodyCaughtIsTheCauseOfARequestThatDied(): void
+    {
+        file_put_contents($this->root . '/src/Plugins/Blog/Broken.php', "<?php\nnamespace App\\Plugins\\Blog;\nfinal class Broken implements \\Countable {}\n");
+
+        $receipt = $this->promote(['src/Plugins/Blog/Controller.php' => str_replace('return new', 'new Broken(); return new', $this->controller('blog'))]);
+
+        $entry = $receipt['observed'][0] ?? [];
+        self::assertArrayNotHasKey('predicate', $entry);
+        self::assertStringStartsWith('the request process exited', (string) ($entry['error'] ?? ''));
+        self::assertStringContainsString('App\\Plugins\\Blog\\Broken contains 1 abstract method', (string) ($entry['cause']['message'] ?? ''), (string) json_encode($entry));
+        self::assertSame('src/Plugins/Blog/Broken.php:3', $entry['cause']['at'] ?? null);
+        self::assertArrayNotHasKey('reference', $entry['cause'], 'nobody logged it under a reference');
     }
 
     public function testARequestProcessThatDiesAnsweredNothing(): void
@@ -233,7 +313,7 @@ final class ' . $name . ' implements \Milpa\Interfaces\Plugin\PluginInterface, \
         file_put_contents($this->root . "/src/Plugins/{$name}/Controller.php", str_replace('App\Plugins\Blog', 'App\Plugins\\' . $name, $this->controller($name)));
     }
 
-    private function controller(string $says, bool $throws = false): string
+    private function controller(string $says, bool $throws = false, string $message = 'boom'): string
     {
         return '<?php
 declare(strict_types=1);
@@ -242,11 +322,28 @@ final class Controller
 {
     public function index(\Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface
     {
-        ' . ($throws ? 'throw new \RuntimeException("boom");' : '') . '
+        ' . ($throws ? 'throw new \RuntimeException(' . var_export($message, true) . ');' : '') . '
         return new \Nyholm\Psr7\Response(200, ["Content-Type" => "text/html"], "<h1>' . $says . '</h1>");
     }
 }
 ';
+    }
+
+    /**
+     * What a visitor is served at `$path` — the house's own front controller, in a process of its own.
+     *
+     * @return array{0: int, 1: string}
+     */
+    private function visit(string $path): array
+    {
+        $script = $this->root . '/var/visit.php';
+        file_put_contents($script, '<?php $_SERVER = ["REQUEST_METHOD" => "GET", "REQUEST_URI" => ' . var_export($path, true) . ', "HTTP_ACCEPT" => "text/html"] + $_SERVER;'
+            . ' ob_start(); register_shutdown_function(static function (): void { $b = (string) ob_get_clean(); fwrite(STDOUT, http_response_code() . "\\n" . $b); });'
+            . ' chdir(' . var_export($this->root . '/public', true) . '); require "index.php";');
+        $out = (string) shell_exec(escapeshellarg(\PHP_BINARY) . ' -d display_errors=0 -d error_log=' . escapeshellarg($this->root . '/var/php.log') . ' ' . escapeshellarg($script));
+        [$status, $body] = explode("\n", $out, 2) + [1 => ''];
+
+        return [(int) $status, $body];
     }
 
     private static function rmrf(string $path): void

@@ -18,6 +18,7 @@ use Milpa\Agent\SessionStore;
 use Milpa\Command\InvocationContext;
 use Milpa\ToolRuntime\Contracts\ToolContext;
 use Milpa\AppRuntime\Agent\HouseRouteObserver;
+use Milpa\AppRuntime\Agent\RouteFailureCause;
 use Milpa\AppRuntime\Agent\PluginAuthoringPolicy;
 use Milpa\AppRuntime\Agent\KeyedDeclarations;
 use Milpa\AppRuntime\Agent\TrialWorkspace;
@@ -379,7 +380,10 @@ final class TrialOperations implements CommandProvider
             return '';
         }
         $answers = array_map(
-            static fn (array $entry): string => $entry['route'] . ' answered ' . ($entry['status'] === null ? 'nothing' : 'HTTP ' . $entry['status']),
+            static fn (array $entry): string => $entry['route'] . ' answered ' . ($entry['status'] === null ? 'nothing' : 'HTTP ' . $entry['status'])
+                // Why it failed, as the house logged it — here and never on the page a visitor gets (decisions/0539).
+                . (\is_array($entry['cause'] ?? null) ? ' — ' . RouteFailureCause::oneLine($entry['cause'])
+                    : (($entry['status'] ?? 0) >= 500 || isset($entry['error']) ? ' (the house logged no cause this observer could read)' : '')),
             $observation['observed'],
         );
 
