@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.203.0](https://github.com/getmilpa/app-runtime/compare/v0.202.0...v0.203.0) (2026-09-30)
+
+
+### Features
+
+* **passkey:** the process that serves the house may name the origin it serves it on ([#663](https://github.com/getmilpa/app-runtime/issues/663)) ([22d1281](https://github.com/getmilpa/app-runtime/commit/22d12812f2dac9940e4bb6980d8a2ef56301f505))
+
 ## [0.202.0](https://github.com/getmilpa/app-runtime/compare/v0.201.0...v0.202.0) (2026-09-29)
 
 
