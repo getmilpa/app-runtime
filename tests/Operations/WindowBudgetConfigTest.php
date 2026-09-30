@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tests\Operations;
 
+use Milpa\AppRuntime\Agent\LegWindow;
 use Milpa\AppRuntime\Config\AgentEndpoint;
 use Milpa\AppRuntime\Config\AgentKeys;
 use Milpa\AppRuntime\Operations\AgentOperations;
@@ -16,8 +17,9 @@ use PHPUnit\Framework\TestCase;
  * 32,768-token model re-entered at 35.6k tokens, because only the turn tail had a budget and the
  * summary's system side grew unbounded. `agent.contextTokens` (config first, then the
  * MILPA_AGENT_CONTEXT_TOKENS environment fallback — {@see \Milpa\AppRuntime\Config\AgentEndpoint}
- * owns that precedence) hands the whole declared context to the `Compactor`, which derives every
- * share from it. The third test is the control the bridge must never lose: with the key absent
+ * owns that precedence) resolves the window; since greenhouse decisions/0538 the `Compactor` receives the
+ * LEG'S inherited share of it ({@see \Milpa\AppRuntime\Agent\LegWindow::inheritedContext()}) and derives
+ * every share from that. The third test is the control the bridge must never lose: with the key absent
  * everywhere, the Compactor is constructed exactly as it was before the key existed.
  *
  * @internal
@@ -50,12 +52,16 @@ final class WindowBudgetConfigTest extends TestCase
         AgentEndpoint::useProviderFetcher(null);
     }
 
-    /** The declared key reaches the Compactor as its whole-window budget. */
+    /**
+     * The declared key reaches the Compactor as the LEG'S inherited share of it (greenhouse decisions/0538 §2): a
+     * third of the input limit — 32,768 less the 5,120 the house derives for the answer, over three.
+     */
     public function testTheDeclaredContextReachesTheCompactor(): void
     {
         $compactor = $this->compactorFor(['contextTokens' => 32768]);
 
-        self::assertSame(32768, $this->read($compactor, 'windowBudget'));
+        self::assertSame(LegWindow::sized(32768, 5120)->inheritedContext(), $this->read($compactor, 'windowBudget'));
+        self::assertSame(9216, $this->read($compactor, 'windowBudget'));
     }
 
     /** With no declaration, the documented environment fallback still works. */
@@ -65,7 +71,8 @@ final class WindowBudgetConfigTest extends TestCase
 
         $compactor = $this->compactorFor(null);
 
-        self::assertSame(24000, $this->read($compactor, 'windowBudget'));
+        // 24,000 derives no answer limit (under 24,576): the gateway reserves its own 4,096.
+        self::assertSame(LegWindow::sized(24000, 4096)->inheritedContext(), $this->read($compactor, 'windowBudget'));
     }
 
     /**
@@ -99,7 +106,7 @@ final class WindowBudgetConfigTest extends TestCase
 
         $compactor = $this->compactorFor(['baseUrl' => 'http://provider.test', 'contextTokens' => 100000]);
 
-        self::assertSame(32768, $this->read($compactor, 'windowBudget'), 'the provider clipped the declaration');
+        self::assertSame(LegWindow::sized(32768, 5120)->inheritedContext(), $this->read($compactor, 'windowBudget'), 'the provider clipped the declaration');
     }
 
     /** THE INVERSE CONTROL: a tighter declaration reaches the Compactor unclipped. */
@@ -111,7 +118,8 @@ final class WindowBudgetConfigTest extends TestCase
 
         $compactor = $this->compactorFor(['baseUrl' => 'http://provider.test', 'contextTokens' => 8000]);
 
-        self::assertSame(8000, $this->read($compactor, 'windowBudget'), 'declaring less is how a human leaves air');
+        // A quarter of a small window is the gateway's reserve: 6,000 of input, a third of it inherited.
+        self::assertSame(2000, $this->read($compactor, 'windowBudget'), 'declaring less is how a human leaves air');
     }
 
     /** The key is part of the app's declared contract, so `coa config` can teach it. */
