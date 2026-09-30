@@ -16,6 +16,10 @@ namespace Milpa\AppRuntime\Tests\Agent;
 
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Agent\PluginAuthoringPolicy;
+use Milpa\AppRuntime\Agent\SessionToolGate;
+use Milpa\Agent\AutonomyMode;
+use Milpa\Agent\SessionStore;
+use Milpa\EventStore\InMemoryEventStore;
 use Milpa\AppRuntime\Auth\CallerActors;
 use Milpa\Auth\Actor;
 use Milpa\Auth\ActorType;
@@ -215,11 +219,12 @@ final class PermissionedMutationBoundaryTest extends TestCase
     }
 
     /**
-     * The same call, by a teacher the house's resolver grants the permission: judged as its own call, it runs.
+     * The same call, by a teacher the house's resolver DOES grant the permission, through the agent's door: refused.
      *
-     * The turn's admission is still no verdict for it — the judge asked is the permission's, for this caller.
+     * MCP and the terminal now admit what the resolver grants (decisions/0545), and the agent's tools are projected
+     * the same way. The model's call stays closed at the agent's door until its own slice (decisions/0544 §2).
      */
-    public function testAnAgentTurnOverHttpRunsAPermissionedMutationTheResolverGrantsAsItsOwnJudgedCall(): void
+    public function testTheAgentsDoorKeepsAPermissionedMutationClosedEvenWhenTheResolverGrantsIt(): void
     {
         $this->container->registerService(CallerActors::class, new class () implements CallerActors {
             public function actorOf(ToolContext $caller): ?Actor
@@ -230,17 +235,28 @@ final class PermissionedMutationBoundaryTest extends TestCase
         $push = $this->mutation('sync_push', 'attendance:write');
         $registry = new ToolRegistry(new NullLogger());
         (new McpProjector())->projectAll(PluginAuthoringPolicy::catalogue($this->container, [$push]), $registry, $this->container);
-        $turn = new Operation('agent_turn', '', static function (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null) use ($registry): array {
+        $store = new SessionStore(new InMemoryEventStore());
+        $store->start('s1', 'x', AutonomyMode::Auto);
+        $store->grant('s1', 'sync_push');
+        $session = $store->load('s1');
+        self::assertNotNull($session);
+        $door = new SessionToolGate($store, $session, [$push]);
+        $turn = new Operation('agent_turn', '', static function (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null) use ($registry, $door): array {
             $grant = new ConsentGrant(new OperationId('sync_push'), 'teacher-1', 's1', new \DateTimeImmutable(), 'session.question_answered', []);
-            (new ConsentBridge($registry, [$grant], channel: 'web', authority: $authority))->callTool('sync_push', []);
+            try {
+                (new ConsentBridge($registry, [$grant], $door, channel: 'web', authority: $authority))->callTool('sync_push', []);
+            } catch (\Throwable $refused) {
+                return ['ok' => true, 'refused' => $refused->getMessage()];
+            }
 
-            return ['ok' => true];
+            return ['ok' => true, 'refused' => null];
         }, mutating: true, scopes: ['agent:run'], effects: self::rows());
 
         $response = $this->serve($turn, []);
 
         self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
-        self::assertSame(['sync_push'], $this->ran);
+        self::assertSame([], $this->ran);
+        self::assertStringContainsString("A model's call to it stays refused at the agent's door", (string) (self::body($response)['refused'] ?? ''));
     }
 
     /** @return iterable<string, array{string}> */
