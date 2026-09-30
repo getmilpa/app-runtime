@@ -15,8 +15,11 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Agent;
 
 use Milpa\Command\Operation;
+use Milpa\AppRuntime\Auth\HostPermissionPolicy;
 use Milpa\Console\McpProjector;
 use Milpa\Console\OperationBoundary;
+use Milpa\Console\OperationPermissionPolicy;
+use Milpa\Console\PermissionCallPolicy;
 use Milpa\Interfaces\Event\MilpaEventDispatcherInterface;
 use Milpa\ToolRuntime\Policy\AuthorizationResult;
 use Milpa\ToolRuntime\Contracts\CallPolicy;
@@ -43,17 +46,29 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
     private ?string $seatSession = null;
 
     /**
+     * The catalogue's operations typed by `permission`, by tool name — shared with every copy of this policy.
+     *
+     * @var \ArrayObject<string, Operation>
+     */
+    private \ArrayObject $permissioned;
+
+    /**
      * @param (\Closure(): ?\Milpa\Agent\SessionStore)|null $sessions
-     * @param JudgedPermission|null                         $judged   the HTTP policy's verdict on the permissioned
-     *                                                                operation now running; without it a mutation
-     *                                                                typed by `permission` is judged by its scopes
+     * @param JudgedPermission|null                         $judged      the HTTP policy's verdict on the permissioned
+     *                                                                   operation now running; without it a mutation
+     *                                                                   typed by `permission` is judged by its scopes
+     * @param (\Closure(): mixed)|null                      $permissions the host's OperationPermissionPolicy, asked
+     *                                                                   for a finite caller of an operation typed by
+     *                                                                   `permission`; without it that call is refused
      */
     public function __construct(
         private readonly string $root,
         private readonly TrialRunner $runner = new TrialRunner(),
         private readonly ?\Closure $sessions = null,
         private readonly ?JudgedPermission $judged = null,
+        private readonly ?\Closure $permissions = null,
     ) {
+        $this->permissioned = new \ArrayObject();
     }
 
     /**
@@ -83,7 +98,13 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             $root,
             sessions: static fn () => (new \Milpa\AppRuntime\Operations\AgentOperations($container))->sessionStore(),
             judged: $events instanceof MilpaEventDispatcherInterface ? JudgedPermission::listen($events) : null,
+            permissions: static fn (): mixed => $container->has(OperationPermissionPolicy::class) ? $container->get(OperationPermissionPolicy::class) : null,
         );
+        // THE JUDGE MCP AND A FINITE TERMINAL CALLER ANSWER TO (GHSA-xj7j-99jx-52hh, greenhouse decisions/0545): the
+        // host's own resolver, the one its HTTP policy asks. A host that brought its own judge keeps it.
+        if (!$container->has(OperationPermissionPolicy::class)) {
+            $container->registerService(OperationPermissionPolicy::class, new HostPermissionPolicy($container));
+        }
         if (!$container->has(CallPolicy::class)) {
             $container->registerService(CallPolicy::class, $policy);
         }
@@ -93,11 +114,47 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
     }
 
     /**
+     * Tells the installed boundary which of the catalogue's operations are typed by `permission`, and hands the
+     * catalogue back unchanged.
+     *
+     * A tool definition carries `scopes` and never `permission`, so without this a permission-typed mutation reads,
+     * at authorization, as one that declares no authority — and the terminal asks this policy before it asks the
+     * permission judge.
+     *
+     * @param list<Operation> $operations
+     *
+     * @return list<Operation>
+     */
+    public static function catalogue(\Milpa\Interfaces\Di\DIContainerInterface $container, array $operations): array
+    {
+        $boundary = $container->has(OperationBoundary::class) ? $container->get(OperationBoundary::class) : null;
+        if ($boundary instanceof self) {
+            foreach ($operations as $operation) {
+                if ($operation->permission !== null) {
+                    $boundary->permissioned[McpProjector::toolName($operation->name)] = $operation;
+                }
+            }
+        }
+
+        return $operations;
+    }
+
+    /**
      * Judge the requested resource and export against this call's current authority.
      *
      * @param array<string, mixed> $arguments
      */
     public function authorize(ToolContext $context, ToolDefinition $tool, array $arguments): AuthorizationResult
+    {
+        return $this->verdict($context, $tool, $arguments, $this->permissioned[$tool->name] ?? null);
+    }
+
+    /**
+     * The verdict for one call; `$permissioned` is the operation behind the tool when it is typed by `permission`.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function verdict(ToolContext $context, ToolDefinition $tool, array $arguments, ?Operation $permissioned): AuthorizationResult
     {
         try {
             $name = $tool->name;
@@ -122,6 +179,10 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
                 $record = json_decode((string) @file_get_contents($workspace->baseDirectory() . '/authoring.json'), true);
                 $plugin = is_array($record) ? ($record['plugin'] ?? null) : null;
                 $this->requirePlugin($context, $plugin);
+            } elseif ($permissioned !== null) {
+                // `Operation` holds `scopes` XOR `permission`: empty scopes here are a permission to judge, by the same
+                // judge MCP and the terminal ask — never a pass, and never "declares no authority" (decisions/0545).
+                return $this->judgePermission($permissioned, $context, $arguments);
             } elseif ($tool->mutating && $tool->scopes === []) {
                 throw new \RuntimeException("Mutation '{$name}' declares no authority for a finite principal.");
             }
@@ -131,6 +192,26 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         } catch (\Throwable $error) {
             return AuthorizationResult::denied($error->getMessage());
         }
+    }
+
+    /**
+     * A finite caller of an operation typed by `permission`: the host's judge decides, and without one nothing runs.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function judgePermission(Operation $operation, ToolContext $context, array $arguments): AuthorizationResult
+    {
+        $judge = $this->permissions === null ? null : ($this->permissions)();
+        if (!$judge instanceof OperationPermissionPolicy) {
+            return AuthorizationResult::denied(\sprintf(
+                "Operation '%s' requires the permission '%s' and this host wired no %s to judge it. Nothing ran.",
+                $operation->name,
+                $operation->permission,
+                OperationPermissionPolicy::class,
+            ));
+        }
+
+        return PermissionCallPolicy::judge($judge, $operation, $context, $arguments);
     }
 
     /**
@@ -267,7 +348,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             scopes: $operation->scopes,
             mutating: $operation->mutating
         );
-        $verdict = $this->authorize($context, $tool, $input);
+        $verdict = $this->verdict($context, $tool, $input, $operation->permission !== null ? $operation : null);
         if (!$verdict->allowed) {
             throw new \RuntimeException((string) $verdict->reason);
         }

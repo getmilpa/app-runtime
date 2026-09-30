@@ -1661,7 +1661,9 @@ final class Application
             }
         }
 
-        return $this->operations = $operaciones;
+        // The boundary learns which of them are typed by `permission`, so a finite caller's is judged, not refused as
+        // a mutation that declares no authority (greenhouse decisions/0545).
+        return $this->operations = \Milpa\AppRuntime\Agent\PluginAuthoringPolicy::catalogue($kernel->container(), $operaciones);
     }
 
     private ?Kernel $booted = null;

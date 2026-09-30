@@ -16,6 +16,16 @@ namespace Milpa\AppRuntime\Tests\Agent;
 
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Agent\PluginAuthoringPolicy;
+use Milpa\AppRuntime\Agent\SessionToolGate;
+use Milpa\Agent\AutonomyMode;
+use Milpa\Agent\SessionStore;
+use Milpa\EventStore\InMemoryEventStore;
+use Milpa\AppRuntime\Auth\CallerActors;
+use Milpa\Auth\Actor;
+use Milpa\Auth\ActorType;
+use Milpa\Auth\ArrayPermissionCatalog;
+use Milpa\Auth\CatalogPermissionResolver;
+use Milpa\Auth\Contracts\PermissionResolver;
 use Milpa\Command\Consent\ConsentGrant;
 use Milpa\Command\Consent\OperationId;
 use Milpa\Command\Effect\Authority;
@@ -68,6 +78,11 @@ final class PermissionedMutationBoundaryTest extends TestCase
         $this->events = new EventDispatcher(new NullLogger());
         $this->container->registerService(MilpaEventDispatcherInterface::class, $this->events);
         PluginAuthoringPolicy::install($this->container, sys_get_temp_dir());
+        // The house's resolver grants `attendance:write` to the teacher ROLE. The teacher's web authority carries
+        // `agent:run` and no role, so it holds no permission of its own until the host names its actor.
+        $this->container->registerService(PermissionResolver::class, new CatalogPermissionResolver(ArrayPermissionCatalog::fromArray([
+            'roles' => ['teacher' => ['label' => 'Teacher', 'permissions' => ['attendance:write']]],
+        ])));
     }
 
     private function mutation(string $name, ?string $permission): Operation
@@ -200,7 +215,48 @@ final class PermissionedMutationBoundaryTest extends TestCase
 
         self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
         self::assertSame([], $this->ran, 'the model\'s call to a permissioned mutation must not run on the turn\'s admission');
-        self::assertSame("Mutation 'sync_push' declares no authority for a finite principal.", self::body($response)['refused'] ?? null);
+        self::assertSame("Operation 'sync_push' requires the permission 'attendance:write', and 'teacher-1' does not hold it.", self::body($response)['refused'] ?? null);
+    }
+
+    /**
+     * The same call, by a teacher the house's resolver DOES grant the permission, through the agent's door: refused.
+     *
+     * MCP and the terminal now admit what the resolver grants (decisions/0545), and the agent's tools are projected
+     * the same way. The model's call stays closed at the agent's door until its own slice (decisions/0544 §2).
+     */
+    public function testTheAgentsDoorKeepsAPermissionedMutationClosedEvenWhenTheResolverGrantsIt(): void
+    {
+        $this->container->registerService(CallerActors::class, new class () implements CallerActors {
+            public function actorOf(ToolContext $caller): ?Actor
+            {
+                return $caller->principal === 'teacher-1' ? new Actor('teacher-1', ActorType::User, $caller->scopes, roles: ['teacher']) : null;
+            }
+        });
+        $push = $this->mutation('sync_push', 'attendance:write');
+        $registry = new ToolRegistry(new NullLogger());
+        (new McpProjector())->projectAll(PluginAuthoringPolicy::catalogue($this->container, [$push]), $registry, $this->container);
+        $store = new SessionStore(new InMemoryEventStore());
+        $store->start('s1', 'x', AutonomyMode::Auto);
+        $store->grant('s1', 'sync_push');
+        $session = $store->load('s1');
+        self::assertNotNull($session);
+        $door = new SessionToolGate($store, $session, [$push]);
+        $turn = new Operation('agent_turn', '', static function (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null) use ($registry, $door): array {
+            $grant = new ConsentGrant(new OperationId('sync_push'), 'teacher-1', 's1', new \DateTimeImmutable(), 'session.question_answered', []);
+            try {
+                (new ConsentBridge($registry, [$grant], $door, channel: 'web', authority: $authority))->callTool('sync_push', []);
+            } catch (\Throwable $refused) {
+                return ['ok' => true, 'refused' => $refused->getMessage()];
+            }
+
+            return ['ok' => true, 'refused' => null];
+        }, mutating: true, scopes: ['agent:run'], effects: self::rows());
+
+        $response = $this->serve($turn, []);
+
+        self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame([], $this->ran);
+        self::assertStringContainsString("A model's call to it stays refused at the agent's door", (string) (self::body($response)['refused'] ?? ''));
     }
 
     /** @return iterable<string, array{string}> */
@@ -218,7 +274,7 @@ final class PermissionedMutationBoundaryTest extends TestCase
             $runner->run($this->mutation('sync_push', 'attendance:write'), [], 'cli', null, ToolContext::web('teacher-1', []));
             self::fail('a web authority is not a judged permission');
         } catch (\RuntimeException $refused) {
-            self::assertSame("Mutation 'sync_push' declares no authority for a finite principal.", $refused->getMessage());
+            self::assertSame("Operation 'sync_push' requires the permission 'attendance:write', and 'teacher-1' does not hold it.", $refused->getMessage());
         }
         self::assertSame([], $this->ran);
     }
@@ -237,7 +293,7 @@ final class PermissionedMutationBoundaryTest extends TestCase
 
         $boundary = $this->container->get(\Milpa\Console\OperationBoundary::class);
         self::assertInstanceOf(PluginAuthoringPolicy::class, $boundary);
-        $this->expectExceptionMessage("Mutation 'sync_push' declares no authority for a finite principal.");
+        $this->expectExceptionMessage("Operation 'sync_push' requires the permission 'attendance:write', and 'teacher-1' does not hold it.");
         try {
             $boundary->execute($push, [], ToolContext::web('teacher-1', []), static fn (): string => 'ran');
         } finally {

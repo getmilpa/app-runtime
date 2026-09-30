@@ -230,6 +230,16 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             return null;
         }
 
+        // A MODEL'S CALL TO A MUTATION TYPED BY `permission` STAYS CLOSED HERE (greenhouse decisions/0544 §2, 0545).
+        // MCP and a finite terminal caller judge that permission with the host's resolver, and the boundary admits
+        // what that judge admits; the agent's tools are projected the same way. Rod opens the model's call in its own
+        // slice, judged at this door — until then it is refused by the contract, whatever the session granted.
+        if ($operacion->mutating && $operacion->permission !== null) {
+            return "«{$tool}» is a mutation typed by the permission «{$operacion->permission}». A model's call to it stays"
+                . " refused at the agent's door until its own slice (greenhouse decisions/0544); MCP and the terminal"
+                . ' judge it. Nothing ran.';
+        }
+
         // EL CONTRATO DE INTENCIÓN VA ANTES DE LA POLÍTICA, y ningún modo lo exime (ADR-0044).
         //
         // `auto` exime pedir PERMISO; no exime entender qué se pidió — igual que la firma. Por eso

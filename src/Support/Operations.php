@@ -296,7 +296,7 @@ final class Operations
 
         $declarados = $root . '/config/operations.php';
         if (!is_file($declarados)) {
-            return array_map(\Milpa\AppRuntime\Agent\RecordedEdit::operation(...), $operaciones);
+            return \Milpa\AppRuntime\Agent\PluginAuthoringPolicy::catalogue($kernel->container(), array_map(\Milpa\AppRuntime\Agent\RecordedEdit::operation(...), $operaciones));
         }
 
         /** @var list<class-string<CommandProvider>> $proveedores */
@@ -324,7 +324,7 @@ final class Operations
             }
         }
 
-        return array_map(\Milpa\AppRuntime\Agent\RecordedEdit::operation(...), self::withBorrowedCeilings($operaciones, $prestatarios));
+        return \Milpa\AppRuntime\Agent\PluginAuthoringPolicy::catalogue($kernel->container(), array_map(\Milpa\AppRuntime\Agent\RecordedEdit::operation(...), self::withBorrowedCeilings($operaciones, $prestatarios)));
     }
     /** Install the host's policy once; projection and execution consume the same object. */
     private static function authoringBoundary(DIContainerInterface $container, string $root): void
