@@ -5346,7 +5346,12 @@ class AgentOperations implements CommandProvider
             return [
                 'openai',
                 \is_string($llaveLocal) && $llaveLocal !== '' ? $llaveLocal : 'local',
-                    AgentEndpoint::model($config instanceof Config ? $config : null) ?? 'qwen3-coder:30b',
+                // WHO OWNS THIS FALLBACK, AND WHY (greenhouse decisions/0542): the house's lab model on
+                // 2026-08-04, when a request to its own endpoint needed some name. It is now the last resort only:
+                // a declared model wins, then the ONE model the endpoint serves. It remains for an endpoint that
+                // serves several or does not answer; a llama.cpp server ignores it, and the return records who
+                // actually answered.
+                AgentEndpoint::requestedModel($config instanceof Config ? $config : null) ?? 'qwen3-coder:30b',
             ];
         }
 
