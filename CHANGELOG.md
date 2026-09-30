@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.205.0](https://github.com/getmilpa/app-runtime/compare/v0.204.1...v0.205.0) (2026-09-30)
+
+
+### Features
+
+* **agent:** an agent receipt covers answering its own session, never over MCP ([#675](https://github.com/getmilpa/app-runtime/issues/675)) ([48706c2](https://github.com/getmilpa/app-runtime/commit/48706c24b21165c5ebd234ccf9eac266b186661b))
+* **auth:** MCP and the terminal judge an operation's permission with the host's resolver ([#674](https://github.com/getmilpa/app-runtime/issues/674)) ([5d86aed](https://github.com/getmilpa/app-runtime/commit/5d86aed3407e792afcf444c06e18e74acdf69e8a))
+
 ## [0.204.1](https://github.com/getmilpa/app-runtime/compare/v0.204.0...v0.204.1) (2026-09-30)
 
 
