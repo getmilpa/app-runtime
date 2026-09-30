@@ -45,17 +45,17 @@ use Milpa\Runtime\Config;
  *
  * An AUTO leg with no `--steps` takes its ceiling from the window: half the input limit — the room
  * the inherited share leaves free — over 512 tokens a step, between today's 12 and a cost ceiling of
- * 64. 512 is under the smallest per-step growth ever measured with elision (751, evidence/1069), so
- * the ceiling does not stop a leg the window could still carry: the window stops it
- * (`context_budget_exhausted`), or its answer, or the progress probe.
+ * 40 (Rod, decisions/0538). Measured in evidence/1072: the loop's elision keeps a long leg under its
+ * budget, so it is this ceiling — not the window — that ends a long leg, and 40 steps cost ~1.2M
+ * tokens on qwen. On qwen's 49,152-token window the derivation and the ceiling agree at 40.
  */
 final readonly class LegWindow
 {
     /** The ceiling nobody declared: what a leg takes without a window to derive from, and the floor with one. */
     public const DEFAULT_STEPS = 12;
 
-    /** The cost ceiling of one AUTO leg on a large window (64 calls of up to ~40k input ≈ 2.6M tokens). */
-    public const MAX_STEPS = 64;
+    /** The cost ceiling of one AUTO leg (Rod, decisions/0538): 40 calls cost ~1.2M tokens on qwen (evidence/1072). */
+    public const MAX_STEPS = 40;
 
     /** The least window a step is assumed to take — under the 751 measured per step in evidence/1069. */
     public const TOKENS_PER_STEP = 512;

@@ -69,7 +69,7 @@ final class LegWindowTest extends TestCase
         $leg = LegWindow::of(new Config(['agent' => ['contextTokens' => 49152, 'outputTokens' => 4096]]));
 
         self::assertSame(45056, $leg?->inputLimit());
-        self::assertSame(44, $leg?->autoSteps());
+        self::assertSame(40, $leg?->autoSteps(), 'the window would give 44; the ceiling is 40');
     }
 
     /** No derived output under 24,576 tokens: the reserve is the gateway's own, a quarter of a small window. */
@@ -82,10 +82,12 @@ final class LegWindowTest extends TestCase
         self::assertSame(12, $leg?->autoSteps(), 'never fewer steps than today');
     }
 
-    /** A large window does not buy an unbounded leg: 64 is the cost ceiling. */
+    /** A large window does not buy an unbounded leg: 40 is the cost ceiling Rod set (decisions/0538). */
     public function testALargeWindowStopsAtTheCostCeiling(): void
     {
-        self::assertSame(LegWindow::MAX_STEPS, LegWindow::sized(1_000_000, 16384)->autoSteps());
+        self::assertSame(40, LegWindow::MAX_STEPS);
+        self::assertSame(40, LegWindow::sized(1_000_000, 16384)->autoSteps());
+        self::assertSame(40, LegWindow::sized(131072, 16384)->autoSteps(), 'a 128k window would derive 112');
     }
 
     /** No window known, no derivation: every rule keeps today's. */
