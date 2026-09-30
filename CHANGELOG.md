@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.204.1](https://github.com/getmilpa/app-runtime/compare/v0.204.0...v0.204.1) (2026-09-30)
+
+
+### Bug Fixes
+
+* **authoring:** the boundary judges the permission of the operation that runs ([#672](https://github.com/getmilpa/app-runtime/issues/672)) ([2378eda](https://github.com/getmilpa/app-runtime/commit/2378edaea312b596139bf016fb7a2e9bc77c9ed9))
+
 ## [0.204.0](https://github.com/getmilpa/app-runtime/compare/v0.203.0...v0.204.0) (2026-09-30)
 
 
