@@ -70,13 +70,16 @@ final class HouseBootWitness implements BootWitnessInterface
     /**
      * Run `$commit` only if the house boots with `$writes` written and `$deletes` removed — the three rules above.
      *
-     * @param array<string, string> $writes  path relative to the app root → the bytes it will hold
-     * @param callable(): void      $commit  the write itself, on the live house
-     * @param list<string>          $deletes paths relative to the app root the write removes
+     * @param array<string, string>          $writes  path relative to the app root → the bytes it will hold
+     * @param callable(): void               $commit  the write itself, on the live house
+     * @param list<string>                   $deletes paths relative to the app root the write removes
+     * @param null|callable(string): ?string $judge   asked of the copy once it BOOTED, before anything is written: null lets
+     *                                                the write go on, a sentence refuses it (`judged`, nothing written) —
+     *                                                how `sandbox:promote` refuses a route it breaks (decisions/0540)
      *
      * @return array{refused: ?string, said: array<string, mixed>}
      */
-    public function writeIfItBoots(array $writes, callable $commit, bool $recovery = false, array $deletes = []): array
+    public function writeIfItBoots(array $writes, callable $commit, bool $recovery = false, array $deletes = [], ?callable $judge = null): array
     {
         if (!is_file($this->root . '/vendor/autoload.php')) {
             $commit();
@@ -86,7 +89,14 @@ final class HouseBootWitness implements BootWitnessInterface
         $paths = array_values(array_unique([...array_keys($writes), ...$deletes]));
         sort($paths);
 
-        $why = $this->probeBefore ? $this->probe->whyNotWith($this->root, $writes, $deletes) : null;
+        $judged = null;
+        $ask = $judge === null ? null : static function (string $candidate) use ($judge, &$judged): void {
+            $judged = $judge($candidate);
+        };
+        $why = $this->probeBefore ? $this->probe->whyNotWith($this->root, $writes, $deletes, $ask) : null;
+        if ($why === null && $judged !== null) {
+            return ['refused' => $judged, 'said' => ['unwritten' => $paths, 'judged' => $judged]];
+        }
         if ($why !== null) {
             $now = $this->probe->whyNot($this->root);
             if (!$recovery || $now === null) {

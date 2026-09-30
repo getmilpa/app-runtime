@@ -20,6 +20,7 @@ use Milpa\ToolRuntime\Contracts\ToolContext;
 use Milpa\AppRuntime\Agent\HouseRouteObserver;
 use Milpa\AppRuntime\Agent\RouteFailureCause;
 use Milpa\AppRuntime\Agent\PluginAuthoringPolicy;
+use Milpa\AppRuntime\Agent\RouteRegression;
 use Milpa\AppRuntime\Agent\KeyedDeclarations;
 use Milpa\AppRuntime\Agent\TrialWorkspace;
 use Milpa\AppRuntime\Support\BootProbe;
@@ -64,6 +65,9 @@ final class TrialOperations implements CommandProvider
         // Whether the house AS IT WOULD BE is booted before anything is written (decisions/0512); false is the
         // 0506 order — write, ask, roll back — kept as the positive control of the window it leaves.
         private readonly bool $probeBeforeWriting = true,
+        // Whether the routes the promotion touches still answer, asked in the same copy before the write (decisions/0540);
+        // null asks only the boot.
+        private readonly ?RouteRegression $routes = new RouteRegression(),
     ) {
     }
 
@@ -261,11 +265,25 @@ final class TrialOperations implements CommandProvider
             // serve the old bytecode for up to `revalidate_freq` seconds (evidence/1038, o4).
             CompiledCode::forget($root, $paths);
         };
+        // A ROUTE IT BREAKS IS A REFUSAL TOO (greenhouse decisions/0540). The house booted with this promotion in the copy
+        // — and in that same copy, before the write, the touched plugins' GET routes are requested. Measured in Rod's
+        // first live run (evidence/1071, B3, seq 291): the house booted, GET /blog went 200 → 500, and the receipt said
+        // `ok: true`. A route that answered without the promotion and answers 5xx with it — or is new and born 5xx —
+        // is the promotion's doing: nothing is written.
+        $routes = ['regressed' => [], 'unjudged' => []];
+        $judge = $this->routes === null ? null : function (string $candidate) use ($root, $paths, &$routes): ?string {
+            $routes = $this->routes->judge($root, $candidate, $paths);
+
+            return $routes['regressed'] === [] ? null : RouteRegression::sentence($routes['regressed']);
+        };
         if ($this->bootProbe === null) {
             $land();
         } else {
             $boot = (new HouseBootWitness($root, $this->bootProbe, $this->probeBeforeWriting))
-                ->writeIfItBoots(array_diff_key($payload, array_flip($deletes)), $land, recovery: false, deletes: $deletes);
+                ->writeIfItBoots(array_diff_key($payload, array_flip($deletes)), $land, recovery: false, deletes: $deletes, judge: $judge);
+            if (isset($boot['said']['judged'])) {
+                return $this->refuseBrokenRoutes($paths, $routes['regressed']);
+            }
             if ($boot['refused'] !== null) {
                 return isset($boot['said']['rolled_back'])
                     ? $this->rolledBack($preDir, $paths, $boot['said'])
@@ -304,6 +322,8 @@ final class TrialOperations implements CommandProvider
                 'paths' => $paths,
             ],
             ...($observation['observed'] !== [] ? ['observed' => $observation['observed']] : []),
+            // Routes that answered 5xx in the copy WITH the promotion and WITHOUT it too: not its doing, so not refused (0540).
+            ...($routes['unjudged'] !== [] ? ['unjudged' => $routes['unjudged']] : []),
             ...(isset($observation['error']) ? ['observation_error' => $observation['error']] : []),
             'note' => 'Promoted into the house. What the trial observed (served, passed) was observed in the '
                 . 'copy; observe it here before claiming it about the house.' . self::whatTheHouseSaw($observation),
@@ -335,6 +355,28 @@ final class TrialOperations implements CommandProvider
                 . 'files were never touched. The trial is kept; fix it there and promote again.' . ($boots
                     ? ' The house boots as it is.'
                     : ' The house does not boot as it is either.'),
+        ];
+    }
+
+    /**
+     * Refuse a promotion that breaks a route of the house — it boots with it, and nothing was written (decisions/0540).
+     *
+     * @param list<string>               $paths
+     * @param list<array<string, mixed>> $regressed rows of {@see RouteRegression::compare()}
+     *
+     * @return array<string, mixed>
+     */
+    private function refuseBrokenRoutes(array $paths, array $regressed): array
+    {
+        return [
+            'ok' => false,
+            'error' => RouteRegression::sentence($regressed),
+            'regressed' => $regressed,
+            'unwritten' => $paths,
+            'house_boots' => true,
+            'note' => 'Nothing was written: the house was built as it would be, beside it, and it booted — but the routes '
+                . 'this promotion touches were requested there, and one it did not break before answers a server error with '
+                . 'it. The trial is kept; fix it there and promote again.',
         ];
     }
 

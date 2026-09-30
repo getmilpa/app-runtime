@@ -106,10 +106,14 @@ final class BootProbe
      * boots that (greenhouse decisions/0512): the live tree is not touched to find out. The reason names paths
      * relative to the house, exactly as {@see whyNot()} does. A candidate that cannot be built is a reason too.
      *
-     * @param array<string, string> $writes  path relative to the root → the bytes it would hold
-     * @param list<string>          $deletes paths relative to the root that would be removed
+     * `$whileItStands`, when given, is called with the candidate's path once it BOOTED and before it is removed — the
+     * one place something else can be asked of the house as it would be (decisions/0540: its routes).
+     *
+     * @param array<string, string>       $writes        path relative to the root → the bytes it would hold
+     * @param list<string>                $deletes       paths relative to the root that would be removed
+     * @param null|callable(string): void $whileItStands asked of the booted candidate, before it goes
      */
-    public function whyNotWith(string $root, array $writes, array $deletes = []): ?string
+    public function whyNotWith(string $root, array $writes, array $deletes = [], ?callable $whileItStands = null): ?string
     {
         try {
             $candidate = BootCandidate::of($root, $writes, $deletes);
@@ -118,6 +122,9 @@ final class BootProbe
         }
         try {
             $why = $this->whyNot($candidate->path);
+            if ($why === null && $whileItStands !== null) {
+                $whileItStands($candidate->path);
+            }
         } finally {
             $candidate->remove();
         }
