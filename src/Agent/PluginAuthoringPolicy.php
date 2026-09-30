@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Agent;
 use Milpa\Command\Operation;
 use Milpa\Console\McpProjector;
 use Milpa\Console\OperationBoundary;
+use Milpa\Interfaces\Event\MilpaEventDispatcherInterface;
 use Milpa\ToolRuntime\Policy\AuthorizationResult;
 use Milpa\ToolRuntime\Contracts\CallPolicy;
 use Milpa\ToolRuntime\Contracts\ToolContext;
@@ -30,6 +31,9 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
 
     public const BUILD = ['make', 'implement', 'edit', 'test'];
 
+    /** The trial's own doors: each judges the export or the workspace it touches, whatever admitted the run. */
+    private const SANDBOX = ['sandbox_promote', 'sandbox_undo', 'sandbox_discard'];
+
     /** The plugin state `plugins:write` exports: the registry the boot reads and the lock, by what each one is. */
     private const PLUGIN_STATE = ['storage/plugins.json' => 'registry', 'milpa.lock' => 'lock'];
 
@@ -38,11 +42,17 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
 
     private ?string $seatSession = null;
 
-    /** @param (\Closure(): ?\Milpa\Agent\SessionStore)|null $sessions */
+    /**
+     * @param (\Closure(): ?\Milpa\Agent\SessionStore)|null $sessions
+     * @param JudgedPermission|null                         $judged   the HTTP policy's verdict on the permissioned
+     *                                                                operation now running; without it a mutation
+     *                                                                typed by `permission` is judged by its scopes
+     */
     public function __construct(
         private readonly string $root,
         private readonly TrialRunner $runner = new TrialRunner(),
         private readonly ?\Closure $sessions = null,
+        private readonly ?JudgedPermission $judged = null,
     ) {
     }
 
@@ -65,7 +75,15 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
     /** Install the host boundary for both the CLI catalogue and HTTP/agent projections. */
     public static function install(\Milpa\Interfaces\Di\DIContainerInterface $container, string $root): void
     {
-        $policy = new self($root, sessions: static fn () => (new \Milpa\AppRuntime\Operations\AgentOperations($container))->sessionStore());
+        // The verdict follows the runs of the dispatcher the HTTP surface announces them on — only for the policy
+        // that becomes the boundary, so a second install never subscribes a mark nobody takes.
+        $events = !$container->has(OperationBoundary::class) && $container->has(MilpaEventDispatcherInterface::class)
+            ? $container->get(MilpaEventDispatcherInterface::class) : null;
+        $policy = new self(
+            $root,
+            sessions: static fn () => (new \Milpa\AppRuntime\Operations\AgentOperations($container))->sessionStore(),
+            judged: $events instanceof MilpaEventDispatcherInterface ? JudgedPermission::listen($events) : null,
+        );
         if (!$container->has(CallPolicy::class)) {
             $container->registerService(CallPolicy::class, $policy);
         }
@@ -234,6 +252,13 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
     {
         $context = $authority ?? ToolContext::cli();
         $name = McpProjector::toolName($operation->name);
+        // A PERMISSION IS JUDGED FOR THE OPERATION THAT RUNS (greenhouse decisions/0544). `Operation` holds `scopes`
+        // XOR `permission`, so empty scopes are not "declares no authority" when the host's HTTP policy admitted this
+        // very run. Asked on every run, so a verdict never waits for a later one; authoring and sandbox calls keep
+        // their own checks.
+        if ($this->judged?->take($operation) === true && !in_array($name, [...self::BUILD, ...self::SANDBOX], true)) {
+            return $next();
+        }
         $tool = new ToolDefinition(
             $name,
             $operation->description,
