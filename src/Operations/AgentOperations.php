@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Operations;
 
 use Milpa\AppRuntime\Agent\FatalTermination;
 use Milpa\AppRuntime\Agent\LegMemory;
+use Milpa\AppRuntime\Agent\LegWindow;
 use Milpa\AppRuntime\Agent\CandidateState;
 use Milpa\AppRuntime\Agent\AcceptanceEvidence;
 use Milpa\AppRuntime\Web\ScreenDrafts;
@@ -2053,7 +2054,13 @@ class AgentOperations implements CommandProvider
             return $closed;
         }
 
-        $pasos = \is_int($input['steps'] ?? null) && $input['steps'] > 0 ? $input['steps'] : self::PASOS_POR_DEFECTO;
+        // THE LEG'S SHARE OF THE WINDOW (greenhouse decisions/0538): the history it inherits is composed — and the
+        // summary it inherits is written — against a fifth of its input limit, and an AUTO leg takes its steps from
+        // it. `null` when no window is known, and then every rule below is today's.
+        $configDeLaPierna = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $pierna = LegWindow::of($configDeLaPierna instanceof Config ? $configDeLaPierna : null);
+        $herencia = $pierna?->inheritedContext();
+        $pasos = LegWindow::steps($input['steps'] ?? null, null, $pierna);
 
         // ── LAUNCH GRANTS (greenhouse evidence/0442) ────────────────────────────────────────────
         //
@@ -2179,7 +2186,7 @@ class AgentOperations implements CommandProvider
                 // WHO STARTED IT rides the opening event (greenhouse evidence/0561): the caller of this turn,
                 // read from its invocation — the passkey over HTTP, the operator at a terminal, nobody else.
                 $store->start($sessionId, $prompt, $modo ?? AutonomyMode::Ask, by: ObservedExecutor::fromContext($this->contextoDeLaVuelta)->principal);
-                $declaredWindow = $store->load($sessionId)?->classifiedWindow();
+                $declaredWindow = $store->load($sessionId)?->classifiedWindow($herencia);
             } elseif (!$sesion->isRunnable()) {
                 // Una sesión con una pregunta abierta o ya terminada NO se sigue por accidente: se
                 // contesta o se abre otra. Seguirla sería contestar por el humano que no contestó.
@@ -2195,7 +2202,7 @@ class AgentOperations implements CommandProvider
             } else {
                 // `window()` y no `turns`: si ya hubo compactación, esto es el resumen más lo reciente.
                 // El stream conserva todo; lo que se acorta es lo que se le manda al modelo.
-                $historial = $sesion->window();
+                $historial = $sesion->window($herencia);
 
                 // Un `--mode` sobre una sesión viva la cambia, y queda apendado. Es explícito: alguien
                 // lo tecleó. Lo que NO se hace es cambiarlo en silencio cuando no se dijo nada — el
@@ -2215,8 +2222,8 @@ class AgentOperations implements CommandProvider
                     $sesion = $store->load($sessionId);
                 }
 
-                $historial = $sesion?->window() ?? $historial;
-                $declaredWindow = $sesion?->classifiedWindow();
+                $historial = $sesion?->window($herencia) ?? $historial;
+                $declaredWindow = $sesion?->classifiedWindow($herencia);
             }
 
             if ($diagnosticAsked !== null) {
@@ -2270,6 +2277,10 @@ class AgentOperations implements CommandProvider
             $store->recordTurn($sessionId, 'user', $prompt);
             // AND THE WINDOW IT OBEYS, where a surface reads it instead of guessing one (greenhouse decisions/0513 §5).
             $this->recordWindow($sessionId);
+            // AN AUTO LEG TAKES ITS STEPS FROM THE WINDOW (greenhouse decisions/0538 §1) — read once the mode of THIS
+            // call has landed, so `--mode=auto` on a `continue` derives like a session born in auto. A typed
+            // `--steps` still wins.
+            $pasos = LegWindow::steps($input['steps'] ?? null, $store->load($sessionId)?->mode, $pierna);
         }
 
         // A GRANT WITH NO SESSION WOULD BE A MASTER KEY. The consent lives in the session — it is
@@ -3577,7 +3588,11 @@ class AgentOperations implements CommandProvider
         // `null`, and `null` is yesterday's construction byte-for-byte. Measured need: greenhouse
         // evidence/0443 — a 32,768-token model re-entered at 35.6k because only the turn tail had
         // a budget and nothing bounded the summary's system side.
-        $contexto = AgentEndpoint::contextTokens($config instanceof Config ? $config : null);
+        //
+        // Handed as the LEG'S inherited share of it (greenhouse decisions/0538 §2): the summary is written to the
+        // size the leg will read it in — a fifth of the input limit — not to 60 % of the whole window, which wrote
+        // ~35k characters of facts into every `continue` of evidence/1071.
+        $contexto = LegWindow::of($config instanceof Config ? $config : null)?->inheritedContext();
 
         return new Compactor(
             maxTurns: $maximo,

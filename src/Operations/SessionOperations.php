@@ -15,6 +15,10 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Operations;
 
 use Milpa\AppRuntime\Support\ContratoInstalado;
+use Milpa\AppRuntime\Agent\LegWindow;
+use Milpa\Runtime\Config;
+use Milpa\Runtime\Kernel;
+use Milpa\AppRuntime\Agent\RunLease;
 use Milpa\AppRuntime\Agent\SessionArgumentPage;
 use Milpa\AppRuntime\Agent\SessionResultPage;
 use Milpa\ToolRuntime\Contracts\ToolContext;
@@ -1308,7 +1312,29 @@ final class SessionOperations implements CommandProvider
             return ['ok' => false, 'error' => 'this app has nowhere to store sessions'];
         }
 
-        return (new SessionResultPage($sessions))->read($input, $authority?->resultBudget);
+        return (new SessionResultPage($sessions, $this->runningLeg($input, $authority)))->read($input, $authority?->resultBudget);
+    }
+
+    /**
+     * The window of the leg paging its OWN session right now, or `null` (greenhouse decisions/0538 §3).
+     *
+     * Only a call the loop sent carries a result budget, and only a session whose run lease is held has a leg whose
+     * last call the stream's newest count describes. A person at a terminal, or a leg reading another session, gets
+     * the page as before.
+     *
+     * @param array<string, mixed> $input
+     */
+    private function runningLeg(array $input, ?ToolContext $authority): ?LegWindow
+    {
+        $session = \is_string($input['session'] ?? null) ? trim($input['session']) : '';
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if ($authority?->resultBudget === null || $session === '' || !$kernel instanceof Kernel
+            || !RunLease::held($kernel->root(), $session)) {
+            return null;
+        }
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+
+        return LegWindow::of($config instanceof Config ? $config : null);
     }
 
     /**

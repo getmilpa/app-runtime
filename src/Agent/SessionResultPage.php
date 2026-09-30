@@ -10,13 +10,18 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Agent;
 
+use Milpa\Agent\SessionEvent;
 use Milpa\Agent\SessionStore;
 use Milpa\ToolRuntime\Contracts\ResultBudget;
 
 /** Reads stored tool-result bytes without re-invoking the producer or judging its claims. */
 final readonly class SessionResultPage
 {
-    public function __construct(private SessionStore $sessions)
+    /**
+     * @param LegWindow|null $leg the window of the leg reading its own session right now, or `null` outside a leg
+     *                            — then nothing but the result budget bounds a page, as before
+     */
+    public function __construct(private SessionStore $sessions, private ?LegWindow $leg = null)
     {
     }
 
@@ -46,10 +51,8 @@ final readonly class SessionResultPage
         if ($session === '' || !\is_int($seq) || $seq < 1) {
             return ['ok' => false, 'error' => 'session and positive integer seq are required'];
         }
-        $selected = array_values(array_filter(
-            $this->sessions->stream($session),
-            static fn ($event): bool => $event->seq === $seq,
-        ));
+        $stream = $this->sessions->stream($session);
+        $selected = array_values(array_filter($stream, static fn ($event): bool => $event->seq === $seq));
         if (\count($selected) !== 1 || $selected[0]->type !== 'session.tool_called') {
             return ['ok' => false, 'error' => 'seq must identify one recorded tool call in this session'];
         }
@@ -70,6 +73,28 @@ final readonly class SessionResultPage
         $callDigest = hash('sha256', json_encode($selected[0]->toArray(), \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES));
         $identity = ['v' => 1, 'kind' => 'result', 'session' => $session, 'seq' => $seq,
             'sha256' => $digest, 'call_sha256' => $callDigest];
+        // A PAGE THE LEG CANNOT HOLD IS REFUSED, SAYING HOW MUCH IS LEFT (greenhouse decisions/0538 §3): evidence/1071's
+        // third leg paged 28.9 KB of old results into a window 2k tokens from its wall, and died on the next call.
+        if ($this->leg !== null) {
+            $room = $this->leg->roomAfter(self::lastUsage($stream));
+            if ($room !== null) {
+                $pageChars = LegWindow::pageChars($room);
+                if ($pageChars < LegWindow::MIN_PAGE_CHARS) {
+                    $needed = (int) ceil(min($budget->maxCharacters, mb_strlen($content, 'UTF-8')) / LegWindow::CHARS_PER_TOKEN);
+
+                    return [
+                        'ok' => false,
+                        'error' => "{$room} tokens left in this leg's window; this page would need about {$needed}. "
+                            . 'End the leg with what you have — the next leg starts with room — or read a smaller part of the source.',
+                        'room_tokens' => $room,
+                        'needed_tokens' => $needed,
+                    ];
+                }
+                if ($pageChars < $budget->maxCharacters) {
+                    $budget = $budget->tightenedTo($pageChars);
+                }
+            }
+        }
         $total = \strlen($content);
         $offset = 0;
         if (\array_key_exists('cursor', $input)) {
@@ -120,6 +145,25 @@ final readonly class SessionResultPage
         }
 
         return $best;
+    }
+
+    /**
+     * The provider's count of the leg's last call — the usage of the newest `session.model_returned` that carried one.
+     *
+     * @param list<\Milpa\EventStore\Event> $stream
+     *
+     * @return array<string, mixed>
+     */
+    private static function lastUsage(array $stream): array
+    {
+        for ($i = \count($stream) - 1; $i >= 0; --$i) {
+            $usage = $stream[$i]->type === SessionEvent::ModelReturned->value ? ($stream[$i]->payload['usage'] ?? null) : null;
+            if (\is_array($usage) && $usage !== []) {
+                return $usage;
+            }
+        }
+
+        return [];
     }
 
     /** @param array<string, int|string> $cursor Binds stored identity and byte position, never authority. */
