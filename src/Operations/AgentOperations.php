@@ -77,6 +77,7 @@ use Milpa\AiGateway\SecondOpinionGate;
 use Milpa\AppRuntime\Agent\RecordOnlyOptionTable;
 use Milpa\AppRuntime\Agent\SessionOptionTable;
 use Milpa\AppRuntime\Agent\SessionPlanBoard;
+use Milpa\AppRuntime\Agent\PluginAuthoringPolicy;
 use Milpa\AppRuntime\Agent\SeatFrontier;
 use Milpa\AppRuntime\Agent\SessionProgressProbe;
 use Milpa\AppRuntime\Agent\StepWatcher;
@@ -2665,6 +2666,11 @@ class AgentOperations implements CommandProvider
             return ['ok' => false, 'error' => 'this app exposed no operation as a tool'];
         }
 
+        // THE REFUSAL SAYS WHO GRANTS IT (greenhouse decisions/0543). The scope check runs before the registry
+        // (tool-runtime's GatedToolCalls asks the call policy first), so the policy itself answers in this seat's
+        // session for the leg — and the house's own policy is put back when the leg ends.
+        $restorePolicy = $this->seatThePolicy($registry, $store, $sessionId);
+
         // WHEN TRIALS ARE ON, the registry the model calls through runs a confined mutation in a
         // disposable copy instead of on the host — the SAME router the gate used to compose the call,
         // so the plan the gate judged is the plan the executor runs (greenhouse decisions/0069).
@@ -2787,6 +2793,7 @@ class AgentOperations implements CommandProvider
             // no existe, la red— y quien lo lee necesita esa frase, no una reformulación.
             return ['ok' => false, 'error' => $e->getMessage(), 'termination' => $this->terminationObservation()];
         } finally {
+            $restorePolicy();
             FatalTermination::disarm();
             // One observation for each attempt that reached ask, including exceptional exits.
             // The host's pending question remains independent of the producer's return cause.
@@ -2984,6 +2991,10 @@ class AgentOperations implements CommandProvider
             ? $this->grantableScopes($sessionId) : [];
         if ($awaiting !== []) {
             $resultado['awaiting_grant'] = $awaiting;
+            if (($resultado['stalled'] ?? false) === true) {
+                // Waiting on a person is the answer the refusal asked for, not «none of the options» (evidence/1077).
+                $resultado['answer'] = sprintf('The leg is waiting for a person to grant «%s».', implode('», «', $awaiting));
+            }
             $resultado['hint'] = sprintf(
                 'the leg is waiting for a grant: whoever enrolled this seat can grant «%s» in the panel (Agent → Decisions); then continue',
                 implode('», «', $awaiting),
@@ -3459,6 +3470,27 @@ class AgentOperations implements CommandProvider
             $this->lastingCalls(),
             fn (): array => $this->grantableScopes($session),
         );
+    }
+
+    /**
+     * Put the house's authoring policy on the registry's gate as it answers inside this session, and return how to
+     * put the original back (greenhouse decisions/0543). Nothing changes when the gate holds another policy.
+     *
+     * @return \Closure(): void
+     */
+    private function seatThePolicy(ToolRegistry $registry, ?SessionStore $store, string $session): \Closure
+    {
+        $gate = $registry->getPolicyGate();
+        $policy = $gate->getCallPolicy();
+        if (!$policy instanceof PluginAuthoringPolicy || $store === null || $session === '') {
+            return static function (): void {
+            };
+        }
+        $gate->setCallPolicy($policy->withSeatSession($store, $session));
+
+        return static function () use ($gate, $policy): void {
+            $gate->setCallPolicy($policy);
+        };
     }
 
     /**

@@ -214,6 +214,11 @@ final class ProgressWiringTest extends TestCase
             self::assertTrue($result['ok'] ?? false, (string) ($result['error'] ?? 'the run failed'));
             self::assertArrayNotHasKey('houseDebt', $result, 'a grantable scope is not the house\'s debt');
             self::assertSame(['plugins.Blog:write'], $result['awaiting_grant'] ?? null);
+            if (($result['stalled'] ?? false) === true) {
+                // Measured on the overlay (evidence/1077): the model answered «waiting for the grant», as told; the
+                // house must not call that «took none of the options».
+                self::assertSame('The leg is waiting for a person to grant «plugins.Blog:write».', $result['answer']);
+            }
             self::assertStringContainsString('grant «plugins.Blog:write» in the panel (Agent → Decisions)', (string) ($result['hint'] ?? ''));
             self::assertSame([], array_values(array_filter(
                 $this->events->replay(SessionStore::PREFIX . 's1'),

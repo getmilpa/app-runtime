@@ -65,35 +65,6 @@ final class TrialAwareRegistry extends ToolRegistry
     }
 
     /**
-     * For a refusal the seat's frontier would offer, the sentence that says who grants it — otherwise nothing.
-     *
-     * A missing scope stays a refusal (decisions/0317); what it gains is the one fact the model could not know:
-     * a person can grant it in the panel, so it is not a gap in the house. Unsaid, a resident in evidence/1071
-     * declared `plugins.Blog:write` the scaffolder's chicken-and-egg and ended its leg as a false `HOUSE_DEBT`.
-     * The frontier decides (decisions/0496): an invented name, or a session no one enrolled, gets nothing added.
-     *
-     * @param array<string, mixed> $args
-     */
-    private function whoGrantsIt(string $tool, array $args): string
-    {
-        if ($this->sessions === null || $this->sessionId === null) {
-            return '';
-        }
-        try {
-            $offered = SeatFrontier::forRoot($this->router->root(), $this->sessions)->wouldOffer($this->sessionId, $tool, $args);
-        } catch (\Throwable) {
-            return '';
-        }
-
-        return $offered === null ? '' : sprintf(
-            ' Whoever enrolled this seat can grant «%s» in the panel (Agent → Decisions). This is a person\'s decision,'
-            . ' not a gap in the house: do not declare HOUSE_DEBT for it. End this leg with a short answer saying you'
-            . ' are waiting for that grant; after it, `continue` runs this same call again.',
-            $offered['permission'],
-        );
-    }
-
-    /**
      * Route a planned call into the trial; forward everything else to the wrapped registry.
      *
      * A call with a plan runs in the sandbox and never reaches the registered handler; the result
@@ -105,7 +76,7 @@ final class TrialAwareRegistry extends ToolRegistry
         if ($definition !== null) {
             $admission = $this->inner->getPolicyGate()->authorizeCall($ctx ?? ToolContext::cli(), $definition, $args);
             if (!$admission->allowed) {
-                return ToolResult::error((string) $admission->reason . $this->whoGrantsIt($name, $args));
+                return ToolResult::error((string) $admission->reason);
             }
         }
         $operation = $this->operationFor($name);

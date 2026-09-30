@@ -27,6 +27,7 @@ use Milpa\AppRuntime\Identity\IdentityEnrolled;
 use Milpa\AppRuntime\Identity\ResidentSeat;
 use Milpa\EventStore\InMemoryEventStore;
 use Milpa\ToolRuntime\Contracts\ToolContext;
+use Milpa\ToolRuntime\Gate\GatedToolCalls;
 use Milpa\ToolRuntime\ToolRegistry;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
@@ -79,7 +80,7 @@ final class AGrantableRefusalSaysWhoGrantsItTest extends TestCase
     {
         $this->sessions->start(self::SESSION, self::GOAL, by: new Principal('key:' . self::SEAT, true));
 
-        $error = (string) $this->registry(self::SESSION)->call('make', ['what' => 'plugin', 'plugin' => 'Blog', 'name' => 'Blog'], $this->seat())->error;
+        $error = $this->refusalThroughTheGate(self::SESSION, ['what' => 'plugin', 'plugin' => 'Blog', 'name' => 'Blog']);
 
         self::assertStringStartsWith("Missing required permission 'plugins.Blog:write' for plugin 'Blog'.", $error, 'the refusal stays the policy\'s sentence');
         self::assertStringContainsString('Whoever enrolled this seat can grant «plugins.Blog:write» in the panel (Agent → Decisions)', $error);
@@ -92,13 +93,42 @@ final class AGrantableRefusalSaysWhoGrantsItTest extends TestCase
         $this->sessions->start(self::SESSION, self::GOAL, by: new Principal('key:' . self::SEAT, true));
         $this->sessions->start('terminal', self::GOAL, by: new Principal('cli:rod', false));
 
-        $invented = (string) $this->registry(self::SESSION)->call('make', ['what' => 'plugin', 'plugin' => 'BlogPlugin', 'name' => 'BlogPlugin'], $this->seat())->error;
-        $unseated = (string) $this->registry('terminal')->call('make', ['what' => 'plugin', 'plugin' => 'Blog', 'name' => 'Blog'], $this->seat())->error;
+        $invented = $this->refusalThroughTheGate(self::SESSION, ['what' => 'plugin', 'plugin' => 'BlogPlugin', 'name' => 'BlogPlugin']);
+        $unseated = $this->refusalThroughTheGate('terminal', ['what' => 'plugin', 'plugin' => 'Blog', 'name' => 'Blog']);
 
         self::assertStringContainsString("Missing required permission 'plugins.BlogPlugin:write'", $invented);
         self::assertStringNotContainsString('panel', $invented, 'a name nobody asked for is not sent to a person');
         self::assertStringContainsString("Missing required permission 'plugins.Blog:write'", $unseated);
         self::assertStringNotContainsString('panel', $unseated, 'nobody enrolled the terminal, so nobody grants it there');
+    }
+
+    public function testThePolicyTheHouseInstallsSaysNothingUntilALegSeatsIt(): void
+    {
+        $this->sessions->start(self::SESSION, self::GOAL, by: new Principal('key:' . self::SEAT, true));
+
+        $plain = $this->refusalThroughTheGate(self::SESSION, ['what' => 'plugin', 'plugin' => 'Blog', 'name' => 'Blog'], seated: false);
+
+        self::assertStringContainsString("Missing required permission 'plugins.Blog:write'", $plain);
+        self::assertStringNotContainsString('panel', $plain, 'the sentence belongs to a session; the shared policy has none');
+    }
+
+    public function testALegSeatsThePolicyForItsSessionAndPutsTheHousesBack(): void
+    {
+        $registry = new ToolRegistry(new NullLogger());
+        $house = new PluginAuthoringPolicy($this->root);
+        $registry->getPolicyGate()->setCallPolicy($house);
+        $seat = new \ReflectionMethod(\Milpa\AppRuntime\Operations\AgentOperations::class, 'seatThePolicy');
+        $operations = new \Milpa\AppRuntime\Operations\AgentOperations(new \Milpa\Container\DIContainer());
+
+        $restore = $seat->invoke($operations, $registry, $this->sessions, self::SESSION);
+        $during = $registry->getPolicyGate()->getCallPolicy();
+        $restore();
+
+        self::assertInstanceOf(PluginAuthoringPolicy::class, $during, 'the same class: the trial executor confines by it');
+        self::assertNotSame($house, $during, 'the leg answers with a copy that knows its session');
+        self::assertSame($house, $registry->getPolicyGate()->getCallPolicy(), 'and the house gets its own policy back');
+        $seat->invoke($operations, $registry, $this->sessions, '')();
+        self::assertSame($house, $registry->getPolicyGate()->getCallPolicy(), 'no session, nothing is swapped');
     }
 
     public function testTheStallNoticeTakesTheDebtOffTheTableForAGrantableScope(): void
@@ -128,12 +158,25 @@ final class AGrantableRefusalSaysWhoGrantsItTest extends TestCase
         return new ToolContext('key:' . self::SEAT, 'cli', ResidentSeat::SCOPES);
     }
 
-    private function registry(string $session): TrialAwareRegistry
+    /**
+     * The door a leg really calls through (evidence/1077): tool-runtime's GatedToolCalls asks the call policy BEFORE the
+     * registry, so a sentence added anywhere after it never reaches the model — as measured on the first overlay leg.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function refusalThroughTheGate(string $session, array $arguments, bool $seated = true): string
     {
-        $inner = new ToolRegistry(new NullLogger());
-        $inner->register('make', 'scaffolds', ['type' => 'object'], static fn (array $args): array => ['ran' => true]);
-        $inner->getPolicyGate()->setCallPolicy(new PluginAuthoringPolicy($this->root));
-
-        return new TrialAwareRegistry($inner, new TrialRouter($this->root, new TrialRunner(), \dirname(__DIR__) . '/Fixtures/trial-stub-runner.php'), [], $this->sessions, $session);
+        $registry = new ToolRegistry(new NullLogger());
+        $registry->register('make', 'scaffolds', ['type' => 'object'], static fn (array $args): array => ['ran' => true]);
+        $policy = new PluginAuthoringPolicy($this->root);
+        $registry->getPolicyGate()->setCallPolicy($seated ? $policy->withSeatSession($this->sessions, $session) : $policy);
+        $calls = new GatedToolCalls(new TrialAwareRegistry($registry, new TrialRouter($this->root, new TrialRunner(), \dirname(__DIR__) . '/Fixtures/trial-stub-runner.php'), [], $this->sessions, $session));
+        $calls->setContext($this->seat());
+        try {
+            $calls->callTool('make', $arguments);
+        } catch (\Exception $refused) {
+            return $refused->getMessage();
+        }
+        self::fail('the seat lacks plugins.' . ($arguments['plugin'] ?? '?') . ':write, the call must be refused');
     }
 }

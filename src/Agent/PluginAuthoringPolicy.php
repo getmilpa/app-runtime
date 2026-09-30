@@ -33,12 +33,33 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
     /** The plugin state `plugins:write` exports: the registry the boot reads and the lock, by what each one is. */
     private const PLUGIN_STATE = ['storage/plugins.json' => 'registry', 'milpa.lock' => 'lock'];
 
+    /** The seat's session this policy answers in, when a leg set one ({@see withSeatSession()}); otherwise none. */
+    private ?\Milpa\Agent\SessionStore $seatStore = null;
+
+    private ?string $seatSession = null;
+
     /** @param (\Closure(): ?\Milpa\Agent\SessionStore)|null $sessions */
     public function __construct(
         private readonly string $root,
         private readonly TrialRunner $runner = new TrialRunner(),
         private readonly ?\Closure $sessions = null,
     ) {
+    }
+
+    /**
+     * The same policy, answering inside one seat's session: a refusal the seat's frontier would offer says who
+     * grants it (greenhouse decisions/0543). The judgement does not change — only the sentence of a refusal.
+     *
+     * A copy of THIS class, never a wrapper: the trial executor reads `instanceof PluginAuthoringPolicy` to confine
+     * a call's write set, and a decorator would silently widen it.
+     */
+    public function withSeatSession(\Milpa\Agent\SessionStore $store, string $session): self
+    {
+        $copy = clone $this;
+        $copy->seatStore = $store;
+        $copy->seatSession = $session;
+
+        return $copy;
     }
 
     /** Install the host boundary for both the CLI catalogue and HTTP/agent projections. */
@@ -87,9 +108,40 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
                 throw new \RuntimeException("Mutation '{$name}' declares no authority for a finite principal.");
             }
             return AuthorizationResult::allowed();
+        } catch (MissingPermission $missing) {
+            return AuthorizationResult::denied($missing->getMessage() . $this->whoGrantsIt($tool->name, $arguments));
         } catch (\Throwable $error) {
             return AuthorizationResult::denied($error->getMessage());
         }
+    }
+
+    /**
+     * For a refusal the seat's frontier would offer, the sentence that says who grants it — otherwise nothing.
+     *
+     * A missing scope stays a refusal (decisions/0317); what it gains is the one fact the model could not know:
+     * a person can grant it in the panel, so it is not a gap in the house. Unsaid, a resident in evidence/1071
+     * declared `plugins.Blog:write` the scaffolder's chicken-and-egg and ended its leg as a false `HOUSE_DEBT`.
+     * The frontier decides (decisions/0496): an invented name, or a session no one enrolled, gets nothing added.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function whoGrantsIt(string $tool, array $arguments): string
+    {
+        if ($this->seatStore === null || $this->seatSession === null) {
+            return '';
+        }
+        try {
+            $offered = SeatFrontier::forRoot($this->root, $this->seatStore)->wouldOffer($this->seatSession, $tool, $arguments);
+        } catch (\Throwable) {
+            return '';
+        }
+
+        return $offered === null ? '' : sprintf(
+            ' Whoever enrolled this seat can grant «%s» in the panel (Agent → Decisions). This is a person\'s decision,'
+            . ' not a gap in the house: do not declare HOUSE_DEBT for it. End this leg with a short answer saying you'
+            . ' are waiting for that grant; after it, `continue` runs this same call again.',
+            $offered['permission'],
+        );
     }
 
     /**
