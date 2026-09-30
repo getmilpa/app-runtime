@@ -64,11 +64,11 @@ final class ProgressWiringTest extends TestCase
         self::fail('the agent operation was not offered');
     }
 
-    private function operationsAnswering(string $respuesta): AgentOperations
+    private function operationsAnswering(string $respuesta, ?string $root = null, ?\Milpa\Agent\Principal $by = null, string $goal = 'close the deadlock'): AgentOperations
     {
         $this->events = new InMemoryEventStore();
         $this->store = new SessionStore($this->events);
-        $this->store->start('s1', 'close the deadlock');
+        $this->store->start('s1', $goal, by: $by);
 
         $container = new DIContainer();
         $container->registerService(SessionStore::class, $this->store);
@@ -76,7 +76,7 @@ final class ProgressWiringTest extends TestCase
         // the session writes, so the store must be reachable the way a composed app reaches it.
         $container->registerService(\Milpa\EventStore\EventStoreInterface::class, $this->events);
         $kernel = Kernel::boot([
-            'root' => \dirname(__DIR__, 2),
+            'root' => $root ?? \dirname(__DIR__, 2),
             'container' => $container,
             'toolRegistry' => new ToolRegistry(new NullLogger()),
             'plugins' => [],
@@ -189,6 +189,51 @@ final class ProgressWiringTest extends TestCase
         );
         self::assertNull($probeOf($operations, null, $this->events), 'no session, nothing to measure');
         self::assertNull($probeOf($operations, 's1', null), 'no captured store, nowhere to read or record');
+    }
+
+    /**
+     * A HOUSE_DEBT the frontier can answer is not a debt (greenhouse decisions/0543, evidence/1071 B8): the seat's
+     * refused scope is open in the panel, so the house records no framework gap and says who grants it.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('endsThatWaitOnAGrant')]
+    public function testAHouseDebtOverAScopeThePanelGrantsIsNotRecordedAsADebt(string $answer): void
+    {
+        $seat = '95A3AC7B96F8BC6AA7044F2C09082971DEBAAA50';
+        $root = sys_get_temp_dir() . '/milpa-grantable-debt-' . bin2hex(random_bytes(4));
+        mkdir($root . '/storage/identity', 0o777, true);
+        (new \Milpa\AppRuntime\Identity\FileEnrollmentStore($root . '/storage/identity/enrollments.json'))
+            ->record(new \Milpa\AppRuntime\Identity\IdentityEnrolled($seat, \Milpa\AppRuntime\Identity\ResidentSeat::SCOPES, 'key:C1FEA43BAC5F22E7A5F21152B46AB0F97CAFB831'));
+        try {
+            $declaration = $answer;
+            $operations = $this->operationsAnswering($declaration, $root, new \Milpa\Agent\Principal('key:' . $seat, true), 'Build a plugin named Blog that serves GET /blog.');
+            $operations->progressReceipt = ['window' => 4];
+            $this->store->recordToolCall('s1', 'make', ['what' => 'plugin', 'plugin' => 'Blog', 'name' => 'Blog'], "Missing required permission 'plugins.Blog:write' for plugin 'Blog'.", false);
+
+            $result = $this->runAgent($operations, ['prompt' => 'continue', 'session' => 's1']);
+
+            self::assertTrue($result['ok'] ?? false, (string) ($result['error'] ?? 'the run failed'));
+            self::assertArrayNotHasKey('houseDebt', $result, 'a grantable scope is not the house\'s debt');
+            self::assertSame(['plugins.Blog:write'], $result['awaiting_grant'] ?? null);
+            if (($result['stalled'] ?? false) === true) {
+                // Measured on the overlay (evidence/1077): the model answered «waiting for the grant», as told; the
+                // house must not call that «took none of the options».
+                self::assertSame('The leg is waiting for a person to grant «plugins.Blog:write».', $result['answer']);
+            }
+            self::assertStringContainsString('grant «plugins.Blog:write» in the panel (Agent → Decisions)', (string) ($result['hint'] ?? ''));
+            self::assertSame([], array_values(array_filter(
+                $this->events->replay(SessionStore::PREFIX . 's1'),
+                static fn (object $event): bool => $event->type === DebtSignal::EVENT,
+            )), 'no framework_gap enters the ledger');
+        } finally {
+            exec('rm -rf ' . escapeshellarg($root));
+        }
+    }
+
+    /** @return iterable<string, array{string}> the debt the resident declared in 1071, and the stall 1069 ended in */
+    public static function endsThatWaitOnAGrant(): iterable
+    {
+        yield 'house_debt' => ['HOUSE_DEBT: make refuses to create the task-named Blog plugin — chicken-and-egg scope'];
+        yield 'progress_stalled' => ['I am waiting for the grant of plugins.Blog:write.'];
     }
 
     /** An ordinary answer records no framework-gap signal: the marker decides, nothing else. */

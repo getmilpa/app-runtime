@@ -54,6 +54,10 @@ final class ResidentSeat
     /** Why an acceptance refused before spending: the key answers for the invitation, so it cannot be its seat. */
     public const string VOUCHES_FOR_IT = 'vouches_for_it';
 
+    /** What to do when the signing key is the wrong one: the resident signs with a key of its own. */
+    private const string OWN_KEYRING = 'the resident signs with a key of its own: run the same command with GNUPGHOME '
+        . 'set to the resident\'s keyring';
+
     /**
      * Why nothing was minted or seated: a live seat already carries this name (greenhouse decisions/0536).
      *
@@ -249,8 +253,12 @@ final class ResidentSeat
             IdentityInvitations::REDEEMED => 'that invitation was already used',
             IdentityInvitations::EXPIRED => 'that invitation expired — ask whoever answers for the house for another',
             IdentityInvitations::WRONG_KEY => 'that invitation is for another key — the one that signed this is not it',
-            self::ALREADY_RECOGNIZED => 'this key is already recognized here; a seat invitation seats a new key',
-            self::VOUCHES_FOR_IT => 'this key answers for that invitation, so it cannot be its seat',
+            // Both mean the command was signed with the wrong keyring, so both say which one to use (decisions/0543,
+            // evidence/1071 B10): gpg signs with the default key of the GNUPGHOME it reads.
+            self::ALREADY_RECOGNIZED => 'this key is already recognized here; a seat invitation seats a new key — '
+                . self::OWN_KEYRING,
+            self::VOUCHES_FOR_IT => 'this key answers for that invitation, so it cannot be its seat — '
+                . self::OWN_KEYRING,
             self::SEAT_TAKEN => 'another key already took the seat this invitation names — a name holds one seat',
             default => 'the invitation did not admit this key (' . $reason . ')',
         };

@@ -270,6 +270,7 @@ final class IdentitySeatOperationTest extends TestCase
         $r = $this->call($c, 'identity:accept', ['invite' => $secret]);
 
         self::assertSame(ResidentSeat::VOUCHES_FOR_IT, $r['reason'], 'the station-2 key would shrink to a seat\'s scopes');
+        self::assertStringContainsString('run the same command with GNUPGHOME set to the resident\'s keyring', (string) $r['error'], 'the refusal says which keyring to sign with (0543)');
         self::assertSame($before, $this->state($root));
     }
 
