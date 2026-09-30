@@ -68,16 +68,21 @@ final class UnsignedTerminal
     /**
      * Whether a receipt stands for the sequence this call continues — the runner then cites it or refuses.
      *
+     * With `$ownReceiptOnly`, only a receipt THIS operation signed counts: a surface where no person holds the keys
+     * (`coa mcp`) never continues under a receipt another operation signed, even one the operation names in
+     * `citesReceiptsOf` (greenhouse decisions/0546).
+     *
      * @param array<string, mixed> $input
      */
-    public static function continuesASignedSequence(Operation $op, array $input, ?SequenceReceipts $receipts): bool
+    public static function continuesASignedSequence(Operation $op, array $input, ?SequenceReceipts $receipts, bool $ownReceiptOnly = false): bool
     {
         if ($receipts === null) {
             return false;
         }
         $sequence = $op->sequenceFor($input);
+        $standing = $sequence !== null ? $receipts->standing($sequence) : null;
 
-        return $sequence !== null && $receipts->standing($sequence) !== null;
+        return $standing !== null && (!$ownReceiptOnly || $standing['operation'] === $op->name);
     }
 
     /**
@@ -131,14 +136,19 @@ final class UnsignedTerminal
      * A call that continues a sequence whose receipt stands is NOT refused: the surface cites the receipt through the
      * terminal's runner, which re-verifies it and runs the call as its signer — or refuses (decisions/0500).
      *
-     * @param string               $surface what the person or client is using, as they would name it (`coa mcp`)
+     * A surface where no person holds the keys passes `$ownReceiptOnly`: there a call continues only under a receipt
+     * its own operation signed, and is refused under one it merely names (decisions/0546 — answering a signed
+     * session's question is a person's act).
+     *
+     * @param string               $surface        what the person or client is using, as they would name it (`coa mcp`)
      * @param array<string, mixed> $input
+     * @param bool                 $ownReceiptOnly cite only a receipt this very operation signed
      *
      * @return list<string>|null the refusal's lines
      */
-    public static function refusalOver(string $surface, Operation $op, array $input, ?SequenceReceipts $receipts): ?array
+    public static function refusalOver(string $surface, Operation $op, array $input, ?SequenceReceipts $receipts, bool $ownReceiptOnly = false): ?array
     {
-        if (self::continuesASignedSequence($op, $input, $receipts)) {
+        if (self::continuesASignedSequence($op, $input, $receipts, $ownReceiptOnly)) {
             return null;
         }
         $line = '  Run it signed from the terminal: ' . self::signedLine($op, $input);
@@ -155,6 +165,15 @@ final class UnsignedTerminal
             ? 'never declared its effects'
             : "declares a {$op->effects->mutation->value} change ({$op->effects->authority->value})";
         $sequence = $receipts !== null ? $op->sequenceFor($input) : null;
+        $another = $sequence !== null ? $receipts->standing($sequence) : null;
+        if ($another !== null) {
+            return [
+                "This call is not signed, and an unsigned call changes nothing that lasts: «{$op->name}» {$declared}.",
+                "  The receipt standing for «{$sequence}» signed «{$another['operation']}»; over {$surface} a call continues only under a receipt its own operation signed. Nothing ran.",
+                $line,
+                '  Or answer from the chat or the terminal, where the receipt of the session covers it.',
+            ];
+        }
 
         return [
             "This call is not signed, and an unsigned call changes nothing that lasts: «{$op->name}» {$declared}.",
