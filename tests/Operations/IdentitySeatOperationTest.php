@@ -317,6 +317,92 @@ final class IdentitySeatOperationTest extends TestCase
         self::assertStringContainsString('does not cover', (string) $r['error']);
     }
 
+    /**
+     * The fourth rehearsal (greenhouse evidence/1069 §C3): with the resident seated, «Give the resident a seat» was
+     * still offered, and pressing it minted another invitation for another passkey touch. A house has one resident
+     * per name (greenhouse decisions/0536): the judge refuses the second, and the panel only mirrors it.
+     */
+    public function testANameThatHoldsASeatMintsNoSecondInvitation(): void
+    {
+        [$c, $root] = $this->house();
+        $secret = $this->mintFromTheTerminal($c, self::HUMAN, ['label' => 'resident']);
+        $this->signed($c, self::RESIDENT, 'identity:accept', ['invite' => $secret]);
+        self::assertTrue($this->call($c, 'identity:accept', ['invite' => $secret])['ok']);
+        $c = $this->container($root);
+        $before = $this->state($root);
+
+        foreach (['resident', 'Resident'] as $spelling) {
+            // One touch per act: the lab authenticator counts each assertion once.
+            [, $touch] = $this->passkey($c, self::PASSKEY);
+            $call = ['label' => $spelling];
+            $again = $this->call($c, 'identity:seat', $call + ['assertion' => $touch('identity:seat', $call, ResidentSeat::INTENT_SESSION)], $this->web(self::PASSKEY));
+
+            self::assertFalse($again['ok'], 'a second seat for «' . $spelling . '»');
+            self::assertSame(ResidentSeat::SEAT_TAKEN, $again['reason']);
+            self::assertSame(self::RESIDENT, $again['held_by']);
+            self::assertStringContainsStringIgnoringCase('«resident» already has a seat', (string) $again['error']);
+            self::assertStringContainsString('identity:revoke', (string) $again['error']);
+            self::assertStringContainsString('nothing was minted', (string) $again['error']);
+        }
+        self::assertSame($before, $this->state($root), 'no invitation was written');
+
+        // Another name is another seat, and still mints.
+        [, $touch] = $this->passkey($c, self::PASSKEY);
+        $call = ['label' => 'reviewer'];
+        $other = $this->call($c, 'identity:seat', $call + ['assertion' => $touch('identity:seat', $call, ResidentSeat::INTENT_SESSION)], $this->web(self::PASSKEY));
+        self::assertTrue($other['ok'], (string) ($other['error'] ?? ''));
+    }
+
+    public function testAnUnauthorizedCallerIsNotToldWhichNamesAreTaken(): void
+    {
+        [$c, $root] = $this->house();
+        $secret = $this->mintFromTheTerminal($c, self::HUMAN, ['label' => 'resident']);
+        $this->signed($c, self::RESIDENT, 'identity:accept', ['invite' => $secret]);
+        self::assertTrue($this->call($c, 'identity:accept', ['invite' => $secret])['ok']);
+
+        $anonymous = $this->call($this->container($root), 'identity:seat', ['label' => 'resident']);
+
+        self::assertFalse($anonymous['ok']);
+        self::assertArrayNotHasKey('held_by', $anonymous);
+        self::assertStringNotContainsString(self::RESIDENT, (string) $anonymous['error']);
+    }
+
+    public function testOfTwoInvitationsForOneNameOnlyTheFirstKeyIsSeated(): void
+    {
+        [$c, $root] = $this->house();
+        $first = $this->mintFromTheTerminal($c, self::HUMAN, ['label' => 'resident']);
+        $second = $this->mintFromTheTerminal($c, self::HUMAN, ['label' => 'resident']);
+        $this->signed($c, self::RESIDENT, 'identity:accept', ['invite' => $first]);
+        self::assertTrue($this->call($c, 'identity:accept', ['invite' => $first])['ok']);
+        $before = $this->state($root);
+
+        $this->signed($c, self::OTHER, 'identity:accept', ['invite' => $second]);
+        $late = $this->call($c, 'identity:accept', ['invite' => $second]);
+
+        self::assertFalse($late['ok']);
+        self::assertSame(ResidentSeat::SEAT_TAKEN, $late['reason']);
+        self::assertStringContainsString('nothing was seated', (string) $late['error']);
+        self::assertSame($before, $this->state($root), 'the ledger and the invitation are untouched');
+        self::assertNull((new FileEnrollmentStore($root . '/storage/identity/enrollments.json'))->scopesFor(self::OTHER));
+    }
+
+    public function testRevokingTheSeatFreesItsName(): void
+    {
+        [$c, $root] = $this->house();
+        $secret = $this->mintFromTheTerminal($c, self::HUMAN, ['label' => 'resident']);
+        $this->signed($c, self::RESIDENT, 'identity:accept', ['invite' => $secret]);
+        self::assertTrue($this->call($c, 'identity:accept', ['invite' => $secret])['ok']);
+        self::assertTrue((new FileEnrollmentStore($root . '/storage/identity/enrollments.json'))->revoke(self::RESIDENT, 'key:' . self::HUMAN));
+
+        $secret = $this->mintFromTheTerminal($this->container($root), self::HUMAN, ['label' => 'resident']);
+        $c = $this->container($root);
+        $this->signed($c, self::OTHER, 'identity:accept', ['invite' => $secret]);
+        $replaced = $this->call($c, 'identity:accept', ['invite' => $secret]);
+
+        self::assertTrue($replaced['ok'], (string) ($replaced['error'] ?? ''));
+        self::assertSame('resident', $replaced['label']);
+    }
+
     // --- helpers ---
 
     /**
