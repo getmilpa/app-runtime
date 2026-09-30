@@ -44,6 +44,12 @@ use Milpa\Runtime\Kernel;
  * That the body is the one the goal asked for. A 200 earns `served` with a digest of the body; any
  * other status is recorded as what the house answered, and never as served. Routes with parameters and
  * methods other than GET are not requested: the house does not invent arguments.
+ *
+ * ── WHY IT FAILED, FOR THE AGENT ONLY (greenhouse decisions/0539) ───────────────────────────────
+ *
+ * A route that answers 5xx, or whose process dies, carries the `cause` the house logged for it — read by
+ * {@see RouteFailureCause} from the child's stderr, where PHP's `error_log()` writes in that process. It
+ * travels in the result of the operation that observed; the page a visitor gets does not change (0506).
  */
 final class HouseRouteObserver
 {
@@ -136,8 +142,9 @@ final class HouseRouteObserver
      * Observe, in the house at `$root`, the GET routes the landed paths declare.
      *
      * Each entry names the route and what the house answered. Only a 200 from a process that finished
-     * cleanly carries `predicate: served` with `environment: house`, the body's size and digest. `error`
-     * is set when the house could not be asked at all — it did not boot, or it has no front controller.
+     * cleanly carries `predicate: served` with `environment: house`, the body's size and digest. A 5xx or a
+     * process that died carries the `cause` the house logged, when it logged one. `error` is set when the
+     * house could not be asked at all — it did not boot, or it has no front controller.
      *
      * @param list<string> $paths paths relative to the house root, as a promotion names them
      *
@@ -163,7 +170,7 @@ final class HouseRouteObserver
         $routes = array_values(array_filter($listed['routes'], static fn (mixed $r): bool => \is_array($r) && \is_string($r['path'] ?? null)));
         $observed = [];
         foreach (\array_slice($routes, 0, self::MAX_ROUTES) as $route) {
-            [$exit, $answer] = $this->run(['get', $root, $route['path']]);
+            [$exit, $answer, $stderr] = $this->run(['get', $root, $route['path']]);
             $status = \is_int($answer['status'] ?? null) ? $answer['status'] : null;
             $entry = ['route' => 'GET ' . $route['path'], 'subject' => $route['path'], 'status' => $status, 'environment' => ['kind' => 'house']];
             if ($status === 200 && $exit === 0) {
@@ -175,6 +182,12 @@ final class HouseRouteObserver
                 $entry['status'] = $status !== null && $status >= 500 ? $status : null;
                 $entry['error'] = $exit === 124 || $exit === 137 ? "timed out after {$this->timeoutSeconds}s" : "the request process exited {$exit}";
             }
+            if ($exit !== 0 || ($status !== null && $status >= 500)) {
+                $cause = RouteFailureCause::read($stderr, $root);
+                if ($cause !== null) {
+                    $entry['cause'] = $cause;
+                }
+            }
             $observed[] = $entry;
         }
 
@@ -182,21 +195,25 @@ final class HouseRouteObserver
     }
 
     /**
-     * Run the observing script once, bounded by `timeout`, and read its marked answer line.
+     * Run the observing script once, bounded by `timeout`, and read its marked answer line — and its stderr.
+     *
+     * `error_log=` empty sends PHP's `error_log()` to this child's stderr whatever the house configured for its
+     * server, so the line the house logs for a failed request reaches the observer (decisions/0539).
      *
      * @param list<string> $arguments
      *
-     * @return array{0: int, 1: array<string, mixed>}
+     * @return array{0: int, 1: array<string, mixed>, 2: string}
      */
     private function run(array $arguments): array
     {
-        $command = ['timeout', '-k', '2', (string) $this->timeoutSeconds, $this->php, '-d', 'display_errors=stderr', $this->script, ...$arguments];
+        $command = ['timeout', '-k', '2', (string) $this->timeoutSeconds, $this->php,
+            '-d', 'display_errors=stderr', '-d', 'html_errors=0', '-d', 'error_log=', $this->script, ...$arguments];
         // No `/dev/null` for the child: inside a rehearsal's trial it cannot be opened (evidence/1060).
         $run = ChildProcess::run($command);
         if ($run === null) {
-            return [127, []];
+            return [127, [], ''];
         }
-        ['exit' => $exit, 'stdout' => $stdout] = $run;
+        ['exit' => $exit, 'stdout' => $stdout, 'stderr' => $stderr] = $run;
 
         $answer = [];
         foreach (explode("\n", $stdout) as $line) {
@@ -206,6 +223,6 @@ final class HouseRouteObserver
             }
         }
 
-        return [$exit, $answer];
+        return [$exit, $answer, $stderr];
     }
 }
