@@ -55,6 +55,15 @@ final class ResidentSeat
     public const string VOUCHES_FOR_IT = 'vouches_for_it';
 
     /**
+     * Why nothing was minted or seated: a live seat already carries this name (greenhouse decisions/0536).
+     *
+     * The fourth rehearsal found «Give the resident a seat» still offered with the resident seated, and pressing it
+     * minted another invitation for another passkey touch (greenhouse evidence/1069 §C3). The real resident is one:
+     * a name holds one seat, and replacing its key is a revocation first — never a second seat beside the first.
+     */
+    public const string SEAT_TAKEN = 'seat_taken';
+
+    /**
      * Mint a seat invitation vouched by `$vouchedBy` and say how the resident's key takes it.
      *
      * @return array{label: string, command: string, scopes: list<string>, vouched_by: string, for_key: string|null, expires_at: string, note: string}
@@ -98,6 +107,11 @@ final class ResidentSeat
         $judged = $invitations->checkSeat($token, $fingerprint);
         if ($judged['ok'] !== true) {
             return self::refused($judged['reason']);
+        }
+        // Two invitations minted for one name before either was taken: the first key seated holds the name.
+        $label = $invitations->seatLabel($judged['id']);
+        if ($label !== null && self::holder($root, $label) !== null) {
+            return self::refused(self::SEAT_TAKEN);
         }
         // A seat invitation seats a NEW key; it never rewrites what a recognized one may do.
         if ($ledger->scopesFor($fingerprint) !== null) {
@@ -161,6 +175,57 @@ final class ResidentSeat
     }
 
     /** Whether the key is the invitation's voucher, or on that voucher's enrollment line. */
+    /**
+     * The live key whose seat carries this name, or null when the name holds no seat (greenhouse decisions/0536).
+     *
+     * Names are compared as a person reads them — trimmed, without case — so «Resident» is not a second resident.
+     * A revoked key holds nothing: revoking is how a name's seat is given to another key.
+     */
+    public static function holder(string $root, string $label): ?string
+    {
+        $wanted = self::nameOf($label);
+        if ($wanted === '') {
+            return null;
+        }
+        $ledger = new FileEnrollmentStore(rtrim($root, '/') . '/storage/identity/enrollments.json');
+        $invitations = IdentityInvitations::forRoot($root);
+        foreach ($ledger->liveKeys() as $key) {
+            $held = $invitations->labelFor($key);
+            if ($held !== null && self::nameOf($held) === $wanted) {
+                return $key;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The refusal for minting a seat under a name that already holds one — what to do instead, and nothing minted.
+     *
+     * @return array{ok: false, reason: string, held_by: string, error: string}
+     */
+    public static function nameTaken(string $label, string $heldBy): array
+    {
+        return [
+            'ok' => false,
+            'reason' => self::SEAT_TAKEN,
+            'held_by' => $heldBy,
+            'error' => sprintf(
+                '«%s» already has a seat: key %s took it. A name holds one seat — to give it to another key, revoke'
+                . ' that one first (identity:revoke --fingerprint=%s); to seat a second resident, give it another name;'
+                . ' nothing was minted',
+                trim($label),
+                $heldBy,
+                $heldBy,
+            ),
+        ];
+    }
+
+    private static function nameOf(string $label): string
+    {
+        return mb_strtolower(trim($label));
+    }
+
     private static function vouches(FileEnrollmentStore $ledger, string $voucher, string $fingerprint): bool
     {
         $mine = IdentityKey::normalize($fingerprint);
@@ -186,6 +251,7 @@ final class ResidentSeat
             IdentityInvitations::WRONG_KEY => 'that invitation is for another key — the one that signed this is not it',
             self::ALREADY_RECOGNIZED => 'this key is already recognized here; a seat invitation seats a new key',
             self::VOUCHES_FOR_IT => 'this key answers for that invitation, so it cannot be its seat',
+            self::SEAT_TAKEN => 'another key already took the seat this invitation names — a name holds one seat',
             default => 'the invitation did not admit this key (' . $reason . ')',
         };
 
