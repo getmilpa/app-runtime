@@ -153,6 +153,81 @@ final class AgentEndpointTest extends TestCase
         AgentEndpoint::useProviderFetcher(null);
     }
 
+    /**
+     * AN UNDECLARED MODEL IS THE ONE THE ENDPOINT SERVES (greenhouse decisions/0542).
+     *
+     * Rod's live run declared no model, so every call asked for the package's fallback `qwen3-coder:30b` — a model
+     * his endpoint does not serve and silently replaced with `qwen3.8-27b` (evidence/1071). With one model served
+     * and none declared, the request names that one.
+     */
+    public function testAnUndeclaredModelRequestsTheOneTheEndpointServes(): void
+    {
+        if (!class_exists(\Milpa\AiGateway\ProviderReach::class)) {
+            self::markTestSkipped('milpa/ai-gateway does not ship ProviderReach yet');
+        }
+        AgentEndpoint::useProviderFetcher(static fn (): ?string => '{"data":[{"id":"qwen3.8-27b"}]}');
+
+        self::assertSame('qwen3.8-27b', AgentEndpoint::requestedModel(new Config(['agent' => ['baseUrl' => 'https://propio.local']])));
+
+        AgentEndpoint::useProviderFetcher(null);
+    }
+
+    /** Several served and none declared, or no answer: nobody chose, so this does not choose either. */
+    public function testWithSeveralServedOrNoAnswerNothingIsChosen(): void
+    {
+        if (!class_exists(\Milpa\AiGateway\ProviderReach::class)) {
+            self::markTestSkipped('milpa/ai-gateway does not ship ProviderReach yet');
+        }
+        $config = new Config(['agent' => ['baseUrl' => 'https://propio.local']]);
+
+        AgentEndpoint::useProviderFetcher(static fn (): ?string => '{"data":[{"id":"a"},{"id":"b"}]}');
+        self::assertNull(AgentEndpoint::requestedModel($config));
+
+        AgentEndpoint::useProviderFetcher(static fn (): ?string => null);
+        self::assertNull(AgentEndpoint::requestedModel($config));
+
+        AgentEndpoint::useProviderFetcher(null);
+    }
+
+    /** A declared model is requested as declared, and nobody is asked. */
+    public function testADeclaredModelIsRequestedWithoutAsking(): void
+    {
+        $asked = 0;
+        AgentEndpoint::useProviderFetcher(static function () use (&$asked): ?string {
+            ++$asked;
+
+            return '{"data":[{"id":"other"}]}';
+        });
+
+        self::assertSame('declarado', AgentEndpoint::requestedModel(new Config(['agent' => ['baseUrl' => 'https://propio.local', 'model' => 'declarado']])));
+        self::assertSame(0, $asked);
+        self::assertNull(AgentEndpoint::requestedModel(null), 'no endpoint, no question, no name');
+        self::assertSame(0, $asked);
+
+        AgentEndpoint::useProviderFetcher(null);
+    }
+
+    /**
+     * THE BANNER NO LONGER NAMES A MODEL NOBODY CHOSE — and it still does not ask the network to find out (0266).
+     */
+    public function testTheBannerSaysTheModelIsUndeclaredWithoutAsking(): void
+    {
+        $asked = 0;
+        AgentEndpoint::useProviderFetcher(static function () use (&$asked): ?string {
+            ++$asked;
+
+            return '{"data":[{"id":"qwen3.8-27b"}]}';
+        });
+
+        $banner = AgentEndpoint::describe(new Config(['agent' => ['baseUrl' => 'https://llama.local']]));
+
+        self::assertSame('local · (model not declared)', $banner);
+        self::assertStringNotContainsString('qwen3-coder', $banner);
+        self::assertSame(0, $asked, 'painting a banner is not a reason to call the provider');
+
+        AgentEndpoint::useProviderFetcher(null);
+    }
+
     /** 1 · declared configuration is what the banner reports. */
     public function testTheDeclaredModelIsWhatGetsReported(): void
     {

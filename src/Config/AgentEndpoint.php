@@ -313,6 +313,32 @@ final class AgentEndpoint
     }
 
     /**
+     * THE MODEL A TURN ASKS A DECLARED ENDPOINT FOR: the declared one, else the only one the endpoint serves.
+     *
+     * Rod's live run declared none, and every call asked for a package fallback his endpoint does not serve; the
+     * server answered with its own model and the house recorded the fallback (greenhouse evidence/1071). With a
+     * model declared (config or environment) nobody is asked. Without one, the endpoint is asked what it serves —
+     * {@see providerReach()}, memoised — and exactly one answer is taken as the model. Several, none, or no reply
+     * resolve to `null`: nobody chose, so this does not choose either (decisions/0542).
+     *
+     * Only the turn path calls this, because a turn goes to the network anyway. A surface that only paints reads
+     * {@see model()} and {@see describe()}, which never ask (decisions/0266).
+     */
+    public static function requestedModel(?Config $config): ?string
+    {
+        $declared = self::model($config);
+        if ($declared !== null) {
+            return $declared;
+        }
+        $reach = self::providerReach($config);
+        if ($reach === null || $reach['reached'] !== true || \count($reach['models']) !== 1) {
+            return null;
+        }
+
+        return $reach['models'][0];
+    }
+
+    /**
      * WHERE THE ENDPOINT'S VALUE CAME FROM — the only honest thing to show beside an unreachable one.
      *
      * «unreachable: http://llama.local:11438» sends a person to fix a machine when the value was
@@ -406,7 +432,8 @@ final class AgentEndpoint
         $modelo = self::model($config);
 
         if (self::baseUrl($config) !== null) {
-            return 'local · ' . ($modelo ?? 'qwen3-coder:30b');
+            // No model is named when nobody declared one: the old fallback named a model nobody chose (0542).
+            return 'local · ' . ($modelo ?? '(model not declared)');
         }
         if (getenv('ANTHROPIC_API_KEY')) {
             return 'anthropic · ' . ($modelo ?? 'claude-sonnet-4-5');
