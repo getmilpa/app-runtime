@@ -54,6 +54,7 @@ final class TheCeremonyAnswersOnlyToItsOriginsTest extends TestCase
 
     protected function tearDown(): void
     {
+        putenv(PasskeyPlugin::SERVED_ORIGINS_ENV);
         foreach ($this->roots as $root) {
             self::rmdir($root);
         }
@@ -247,6 +248,161 @@ final class TheCeremonyAnswersOnlyToItsOriginsTest extends TestCase
         self::assertSame(['http://localhost:8000', 'https://localhost'], $rp->allowedOrigins);
     }
 
+    /** @return iterable<string, array{0: array<string, mixed>, 1: list<string>}> */
+    public static function housesTheDesktopServes(): iterable
+    {
+        yield 'a new house (origins written for coa serve)' => [['rpId' => 'localhost', 'origins' => ['http://localhost:8000']], ['http://localhost:8000', 'http://localhost:8899']];
+        yield 'a house from 0.200.x (origins derived)' => [['rpId' => 'localhost'], ['http://localhost:8000', 'http://localhost:8899']];
+    }
+
+    /**
+     * THE PROCESS THAT SERVES THE HOUSE NAMES WHERE (greenhouse decisions/0534). The Desktop serves the house on the
+     * port it chose (8899): neither the written nor the derived origins know it, so its own passkey window was
+     * refused (evidence/1068). The origin it declares in its environment is ADDED — and only that one: the next
+     * port over stays refused.
+     *
+     * @param array<string, mixed> $passkey
+     * @param list<string>         $expected
+     */
+    #[DataProvider('housesTheDesktopServes')]
+    public function testTheOriginTheServingProcessDeclaresIsAdmittedAndNoOther(array $passkey, array $expected): void
+    {
+        // Red first: without the declaration, the Desktop's origin is refused.
+        [$c] = $this->house($passkey);
+        (new PasskeyPlugin($c))->boot();
+        $key = SyntheticPasskey::key();
+        $door = $this->door($c);
+        self::assertSame(401, $door->register($this->post('/webauthn/register', SyntheticPasskey::attestation($key, 'localhost', $this->registerChallenge($door), 'cred-before', 'http://localhost:8899')))->getStatusCode());
+
+        putenv(PasskeyPlugin::SERVED_ORIGINS_ENV . '=http://localhost:8899');
+        [$c] = $this->house($passkey);
+        (new PasskeyPlugin($c))->boot();
+        $rp = $c->get(RelyingParty::class);
+        self::assertInstanceOf(RelyingParty::class, $rp);
+        self::assertSame($expected, $rp->allowedOrigins, 'added after what the house holds, not instead of it');
+
+        $door = $this->door($c);
+        $refused = $door->register($this->post('/webauthn/register', SyntheticPasskey::attestation($key, 'localhost', $this->registerChallenge($door), 'cred-next-port', 'http://localhost:8900')));
+        self::assertSame(401, $refused->getStatusCode(), 'the port next door was not declared');
+        $admitted = $door->register($this->post('/webauthn/register', SyntheticPasskey::attestation($key, 'localhost', $this->registerChallenge($door), 'cred-desktop', 'http://localhost:8899')));
+        self::assertSame(201, $admitted->getStatusCode());
+        $kept = $door->register($this->post('/webauthn/register', SyntheticPasskey::attestation($key, 'localhost', $this->registerChallenge($door), 'cred-serve', 'http://localhost:8000')));
+        self::assertSame(201, $kept->getStatusCode(), 'coa serve\'s origin still answers');
+        self::assertSame([SyntheticPasskey::b64u('cred-desktop'), SyntheticPasskey::b64u('cred-serve')], $this->registered($c)->all());
+    }
+
+    /**
+     * The rpId has no port: a passkey registered while the house was served on one port signs in when the same
+     * house is served on another — once the process serving it there declares that origin.
+     */
+    public function testAPasskeyFromOnePortSignsInOnAnotherTheServerDeclared(): void
+    {
+        putenv(PasskeyPlugin::SERVED_ORIGINS_ENV . '=http://localhost:8899');
+        [$c, $root] = $this->house(['rpId' => 'localhost']);
+        (new PasskeyPlugin($c))->boot();
+        $door = $this->door($c);
+        $key = SyntheticPasskey::key();
+        $registered = $door->register($this->post('/webauthn/register', SyntheticPasskey::attestation($key, 'localhost', $this->registerChallenge($door), 'cred-8899', 'http://localhost:8899')));
+        self::assertSame(201, $registered->getStatusCode());
+        $credentialId = (string) $this->json($registered)['credentialId'];
+        $enrollments = $c->get(EnrollmentStore::class);
+        self::assertInstanceOf(EnrollmentStore::class, $enrollments);
+        $enrollments->record(new IdentityEnrolled($credentialId, ['milpa.admin'], 'key:TEST'));
+
+        // The same house (the same root, the same ledgers), served elsewhere: a new process, a new declaration.
+        putenv(PasskeyPlugin::SERVED_ORIGINS_ENV . '=http://localhost:9123');
+        $again = $this->sameHouse($root, ['rpId' => 'localhost']);
+        (new PasskeyPlugin($again))->boot();
+        $door = $this->door($again);
+
+        $stale = $door->authenticate($this->post('/webauthn/authenticate', SyntheticPasskey::assertion($key, 'localhost', $this->loginChallenge($door), $credentialId, 5, 'http://localhost:8899')));
+        self::assertSame(401, $stale->getStatusCode(), 'the port this process no longer serves is no longer an origin');
+        $signedIn = $door->authenticate($this->post('/webauthn/authenticate', SyntheticPasskey::assertion($key, 'localhost', $this->loginChallenge($door), $credentialId, 9, 'http://localhost:9123')));
+        self::assertSame(200, $signedIn->getStatusCode());
+        self::assertSame('passkey:' . $credentialId, $this->json($signedIn)['actor']);
+    }
+
+    /** @return iterable<string, array{0: string, 1: list<string>}> */
+    public static function servedDeclarations(): iterable
+    {
+        yield 'one origin' => ['http://localhost:8899', ['http://localhost:8899']];
+        yield 'commas, spaces and a repeat' => [' http://localhost:8899, https://localhost  http://localhost:8899,', ['http://localhost:8899', 'https://localhost']];
+        yield 'empty' => ['', []];
+        yield 'only separators' => [' , ', []];
+    }
+
+    /** @param list<string> $expected */
+    #[DataProvider('servedDeclarations')]
+    public function testTheServedDeclarationIsReadAsAListWithoutRepeats(string $declared, array $expected): void
+    {
+        putenv(PasskeyPlugin::SERVED_ORIGINS_ENV . '=' . $declared);
+
+        self::assertSame($expected, PasskeyPlugin::servedOrigins());
+    }
+
+    public function testNoDeclarationAddsNothing(): void
+    {
+        putenv(PasskeyPlugin::SERVED_ORIGINS_ENV);
+        self::assertSame([], PasskeyPlugin::servedOrigins());
+        self::assertNull(PasskeyPlugin::servedOriginsNotice(['rpId' => 'localhost']));
+
+        [$c] = $this->house(['rpId' => 'localhost', 'origins' => ['http://localhost:8000']]);
+        (new PasskeyPlugin($c))->boot();
+        $rp = $c->get(RelyingParty::class);
+        self::assertInstanceOf(RelyingParty::class, $rp);
+        self::assertSame(['http://localhost:8000'], $rp->allowedOrigins);
+    }
+
+    public function testTheNoticeNamesTheServedOriginsOnlyForADeclaredRelyingParty(): void
+    {
+        putenv(PasskeyPlugin::SERVED_ORIGINS_ENV . '=http://localhost:8899');
+
+        self::assertNull(PasskeyPlugin::servedOriginsNotice([]), 'no rpId: the door is shut, nothing is admitted');
+        self::assertNull(PasskeyPlugin::servedOriginsNotice(['rpId' => '']));
+        $notice = PasskeyPlugin::servedOriginsNotice(['rpId' => 'localhost']);
+        self::assertNotNull($notice);
+        self::assertStringContainsString('http://localhost:8899 (' . PasskeyPlugin::SERVED_ORIGINS_ENV . ')', $notice);
+    }
+
+    /** @return iterable<string, array{0: string}> */
+    public static function malformedServedOrigins(): iterable
+    {
+        yield 'no scheme' => ['localhost:8899'];
+        yield 'plain http off loopback' => ['http://milpa.example'];
+        yield 'a host outside the rpId' => ['https://evil.example'];
+        yield 'a path' => ['http://localhost:8899/webauthn'];
+        yield 'a wildcard' => ['https://*.localhost'];
+    }
+
+    /** A served origin WebAuthn cannot hold a ceremony to refuses to boot — and names the variable, not the file. */
+    #[DataProvider('malformedServedOrigins')]
+    public function testAMalformedServedOriginRefusesToBootNamingTheVariable(string $declared): void
+    {
+        putenv(PasskeyPlugin::SERVED_ORIGINS_ENV . '=http://localhost:8899,' . $declared);
+        [$c] = $this->house(['rpId' => 'localhost', 'origins' => ['http://localhost:8000']]);
+        $plugin = new PasskeyPlugin($c);
+
+        try {
+            $plugin->boot();
+            self::fail('the plugin booted with ' . PasskeyPlugin::SERVED_ORIGINS_ENV . '=' . $declared);
+        } catch (\InvalidArgumentException $e) {
+            self::assertStringStartsWith(PasskeyPlugin::SERVED_ORIGINS_ENV . ', set by the process serving this house: ', $e->getMessage());
+            self::assertStringNotContainsString('config/app.php', $e->getMessage(), 'the file is not what is wrong');
+        }
+        self::assertSame([], $plugin->routes(), 'no route is mounted');
+    }
+
+    /** Declared wrong in the file is still the file's refusal, even with a served origin beside it. */
+    public function testAMalformedFileIsStillNamedFirst(): void
+    {
+        putenv(PasskeyPlugin::SERVED_ORIGINS_ENV . '=http://localhost:8899');
+        [$c] = $this->house(['rpId' => 'localhost', 'origins' => ['http://milpa.example']]);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('passkey.origins in config/app.php');
+        (new PasskeyPlugin($c))->boot();
+    }
+
     /**
      * The relying party and the ledgers are the container's, at the paths they always had — so a host
      * that runs its own ceremony (Surco's signature) asks for them instead of repeating the paths.
@@ -300,6 +456,16 @@ final class TheCeremonyAnswersOnlyToItsOriginsTest extends TestCase
         mkdir($root . '/storage/identity', 0o777, true);
         $this->roots[] = $root;
 
+        return [$this->sameHouse($root, $passkey), $root];
+    }
+
+    /**
+     * Another process over the same root: the same ledgers, a fresh container.
+     *
+     * @param array<string, mixed> $passkey
+     */
+    private function sameHouse(string $root, array $passkey): DIContainer
+    {
         $c = new DIContainer();
         $c->registerService(Config::class, new Config(['passkey' => $passkey]));
         $kernel = (new \ReflectionClass(Kernel::class))->newInstanceWithoutConstructor();
@@ -308,7 +474,7 @@ final class TheCeremonyAnswersOnlyToItsOriginsTest extends TestCase
         }
         $c->registerService(Kernel::class, $kernel);
 
-        return [$c, $root];
+        return $c;
     }
 
     private function door(DIContainer $c): PasskeyController

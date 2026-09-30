@@ -85,6 +85,27 @@ final class TheDoctorSaysWhetherTheHouseBootsTest extends TestCase
         self::assertStringContainsString('capabilities:enable identity --sign', $out, 'and the act that writes them');
     }
 
+    /**
+     * The origins the serving process adds are in no file (greenhouse decisions/0534): the doctor says them, so the
+     * Desktop's port is not a mystery to whoever reads the doctor inside its container.
+     */
+    public function testTheOriginsTheServingProcessAddsAreSaid(): void
+    {
+        $this->app(['passkey' => ['rpId' => 'localhost', 'origins' => ['http://localhost:8000']]]);
+        [, $quiet] = $this->doctor(['ok' => true]);
+        self::assertStringNotContainsString(PasskeyPlugin::SERVED_ORIGINS_ENV, $quiet, 'nothing added: nothing to say');
+
+        putenv(PasskeyPlugin::SERVED_ORIGINS_ENV . '=http://localhost:8899');
+        try {
+            [$exit, $out] = $this->doctor(['ok' => true]);
+        } finally {
+            putenv(PasskeyPlugin::SERVED_ORIGINS_ENV);
+        }
+
+        self::assertSame(0, $exit, $out);
+        self::assertStringContainsString('http://localhost:8899 (' . PasskeyPlugin::SERVED_ORIGINS_ENV . ')', $out);
+    }
+
     public function testAnRpIdTheDoorDoesNotReadIsNotAnnounced(): void
     {
         file_put_contents($this->root . '/config/plugins.php', "<?php\n\nreturn [];\n");

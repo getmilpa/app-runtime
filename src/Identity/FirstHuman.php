@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Identity;
 
 use Milpa\AppRuntime\Support\Capabilities;
+use Milpa\AppRuntime\Web\PasskeyPlugin;
 
 /**
  * The first human of a house: who answers for them, and what they may do on arrival
@@ -43,7 +44,11 @@ final class FirstHuman
     /** What the first human always holds: the right to let the next one in. */
     public const string ENROLL = 'identity:enroll';
 
-    /** Where `php bin/coa serve` answers by default — the invitation's URL is a convenience; its path is the fact. */
+    /**
+     * Where `php bin/coa serve` answers by default — the invitation's URL is a convenience; its path is the fact.
+     * A process that serves the house elsewhere and says so ({@see PasskeyPlugin::SERVED_ORIGINS_ENV}, the
+     * Desktop on its own port) is where the URL points instead (greenhouse decisions/0534).
+     */
     private const string SERVE = 'http://localhost:8000';
 
     /**
@@ -94,7 +99,7 @@ final class FirstHuman
 
         return [
             'path' => $path,
-            'url' => self::SERVE . $path,
+            'url' => (PasskeyPlugin::servedOrigins()[0] ?? self::SERVE) . $path,
             'scopes' => $minted['scopes'],
             'vouched_by' => $minted['authorized_by'],
             'expires_at' => $minted['expires_at'],
