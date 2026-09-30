@@ -97,14 +97,17 @@ final class SessionProgressProbe implements ProgressProbe
      * @param string               $sessionId the session whose stream is measured
      */
     /**
-     * @param (\Closure(string, array<string, mixed>): ?bool)|null $lasting which calls last, by their own declaration
-     *                                                                      ({@see LastingCalls}, decisions/0523) — the same reading
-     *                                                                      the final answer's verdict makes
+     * @param (\Closure(string, array<string, mixed>): ?bool)|null $lasting   which calls last, by their own declaration
+     *                                                                        ({@see LastingCalls}, decisions/0523) — the same reading
+     *                                                                        the final answer's verdict makes
+     * @param (\Closure(): list<string>)|null                      $grantable the scopes the seat's frontier offers now
+     *                                                                        ({@see SeatFrontier}, decisions/0543)
      */
     public function __construct(
         private readonly ?EventStoreInterface $events,
         private readonly string $sessionId,
         private readonly ?\Closure $lasting = null,
+        private readonly ?\Closure $grantable = null,
     ) {
         $stream = $this->replayed();
         $this->checkpointSeq = $stream === null ? null : $this->seqOfLast($stream);
@@ -355,6 +358,31 @@ final class SessionProgressProbe implements ProgressProbe
             . 'An answer that is none of these ends this leg as stalled.',
             $receipt->calls,
             $receipt->newFacts,
+        ) . $this->grantableNotice();
+    }
+
+    /**
+     * What (B) does NOT cover, when the seat's frontier holds an open refusal (greenhouse decisions/0543): a scope
+     * a person grants in the panel is not framework-owned. Unsaid, the notice offered `HOUSE_DEBT` «if the
+     * blocker is framework-owned» and a resident filed `plugins.Blog:write` as one (evidence/1071, B8).
+     */
+    private function grantableNotice(): string
+    {
+        try {
+            $scopes = $this->grantable === null ? [] : ($this->grantable)();
+        } catch (\Throwable) {
+            return '';
+        }
+        if ($scopes === []) {
+            return '';
+        }
+
+        return sprintf(
+            ' Note: «%s» %s a scope, not a framework gap — whoever enrolled this seat grants it in the panel '
+            . '(Agent → Decisions). Do not answer HOUSE_DEBT for it; if it is your blocker, answer in one line that '
+            . 'you are waiting for that grant.',
+            implode('», «', $scopes),
+            \count($scopes) === 1 ? 'is' : 'are',
         );
     }
 

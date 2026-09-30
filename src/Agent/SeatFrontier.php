@@ -163,6 +163,28 @@ final class SeatFrontier
         return null;
     }
 
+    /**
+     * The refusal this frontier WOULD offer for a call the seat was just refused, before it is recorded — or null.
+     *
+     * The same judgement {@see openRefusals()} makes over the stream, asked of one call about to be answered, so
+     * the refusal the model reads can say who grants it (greenhouse decisions/0543). It reads, never records.
+     *
+     * @param array<string, mixed> $arguments
+     *
+     * @return Refusal|null
+     */
+    public function wouldOffer(string $session, string $tool, array $arguments): ?array
+    {
+        $events = $this->sessions->stream($session);
+        $seat = $this->seatIn($events);
+        if ($seat === null) {
+            return null;
+        }
+        $call = new Event(SessionStore::PREFIX . $session, 'session.tool_called', ['tool' => $tool, 'ok' => false, 'arguments' => $arguments], \PHP_INT_MAX);
+
+        return $this->judge($call, $seat, self::standingAskIn($events));
+    }
+
     /** @param list<Event> $events */
     private function seatIn(array $events): ?string
     {

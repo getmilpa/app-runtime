@@ -77,6 +77,7 @@ use Milpa\AiGateway\SecondOpinionGate;
 use Milpa\AppRuntime\Agent\RecordOnlyOptionTable;
 use Milpa\AppRuntime\Agent\SessionOptionTable;
 use Milpa\AppRuntime\Agent\SessionPlanBoard;
+use Milpa\AppRuntime\Agent\SeatFrontier;
 use Milpa\AppRuntime\Agent\SessionProgressProbe;
 use Milpa\AppRuntime\Agent\StepWatcher;
 use Milpa\AppRuntime\Agent\SterileLoopGuard;
@@ -2976,7 +2977,19 @@ class AgentOperations implements CommandProvider
         // carries a DIGEST — the first line, bounded by the emitter — never the raw prose: the
         // full declaration is already in the stream as the assistant turn recorded above. The
         // answer still surfaces verbatim; recording an observation must not rewrite what was said.
-        if ($sessionId !== ''
+        // A DEBT OVER A SCOPE THE PANEL GRANTS IS NOT THE HOUSE'S (greenhouse decisions/0543). The frontier
+        // holds the seat's refusal open for a person; the ledger does not get a framework gap for it, and the
+        // surface says who grants it. Asked once, for the two ends that can wait on a grant.
+        $awaiting = $sessionId !== '' && \in_array($this->runTermination?->reason, [RunEnd::HouseDebt, RunEnd::ProgressStalled], true)
+            ? $this->grantableScopes($sessionId) : [];
+        if ($awaiting !== []) {
+            $resultado['awaiting_grant'] = $awaiting;
+            $resultado['hint'] = sprintf(
+                'the leg is waiting for a grant: whoever enrolled this seat can grant «%s» in the panel (Agent → Decisions); then continue',
+                implode('», «', $awaiting),
+            );
+        }
+        if ($sessionId !== '' && $awaiting === []
             && $this->runTermination !== null
             && $this->runTermination->reason === RunEnd::HouseDebt
         ) {
@@ -3438,7 +3451,38 @@ class AgentOperations implements CommandProvider
             return null;
         }
 
-        return new SessionProgressProbe($this->sessionEvents, $this->sesionDeLosPermisos, $this->lastingCalls());
+        $session = $this->sesionDeLosPermisos;
+
+        return new SessionProgressProbe(
+            $this->sessionEvents,
+            $session,
+            $this->lastingCalls(),
+            fn (): array => $this->grantableScopes($session),
+        );
+    }
+
+    /**
+     * The scopes the seat's frontier offers now for this session — what a person grants in the panel — or `[]`.
+     *
+     * The frontier is the one judge (decisions/0496, 0510); the stall notice and the debt ask it and never read
+     * the refusal's text (greenhouse decisions/0543). Any failure to ask reads as «nothing offered».
+     *
+     * @return list<string>
+     */
+    private function grantableScopes(string $session): array
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        $store = $this->sessionStore();
+        if (!$kernel instanceof Kernel || $store === null || $session === '') {
+            return [];
+        }
+        try {
+            $open = SeatFrontier::forRoot($kernel->root(), $store)->openRefusals($session);
+        } catch (\Throwable) {
+            return [];
+        }
+
+        return array_values(array_unique(array_column($open, 'permission')));
     }
 
     /**
