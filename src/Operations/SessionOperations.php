@@ -477,6 +477,12 @@ final class SessionOperations implements CommandProvider
                 // proceso del servidor.
                 scopes: ['agent:answer'],
                 surfaces: ['cli', 'tui', 'mcp', 'http'],
+                // AN ANSWER CONTINUES THE SESSION THAT ASKED (greenhouse decisions/0526 §2, 0546). The session is the
+                // sequence, and the `agent` receipt that opened it covers answering it: a signed chat in ask mode
+                // answers its own questions without signing each answer. Only that session — the door binds the
+                // receipt to it — only an `agent` receipt, and always as the signer judged today (its scopes).
+                continues: static fn (array $arguments): ?string => \is_string($arguments['session'] ?? null) ? $arguments['session'] : null,
+                citesReceiptsOf: ['agent'],
             ),
             new Operation(
                 name: 'agent:board',

@@ -215,6 +215,50 @@ final class ASurfaceThatCannotSignMakesNoLastingChangeTest extends TestCase
         self::assertSame([], $this->ran);
     }
 
+    /**
+     * A signed chat in ask mode answers its own question (greenhouse decisions/0526 §2): the answer cites the `agent`
+     * receipt of the chat's session through the terminal's runner and runs as that signer. The operation is the house's
+     * own `agent:answer` declaration, with a handler that only records.
+     */
+    public function testTheChatAnswersUnderTheAgentReceiptOfItsOwnSession(): void
+    {
+        $key = new LabSigner();
+        $app = $this->application($key, [$this->agent(), $this->answer()]);
+        $store = $this->privately($app, 'almacenDeSesiones');
+        self::assertInstanceOf(SessionStore::class, $store);
+        $store->start('s1', 'build the blog');
+        [$payload, $signature] = (array) $key->sign('agent', ['prompt' => 'open', 'session' => 's1'], gethostname() ?: 'unknown-host', time());
+        $store->authorizeSequence('s1', 'agent', ['payload' => $payload, 'signature' => $signature, 'fingerprint' => $key->fingerprint, 'uid' => null]);
+
+        $answered = $this->privately($app, 'correr', 'agent:answer', ['session' => 's1', 'answer' => 'yes']);
+
+        self::assertSame(['ok' => true, 'answered' => 'yes'], $answered);
+        self::assertSame([['op' => 'agent:answer', 'actor' => 'key:' . $key->fingerprint, 'verified' => true]], $this->ran);
+        $types = array_map(static fn ($e): string => $e->type, [...$this->events($app, 's1')]);
+        self::assertContains('session.authorization_cited', $types);
+        self::assertNotContains('session.authorization_released', $types, 'an answer never ends the sequence');
+    }
+
+    /** Only in that session: answering a session that holds no receipt (a child, another chat) is refused unsigned. */
+    public function testTheChatsReceiptDoesNotAnswerAnotherSession(): void
+    {
+        $key = new LabSigner();
+        $app = $this->application($key, [$this->agent(), $this->answer()]);
+        $store = $this->privately($app, 'almacenDeSesiones');
+        self::assertInstanceOf(SessionStore::class, $store);
+        $store->start('s1', 'build the blog');
+        $store->start('s1-child', 'a child');
+        [$payload, $signature] = (array) $key->sign('agent', ['prompt' => 'open', 'session' => 's1'], gethostname() ?: 'unknown-host', time());
+        $store->authorizeSequence('s1', 'agent', ['payload' => $payload, 'signature' => $signature, 'fingerprint' => $key->fingerprint, 'uid' => null]);
+
+        $refused = $this->privately($app, 'correr', 'agent:answer', ['session' => 's1-child', 'answer' => 'yes']);
+
+        self::assertIsArray($refused);
+        self::assertFalse($refused['ok']);
+        self::assertSame('unsigned', $refused['refused']);
+        self::assertSame([], $this->ran);
+    }
+
     // ── coa shell ────────────────────────────────────────────────────────────────────────────────────────────────────
 
     public function testTheShellsFormRefusesAnUnsignedLastingChangeAndRunsAReadAsBefore(): void
@@ -287,6 +331,60 @@ final class ASurfaceThatCannotSignMakesNoLastingChangeTest extends TestCase
         self::assertSame("php bin/coa agent:role:declare --name='r1' --sign", $text['meta']['sign']);
         self::assertStringContainsString('Over php bin/coa mcp it does not run as the terminal either.', $text['error']);
         self::assertSame([], $this->ran);
+    }
+
+    /**
+     * Over MCP a call cites only a receipt its own operation signed (greenhouse decisions/0546). Answering the question
+     * a signed session asked is a person's act: the chat, the shell and the terminal have one at the keys; an MCP
+     * client is whatever process holds the pipe — a model included. So an `agent` receipt does not answer over MCP.
+     */
+    public function testOverMcpAnAnswerDoesNotCiteTheAgentReceiptOfTheSession(): void
+    {
+        $key = new LabSigner();
+        $app = $this->application($key, [$this->agent(), $this->answer()]);
+        $store = $this->privately($app, 'almacenDeSesiones');
+        self::assertInstanceOf(SessionStore::class, $store);
+        $store->start('s1', 'build the blog');
+        [$payload, $signature] = (array) $key->sign('agent', ['prompt' => 'open', 'session' => 's1'], gethostname() ?: 'unknown-host', time());
+        $store->authorizeSequence('s1', 'agent', ['payload' => $payload, 'signature' => $signature, 'fingerprint' => $key->fingerprint, 'uid' => null]);
+
+        $answer = $this->privately($app, 'mcpPorLaPuerta', ['jsonrpc' => '2.0', 'id' => 9, 'method' => 'tools/call', 'params' => ['name' => 'agent_answer', 'arguments' => ['session' => 's1', 'answer' => 'yes']]], $this->tools($app));
+
+        self::assertIsArray($answer);
+        self::assertTrue($answer['result']['isError']);
+        $text = json_decode($answer['result']['content'][0]['text'], true);
+        self::assertSame('UNSIGNED_LASTING_CHANGE', $text['meta']['code']);
+        self::assertStringContainsString('The receipt standing for «s1» signed «agent»', $text['error']);
+        self::assertSame([], $this->ran, 'nothing answered');
+        $types = array_map(static fn ($e): string => $e->type, [...$this->events($app, 's1')]);
+        self::assertNotContains('session.authorization_cited', $types);
+    }
+
+    /** Nor does a read that names the receipt: over MCP it goes to the server as any read does, never as the signer. */
+    public function testOverMcpAReadThatNamesAnotherReceiptIsNeverCitedUnderIt(): void
+    {
+        $key = new LabSigner();
+        $peek = new Operation(
+            name: 'agent:peek',
+            description: 'd',
+            handler: static fn (): array => ['ok' => true],
+            inputSchema: ['type' => 'object', 'properties' => ['session' => ['type' => 'string']]],
+            effects: EffectProfile::readOnly(),
+            continues: static fn (array $a): ?string => \is_string($a['session'] ?? null) ? $a['session'] : null,
+            citesReceiptsOf: ['agent'],
+        );
+        $app = $this->application($key, [$this->agent(), $peek]);
+        $store = $this->privately($app, 'almacenDeSesiones');
+        self::assertInstanceOf(SessionStore::class, $store);
+        $store->start('s1', 'build the blog');
+        [$payload, $signature] = (array) $key->sign('agent', ['prompt' => 'open', 'session' => 's1'], gethostname() ?: 'unknown-host', time());
+        $store->authorizeSequence('s1', 'agent', ['payload' => $payload, 'signature' => $signature, 'fingerprint' => $key->fingerprint, 'uid' => null]);
+
+        $passed = $this->privately($app, 'mcpPorLaPuerta', ['jsonrpc' => '2.0', 'id' => 10, 'method' => 'tools/call', 'params' => ['name' => 'agent_peek', 'arguments' => ['session' => 's1']]], $this->tools($app));
+
+        self::assertNull($passed, 'the door stands aside and the server answers the read');
+        $types = array_map(static fn ($e): string => $e->type, [...$this->events($app, 's1')]);
+        self::assertNotContains('session.authorization_cited', $types);
     }
 
     public function testMcpRefusesAConsentEvenWithTheConfirmTokenItHandedOut(): void
@@ -405,6 +503,21 @@ final class ASurfaceThatCannotSignMakesNoLastingChangeTest extends TestCase
 
             return ['ok' => true, 'roles' => []];
         });
+    }
+
+    /** The house's own `agent:answer` declaration, its handler replaced by one that records who ran it. */
+    private function answer(): Operation
+    {
+        foreach ((new \Milpa\AppRuntime\Operations\SessionOperations(new DIContainer()))->operations() as $op) {
+            if ($op->name === 'agent:answer') {
+                return UnsignedTerminal::withHandler($op, function (array $input, ?\Milpa\Command\InvocationContext $context = null): array {
+                    $this->ran[] = ['op' => 'agent:answer', 'actor' => $context?->actor, 'verified' => $context?->verified];
+
+                    return ['ok' => true, 'answered' => $input['answer'] ?? null];
+                });
+            }
+        }
+        self::fail('the house declares no agent:answer');
     }
 
     /** An `agent` whose sequence is its session — what the chat's turn and an MCP leg continue. */

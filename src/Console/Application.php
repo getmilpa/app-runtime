@@ -838,7 +838,8 @@ final class Application
         /** @var array<string, mixed> $entrada the call's own arguments — a confirm token is the transport's, not the operation's */
         $entrada = array_diff_key(\is_array($params['arguments'] ?? null) ? $params['arguments'] : [], ['confirm_token' => true]);
         $sigue = new \stdClass();
-        $r = $this->porLaPuertaSinFirma(Capabilities::CLI . 'mcp', $operacion, $entrada, static fn (): object => $sigue);
+        // Over MCP nobody holds the keys: a call continues only under a receipt its own operation signed (0546).
+        $r = $this->porLaPuertaSinFirma(Capabilities::CLI . 'mcp', $operacion, $entrada, static fn (): object => $sigue, soloSuRecibo: true);
         if ($r === $sigue) {
             return null;
         }
@@ -1779,17 +1780,18 @@ final class Application
      * - otherwise it is refused before it runs, with the terminal line that signs it.
      *
      * @param array<string, mixed>                  $entrada
-     * @param \Closure(array<string, mixed>): mixed $correr  runs the call as the surface always did
+     * @param \Closure(array<string, mixed>): mixed $correr       runs the call as the surface always did
+     * @param bool                                  $soloSuRecibo cite only a receipt this very operation signed (`coa mcp`, 0546)
      *
      * @return mixed what the call returned, or the refusal as the `{ok: false, error, sign}` every surface already paints
      */
-    private function porLaPuertaSinFirma(string $superficie, Operation $operacion, array $entrada, \Closure $correr): mixed
+    private function porLaPuertaSinFirma(string $superficie, Operation $operacion, array $entrada, \Closure $correr, bool $soloSuRecibo = false): mixed
     {
         $recibos = $this->recibos();
         $identidad = PresentedToken::identity($this->kernel()->container());
         $negativa = $identidad !== null && !\Milpa\Console\Consent::demanded($operacion, $entrada)
             ? null
-            : UnsignedTerminal::refusalOver($superficie, $operacion, $entrada, $identidad !== null ? null : $recibos);
+            : UnsignedTerminal::refusalOver($superficie, $operacion, $entrada, $identidad !== null ? null : $recibos, $soloSuRecibo);
         if ($negativa !== null) {
             return [
                 'ok' => false,
@@ -1798,7 +1800,7 @@ final class Application
                 'sign' => UnsignedTerminal::signedLine($operacion, $entrada),
             ];
         }
-        if ($identidad === null && UnsignedTerminal::continuesASignedSequence($operacion, $entrada, $recibos)) {
+        if ($identidad === null && UnsignedTerminal::continuesASignedSequence($operacion, $entrada, $recibos, $soloSuRecibo)) {
             return $this->citar($operacion, $entrada);
         }
 
