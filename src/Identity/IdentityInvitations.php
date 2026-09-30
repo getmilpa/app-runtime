@@ -250,6 +250,17 @@ final class IdentityInvitations
         return null;
     }
 
+    /** The name a seat invitation was minted with, by its id — what the seat will be called — or null. */
+    public function seatLabel(string $id): ?string
+    {
+        $invitation = ($this->read() ?? [])[$id] ?? null;
+        if (!\is_array($invitation) || ($invitation['kind'] ?? null) !== self::SEAT) {
+            return null;
+        }
+
+        return \is_string($invitation['label'] ?? null) ? $invitation['label'] : null;
+    }
+
     /** Whether any invitation was ever redeemed — the house is no longer waiting for its first human. */
     public function anyRedeemed(): bool
     {

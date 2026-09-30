@@ -980,6 +980,12 @@ final class SessionOperations implements CommandProvider
         if (! $kernel instanceof \Milpa\Runtime\Kernel) {
             return ['ok' => false, 'error' => 'this app has no root to keep an invitation in'];
         }
+        // One seat per name (greenhouse decisions/0536) — judged after WHO asks, so a caller the house does not
+        // admit learns nothing about which names are taken.
+        $held = ResidentSeat::holder($kernel->root(), $label);
+        if ($held !== null) {
+            return ResidentSeat::nameTaken($label, $held);
+        }
 
         try {
             return ['ok' => true, ...ResidentSeat::invite($kernel->root(), $voucher, $label, $fingerprint === '' ? null : $fingerprint)];
