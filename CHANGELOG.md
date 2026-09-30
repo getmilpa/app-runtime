@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [0.204.0](https://github.com/getmilpa/app-runtime/compare/v0.203.0...v0.204.0) (2026-09-30)
+
+
+### Features
+
+* **agent:** an AUTO leg takes its steps and its inherited window from the model's window ([#668](https://github.com/getmilpa/app-runtime/issues/668)) ([4b462da](https://github.com/getmilpa/app-runtime/commit/4b462dadd1a012c1bb09a0a23ee12d451d28465c))
+
+
+### Bug Fixes
+
+* **agent:** a route that fails carries the cause the house logged, in the receipt only ([#666](https://github.com/getmilpa/app-runtime/issues/666)) ([ba6c1db](https://github.com/getmilpa/app-runtime/commit/ba6c1dbe523580a08ae32ecbf450749aded44866))
+* **agent:** a scope the panel grants says so and is never a house debt ([#670](https://github.com/getmilpa/app-runtime/issues/670)) ([9c995c4](https://github.com/getmilpa/app-runtime/commit/9c995c4518a9835a54b8c0b5da64f48fa8d90e50))
+* **agent:** an undeclared model is the one the endpoint serves, and the banner stops naming a fallback ([#667](https://github.com/getmilpa/app-runtime/issues/667)) ([66a55ba](https://github.com/getmilpa/app-runtime/commit/66a55ba4cc0a95a5439c0d4256c017040c3ef3ca))
+* **identity:** a name holds one seat — identity:seat and identity:accept refuse a second one ([#665](https://github.com/getmilpa/app-runtime/issues/665)) ([1f84714](https://github.com/getmilpa/app-runtime/commit/1f84714062668985b5fc5b45f2ed5eea4735ebdd))
+* **trial:** a promotion that breaks a route of the house does not land ([#669](https://github.com/getmilpa/app-runtime/issues/669)) ([d5ce11f](https://github.com/getmilpa/app-runtime/commit/d5ce11fd3c73883b18a686224b4e8ee7e11d754b))
+
 ## [0.203.0](https://github.com/getmilpa/app-runtime/compare/v0.202.0...v0.203.0) (2026-09-30)
 
 
