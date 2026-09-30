@@ -12,7 +12,7 @@
     "require": {
         "php": "^8.3",
         "milpa/command": ">=0.26 <1.0",
-        "milpa/console": ">=0.22 <1.0",
+        "milpa/console": ">=0.22.2 <1.0",
         "milpa/container": ">=0.1 <1.0",
         "milpa/core": ">=0.12 <1.0",
         "milpa/http": ">=0.1.5 <1.0",
