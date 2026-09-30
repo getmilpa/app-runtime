@@ -132,9 +132,15 @@ return $loader;
         self::assertSame(hash('sha256', '<h1>the new one</h1>'), $receipt['observed'][0]['sha256'] ?? null, 'the observation sees the bytes the promotion wrote');
     }
 
+    /**
+     * The route was already broken before the promotion: since greenhouse decisions/0540 a promotion that takes a route
+     * from 200 to 500 does not land (APromotionThatBreaksARouteDoesNotLandTest), so the 500 the observer records here is
+     * one the promotion did not cause.
+     */
     public function testARouteThatThrowsAnswers500AndIsNotServed(): void
     {
         touch($this->root . '/var/logs-elsewhere');
+        file_put_contents($this->root . '/src/Plugins/Blog/Controller.php', $this->controller('already', throws: true));
 
         $receipt = $this->promote(['src/Plugins/Blog/Controller.php' => $this->controller('boom', throws: true)]);
 
@@ -146,6 +152,7 @@ return $loader;
     /** Greenhouse evidence/1071 B2: the house had the cause of /blog's 500 in its hand and threw it away (decisions/0539). */
     public function testARouteThatThrowsCarriesTheCauseTheHouseLoggedInTheReceipt(): void
     {
+        $this->alreadyBroken();
         $receipt = $this->promote(['src/Plugins/Blog/Controller.php' => $this->controller('boom', throws: true)]);
 
         $cause = $receipt['observed'][0]['cause'] ?? null;
@@ -161,6 +168,7 @@ return $loader;
     /** Decisions/0506 stands: what the receipt says, the visitor is never shown. */
     public function testThePublicAnswerStaysMuteAboutTheCause(): void
     {
+        $this->alreadyBroken();
         $this->promote(['src/Plugins/Blog/Controller.php' => $this->controller('boom', throws: true)]);
 
         [$status, $body] = $this->visit('/blog');
@@ -174,6 +182,7 @@ return $loader;
 
     public function testTheCauseKeepsTheHousesSecretsAndTheHostsPathsOut(): void
     {
+        $this->alreadyBroken();
         mkdir($this->root . '/.milpa');
         file_put_contents($this->root . '/.milpa/secrets.json', (string) json_encode(['agent' => ['apiKey' => 'sk-live-0123456789abcdef']]));
         $message = 'key sk-live-0123456789abcdef at https://ana:hunter2@db.example.com/x password=letmein token: abc.def '
@@ -206,6 +215,7 @@ return $loader;
 
     public function testAFatalNobodyCaughtIsTheCauseOfARequestThatDied(): void
     {
+        $this->alreadyBroken();
         file_put_contents($this->root . '/src/Plugins/Blog/Broken.php', "<?php\nnamespace App\\Plugins\\Blog;\nfinal class Broken implements \\Countable {}\n");
 
         $receipt = $this->promote(['src/Plugins/Blog/Controller.php' => str_replace('return new', 'new Broken(); return new', $this->controller('blog'))]);
@@ -311,6 +321,16 @@ final class ' . $name . ' implements \Milpa\Interfaces\Plugin\PluginInterface, \
 }
 ');
         file_put_contents($this->root . "/src/Plugins/{$name}/Controller.php", str_replace('App\Plugins\Blog', 'App\Plugins\\' . $name, $this->controller($name)));
+    }
+
+    /**
+     * /blog already answers 500 before the promotion. Since greenhouse decisions/0540 a promotion that takes a serving route
+     * to a 5xx does not land (APromotionThatBreaksARouteDoesNotLandTest); these cases are about what the observer reads
+     * AFTER a promotion lands, so they start from a route the promotion cannot be blamed for.
+     */
+    private function alreadyBroken(): void
+    {
+        file_put_contents($this->root . '/src/Plugins/Blog/Controller.php', $this->controller('already', throws: true, message: 'already broken'));
     }
 
     private function controller(string $says, bool $throws = false, string $message = 'boom'): string
