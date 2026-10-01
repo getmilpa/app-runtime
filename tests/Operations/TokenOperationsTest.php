@@ -84,7 +84,7 @@ final class TokenOperationsTest extends TestCase
     }
 
     /**
-     * The token says what it is where it is handed over: opaque, not a JWT (greenhouse decisions/0548).
+     * The token says what it is where it is handed over: opaque, not a JWT (greenhouse decisions/0551).
      *
      * An agent on a new house called the Bearer a JWT; nothing in the family says so, and the silence
      * was the source. The declaration and the minted result both name the format now.

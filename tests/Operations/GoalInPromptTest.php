@@ -126,7 +126,7 @@ final class GoalInPromptTest extends TestCase
         return $session;
     }
 
-    /** 9 · where the house can mint a token, the prompt says what one is: opaque, not a JWT (decisions/0548). */
+    /** 9 · where the house can mint a token, the prompt says what one is: opaque, not a JWT (decisions/0551). */
     public function testTheTokenIsDescribedAsOpaqueWhereIdentityIsInstalled(): void
     {
         $prompt = $this->promptFor(null);

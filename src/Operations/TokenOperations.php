@@ -210,7 +210,7 @@ final readonly class TokenOperations implements CommandProvider
             'id' => (string) $id,
             'actor' => $actor,
             'scopes' => $scopes,
-            // WHAT THE SECRET IS, said where it is handed over (greenhouse decisions/0548): an agent that met a
+            // WHAT THE SECRET IS, said where it is handed over (greenhouse decisions/0551): an agent that met a
             // «Bearer token» called it a JWT and went looking for claims to decode. There are none: 64 hex
             // characters of random bytes, whose actor and scopes live in this house's store, under its hash.
             'format' => 'opaque: 64 hex characters of random bytes — not a JWT, nothing to decode; its actor and scopes live in this house',

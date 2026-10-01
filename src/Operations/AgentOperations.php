@@ -5112,7 +5112,7 @@ class AgentOperations implements CommandProvider
             . "- Doctrine belongs to the legacy convention, not this one. The entities `make` writes implement\n"
             . '  `Milpa\\Data\\EntityInterface`: no ORM attributes, no mapping.';
 
-        // WHAT A TOKEN IS, before a model fills the word in (greenhouse decisions/0548). An agent that met
+        // WHAT A TOKEN IS, before a model fills the word in (greenhouse decisions/0551). An agent that met
         // «Bearer token» on a new house called it a JWT and planned around claims that do not exist; the
         // house never says JWT for its own tokens, so the guess came from silence. Said only where the
         // house can mint one: without identity there is no token to describe.
@@ -5436,7 +5436,7 @@ class AgentOperations implements CommandProvider
      * A declared endpoint is sent `MILPA_AGENT_API_KEY`, and only that: `OPENAI_API_KEY` and
      * `ANTHROPIC_API_KEY` belong to their providers, and handing one to whatever host
      * `MILPA_AGENT_BASE_URL` names would send a provider's secret to a third party (greenhouse
-     * decisions/0548). Measured on a new house (evidence/1082): with only `OPENAI_API_KEY` exported, the
+     * decisions/0551). Measured on a new house (evidence/1085): with only `OPENAI_API_KEY` exported, the
      * endpoint answered 401 to the placeholder and nothing named the variable it wanted. The hint says
      * which key went, names the one to set, and — when a provider key IS in the environment — that it
      * was deliberately not sent. It never prints a value.
