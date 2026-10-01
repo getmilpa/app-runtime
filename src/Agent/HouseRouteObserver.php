@@ -50,11 +50,24 @@ use Milpa\Runtime\Kernel;
  * A route that answers 5xx, or whose process dies, carries the `cause` the house logged for it — read by
  * {@see RouteFailureCause} from the child's stderr, where PHP's `error_log()` writes in that process. It
  * travels in the result of the operation that observed; the page a visitor gets does not change (0506).
+ *
+ * ── ON DEMAND, NOT ONLY AT A PROMOTION (greenhouse decisions/0549) ──────────────────────────────
+ *
+ * Measured on a copy of Rod's first live run (t-0074, B-c): /blog answered 500, and the resident — which only
+ * promotes to land code — read `BlogController.php` and concluded «GET /blog → 200». {@see observeRoute()} asks
+ * the house one concrete path whenever `route:observe` is called, the same way, as the same anonymous visitor,
+ * and also hands back the first bytes of what that visitor was served.
  */
 final class HouseRouteObserver
 {
     /** Past this many routes a promotion is observed in part, and the receipt says how many were left. */
     public const MAX_ROUTES = 8;
+
+    /** The bytes of the body an on-demand observation hands back unless asked for other — ~400 tokens of a page. */
+    public const EXCERPT = 1500;
+
+    /** The most bytes of a body an on-demand observation ever hands back, whatever is asked — ~2k tokens. */
+    public const EXCERPT_MAX = 8000;
 
     /** The line the observing script prefixes its answer with, so a body that leaks to stdout is not read as one. */
     public const MARK = '@@house-observe ';
@@ -170,28 +183,89 @@ final class HouseRouteObserver
         $routes = array_values(array_filter($listed['routes'], static fn (mixed $r): bool => \is_array($r) && \is_string($r['path'] ?? null)));
         $observed = [];
         foreach (\array_slice($routes, 0, self::MAX_ROUTES) as $route) {
-            [$exit, $answer, $stderr] = $this->run(['get', $root, $route['path']]);
-            $status = \is_int($answer['status'] ?? null) ? $answer['status'] : null;
-            $entry = ['route' => 'GET ' . $route['path'], 'subject' => $route['path'], 'status' => $status, 'environment' => ['kind' => 'house']];
-            if ($status === 200 && $exit === 0) {
-                $entry = ['predicate' => 'served', ...$entry, 'servedAt' => $route['path'],
-                    'bytes' => \is_int($answer['bytes'] ?? null) ? $answer['bytes'] : null,
-                    'sha256' => \is_string($answer['sha256'] ?? null) ? $answer['sha256'] : null];
-            } elseif ($exit !== 0) {
-                // A process that died answered nothing a browser could trust, whatever status it had set.
-                $entry['status'] = $status !== null && $status >= 500 ? $status : null;
-                $entry['error'] = $exit === 124 || $exit === 137 ? "timed out after {$this->timeoutSeconds}s" : "the request process exited {$exit}";
-            }
-            if ($exit !== 0 || ($status !== null && $status >= 500)) {
-                $cause = RouteFailureCause::read($stderr, $root);
-                if ($cause !== null) {
-                    $entry['cause'] = $cause;
-                }
-            }
-            $observed[] = $entry;
+            $observed[] = $this->request($root, $route['path'], 0)['entry'];
         }
 
         return ['observed' => $observed] + (\count($routes) > self::MAX_ROUTES ? ['unobserved' => \count($routes) - self::MAX_ROUTES] : []);
+    }
+
+    /**
+     * Ask the house at `$root` one concrete GET path, the way {@see observe()} asks each route (decisions/0549).
+     *
+     * The entry is the one a promotion records — so the house's derived closure reads it the same way — and it
+     * always carries the body's `bytes` and `sha256` when the process said them. `excerpt` is the first `$excerpt`
+     * bytes of the body (bounded by {@see EXCERPT_MAX}), cut at a whole character; `truncated` is how many bytes
+     * it left out. `$path` must already be one: the caller judged it.
+     *
+     * @return array{entry: array<string, mixed>, excerpt: ?string, truncated: int}
+     */
+    public function observeRoute(string $root, string $path, int $excerpt = self::EXCERPT): array
+    {
+        $excerpt = max(0, min($excerpt, self::EXCERPT_MAX));
+        ['entry' => $entry, 'answer' => $answer] = $this->request($root, $path, $excerpt);
+        $bytes = \is_int($answer['bytes'] ?? null) ? $answer['bytes'] : null;
+        if ($bytes !== null) {
+            $entry += ['bytes' => $bytes, 'sha256' => \is_string($answer['sha256'] ?? null) ? $answer['sha256'] : null];
+        }
+        $head = \is_string($answer['head'] ?? null) ? self::wholeCharacters((string) base64_decode($answer['head'], true), $bytes ?? 0) : null;
+
+        return ['entry' => $entry, 'excerpt' => $head === '' ? null : $head, 'truncated' => max(0, ($bytes ?? 0) - \strlen((string) $head))];
+    }
+
+    /**
+     * Request one path in a process of the house, and say what a browser was answered.
+     *
+     * Only a 200 from a process that finished cleanly carries `predicate: served`. A 5xx or a process that died
+     * carries the `cause` the house logged, when it logged one. The subject is the path without its query.
+     *
+     * @return array{entry: array<string, mixed>, answer: array<string, mixed>}
+     */
+    private function request(string $root, string $path, int $excerpt): array
+    {
+        [$exit, $answer, $stderr] = $this->run(['get', $root, $path, ...($excerpt > 0 ? [(string) $excerpt] : [])]);
+        $subject = explode('?', $path, 2)[0];
+        $status = \is_int($answer['status'] ?? null) ? $answer['status'] : null;
+        $entry = ['route' => 'GET ' . $path, 'subject' => $subject, 'status' => $status, 'environment' => ['kind' => 'house']];
+        if ($status === 200 && $exit === 0) {
+            $entry = ['predicate' => 'served', ...$entry, 'servedAt' => $subject,
+                'bytes' => \is_int($answer['bytes'] ?? null) ? $answer['bytes'] : null,
+                'sha256' => \is_string($answer['sha256'] ?? null) ? $answer['sha256'] : null];
+        } elseif ($exit !== 0) {
+            // A process that died answered nothing a browser could trust, whatever status it had set.
+            $entry['status'] = $status !== null && $status >= 500 ? $status : null;
+            $entry['error'] = $exit === 124 || $exit === 137 ? "timed out after {$this->timeoutSeconds}s" : "the request process exited {$exit}";
+        }
+        if ($exit !== 0 || ($status !== null && $status >= 500)) {
+            $cause = RouteFailureCause::read($stderr, $root);
+            if ($cause !== null) {
+                $entry['cause'] = $cause;
+            }
+        }
+
+        return ['entry' => $entry, 'answer' => $answer];
+    }
+
+    /**
+     * The first bytes of a body as text a result can carry: a character the cut split is left out, a byte that is
+     * not UTF-8 reads U+FFFD — a JSON result that cannot be encoded would lose the whole observation.
+     */
+    private static function wholeCharacters(string $head, int $whole): string
+    {
+        if (\strlen($head) < $whole) {
+            $end = \strlen($head);
+            $start = $end;
+            while ($start > 0 && (\ord($head[$start - 1]) & 0xC0) === 0x80) {
+                --$start;
+            }
+            $lead = $start > 0 ? \ord($head[$start - 1]) : 0;
+            $needs = $lead >= 0xF0 ? 4 : ($lead >= 0xE0 ? 3 : ($lead >= 0xC0 ? 2 : 1));
+            if ($start > 0 && $end - ($start - 1) < $needs) {
+                $head = substr($head, 0, $start - 1);
+            }
+        }
+        $text = json_decode((string) json_encode($head, \JSON_INVALID_UTF8_SUBSTITUTE), true);
+
+        return \is_string($text) ? $text : '';
     }
 
     /**

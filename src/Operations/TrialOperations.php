@@ -23,6 +23,7 @@ use Milpa\AppRuntime\Agent\PluginAuthoringPolicy;
 use Milpa\AppRuntime\Agent\RouteRegression;
 use Milpa\AppRuntime\Agent\KeyedDeclarations;
 use Milpa\AppRuntime\Agent\TrialWorkspace;
+use Milpa\AppRuntime\Support\BootCandidate;
 use Milpa\AppRuntime\Support\BootProbe;
 use Milpa\AppRuntime\Support\HouseBootWitness;
 use Milpa\AppRuntime\Support\CompiledCode;
@@ -73,7 +74,8 @@ final class TrialOperations implements CommandProvider
 
     /**
      * The trial doors: `sandbox:promote` (the only way in), `sandbox:list`, `sandbox:discard`, and
-     * `sandbox:undo` (the way back out — reverse a promotion from the pre-image it kept).
+     * `sandbox:undo` (the way back out — reverse a promotion from the pre-image it kept) — and `route:observe`,
+     * the house asked what one of its routes answers, or what it would answer with a trial (decisions/0549).
      *
      * @return list<Operation>
      */
@@ -158,6 +160,129 @@ final class TrialOperations implements CommandProvider
                     subject: Subject::Executable,
                 ),
             ),
+            // THE HOUSE ASKED, WHEN THE RESIDENT WANTS TO KNOW (greenhouse decisions/0549). Measured on a copy of Rod's
+            // first live run (t-0074, B-c): /blog answered 500, and the resident read its controller and wrote «GET /blog
+            // → 200» — the house only requested a route when a promotion landed. A read in every sense the gate weighs:
+            // it is a visitor's GET through the house's own front controller, with nobody's credentials, so it needs no
+            // consent and no signature. What it hands back is NOT a visitor's, though: the cause is for the agent only
+            // (0506, 0539), so it carries the scopes of the readers of the agent's own receipts (`agent:result`) — the
+            // seat holds `agent:read`, and no surface serves it to an anonymous caller without a policy judging them.
+            // A workspace is asked in a copy, never in the trial's own.
+            new Operation(
+                name: 'route:observe',
+                description: 'Request a GET path of THIS HOUSE the way a browser does — anonymously, through its own front '
+                    . 'controller — and see what it answers: the status, an excerpt of the body and, on a 5xx or a request that '
+                    . 'died, the cause the house logged (never shown to visitors). This is how you confirm a route serves; reading '
+                    . 'its code does not tell you. Give a concrete path (/blog, /blog/7?page=2), never a pattern like /blog/{id}. '
+                    . 'With `workspace`, it asks the house as that trial would leave it. Read-only.',
+                handler: fn (array $input): array => $this->observeRoute($root, $input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'path' => ['type' => 'string', 'description' => 'The path to request, starting with / — e.g. /blog'],
+                        'workspace' => ['type' => 'string', 'description' => 'A trial to ask instead of the house'],
+                        'excerpt' => ['type' => 'integer', 'description' => 'Bytes of the body to hand back: default '
+                            . HouseRouteObserver::EXCERPT . ', at most ' . HouseRouteObserver::EXCERPT_MAX . ', 0 for none'],
+                    ],
+                    'required' => ['path'],
+                ],
+                mutating: false,
+                scopes: ['agent:read', 'agent:answer'],
+                effects: EffectProfile::readOnly(),
+            ),
+        ];
+    }
+
+    /**
+     * What the house — or the house as a trial would leave it — answers one GET path (decisions/0549).
+     *
+     * `ok: true` means the house was asked; what it answered, a 500 included, is the observation. In the house the
+     * entry is the one a promotion records, so the derived closure reads it as the house's own (0487, 0494); asked
+     * of a trial it is `environment: trial` and observes nothing about the house.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function observeRoute(string $root, array $input): array
+    {
+        $path = $input['path'] ?? null;
+        if (\is_string($path) && (str_contains($path, '{') || str_contains($path, '}'))) {
+            return ['ok' => false, 'error' => "«{$path}» is a route's pattern, not a path of this house: give the value a visitor "
+                . 'would — e.g. /blog/1 for /blog/{id}'];
+        }
+        if (!\is_string($path) || \strlen($path) > 2048 || preg_match('~^/(?!/)[^\s#\x00-\x1f\x7f]*$~', $path) !== 1) {
+            return ['ok' => false, 'error' => 'path must be a path of this house, starting with «/» — e.g. /blog — with no scheme, '
+                . 'host, fragment or spaces'];
+        }
+        $excerpt = \is_int($input['excerpt'] ?? null) ? $input['excerpt'] : HouseRouteObserver::EXCERPT;
+        $observer = $this->observer ?? new HouseRouteObserver();
+
+        $id = \is_string($input['workspace'] ?? null) ? $input['workspace'] : '';
+        if ($id === '') {
+            if (!is_file($root . '/public/index.php') || !is_file($root . '/vendor/autoload.php')) {
+                return ['ok' => false, 'error' => 'this house has no front controller (public/index.php) to request a route through'];
+            }
+
+            return self::observedRoute($observer->observeRoute($root, $path, $excerpt), null);
+        }
+
+        $ws = str_contains($id, '/') || str_contains($id, '\\') || str_contains($id, '..') ? null : TrialWorkspace::open($root, $id);
+        if ($ws === null) {
+            return ['ok' => false, 'error' => "no trial «{$id}» to observe"];
+        }
+        // The house AS THE TRIAL WOULD LEAVE IT, built beside it — the trial's own copy has no vendor/ to boot with.
+        $writes = [];
+        $deletes = [];
+        foreach ($ws->diff() as $rel => $entry) {
+            if ($entry['status'] === 'deleted') {
+                $deletes[] = $rel;
+            } else {
+                $writes[$rel] = (string) file_get_contents($ws->copy . '/' . $rel);
+            }
+        }
+        $candidate = BootCandidate::of($root, $writes, $deletes);
+        try {
+            $seen = $observer->observeRoute($candidate->path, $path, $excerpt);
+        } finally {
+            $candidate->remove();
+        }
+        // Its cause was read against the copy's root: the copy's files read as the house's, any other path is cut (0539).
+        $seen['entry']['environment'] = ['kind' => 'trial', 'workspace' => $id];
+
+        return self::observedRoute($seen, $id);
+    }
+
+    /**
+     * The result of `route:observe`: the entry under `observed`, the excerpt beside it, and one sentence.
+     *
+     * @param array{entry: array<string, mixed>, excerpt: ?string, truncated: int} $seen
+     *
+     * @return array<string, mixed>
+     */
+    private static function observedRoute(array $seen, ?string $workspace): array
+    {
+        $entry = $seen['entry'];
+        $status = \is_int($entry['status'] ?? null) ? $entry['status'] : null;
+        $said = $entry['route'] . ' answered ' . ($status === null ? 'nothing (' . (string) ($entry['error'] ?? 'no status') . ')' : 'HTTP ' . $status);
+        if (\is_array($entry['cause'] ?? null)) {
+            $said .= ' — ' . RouteFailureCause::oneLine($entry['cause']);
+        } elseif ($status === null || $status >= 500) {
+            $said .= ' (the house logged no cause this observer could read)';
+        }
+        $who = $workspace === null
+            ? 'Requested in this house'
+            : "Requested in a copy of this house as trial «{$workspace}» would leave it — not the house itself";
+        $guarded = $status !== null && ($status === 401 || $status === 403 || ($status >= 300 && $status < 400))
+            ? ' A route that asks who you are answers an anonymous visitor this way: nobody\'s credentials travel.'
+            : '';
+
+        return [
+            'ok' => true,
+            'observed' => [$entry],
+            ...($seen['excerpt'] !== null ? ['excerpt' => $seen['excerpt']] : []),
+            ...($seen['truncated'] > 0 ? ['truncated' => $seen['truncated']] : []),
+            'note' => $said . '. ' . $who . ', through its front controller, as an anonymous visitor.' . $guarded,
         ];
     }
 

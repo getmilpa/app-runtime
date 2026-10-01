@@ -19,11 +19,13 @@ declare(strict_types=1);
  * the house as it is now, and answers ONE question on a line marked `@@house-observe `:
  *
  *   php house-observe.php routes <root> '<json dirs>'   the GET routes without parameters the touched plugins declare
- *   php house-observe.php get <root> <path>             what the house's own front controller answers an anonymous GET
+ *   php house-observe.php get <root> <path> [<n>]       what the house's own front controller answers an anonymous GET —
+ *                                                       with the first <n> bytes of the body when asked (decisions/0549)
  *   php house-observe.php boot <root>                   whether the house, as it is now, boots at all (decisions/0506)
  *
  * `get` goes through `public/index.php` itself — the file a browser reaches — with no credentials, so what it
- * answers is what a visitor is served. The body is captured, never printed; only its size and digest travel.
+ * answers is what a visitor is served. The body is captured, never printed; its size and digest travel, and its
+ * first <n> bytes (base64, so any bytes survive the line) only when `route:observe` asks for an excerpt.
  */
 const HOUSE_OBSERVE_MARK = '@@house-observe ';
 
@@ -69,17 +71,26 @@ if ($mode === 'routes') {
 }
 
 $path = $argv[3] ?? '/';
+$head = max(0, (int) ($argv[4] ?? 0));
 // An anonymous visitor: no cookie, no Authorization, no REMOTE_ADDR — so a loopback-only door answers as it
-// answers anyone who is not on this machine.
-$_SERVER = ['REQUEST_METHOD' => 'GET', 'REQUEST_URI' => $path, 'SCRIPT_NAME' => '/index.php', 'SCRIPT_FILENAME' => $root . '/public/index.php',
+// answers anyone who is not on this machine. What this process inherited is no request of anybody's: a header or a
+// credential its environment carries (`HTTP_*`, `PHP_AUTH_*`, `REMOTE_USER`) does not travel (decisions/0549).
+$inherited = array_filter(
+    array_diff_key($_SERVER, ['argv' => 0, 'argc' => 0, 'AUTH_TYPE' => 0, 'REMOTE_USER' => 0]),
+    static fn (string $key): bool => !str_starts_with($key, 'HTTP_') && !str_starts_with($key, 'PHP_AUTH_'),
+    \ARRAY_FILTER_USE_KEY,
+);
+$query = (string) parse_url('http://localhost' . $path, \PHP_URL_QUERY);
+$_SERVER = ['REQUEST_METHOD' => 'GET', 'REQUEST_URI' => $path, 'QUERY_STRING' => $query, 'SCRIPT_NAME' => '/index.php', 'SCRIPT_FILENAME' => $root . '/public/index.php',
     'SERVER_NAME' => 'localhost', 'SERVER_PORT' => '80', 'HTTP_HOST' => 'localhost', 'SERVER_PROTOCOL' => 'HTTP/1.1',
-    'HTTP_ACCEPT' => 'text/html', 'REQUEST_TIME' => time(), 'REQUEST_TIME_FLOAT' => microtime(true)] + array_diff_key($_SERVER, ['argv' => 0, 'argc' => 0]);
+    'HTTP_ACCEPT' => 'text/html', 'REQUEST_TIME' => time(), 'REQUEST_TIME_FLOAT' => microtime(true)] + $inherited;
 $_GET = [];
+parse_str($query, $_GET);
 $_POST = [];
 $_COOKIE = [];
 
 // The answer is written at shutdown, so a front controller that ends with `exit` still reports what it served.
-register_shutdown_function(static function (): void {
+register_shutdown_function(static function () use ($head): void {
     $body = '';
     while (ob_get_level() > 0) {
         $body = (string) ob_get_clean() . $body;
@@ -90,6 +101,7 @@ register_shutdown_function(static function (): void {
         'status' => \is_int($status) ? $status : null,
         'bytes' => \strlen($body),
         'sha256' => hash('sha256', $body),
+        ...($head > 0 ? ['head' => base64_encode(substr($body, 0, $head))] : []),
     ]) . "\n");
 });
 
