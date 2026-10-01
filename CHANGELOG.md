@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.206.1](https://github.com/getmilpa/app-runtime/compare/v0.206.0...v0.206.1) (2026-10-01)
+
+
+### Bug Fixes
+
+* --deny accepts a tool not offered yet (greenhouse decisions/0553) ([#681](https://github.com/getmilpa/app-runtime/issues/681)) ([890d835](https://github.com/getmilpa/app-runtime/commit/890d8352ee2a7d73bdacd8392af7c00dd304cc7f))
+
 ## [0.206.0](https://github.com/getmilpa/app-runtime/compare/v0.205.0...v0.206.0) (2026-10-01)
 
 
