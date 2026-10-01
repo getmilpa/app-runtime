@@ -96,17 +96,17 @@ final readonly class OfferedTools
     }
 
     /**
-     * Every name of the list in the catalogue's spelling; a name offered nowhere is kept as typed.
-     *
-     * Kept, not dropped: whoever reads the result is about to refuse it through {@see self::refusal()}, and a
-     * caller that skipped that question must still see what was asked rather than a quietly shorter list.
+     * Every name of the list in the catalogue's spelling — an offered name as offered, any other as its identity's tool
+     * spelling. Kept, never dropped: a withdrawal of a tool not offered yet is still a withdrawal.
      *
      * @return list<string>
      */
     public function canonical(mixed $raw): array
     {
+        // A name offered nowhere yet is written in the catalogue's spelling too, so a withdrawal recorded before its
+        // tool exists matches it the moment it is offered (greenhouse decisions/0553).
         return array_values(array_unique(array_map(
-            fn (string $asked): string => $this->resolve($asked) ?? $asked,
+            fn (string $asked): string => $this->resolve($asked) ?? (new OperationId($asked))->forTool(),
             self::listed($raw),
         )));
     }

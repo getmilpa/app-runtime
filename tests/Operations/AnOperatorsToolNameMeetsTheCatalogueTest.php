@@ -65,13 +65,16 @@ final class AnOperatorsToolNameMeetsTheCatalogueTest extends TestCase
         self::assertSame([], (new SessionStore($this->events))->stream('s'), 'nothing was recorded');
     }
 
-    public function testAWithdrawalOfNothingIsRefusedToo(): void
+    public function testAWithdrawalOfAToolNotOfferedYetIsRecordedNotRefused(): void
     {
-        $result = $this->agent(['prompt' => 'build it', 'session' => 's', 'deny' => 'recipe.aply']);
+        // framework's `--deny=make` on a house whose devtools is not wired (decisions/0553): containment that must
+        // hold the moment a capability brings the tool in, so it is recorded, in the catalogue spelling.
+        $this->agent(['prompt' => 'review it', 'session' => 's', 'deny' => 'make,devtools:validate']);
 
-        self::assertFalse($result['ok']);
-        self::assertStringContainsString('--deny names a tool', (string) $result['error']);
-        self::assertStringContainsString('«recipe_apply»', (string) $result['hint']);
+        $session = (new SessionStore($this->events))->load('s');
+        self::assertNotNull($session, 'the leg started: the withdrawal did not refuse it');
+        self::assertContains('make', $session->removedOptions);
+        self::assertContains('devtools_validate', $session->removedOptions, 'written as the tool it will be offered as');
     }
 
     public function testTheOperatorsSpellingIsRecordedAsTheCatalogueSpellsIt(): void

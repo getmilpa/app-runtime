@@ -80,7 +80,7 @@ final class ToolNamesResolveByIdentityTest extends TestCase
         self::assertSame('recipe_apply', $offered->resolve('Recipe:Apply'));
         self::assertNull($offered->resolve('recipe.plann'));
         self::assertNull($offered->resolve('   '));
-        self::assertSame(['recipe_plan', 'recipe.plann'], $offered->canonical('recipe.plan, recipe:plan,recipe.plann'));
+        self::assertSame(['recipe_plan', 'recipe_plann'], $offered->canonical('recipe.plan, recipe:plan,recipe.plann'));
         self::assertSame(['plan', 'todo'], $offered->canonical(['plan', 7, '', 'todo']));
         self::assertSame([], OfferedTools::listed(null));
     }
