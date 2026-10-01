@@ -94,13 +94,13 @@ final readonly class TokenOperations implements CommandProvider
                     Authority::Privileged,
                     subject: Subject::Data,
                 ),
-                description: 'Mint a token for an actor with the scopes you name; it is printed ONCE',
+                description: 'Mint an opaque API token (a random secret, not a JWT) for an actor with the scopes you name; it is printed ONCE',
                 handler: fn (array $input): array => $this->create($input),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
-                        'actor' => ['type' => 'string', 'description' => 'Quién es: "ci", "agente-de-rod", lo que identifique'],
-                        'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Qué puede. `*` los concede todos'],
+                        'actor' => ['type' => 'string', 'description' => 'Who it is: "ci", "rods-agent", whatever identifies it'],
+                        'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'What it may do. `*` grants every scope'],
                     ],
                     'required' => ['actor'],
                 ],
@@ -172,7 +172,7 @@ final readonly class TokenOperations implements CommandProvider
     /**
      * @param array<string, mixed> $input
      *
-     * @return array{ok: bool, token?: string, id?: string, actor?: string, scopes?: list<string>, warning?: string, error?: string}
+     * @return array{ok: bool, token?: string, id?: string, actor?: string, scopes?: list<string>, format?: string, use?: string, warning?: string, error?: string}
      */
     private function create(array $input): array
     {
@@ -210,7 +210,12 @@ final readonly class TokenOperations implements CommandProvider
             'id' => (string) $id,
             'actor' => $actor,
             'scopes' => $scopes,
-            'warning' => 'guárdalo ahora: sólo se guarda su hash y no se puede volver a mostrar',
+            // WHAT THE SECRET IS, said where it is handed over (greenhouse decisions/0551): an agent that met a
+            // «Bearer token» called it a JWT and went looking for claims to decode. There are none: 64 hex
+            // characters of random bytes, whose actor and scopes live in this house's store, under its hash.
+            'format' => 'opaque: 64 hex characters of random bytes — not a JWT, nothing to decode; its actor and scopes live in this house',
+            'use' => 'send it as `Authorization: Bearer <token>` over HTTP, or as MILPA_TOKEN in the terminal',
+            'warning' => 'store it now: only its hash is kept, and it cannot be shown again',
         ];
     }
 
