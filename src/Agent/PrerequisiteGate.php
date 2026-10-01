@@ -14,6 +14,8 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Agent;
 
+use Milpa\Command\Consent\OperationId;
+
 /**
  * Una obligación de ORDEN, ejecutada: hasta que la herramienta obligada corra, el resto no procede.
  *
@@ -81,23 +83,38 @@ final class PrerequisiteGate
 
         $this->pendientes = array_values(array_filter(
             $this->pendientes,
-            static fn (string $t): bool => $t !== $tool,
+            static fn (string $t): bool => ! (new OperationId($t))->is($tool),
         ));
     }
 
-    /** Por qué esta llamada no procede todavía, o `null` si la mesa ya está abierta. */
+    /**
+     * Why this call does not proceed yet, or `null` once the table is open.
+     *
+     * THE SAME ACT HOWEVER IT WAS SPELLED (greenhouse decisions/0550). The obligation arrives as the operator
+     * typed it — `recipe.plan`, `recipe:plan` — and the call arrives as the catalogue spells it, `recipe_plan`.
+     * Comparing the strings refused the very tool the obligation names, so the session could never meet it:
+     * measured on fresh cattle, `--first=recipe.plan` ended the leg on its first step, the right call refused.
+     * Identity is {@see OperationId}'s, the atom every gate of this family already asks (decisions/0030).
+     */
     public function motivoParaEsperar(string $tool): ?string
     {
-        if ($this->pendientes === [] || \in_array($tool, $this->pendientes, true)) {
+        if ($this->pendientes === []) {
             return null;
         }
+        foreach ($this->pendientes as $pendiente) {
+            if ((new OperationId($pendiente))->is($tool)) {
+                return null;
+            }
+        }
 
-        // SE DICE QUÉ FALTA Y CON QUÉ NOMBRE. Una negativa sin salida obliga a adivinar, y adivinar
-        // fue lo que gastó doce llamadas en Q-P19-Q. El hecho es la negativa; la frase es para que la
-        // siguiente llamada sea la correcta.
-        return \count($this->pendientes) === 1
-            ? "«{$tool}» todavía no procede: antes corre «{$this->pendientes[0]}», que es lo que se pidió primero."
-            : "«{$tool}» todavía no procede: antes corren «" . implode('», «', $this->pendientes) . '», que es lo que se pidió primero.';
+        // IT SAYS WHAT IS MISSING, AND BY THE NAME THE MODEL CALLS. A refusal with no way out forces a guess, and
+        // guessing is what spent twelve calls in Q-P19-Q. The refusal is the fact; the sentence is so the next
+        // call is the right one — so it names the tool as the catalogue spells it, never as the operator typed it.
+        $faltan = array_map(static fn (string $t): string => (new OperationId($t))->forTool(), $this->pendientes);
+
+        return \count($faltan) === 1
+            ? "«{$tool}» does not proceed yet: «{$faltan[0]}» runs first, which is what was asked first."
+            : "«{$tool}» does not proceed yet: «" . implode('», «', $faltan) . '» run first, which is what was asked first.';
     }
 
     /** @return list<string> lo que sigue faltando — para que la pantalla lo pueda decir sin adivinar */

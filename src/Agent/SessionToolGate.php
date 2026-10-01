@@ -370,6 +370,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             // ALLOWED BY NAME IS NOT YET ALLOWED FOR THIS CALL (greenhouse decisions/0226): when the yes that
             // admits this call was recorded for OTHER arguments, the human is asked again — for these.
             PolicyDecision::Allow => $this->aRecordedYesCoversTheseArguments($operacion, $arguments)
+                && ! $this->nobodyConsentedToWhatTheOtherDoorDemands($operacion, $arguments, $composicion)
                 ? null
                 : $this->askUnlessAConfirmedIntentAdmits($operacion, $arguments, $composicion),
             // EL «why» SE GUARDA ESTRUCTURADO, igual que el de la pregunta de intención (:254).
@@ -706,6 +707,45 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         }
 
         return ! $recorded;
+    }
+
+    /**
+     * Whether a mode that does not pause let through a call the other door will refuse for want of a yes.
+     *
+     * ── TWO JUDGES, ONE DECLARATION (greenhouse decisions/0550) ─────────────────────────────────────────────────
+     *
+     * `auto` and `acknowledge` carry on alone — and the session's policy answers Allow for a mutation by the mode.
+     * But the tool-runtime gate the call meets next asks {@see Consent::demanded()}: an operation that changes which
+     * code runs with an authority the caller does not hold needs someone's yes, and a mode is nobody's. So the call
+     * passed this door and died at the next one with «needs explicit consent … none was presented» — a sentence the
+     * model cannot act on. Measured on fresh cattle: a resident in `auto` reached `recipe_apply`, was refused, and
+     * the leg ended `progress_stalled` five steps later with nothing built; in `ask` the same call was asked once and
+     * ran. `0227` closed this split for reads; this closes it for the calls the mode admitted.
+     *
+     * ONLY FOR THE CLASS NO GRANT CAN ADMIT. `0226` chose that an Allow the mode bought is judged by the other door,
+     * not re-asked here, and for an act a launch grant can cover that still holds: the operator who wants it in
+     * `auto` grants it at launch. What a grant can never cover — {@see LaunchGrants::onlyAPersonsYesAdmits()}: an
+     * act that decides whom the house believes or reaches beyond it, `recipe:apply` among them — had no way to run in
+     * `auto` at all, so here, and only here, the mode's Allow becomes the question `ask` would have asked.
+     *
+     * A call stays admitted when somebody already consented to the operation in this session (the arguments are
+     * {@see aRecordedYesCoversTheseArguments()}'s question), or when a trial confines it: the trial router runs it
+     * where its writes can be discarded and promotion is its own judged act.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function nobodyConsentedToWhatTheOtherDoorDemands(
+        Operation $operacion,
+        array $arguments,
+        ?ProfileComposition $composicion,
+    ): bool {
+        if ($composicion !== null && $composicion->confinedByTrial()) {
+            return false;
+        }
+
+        return LaunchGrants::onlyAPersonsYesAdmits($operacion)
+            && Consent::demanded($operacion, $arguments)
+            && ! \in_array($operacion->name, $this->session->permissions, true);
     }
 
     /**

@@ -248,16 +248,18 @@ final class TerminationWiringTest extends TestCase
 
     public function testFinalAnswerCannotCloseWhileRequiredFirstToolIsPending(): void
     {
+        // `plan`, a session tool this fixture house offers: an obligation naming a tool the session is not offered is
+        // refused before the leg starts (greenhouse decisions/0550), and this kernel declares no app operation.
         $r = $this->invoke($this->ops(new AgentOrchestrator(
             $this->llm(['role' => 'assistant', 'content' => self::ANSWER]),
             $this->tools(),
-        )), 'skill_load');
+        )), 'plan');
 
         self::assertSame('final_answer', $r['termination']['reason'], 'preserve the producer cause');
-        self::assertSame(['skill_load'], $r['prerequisitePending']);
+        self::assertSame(['plan'], $r['prerequisitePending']);
         self::assertTrue($r['incomplete']);
-        self::assertStringContainsString('skill_load', $r['answer']);
-        self::assertSame(['skill_load'], $this->sessions->load('s')?->runFirst);
+        self::assertStringContainsString('plan', $r['answer']);
+        self::assertSame(['plan'], $this->sessions->load('s')?->runFirst);
         self::assertArrayNotHasKey('closure', $r);
         self::assertCount(0, array_filter($this->sessions->stream('s'), static fn ($e) => $e->type === 'session.closure_derived'));
         self::assertSame($r['termination'], $this->terminalEvents()[0]->payload);

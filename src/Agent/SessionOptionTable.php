@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Agent;
 use Milpa\AppRuntime\Support\ContratoInstalado;
 use Milpa\Agent\SessionStore;
 use Milpa\AiGateway\OptionTable;
+use Milpa\Command\Consent\OperationId;
 
 /**
  * La mesa de una sesión, sostenida por su stream.
@@ -80,7 +81,21 @@ final readonly class SessionOptionTable implements OptionTable
         // Leída a través del contrato y no directo: `Session::$removedOptions` nació el 2026-08-01 y
         // este `src/` convive con el vendor que su dueño tenga. Sin esto, una sesión de un `agent`
         // anterior devuelve null contra un `: array` — TypeError, no aviso.
-        return $sesion === null ? [] : ContratoInstalado::listaDeCadenas($sesion, 'removedOptions');
+        if ($sesion === null) {
+            return [];
+        }
+
+        // READ BACK AS THE CATALOGUE SPELLS IT, beside the spelling recorded (greenhouse decisions/0550). An operator
+        // writes `--deny=recipe.apply` and the catalogue offers `recipe_apply`: compared as strings, the withdrawal
+        // was recorded and never applied — measured on fresh cattle, the model was still offered the tool it had been
+        // denied. The recorded fact keeps the operator's words; this projection adds the identity's tool spelling.
+        $retiradas = [];
+        foreach (ContratoInstalado::listaDeCadenas($sesion, 'removedOptions') as $opcion) {
+            $retiradas[] = $opcion;
+            $retiradas[] = (new OperationId($opcion))->forTool();
+        }
+
+        return array_values(array_unique($retiradas));
     }
 
     /**
