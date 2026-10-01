@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [0.206.0](https://github.com/getmilpa/app-runtime/compare/v0.205.0...v0.206.0) (2026-10-01)
+
+
+### Features
+
+* a declared endpoint's 401 names MILPA_AGENT_API_KEY; tokens say they are opaque ([#678](https://github.com/getmilpa/app-runtime/issues/678)) ([6964af1](https://github.com/getmilpa/app-runtime/commit/6964af1495d43fb0471e3a87f40fdd1cce491e7a))
+* **agent:** the resident observes a route on demand (route:observe) ([#677](https://github.com/getmilpa/app-runtime/issues/677)) ([a8cfc52](https://github.com/getmilpa/app-runtime/commit/a8cfc52d7d65aa4827159de1541404c975df95cb))
+
+
+### Bug Fixes
+
+* tool names meet the catalogue by identity, and auto asks for what no grant can admit (greenhouse decisions/0550) ([#679](https://github.com/getmilpa/app-runtime/issues/679)) ([443fe46](https://github.com/getmilpa/app-runtime/commit/443fe46973674eeeacabe4cb643844d5698b7d80))
+
 ## [0.205.0](https://github.com/getmilpa/app-runtime/compare/v0.204.1...v0.205.0) (2026-09-30)
 
 
