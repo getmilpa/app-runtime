@@ -81,6 +81,8 @@ final class HouseRouteObserver
         ?string $php = null,
         private readonly int $timeoutSeconds = 20,
         ?string $script = null,
+        // What confines a request that may write to the copy it runs in — the trials' own bubblewrap (decisions/0549 §9).
+        private readonly string $bwrap = 'bwrap',
     ) {
         $this->php = $php ?? PhpBinary::path();
         $this->script = $script ?? \dirname(__DIR__, 2) . '/resources/house-observe.php';
@@ -183,26 +185,51 @@ final class HouseRouteObserver
         $routes = array_values(array_filter($listed['routes'], static fn (mixed $r): bool => \is_array($r) && \is_string($r['path'] ?? null)));
         $observed = [];
         foreach (\array_slice($routes, 0, self::MAX_ROUTES) as $route) {
-            $observed[] = $this->request($root, $route['path'], 0)['entry'];
+            $observed[] = $this->request($root, $route['path'], 0, 'GET', null, null, false)['entry'];
         }
 
         return ['observed' => $observed] + (\count($routes) > self::MAX_ROUTES ? ['unobserved' => \count($routes) - self::MAX_ROUTES] : []);
     }
 
     /**
-     * Ask the house at `$root` one concrete GET path, the way {@see observe()} asks each route (decisions/0549).
+     * Whether a request can be confined here: the bubblewrap the trials use, with a user namespace to run in.
+     */
+    public function confines(): bool
+    {
+        return (new TrialRunner($this->bwrap))->available();
+    }
+
+    /**
+     * Ask the house at `$root` one concrete path, the way {@see observe()} asks each route (decisions/0549).
      *
      * The entry is the one a promotion records — so the house's derived closure reads it the same way — and it
      * always carries the body's `bytes` and `sha256` when the process said them. `excerpt` is the first `$excerpt`
      * bytes of the body (bounded by {@see EXCERPT_MAX}), cut at a whole character; `truncated` is how many bytes
-     * it left out. `$path` must already be one: the caller judged it.
+     * it left out. `$path`, `$method` and `$body` must already be judged by the caller.
+     *
+     * `$confined` runs the request where nothing but `$root` can be written, with no network — what a request that
+     * may write needs, because a copy links the house's `vendor/` and secrets (§9). Only a GET is ever `served`.
      *
      * @return array{entry: array<string, mixed>, excerpt: ?string, truncated: int}
      */
-    public function observeRoute(string $root, string $path, int $excerpt = self::EXCERPT): array
-    {
+    public function observeRoute(
+        string $root,
+        string $path,
+        int $excerpt = self::EXCERPT,
+        string $method = 'GET',
+        ?string $body = null,
+        ?string $contentType = null,
+        bool $confined = false
+    ): array {
         $excerpt = max(0, min($excerpt, self::EXCERPT_MAX));
-        ['entry' => $entry, 'answer' => $answer] = $this->request($root, $path, $excerpt);
+        $sent = null;
+        if ($body !== null) {
+            // Every copy is built with its own var/ (BootCandidate), the only place a body is ever sent.
+            $sent = rtrim($root, '/') . '/var/route-observe-body-' . bin2hex(random_bytes(4));
+            file_put_contents($sent, $body);
+        }
+        // The body file stays where it was written: `route:observe` only ever sends one inside a copy it throws away.
+        ['entry' => $entry, 'answer' => $answer] = $this->request($root, $path, $excerpt, $method, $sent, $contentType, $confined);
         $bytes = \is_int($answer['bytes'] ?? null) ? $answer['bytes'] : null;
         if ($bytes !== null) {
             $entry += ['bytes' => $bytes, 'sha256' => \is_string($answer['sha256'] ?? null) ? $answer['sha256'] : null];
@@ -215,18 +242,19 @@ final class HouseRouteObserver
     /**
      * Request one path in a process of the house, and say what a browser was answered.
      *
-     * Only a 200 from a process that finished cleanly carries `predicate: served`. A 5xx or a process that died
-     * carries the `cause` the house logged, when it logged one. The subject is the path without its query.
+     * Only a GET answered 200 by a process that finished cleanly carries `predicate: served`. A 5xx or a process
+     * that died carries the `cause` the house logged, when it logged one. The subject is the path without its query.
      *
      * @return array{entry: array<string, mixed>, answer: array<string, mixed>}
      */
-    private function request(string $root, string $path, int $excerpt): array
+    private function request(string $root, string $path, int $excerpt, string $method, ?string $bodyFile, ?string $contentType, bool $confined): array
     {
-        [$exit, $answer, $stderr] = $this->run(['get', $root, $path, ...($excerpt > 0 ? [(string) $excerpt] : [])]);
+        $arguments = ['request', $root, $method, $path, (string) $excerpt, ...($bodyFile !== null ? [$bodyFile, (string) $contentType] : [])];
+        [$exit, $answer, $stderr] = $this->run($arguments, $confined ? $root : null);
         $subject = explode('?', $path, 2)[0];
         $status = \is_int($answer['status'] ?? null) ? $answer['status'] : null;
-        $entry = ['route' => 'GET ' . $path, 'subject' => $subject, 'status' => $status, 'environment' => ['kind' => 'house']];
-        if ($status === 200 && $exit === 0) {
+        $entry = ['route' => $method . ' ' . $path, 'subject' => $subject, 'status' => $status, 'environment' => ['kind' => 'house']];
+        if ($status === 200 && $exit === 0 && $method === 'GET') {
             $entry = ['predicate' => 'served', ...$entry, 'servedAt' => $subject,
                 'bytes' => \is_int($answer['bytes'] ?? null) ? $answer['bytes'] : null,
                 'sha256' => \is_string($answer['sha256'] ?? null) ? $answer['sha256'] : null];
@@ -274,13 +302,19 @@ final class HouseRouteObserver
      * `error_log=` empty sends PHP's `error_log()` to this child's stderr whatever the house configured for its
      * server, so the line the house logs for a failed request reaches the observer (decisions/0539).
      *
+     * `$writable` confines the child the way a trial is confined ({@see TrialRunner}): the whole filesystem read-only
+     * but that directory, no network, its own pids — so a link out of a copy (its `vendor/`, the house's secrets)
+     * is read, never written.
+     *
      * @param list<string> $arguments
      *
      * @return array{0: int, 1: array<string, mixed>, 2: string}
      */
-    private function run(array $arguments): array
+    private function run(array $arguments, ?string $writable = null): array
     {
-        $command = ['timeout', '-k', '2', (string) $this->timeoutSeconds, $this->php,
+        $confine = $writable === null ? [] : [$this->bwrap, '--unshare-net', '--unshare-pid', '--die-with-parent',
+            '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null', '--bind', $writable, $writable];
+        $command = ['timeout', '-k', '2', (string) $this->timeoutSeconds, ...$confine, $this->php,
             '-d', 'display_errors=stderr', '-d', 'html_errors=0', '-d', 'error_log=', $this->script, ...$arguments];
         // No `/dev/null` for the child: inside a rehearsal's trial it cannot be opened (evidence/1060).
         $run = ChildProcess::run($command);

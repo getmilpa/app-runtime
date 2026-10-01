@@ -21,6 +21,9 @@ declare(strict_types=1);
  *   php house-observe.php routes <root> '<json dirs>'   the GET routes without parameters the touched plugins declare
  *   php house-observe.php get <root> <path> [<n>]       what the house's own front controller answers an anonymous GET —
  *                                                       with the first <n> bytes of the body when asked (decisions/0549)
+ *   php house-observe.php request <root> <method> <path> <n> [<body file> <content type>]
+ *                                                       the same for any method, with a body — only ever run by
+ *                                                       HouseRouteObserver inside a confined copy (decisions/0549 §9)
  *   php house-observe.php boot <root>                   whether the house, as it is now, boots at all (decisions/0506)
  *
  * `get` goes through `public/index.php` itself — the file a browser reaches — with no credentials, so what it
@@ -31,8 +34,8 @@ const HOUSE_OBSERVE_MARK = '@@house-observe ';
 
 $mode = $argv[1] ?? '';
 $root = $argv[2] ?? '';
-if (!\in_array($mode, ['routes', 'get', 'boot'], true) || !is_dir($root)) {
-    fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => false, 'error' => 'usage: house-observe.php routes|get|boot <root> <argument>']) . "\n");
+if (!\in_array($mode, ['routes', 'get', 'request', 'boot'], true) || !is_dir($root)) {
+    fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => false, 'error' => 'usage: house-observe.php routes|get|request|boot <root> <argument>']) . "\n");
     exit(2);
 }
 $root = (string) realpath($root);
@@ -70,8 +73,13 @@ if ($mode === 'routes') {
     exit(0);
 }
 
-$path = $argv[3] ?? '/';
-$head = max(0, (int) ($argv[4] ?? 0));
+// `get <root> <path> [<n>]` is `request <root> GET <path> <n>`.
+$request = $mode === 'request' ? array_slice($argv, 3) : ['GET', $argv[3] ?? '/', $argv[4] ?? '0'];
+$method = strtoupper((string) ($request[0] ?? 'GET'));
+$path = (string) ($request[1] ?? '/');
+$head = max(0, (int) ($request[2] ?? 0));
+$sent = isset($request[3]) && is_file($request[3]) ? (string) file_get_contents($request[3]) : null;
+$contentType = (string) ($request[4] ?? '');
 // An anonymous visitor: no cookie, no Authorization, no REMOTE_ADDR — so a loopback-only door answers as it
 // answers anyone who is not on this machine. What this process inherited is no request of anybody's: a header or a
 // credential its environment carries (`HTTP_*`, `PHP_AUTH_*`, `REMOTE_USER`) does not travel (decisions/0549).
@@ -81,13 +89,140 @@ $inherited = array_filter(
     \ARRAY_FILTER_USE_KEY,
 );
 $query = (string) parse_url('http://localhost' . $path, \PHP_URL_QUERY);
-$_SERVER = ['REQUEST_METHOD' => 'GET', 'REQUEST_URI' => $path, 'QUERY_STRING' => $query, 'SCRIPT_NAME' => '/index.php', 'SCRIPT_FILENAME' => $root . '/public/index.php',
+$_SERVER = ['REQUEST_METHOD' => $method, 'REQUEST_URI' => $path, 'QUERY_STRING' => $query, 'SCRIPT_NAME' => '/index.php', 'SCRIPT_FILENAME' => $root . '/public/index.php',
     'SERVER_NAME' => 'localhost', 'SERVER_PORT' => '80', 'HTTP_HOST' => 'localhost', 'SERVER_PROTOCOL' => 'HTTP/1.1',
     'HTTP_ACCEPT' => 'text/html', 'REQUEST_TIME' => time(), 'REQUEST_TIME_FLOAT' => microtime(true)] + $inherited;
 $_GET = [];
 parse_str($query, $_GET);
 $_POST = [];
 $_COOKIE = [];
+
+// A BODY, as a server hands it over: its type and length in `$_SERVER`, a form parsed into `$_POST`, and the bytes
+// behind `php://input` — which the CLI leaves empty, so this process answers that one URL itself and opens every
+// other `php://` stream (`temp`, `memory`, `stdout`…) with PHP's own wrapper.
+if ($sent !== null) {
+    $_SERVER['CONTENT_TYPE'] = $_SERVER['HTTP_CONTENT_TYPE'] = $contentType;
+    $_SERVER['CONTENT_LENGTH'] = $_SERVER['HTTP_CONTENT_LENGTH'] = (string) \strlen($sent);
+    if (str_starts_with(strtolower($contentType), 'application/x-www-form-urlencoded')) {
+        parse_str($sent, $_POST);
+    }
+    HouseObserveInput::$bytes = $sent;
+    stream_wrapper_unregister('php');
+    stream_wrapper_register('php', HouseObserveInput::class);
+}
+
+/** `php://input` with the body this request was given; any other `php://` URL opened by PHP's own wrapper. */
+final class HouseObserveInput
+{
+    public static string $bytes = '';
+
+    /** @var resource|null */
+    public $context;
+
+    /** @var resource|null */
+    private $inner = null;
+
+    private int $at = 0;
+
+    private bool $input = false;
+
+    public function stream_open(string $url, string $mode, int $options, ?string &$opened): bool
+    {
+        if (strtolower($url) === 'php://input') {
+            $this->input = true;
+
+            return true;
+        }
+        stream_wrapper_restore('php');
+        try {
+            $inner = fopen($url, $mode);
+        } finally {
+            stream_wrapper_unregister('php');
+            stream_wrapper_register('php', self::class);
+        }
+        $this->inner = $inner === false ? null : $inner;
+
+        return $this->inner !== null;
+    }
+
+    public function stream_read(int $count): string|false
+    {
+        if (!$this->input) {
+            return $this->inner === null ? false : fread($this->inner, $count);
+        }
+        $chunk = (string) substr(self::$bytes, $this->at, $count);
+        $this->at += \strlen($chunk);
+
+        return $chunk;
+    }
+
+    public function stream_write(string $data): int
+    {
+        return $this->input || $this->inner === null ? 0 : (int) fwrite($this->inner, $data);
+    }
+
+    public function stream_eof(): bool
+    {
+        return $this->input ? $this->at >= \strlen(self::$bytes) : ($this->inner === null || feof($this->inner));
+    }
+
+    public function stream_tell(): int
+    {
+        return $this->input ? $this->at : (int) ftell($this->inner);
+    }
+
+    public function stream_seek(int $offset, int $whence = \SEEK_SET): bool
+    {
+        if (!$this->input) {
+            return $this->inner !== null && fseek($this->inner, $offset, $whence) === 0;
+        }
+        $to = match ($whence) {
+            \SEEK_CUR => $this->at + $offset,
+            \SEEK_END => \strlen(self::$bytes) + $offset,
+            default => $offset,
+        };
+        if ($to < 0) {
+            return false;
+        }
+        $this->at = $to;
+
+        return true;
+    }
+
+    /** @return array<int|string, int>|false */
+    public function stream_stat(): array|false
+    {
+        return $this->input ? ['size' => \strlen(self::$bytes)] : fstat($this->inner);
+    }
+
+    public function stream_flush(): bool
+    {
+        return $this->input || $this->inner === null || fflush($this->inner);
+    }
+
+    public function stream_truncate(int $size): bool
+    {
+        return !$this->input && $this->inner !== null && ftruncate($this->inner, $size);
+    }
+
+    public function stream_close(): void
+    {
+        if ($this->inner !== null) {
+            fclose($this->inner);
+        }
+    }
+
+    public function stream_set_option(int $option, int $arg1, ?int $arg2): bool
+    {
+        return false;
+    }
+
+    /** @return resource|false */
+    public function stream_cast(int $as)
+    {
+        return $this->inner ?? false;
+    }
+}
 
 // The answer is written at shutdown, so a front controller that ends with `exit` still reports what it served.
 register_shutdown_function(static function () use ($head): void {

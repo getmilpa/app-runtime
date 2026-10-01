@@ -82,7 +82,9 @@ return $loader;
             $kernel = \Milpa\Runtime\Kernel::boot(['root' => $root, 'plugins' => $boot['plugins'], 'config' => require $root . '/config/app.php', 'container' => $boot['container']]);
             $psr17 = new \Nyholm\Psr7\Factory\Psr17Factory();
             $request = new \Nyholm\Psr7\ServerRequest($_SERVER['REQUEST_METHOD'], $_SERVER['REQUEST_URI'], array_filter(['Authorization' => $_SERVER['HTTP_AUTHORIZATION'] ?? null, 'Cookie' => $_SERVER['HTTP_COOKIE'] ?? null]), null, '1.1', $_SERVER);
-            $request = $request->withQueryParams($_GET);
+            $request = $request->withQueryParams($_GET)->withParsedBody($_POST)
+                ->withBody($psr17->createStreamFromResource(fopen('php://input', 'r')))
+                ->withHeader('Content-Type', (string) ($_SERVER['CONTENT_TYPE'] ?? ''));
             $response = (new \Milpa\Runtime\Http\ExceptionMiddleware($psr17, new \Milpa\Runtime\Observability\ErrorLogLogger()))->process($request, new \Milpa\Runtime\Http\RequestHandler($kernel, $psr17));
             (new \Milpa\Runtime\Http\ResponseEmitter())->emit($response);
             PHP);
@@ -107,6 +109,9 @@ final class Blog implements \Milpa\Interfaces\Plugin\PluginInterface, \Milpa\Run
             new Route("/blog", HttpMethod::GET, "blog", [], new HandlerReference(Controller::class, "index")),
             new Route("/blog/{id}", HttpMethod::GET, "blog_post", [], new HandlerReference(Controller::class, "post")),
             new Route("/admin", HttpMethod::GET, "admin", [], new HandlerReference(Controller::class, "admin")),
+            new Route("/blog", HttpMethod::POST, "blog_write", [], new HandlerReference(Controller::class, "write")),
+            new Route("/blog/escape", HttpMethod::POST, "blog_escape", [], new HandlerReference(Controller::class, "escape")),
+            new Route("/feed", HttpMethod::GET, "feed", [], new HandlerReference(Controller::class, "feed")),
         ];
     }
 }
@@ -359,6 +364,105 @@ final class Blog implements \Milpa\Interfaces\Plugin\PluginInterface, \Milpa\Run
         self::assertStringNotContainsString('route_observe', $without, 'a tool that does not travel is never named');
     }
 
+    /** A request that writes is never observed on the live house: it would be a mutation without its operation's judgment. */
+    public function testARequestThatWritesIsRefusedOnTheLiveHouse(): void
+    {
+        $seen = $this->observe(['path' => '/blog', 'method' => 'POST', 'body' => '{"title":"x"}']);
+
+        self::assertFalse($seen['ok'] ?? true);
+        self::assertStringContainsString('only in a rehearsal', (string) ($seen['error'] ?? ''));
+        self::assertFileDoesNotExist($this->root . '/var/written.txt', 'nothing ran');
+    }
+
+    /** Fricción 6: a verification that needs a POST is observed in a rehearsal, and what it wrote is seen by the GETs after it. */
+    public function testAPostIsObservedInARehearsalAndTheGetsAfterItSeeWhatItWrote(): void
+    {
+        $this->trial('w4');
+
+        $seen = $this->observe(['path' => '/blog', 'workspace' => 'w4', 'method' => 'POST', 'body' => '{"title":"hola"}',
+            'content_type' => 'application/json', 'then' => ['/feed']]);
+
+        self::assertTrue($seen['ok'] ?? false, (string) json_encode($seen));
+        self::assertSame('POST /blog', $seen['observed'][0]['route'] ?? null);
+        self::assertSame(200, $seen['observed'][0]['status'] ?? null);
+        self::assertArrayNotHasKey('predicate', $seen['observed'][0], 'only a GET is ever «served»');
+        self::assertSame('wrote {"title":"hola"}|[]|application/json', $seen['excerpt'] ?? null, 'the body reached the controller as sent');
+        self::assertSame('GET /feed', $seen['observed'][1]['route'] ?? null);
+        self::assertSame(['kind' => 'trial', 'workspace' => 'w4'], $seen['observed'][1]['environment'] ?? null);
+        self::assertSame('feed: {"title":"hola"}|[]|application/json', $seen['then'][0]['excerpt'] ?? null, 'the GET after it saw what it wrote, in the same copy');
+        self::assertStringContainsString('POST /blog answered HTTP 200', (string) ($seen['note'] ?? ''));
+        self::assertFileDoesNotExist($this->root . '/var/written.txt', 'the live house never saw the write');
+        self::assertSame([], glob($this->root . '/var/boot-candidates/*') ?: []);
+    }
+
+    public function testAFormBodyArrivesAsAForm(): void
+    {
+        $this->trial('w5');
+
+        $seen = $this->observe(['path' => '/blog', 'workspace' => 'w5', 'method' => 'POST', 'body' => 'title=hola&draft=0',
+            'content_type' => 'application/x-www-form-urlencoded']);
+
+        self::assertStringContainsString('|{"title":"hola","draft":"0"}|application/x-www-form-urlencoded', (string) ($seen['excerpt'] ?? ''), (string) json_encode($seen));
+    }
+
+    /** The copy links the house's secrets and vendor/: a request that writes runs where only the copy can be written. */
+    public function testAWriteThroughALinkOfTheCopyNeverReachesTheLiveHouse(): void
+    {
+        mkdir($this->root . '/.milpa');
+        file_put_contents($this->root . '/.milpa/secrets.json', '{"agent":{"apiKey":"sk-live-0123456789"}}');
+        $this->trial('w6');
+
+        $seen = $this->observe(['path' => '/blog/escape', 'workspace' => 'w6', 'method' => 'POST']);
+
+        self::assertSame(409, $seen['observed'][0]['status'] ?? null, (string) json_encode($seen));
+        self::assertSame('{"agent":{"apiKey":"sk-live-0123456789"}}', file_get_contents($this->root . '/.milpa/secrets.json'));
+    }
+
+    public function testWithoutConfinementARequestThatWritesIsNotObserved(): void
+    {
+        $this->trial('w7');
+        $ops = (new TrialOperations(new DIContainer(), null, $this->root, new HouseRouteObserver(bwrap: '/nonexistent/bwrap')))->operations();
+        $op = array_values(array_filter($ops, static fn (Operation $o): bool => $o->name === 'route:observe'))[0];
+
+        $seen = ($op->handler)(['path' => '/blog', 'workspace' => 'w7', 'method' => 'POST', 'body' => 'x']);
+
+        self::assertFalse($seen['ok'] ?? true);
+        self::assertStringContainsString('confine', (string) ($seen['error'] ?? ''));
+    }
+
+    /** @return iterable<string, array{0: array<string, mixed>, 1: string}> */
+    public static function notARequest(): iterable
+    {
+        yield 'a method it does not know' => [['method' => 'TRACE'], 'method must be'];
+        yield 'a body on a GET' => [['body' => 'x'], 'a GET carries no body'];
+        yield 'a body that is not text' => [['method' => 'POST', 'body' => ['title' => 'x']], 'body must be a string'];
+        yield 'a body past the ceiling' => [['method' => 'POST', 'body' => str_repeat('x', 65537)], 'at most 65536 bytes'];
+        yield 'then is not a list of paths' => [['method' => 'POST', 'then' => ['blog']], 'then'];
+        yield 'too many then' => [['method' => 'POST', 'then' => ['/a', '/b', '/c', '/d', '/e']], 'then'];
+        yield 'a content type with a newline' => [['method' => 'POST', 'content_type' => "text/plain\nX: 1"], 'content_type'];
+    }
+
+    /**
+     * @dataProvider notARequest
+     *
+     * @param array<string, mixed> $input
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('notARequest')]
+    public function testWhatIsNotARequestIsRefusedBeforeAnythingRuns(array $input, string $says): void
+    {
+        $this->trial('w8');
+
+        $seen = $this->observe(['path' => '/blog', 'workspace' => 'w8'] + $input);
+
+        self::assertFalse($seen['ok'] ?? true, (string) json_encode($seen));
+        self::assertStringContainsString($says, (string) ($seen['error'] ?? ''));
+    }
+
+    private function trial(string $id): void
+    {
+        TrialWorkspace::materialize($this->root, $id, \dirname(__DIR__) . '/Fixtures/trial-stub-runner.php');
+    }
+
     /** @return array{verified: bool, reasons: list<string>, derivedFrom?: array<string, mixed>} */
     private function closure(SessionStore $store): array
     {
@@ -413,6 +517,24 @@ final class Controller
     {
         $who = $request->getHeaderLine("Authorization") . $request->getHeaderLine("Cookie");
         return $who === "" ? new \Nyholm\Psr7\Response(401, [], "who are you") : new \Nyholm\Psr7\Response(200, [], "welcome " . $who);
+    }
+    /** Writes what it was sent where the house keeps its state — the var/ of the copy when asked in a rehearsal. */
+    public function write(\Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface
+    {
+        $said = (string) $request->getBody() . "|" . json_encode($request->getParsedBody()) . "|" . $request->getHeaderLine("Content-Type");
+        file_put_contents(dirname(__DIR__, 3) . "/var/written.txt", $said);
+        return new \Nyholm\Psr7\Response(200, [], "wrote " . $said);
+    }
+    /** Writes through the linked secret file of the house — what confinement must stop. */
+    public function escape(\Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface
+    {
+        $ok = @file_put_contents(dirname(__DIR__, 3) . "/.milpa/secrets.json", "pwned");
+        return new \Nyholm\Psr7\Response($ok === false ? 409 : 200, [], $ok === false ? "could not write" : "wrote the secret");
+    }
+    public function feed(\Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface
+    {
+        $file = dirname(__DIR__, 3) . "/var/written.txt";
+        return new \Nyholm\Psr7\Response(200, [], is_file($file) ? "feed: " . file_get_contents($file) : "feed: empty");
     }
 }
 ';
