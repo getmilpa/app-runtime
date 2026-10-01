@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tests\Operations;
 
+use Milpa\AppRuntime\Auth\ApiToken;
+use Milpa\AppRuntime\Auth\TokenVerifier;
 use Milpa\AppRuntime\Operations\TokenOperations;
 use Milpa\Container\DIContainer;
+use Milpa\Data\InMemoryRepository;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -78,5 +81,33 @@ final class TokenOperationsTest extends TestCase
             self::assertFalse($r['ok'] ?? true, $nombre);
             self::assertStringContainsString($campo, (string) ($r['error'] ?? ''), $nombre);
         }
+    }
+
+    /**
+     * The token says what it is where it is handed over: opaque, not a JWT (greenhouse decisions/0548).
+     *
+     * An agent on a new house called the Bearer a JWT; nothing in the family says so, and the silence
+     * was the source. The declaration and the minted result both name the format now.
+     */
+    public function testAMintedTokenSaysItIsOpaqueAndNotAJwt(): void
+    {
+        $container = new DIContainer();
+        $container->registerService(TokenVerifier::class . '.repository', new InMemoryRepository(ApiToken::class));
+        $ops = (new TokenOperations($container))->operations();
+        $new = array_values(array_filter($ops, static fn ($op): bool => $op->name === 'token.new'))[0];
+
+        self::assertStringContainsString('opaque', $new->description);
+        self::assertStringContainsString('not a JWT', $new->description);
+
+        $handler = $new->handler;
+        self::assertIsCallable($handler);
+        /** @var array<string, mixed> $r */
+        $r = $handler(['actor' => 'ci', 'scopes' => ['plugins:read']]);
+
+        self::assertTrue($r['ok']);
+        self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/', (string) $r['token'], 'the format it claims is the format it has');
+        self::assertStringContainsString('not a JWT', (string) $r['format']);
+        self::assertStringContainsString('Authorization: Bearer', (string) $r['use']);
+        self::assertStringContainsString('MILPA_TOKEN', (string) $r['use']);
     }
 }

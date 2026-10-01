@@ -100,7 +100,7 @@ final class ASurfaceThatCannotSignMakesNoLastingChangeTest extends TestCase
             'This call is not signed, and an unsigned call changes nothing that lasts: «agent:role:declare» declares a persistent change (write_as_user).',
             '  Over php bin/coa mcp it does not run as the terminal either. Nothing ran.',
             "  Run it signed from the terminal: php bin/coa agent:role:declare --name='r1' --sign",
-            '  Or present a token the house minted (MILPA_TOKEN): its scopes are what the call runs with.',
+            '  Or present a token the house minted with token:new (MILPA_TOKEN, an opaque secret, not a JWT): its scopes are what the call runs with.',
         ], $lines);
         self::assertNull(UnsignedTerminal::refusalOver('php bin/coa mcp', $this->read(), [], null), 'a read runs');
     }

@@ -126,6 +126,16 @@ final class GoalInPromptTest extends TestCase
         return $session;
     }
 
+    /** 9 · where the house can mint a token, the prompt says what one is: opaque, not a JWT (decisions/0548). */
+    public function testTheTokenIsDescribedAsOpaqueWhereIdentityIsInstalled(): void
+    {
+        $prompt = $this->promptFor(null);
+
+        self::assertStringContainsString('Authorization: Bearer <token>', $prompt);
+        self::assertStringContainsString('It is not a JWT', $prompt);
+        self::assertStringContainsString('minted by `token:new`', $prompt);
+    }
+
     private function promptFor(?Session $session): string
     {
         $ops = new AgentOperations(new DIContainer());
