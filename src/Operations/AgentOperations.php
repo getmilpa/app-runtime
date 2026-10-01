@@ -5110,7 +5110,14 @@ class AgentOperations implements CommandProvider
             . "  `Milpa\\Data\\RepositoryFactory`, so switching backend is that one line and nothing more. You do NOT need a\n"
             . "  persistence plugin, and none exists.\n"
             . "- Doctrine belongs to the legacy convention, not this one. The entities `make` writes implement\n"
-            . '  `Milpa\\Data\\EntityInterface`: no ORM attributes, no mapping.';
+            . '  `Milpa\\Data\\EntityInterface`: no ORM attributes, no mapping.'
+            // A ROUTE IS CONFIRMED BY ASKING IT (greenhouse decisions/0549). Measured on a copy of Rod's first live run
+            // (t-0074, B-c): /blog answered 500 and the resident, reading `BlogController.php`, wrote «GET /blog → 200».
+            // Said only when the tool travels: a name the model cannot call is a step it cannot take.
+            . (\in_array('route_observe', $herramientas, true)
+                ? "\n- To confirm a route serves, call `route_observe` with its path (e.g. /blog): the house requests it the way a\n"
+                    . '  browser does and says the status and, on a server error, its cause. Never conclude it from reading its code.'
+                : '');
 
         // WHAT A TOKEN IS, before a model fills the word in (greenhouse decisions/0551). An agent that met
         // «Bearer token» on a new house called it a JWT and planned around claims that do not exist; the
