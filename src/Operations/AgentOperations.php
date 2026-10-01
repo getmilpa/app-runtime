@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Operations;
 
 use Milpa\AppRuntime\Agent\FatalTermination;
+use Milpa\AppRuntime\Agent\OfferedTools;
 use Milpa\AppRuntime\Agent\LegMemory;
 use Milpa\AppRuntime\Agent\LegWindow;
 use Milpa\AppRuntime\Agent\CandidateState;
@@ -218,6 +219,9 @@ class AgentOperations implements CommandProvider
 
     /** The main session's gate for the run in progress — the one that can ask what an answer put in prose (0473). */
     private ?SessionToolGate $compuertaDeLaVuelta = null;
+
+    /** The tool names this leg's session is offered, resolved once per `ask()` (greenhouse decisions/0550). */
+    private ?OfferedTools $ofrecidas = null;
 
     /** The current base-loop observation, or explicit absence of proven provenance.
      * @return array{reason: string, receipt: array<string, mixed>|null, answerVerdict?: array<string,mixed>}
@@ -1837,6 +1841,46 @@ class AgentOperations implements CommandProvider
     }
 
     /**
+     * What to do when a launch grant names an act only a person's yes can admit (greenhouse decisions/0550).
+     *
+     * The grant stays refused — an operator does not pre-approve founding the house or reaching the registry before
+     * the call exists (`LaunchGrants`, decisions/0177). What was missing was the way through: the same session asks
+     * once, when the resident reaches the call, and a yes the person signs admits that call.
+     */
+    private static function withoutTheGrant(string $operation, string $sessionId): string
+    {
+        $tool = McpProjector::toolName($operation);
+
+        return "run it without `{$operation}` in --grant: when the agent reaches «{$tool}» this session asks once, and a signed yes admits that call — "
+            . Capabilities::CLI . 'agent:answer --session=' . $sessionId . ' --answer=yes --sign';
+    }
+
+    /**
+     * The names a session of this app is offered — the app's declared operations as the catalogue spells them, and
+     * the tools that exist only inside a session — or `null` when no kernel assembled a catalogue to read.
+     *
+     * The same two sources {@see catalogueFor()} lists, so an operator's flag is judged against what
+     * `agent:catalogue` shows (greenhouse decisions/0550).
+     */
+    private function offeredTools(?SessionStore $store): ?OfferedTools
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return null;
+        }
+
+        $operaciones = [
+            ...Operations::all($kernel, $kernel->root()),
+            ...($store === null ? [] : $this->herramientasDeLaSesion($store, '')),
+        ];
+
+        return new OfferedTools(array_map(
+            static fn (object $op): string => McpProjector::toolName((string) ($op->name ?? '')),
+            $operaciones,
+        ));
+    }
+
+    /**
      * What the house tells the model when its answer was the house's own voice (greenhouse decisions/0475).
      */
     public const HOUSE_VOICE_NUDGE = 'Your last reply repeated the runtime\'s own text — its quoted history or its consent '
@@ -2099,6 +2143,17 @@ class AgentOperations implements CommandProvider
             ];
         }
 
+        // A TOOL NAMED BY THE OPERATOR IS RESOLVED BEFORE ANYTHING STARTS (greenhouse decisions/0550): `--first` and
+        // `--deny` take the terminal's spelling to the catalogue's, and a name the session is not offered is refused
+        // here, with the nearest names — never stored as an obligation nobody can meet or a withdrawal of nothing.
+        $this->ofrecidas = $this->offeredTools($store);
+        foreach (['first', 'deny'] as $bandera) {
+            $sinHerramienta = $this->ofrecidas?->refusal($bandera, $input[$bandera] ?? null);
+            if ($sinHerramienta !== null) {
+                return $sinHerramienta;
+            }
+        }
+
         // SIN SESIÓN NO HAY CONTABILIDAD, Y SIN CONTABILIDAD EL PRIMER TURNO NO PUEDE PLANEAR.
         //
         // `plan` y `todo` se registran atadas a una sesión del almacén, así que una corrida sin
@@ -2190,6 +2245,24 @@ class AgentOperations implements CommandProvider
                 // read from its invocation — the passkey over HTTP, the operator at a terminal, nobody else.
                 $store->start($sessionId, $prompt, $modo ?? AutonomyMode::Ask, by: ObservedExecutor::fromContext($this->contextoDeLaVuelta)->principal);
                 $declaredWindow = $store->load($sessionId)?->classifiedWindow($herencia);
+            } elseif ($sesion->question === null && $sesion->endedBecause === null && $sesion->pausedSequence !== null) {
+                // A SEQUENCE PAUSED HERE HOLDS THE SESSION, and that is not an ending (greenhouse decisions/0550). The
+                // agent's `recipe_apply` runs its recipe in this very session; when a step asks, the session waits on
+                // the sequence, and this said «already ended: » with nothing after the colon. It says what holds it
+                // and the line that resumes it; the agent's legs continue once the sequence settles.
+                $kernelDeLaPausa = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+
+                return [
+                    'ok' => false,
+                    'error' => "session «{$sessionId}» is held by the sequence «{$sesion->pausedSequence->sequenceId}», paused at step "
+                        . ($sesion->pausedSequence->nextIndex + 1) . ' of ' . \count($sesion->pausedSequence->steps)
+                        . ': it resumes before the agent continues',
+                    'hint' => RecipeOperations::resumeLine(
+                        $kernelDeLaPausa instanceof Kernel ? $kernelDeLaPausa->root() : (getcwd() ?: '.'),
+                        $sessionId,
+                        $sesion->pausedSequence->sequenceId,
+                    ),
+                ];
             } elseif (!$sesion->isRunnable()) {
                 // Una sesión con una pregunta abierta o ya terminada NO se sigue por accidente: se
                 // contesta o se abre otra. Seguirla sería contestar por el humano que no contestó.
@@ -2267,7 +2340,11 @@ class AgentOperations implements CommandProvider
                         ?? Principal::fromTerminal(getenv('USER') ?: null, gethostname() ?: null),
                 );
                 if (isset($sembrado['error'])) {
-                    return ['ok' => false, 'error' => (string) $sembrado['error']];
+                    return [
+                        'ok' => false,
+                        'error' => (string) $sembrado['error'],
+                        ...(isset($sembrado['signatureClass']) ? ['hint' => self::withoutTheGrant($sembrado['signatureClass'], $sessionId)] : []),
+                    ];
                 }
             }
 
@@ -2530,14 +2607,10 @@ class AgentOperations implements CommandProvider
         // rather than of the system.
         //
         // Same withdrawal, same table, same record in the stream. What changes is who may ask for it.
-        $denied = [];
+        // The CLI hands `--deny=a,b,c` over as a string; a programmatic call hands over the list. Either way it is
+        // written down in the catalogue's spelling, so what is withdrawn is what the model is offered (0550).
         $asked = $input['deny'] ?? null;
-        // The CLI hands `--deny=a,b,c` over as a string; a programmatic call hands over the list.
-        foreach (\is_string($asked) ? explode(',', $asked) : (\is_array($asked) ? $asked : []) as $tool) {
-            if (\is_string($tool) && trim($tool) !== '') {
-                $denied[] = trim($tool);
-            }
-        }
+        $denied = $this->ofrecidas?->canonical($asked) ?? OfferedTools::listed($asked);
 
         // ── AND THE SAME WITHDRAWAL BY EFFECT CLASS, WHICH IS THE ONE THAT DOES NOT LEAK ────────
         //
@@ -4116,12 +4189,10 @@ class AgentOperations implements CommandProvider
      */
     public function standingObligation(mixed $requested, string $sessionId, ?SessionStore $store): array
     {
-        $declared = [];
-        foreach (\is_string($requested) ? explode(',', $requested) : (\is_array($requested) ? $requested : []) as $tool) {
-            if (\is_string($tool) && trim($tool) !== '') {
-                $declared[] = trim($tool);
-            }
-        }
+        // RECORDED IN THE CATALOGUE'S SPELLING (greenhouse decisions/0550): `recipe.plan` is written down as the
+        // `recipe_plan` the model calls, so the session's own fold discounts it when that call lands. Without an
+        // offer to resolve against (no kernel) the names stay as typed, and the gate still compares by identity.
+        $declared = $this->ofrecidas?->canonical($requested) ?? OfferedTools::listed($requested);
 
         if ($sessionId === '' || $store === null) {
             return $declared;

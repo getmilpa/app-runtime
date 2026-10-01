@@ -175,7 +175,7 @@ final class LaunchGrants
      * @param list<array{operation: string, arguments: array<string, string>}> $entries   parsed by {@see parse()}
      * @param list<Operation>                                                  $catalogue the app's declared operations
      *
-     * @return array{error: string}|array{seeded: list<string>, already: list<string>}
+     * @return array{error: string, signatureClass?: string}|array{seeded: list<string>, already: list<string>}
      */
     public function seed(SessionStore $store, string $sessionId, array $entries, array $catalogue, Principal $by): array
     {
@@ -186,7 +186,11 @@ final class LaunchGrants
                 return ['error' => "«{$entry['operation']}» resolves to no operation of this app, so a grant for it cannot be judged"];
             }
             if ($this->demandsSignature($operation)) {
-                return ['error' => "«{$operation->name}» demands a signature naming the call; a grant cannot replace it"];
+                // THE REFUSAL NAMES ITS OPERATION AS DATA, so the caller can say what to do instead (decisions/0550).
+                return [
+                    'error' => "«{$operation->name}» demands a signature naming the call; a grant cannot replace it",
+                    'signatureClass' => $operation->name,
+                ];
             }
             $resolved[] = ['operation' => $operation->name, 'arguments' => self::typedByTheDeclaredSchema($operation, $entry['arguments'])];
         }
@@ -292,6 +296,16 @@ final class LaunchGrants
      * would be the directory this family keeps refusing to build; the axes are the rule.
      */
     private function demandsSignature(Operation $operation): bool
+    {
+        return self::onlyAPersonsYesAdmits($operation);
+    }
+
+    /**
+     * The class {@see demandsSignature()} names, asked from outside: no launch grant and no mode can admit a call of
+     * it, only a person's yes for that call (greenhouse decisions/0550). The session gate asks it so that `auto` pauses
+     * for this class instead of letting the call die at the next door with nobody to answer — one rule, read here.
+     */
+    public static function onlyAPersonsYesAdmits(Operation $operation): bool
     {
         $ceiling = $operation->effectCeiling();
 

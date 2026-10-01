@@ -1444,12 +1444,22 @@ final class SessionOperations implements CommandProvider
      * The recipe's own convention answers it — {@see RecipeOperations::recipeInSession()} — so the
      * shape of a recipe's session has ONE owner instead of two readers who both guess.
      */
-    private static function comoSeRetoma(string $id, SessionStore $almacen): string
+    private function comoSeRetoma(string $id, SessionStore $almacen): string
     {
+        $sesion = $almacen->load($id);
+        // A SEQUENCE PAUSED IN THIS SESSION IS WHAT CONTINUES, whatever the session is called (greenhouse
+        // decisions/0550): the agent's `continue` is refused while it holds the session.
+        $pausada = $sesion?->pausedSequence;
+        if ($pausada !== null) {
+            $kernel = $this->container->has(\Milpa\Runtime\Kernel::class) ? $this->container->get(\Milpa\Runtime\Kernel::class) : null;
+            $root = $kernel instanceof \Milpa\Runtime\Kernel ? $kernel->root() : (getcwd() ?: '.');
+
+            return 'the sequence resumes where it paused: `' . RecipeOperations::resumeLine($root, $id, $pausada->sequenceId) . '`';
+        }
         $recipe = RecipeOperations::recipeInSession($id);
         // A LEG WITH NO RECEIPT STANDING SIGNS (greenhouse decisions/0522): an unsigned call runs only what reads, so
         // «continue» without `--sign` is runnable only while the session's receipt stands — the hint says which.
-        $firma = $almacen->load($id)?->sequenceAuthorization() !== null ? '' : ' --sign';
+        $firma = $sesion?->sequenceAuthorization() !== null ? '' : ' --sign';
 
         return $recipe === null
             ? 'pick it up with `' . Capabilities::CLI . 'agent "continue" --session=' . $id . $firma . '`'
@@ -1729,7 +1739,7 @@ final class SessionOperations implements CommandProvider
                 'answered' => $pregunta->id,
                 'countered' => $contra,
                 'granted' => null,
-                'hint' => self::comoSeRetoma($id, $almacen),
+                'hint' => $this->comoSeRetoma($id, $almacen),
             ];
         }
 
@@ -1761,7 +1771,7 @@ final class SessionOperations implements CommandProvider
             'session' => $id,
             'answered' => $pregunta->id,
             'granted' => $otorgado,
-            'hint' => self::comoSeRetoma($id, $almacen),
+            'hint' => $this->comoSeRetoma($id, $almacen),
         ];
     }
 
@@ -1855,7 +1865,7 @@ final class SessionOperations implements CommandProvider
             'envelope' => $sobreEfectivo->toArray(),
             'base' => $base->toArray(),
             'tightened' => $apretadas,
-            'hint' => self::comoSeRetoma($id, $almacen),
+            'hint' => $this->comoSeRetoma($id, $almacen),
         ];
     }
 

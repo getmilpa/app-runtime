@@ -184,6 +184,25 @@ final class RecipeOperations implements CommandProvider
     }
 
     /**
+     * The line that resumes a sequence paused inside a session, typed as a person runs it.
+     *
+     * 🚨 A RECIPE CAN PAUSE INSIDE A SESSION THAT IS NOT `recipe:<name>`. When the agent calls `recipe_apply`, the
+     * sequence runs — and pauses — in the agent's own session, and {@see recipeInSession()} reads only the name. So
+     * the answer said «pick it up with `agent "continue"`», and that leg was refused because a paused sequence holds
+     * the session; the refusal itself read «already ended: » with no reason (greenhouse decisions/0550). The paused
+     * sequence is the fact: its id is the recipe when `recipes/<id>.json` exists, and `sequence:run`'s otherwise.
+     */
+    public static function resumeLine(string $root, string $sessionId, string $sequenceId): string
+    {
+        $recipe = self::recipeInSession($sessionId) ?? $sequenceId;
+        $session = $sessionId === self::sessionIdFor($recipe) ? '' : ' --session=' . $sessionId;
+
+        return is_file($root . '/recipes/' . $recipe . '.json')
+            ? Capabilities::CLI . 'recipe:apply --recipe=' . $recipe . $session . ' --sign'
+            : Capabilities::CLI . 'sequence:run --sequence=' . $sequenceId . ' --session=' . $sessionId . ' --sign';
+    }
+
+    /**
      * The refusal a name earns on its own, or null when the name is a name.
      *
      * 🚨 ASKED BEFORE THE FILESYSTEM AND BEFORE THE KERNEL, and a test says so in its own title:
