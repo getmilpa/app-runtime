@@ -183,7 +183,7 @@ final class UnsignedTerminal
             $line,
             $sequence !== null
                 ? "  One signed call opens «{$sequence}»; the calls after it — here too — continue under its receipt."
-                : '  Or present a token the house minted (MILPA_TOKEN): its scopes are what the call runs with.',
+                : '  Or present a token the house minted with token:new (MILPA_TOKEN, an opaque secret, not a JWT): its scopes are what the call runs with.',
         ];
     }
 

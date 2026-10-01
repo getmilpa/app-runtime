@@ -2042,7 +2042,8 @@ class AgentOperations implements CommandProvider
             return [
                 'ok' => false,
                 'error' => 'no API key is configured, so there is no one to ask',
-                'hint' => 'exporta ANTHROPIC_API_KEY (o OPENAI_API_KEY) y vuelve a correrlo',
+                'hint' => 'export ANTHROPIC_API_KEY or OPENAI_API_KEY for a public provider, or MILPA_AGENT_BASE_URL '
+                    . '(and MILPA_AGENT_API_KEY if it asks for a key) for an endpoint of your own; then run it again',
             ];
         }
 
@@ -2791,7 +2792,10 @@ class AgentOperations implements CommandProvider
         } catch (\Throwable $e) {
             // El motivo se devuelve tal cual: viene del proveedor —una llave inválida, un modelo que
             // no existe, la red— y quien lo lee necesita esa frase, no una reformulación.
-            return ['ok' => false, 'error' => $e->getMessage(), 'termination' => $this->terminationObservation()];
+            $fallo = ['ok' => false, 'error' => $e->getMessage(), 'termination' => $this->terminationObservation()];
+            $pista = $this->endpointKeyHint($e);
+
+            return $pista === null ? $fallo : $fallo + ['hint' => $pista];
         } finally {
             $restorePolicy();
             FatalTermination::disarm();
@@ -5115,6 +5119,16 @@ class AgentOperations implements CommandProvider
                     . '  browser does and says the status and, on a server error, its cause. Never conclude it from reading its code.'
                 : '');
 
+        // WHAT A TOKEN IS, before a model fills the word in (greenhouse decisions/0551). An agent that met
+        // «Bearer token» on a new house called it a JWT and planned around claims that do not exist; the
+        // house never says JWT for its own tokens, so the guess came from silence. Said only where the
+        // house can mint one: without identity there is no token to describe.
+        if (Capabilities::installed('identity')) {
+            $partes[count($partes) - 1] .= "\n- A caller authenticates over HTTP with `Authorization: Bearer <token>` (or MILPA_TOKEN in the\n"
+                . "  terminal). The token is OPAQUE: 64 hex characters minted by `token:new`, of which the house keeps only the\n"
+                . '  hash. It is not a JWT — there are no claims to decode; its actor and scopes live in the house.';
+        }
+
         // LA INSTRUCCIÓN DEL PLAN, QUE AHORA SE PUEDE APAGAR.
         //
         // Sin esto, las herramientas existen y no se usan. Un modelo que puede anotar su plan y no sabe
@@ -5421,6 +5435,44 @@ class AgentOperations implements CommandProvider
         }
 
         return ['Authorization' => 'Basic ' . base64_encode($basica)];
+    }
+
+    /**
+     * What to do when a DECLARED endpoint refused the key it was sent — or null for any other failure.
+     *
+     * A declared endpoint is sent `MILPA_AGENT_API_KEY`, and only that: `OPENAI_API_KEY` and
+     * `ANTHROPIC_API_KEY` belong to their providers, and handing one to whatever host
+     * `MILPA_AGENT_BASE_URL` names would send a provider's secret to a third party (greenhouse
+     * decisions/0551). Measured on a new house (evidence/1085): with only `OPENAI_API_KEY` exported, the
+     * endpoint answered 401 to the placeholder and nothing named the variable it wanted. The hint says
+     * which key went, names the one to set, and — when a provider key IS in the environment — that it
+     * was deliberately not sent. It never prints a value.
+     */
+    private function endpointKeyHint(\Throwable $e): ?string
+    {
+        $base = $this->baseUrl();
+        $cause = RunTermination::causeOf($e);
+        if ($base === null || $cause === null || $cause['kind'] !== 'provider_refused'
+            || !\in_array($cause['status'], [401, 403], true)) {
+            return null;
+        }
+
+        $propia = getenv('MILPA_AGENT_API_KEY');
+        if (\is_string($propia) && $propia !== '') {
+            return "the endpoint {$base} refused MILPA_AGENT_API_KEY ({$cause['status']}): check it is the key this endpoint expects";
+        }
+
+        $ajenas = array_values(array_filter(
+            ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY'],
+            static fn (string $v): bool => \is_string(getenv($v)) && getenv($v) !== '',
+        ));
+        $nota = $ajenas === []
+            ? ''
+            : '; ' . implode(' and ', $ajenas) . ' ' . (\count($ajenas) === 1 ? 'is' : 'are')
+                . ' never sent to a declared endpoint — a provider key stays with its provider';
+
+        return "the endpoint {$base} answered {$cause['status']}: it wants a key and this house sent none of its own "
+            . "(MILPA_AGENT_API_KEY is not set){$nota}. Export MILPA_AGENT_API_KEY with the endpoint's key and run it again";
     }
 
     /**
