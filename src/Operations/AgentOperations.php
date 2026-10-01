@@ -2144,14 +2144,18 @@ class AgentOperations implements CommandProvider
         }
 
         // A TOOL NAMED BY THE OPERATOR IS RESOLVED BEFORE ANYTHING STARTS (greenhouse decisions/0550): `--first` and
-        // `--deny` take the terminal's spelling to the catalogue's, and a name the session is not offered is refused
-        // here, with the nearest names — never stored as an obligation nobody can meet or a withdrawal of nothing.
+        // `--deny` take the terminal's spelling to the catalogue's. Only an OBLIGATION naming a tool the session is not
+        // offered is refused here — nobody could meet it, and the table would never open.
+        //
+        // A WITHDRAWAL IS NOT REFUSED FOR NAMING WHAT IS NOT OFFERED YET (greenhouse decisions/0553). Withdrawing is
+        // containment: a capability can be enabled mid-session (decisions/0226), and the withdrawal has to hold the
+        // moment its tool appears. Refusing it — framework's `--deny=make` on a house whose devtools is not wired, in
+        // 0.206.0 — told an operator to drop the containment to get the agent to run. It is recorded in the
+        // catalogue's spelling, so the tool it names is withdrawn whenever it is offered.
         $this->ofrecidas = $this->offeredTools($store);
-        foreach (['first', 'deny'] as $bandera) {
-            $sinHerramienta = $this->ofrecidas?->refusal($bandera, $input[$bandera] ?? null);
-            if ($sinHerramienta !== null) {
-                return $sinHerramienta;
-            }
+        $sinHerramienta = $this->ofrecidas?->refusal('first', $input['first'] ?? null);
+        if ($sinHerramienta !== null) {
+            return $sinHerramienta;
         }
 
         // SIN SESIÓN NO HAY CONTABILIDAD, Y SIN CONTABILIDAD EL PRIMER TURNO NO PUEDE PLANEAR.
