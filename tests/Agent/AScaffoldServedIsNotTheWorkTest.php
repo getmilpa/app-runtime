@@ -46,6 +46,10 @@ final class AScaffoldServedIsNotTheWorkTest extends TestCase
         . ' visitors, listing only published posts (title and body), never drafts. Seed one published post and one draft so'
         . ' the page shows something. When it is live, confirm /blog is served.';
 
+    /** A goal that writes no route: its word «posts» names /posts (0522), where a written `GET /blog` would not (0555). */
+    private const GOAL_IN_WORDS = 'Build the blog this house was founded for: a plugin named Blog listing only published posts'
+        . ' (title and body), never drafts.';
+
     private const CONTROLLER = 'src/Plugins/Blog/Controllers/BlogController.php';
 
     private const SCAFFOLD = '7a4d348fa987f2663eebf5d50764ad6125b359ccc9bb9aac86bd6c72c427d41c';
@@ -226,13 +230,20 @@ final class AScaffoldServedIsNotTheWorkTest extends TestCase
         $closure = $this->verdict();
 
         self::assertFalse($closure['verified']);
+        // The goal writes GET /blog, so /posts is not even the route asked for, and that is the reason (decisions/0555).
+        self::assertContains("the house observed «/posts» served (seq {$landed}), and the goal writes «GET /blog»: only a route the goal"
+            . ' writes closes it', $closure['reasons']);
+
+        // Under a goal that writes no route, the word «posts» names /posts (0522) and the scaffold is what refuses it.
+        $this->store->setGoal('s', self::GOAL_IN_WORDS);
         self::assertContains("the house observed «/posts» serving the body of its scaffold (seq {$landed}): what «make» generated is"
-            . ' not the work', $closure['reasons']);
+            . ' not the work', $this->verdict()['reasons']);
     }
 
-    /** The same crud, once a post exists: the list is no longer the scaffold's empty one, and it closes. */
+    /** The same crud under a goal that writes no route, once a post exists: the list is no longer the scaffold's, and it closes. */
     public function testTheCrudScaffoldServingAnotherBodyCloses(): void
     {
+        $this->store->setGoal('s', self::GOAL_IN_WORDS);
         $this->blogPluginRegistered();
         $this->land('make', ['what' => 'crud', 'plugin' => 'Blog', 'name' => 'Post'], ['src/Plugins/Blog/Controllers/PostController.php'], [$this->served('/posts', self::EMPTY_LIST, 34)]);
         $this->land('implement', ['plugin' => 'Blog', 'class' => 'Blog'], ['src/Plugins/Blog/Blog.php'], [$this->served('/posts', self::POSTS, 222)]);
@@ -243,6 +254,7 @@ final class AScaffoldServedIsNotTheWorkTest extends TestCase
     /** A route the house had already seen is not born of a later scaffold: its body keeps counting. */
     public function testARouteSeenBeforeIsNotGivenToALaterScaffold(): void
     {
+        $this->store->setGoal('s', self::GOAL_IN_WORDS);
         $this->blogPluginRegistered();
         $this->land('implement', ['plugin' => 'Blog', 'class' => 'PostsController'], ['src/Plugins/Blog/Controllers/PostsController.php'], [$this->served('/posts', self::POSTS, 222)]);
         $this->land('make', ['what' => 'crud', 'plugin' => 'Blog', 'name' => 'Tag'], ['src/Plugins/Blog/Controllers/TagController.php'], [$this->served('/posts', self::POSTS, 222), $this->served('/tags', self::EMPTY_LIST, 34)]);
@@ -253,6 +265,7 @@ final class AScaffoldServedIsNotTheWorkTest extends TestCase
     /** A trial that held more than scaffolds: what it serves first is not known to be a scaffold's. */
     public function testAPromotionOfMoreThanScaffoldsGivesItsRoutesToNoScaffold(): void
     {
+        $this->store->setGoal('s', self::GOAL_IN_WORDS);
         $this->blogPluginRegistered();
         $this->land('make', ['what' => 'entity', 'plugin' => 'Blog', 'name' => 'Post'], ['src/Plugins/Blog/Entities/Post.php'], [$this->served('/posts', self::POSTS, 222)]);
 

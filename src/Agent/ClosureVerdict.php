@@ -123,9 +123,12 @@ final class ClosureVerdict
         // AND IT SPEAKS ONLY OF WHAT THE GOAL NAMES (greenhouse decisions/0522). An observation of a subject the
         // standing ask does not name is not an observation of the work: measured (evidence/1050), registering an
         // empty plugin made the house see `GET /` → 200, and that closed a session whose goal was `GET /blog`.
+        //
+        // AND WHEN THE GOAL WRITES A ROUTE, ONLY OF THAT ROUTE (greenhouse decisions/0555). Measured (evidence/1088):
+        // «published posts» named `/posts`, and the house verified the session on it while `/blog` answered 404.
         $ask = $stream !== null ? StandingAsk::in($stream) : null;
         $house = $stream !== null && $ask !== null
-            ? HouseObservedClosure::of($stream, $facts, static fn (string $subject): bool => $ask->namesSubject($subject), $lasting)
+            ? HouseObservedClosure::of($stream, $facts, static fn (string $subject): bool => $ask->namesSubject($subject), $lasting, $ask->explicitRoutes())
             : null;
         if ($session->todos !== [] && $house !== null && ! ($house['derived'] && $house['lastChangeSeq'] !== null)) {
             $house = null;
