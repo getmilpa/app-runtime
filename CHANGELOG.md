@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.206.2](https://github.com/getmilpa/app-runtime/compare/v0.206.1...v0.206.2) (2026-10-02)
+
+
+### Bug Fixes
+
+* a route served by its scaffold is not the work (greenhouse decisions/0554) ([#683](https://github.com/getmilpa/app-runtime/issues/683)) ([0b78155](https://github.com/getmilpa/app-runtime/commit/0b78155fe1dc6e73d61b4eca503d9ca4a032e3ff))
+
 ## [0.206.1](https://github.com/getmilpa/app-runtime/compare/v0.206.0...v0.206.1) (2026-10-01)
 
 
