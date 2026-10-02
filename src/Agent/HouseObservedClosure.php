@@ -67,9 +67,26 @@ use Milpa\EventStore\Event;
  * recorded as not mutating never becomes a change, and a tool the catalogue does not declare keeps its flag. And a
  * declaration is witnessed where the operation reports it: a call whose result names what it wrote into the house
  * (`house_writes`, milpa/devtools' test run) counts when it wrote anything, or when it could not tell (null).
+ *
+ * ── A SCAFFOLD SERVED IS NOT THE WORK (greenhouse decisions/0554) ───────────────────────────────
+ *
+ * Naming the route is not enough: the house must not take the scaffold's answer for the work. Measured (evidence/1081,
+ * D1): `make controller` landed, `GET /blog` answered 200 with the stub's 26 bytes («BlogController is running.»), and
+ * a session without todos was verified on it — the epilogue opened over a page with no posts. And live (evidence/1088):
+ * `make crud` landed `/posts` answering an empty list, the goal's word «posts» named it, and the house verified the
+ * session while `/blog` answered 404. So a route is a scaffold's in two ways: a change that landed nothing but `make`'s
+ * routed scaffolds (controller, crud, resource) gives every route the house sees for the first time to that scaffold;
+ * and `make controller` stands a scaffold for the route its arguments say, whenever the house first sees it. A scaffold
+ * stands until another writer lands its file (or, when the stream does not say which files, its plugin); the body the
+ * house first sees that route answer while the scaffold stands is the scaffold's. An observation of that body — then, or after, by a promotion or by `route:observe` — is not an
+ * observation of the work, and the reason says so. Any other body counts as before. Read from the receipts alone: the
+ * writers of a promotion are the calls recorded in its trial; nothing re-runs and no stub is rendered.
  */
 final class HouseObservedClosure
 {
+    /** What `make` scaffolds with routes of its own: the house can see these answer before anyone wrote the work. */
+    private const ROUTED = ['controller', 'crud', 'resource'];
+
     /**
      * Derive whether the house observed itself serving after the last change that landed in it.
      *
@@ -91,6 +108,13 @@ final class HouseObservedClosure
         // route => [seq, status] of the last time the house answered it, and whether that was «served».
         $routes = [];
         $unobservable = null;
+        // workspace => the writers that ran in that trial, so a promotion knows who wrote what it landed.
+        $trials = [];
+        // route => the scaffold `make controller` landed for it: its file, whether nothing else has written that file
+        // since, and the body the house first saw it answer while it stood (decisions/0554).
+        $scaffolds = [];
+        // The last observation of a named route answered by its scaffold: said in the reason, never counted.
+        $scaffolded = null;
         foreach ($stream as $event) {
             if ($event->type !== SessionEvent::ToolCalled->value) {
                 continue;
@@ -106,11 +130,18 @@ final class HouseObservedClosure
             $evidence = \is_array($evidence) ? $evidence : [];
             $environment = \is_array($evidence['environment'] ?? null) ? ($evidence['environment']['kind'] ?? null) : null;
             $rehearsed = ($result['ran_in_trial'] ?? false) === true && ($result['applied'] ?? false) !== true;
+            $generated = null;
 
             if (($payload['mutating'] ?? false) === true && ($payload['awaitingConfirmation'] ?? null) !== true
                 && $environment !== 'trial' && !$rehearsed && self::lasts($payload, $readable ? $result : null, $lasting)) {
                 $lastChange = $event->seq;
                 $landed[] = $event->seq;
+                $writers = self::writersOf($payload, $result, $evidence, $trials);
+                $scaffolds = self::afterLanding($scaffolds, $writers);
+                $generated = self::generatedBy($writers);
+            }
+            if ($rehearsed && \is_string($result['workspace'] ?? null)) {
+                $trials[$result['workspace']][] = self::writer($payload, $result);
             }
             if (($evidence['predicate'] ?? null) === 'served' && $environment === 'house'
                 && ($evidence['invalidates'] ?? false) !== true && \is_string($evidence['subject'] ?? null)) {
@@ -129,6 +160,8 @@ final class HouseObservedClosure
                 $unobservable = null;
             }
             $served = null;
+            // The plugin whose routes this very change generated, when all it landed was `make`'s routed scaffolds.
+            $born = $generated;
             foreach (\is_array($result['observed'] ?? null) ? $result['observed'] : [] as $entry) {
                 if (!\is_array($entry) || !\is_string($entry['subject'] ?? null)
                     || (\is_array($entry['environment'] ?? null) ? ($entry['environment']['kind'] ?? null) : null) !== 'house') {
@@ -136,8 +169,24 @@ final class HouseObservedClosure
                 }
                 $status = \is_int($entry['status'] ?? null) ? $entry['status'] : null;
                 $isServed = ($entry['predicate'] ?? null) === 'served' && $status === 200;
+                $key = trim($entry['subject'], '/');
+                if ($isServed && $born !== null && ! isset($routes[$entry['subject']]) && ! isset($scaffolds[$key])) {
+                    $scaffolds[$key] = ['file' => null, 'plugin' => $born['plugin'], 'standing' => true, 'body' => null];
+                }
                 $routes[$entry['subject']] = ['seq' => $event->seq, 'status' => $status, 'served' => $isServed,
                     'everServed' => $isServed || ($routes[$entry['subject']]['everServed'] ?? false)];
+                if ($isServed && isset($scaffolds[$key])) {
+                    $sha = \is_string($entry['sha256'] ?? null) ? $entry['sha256'] : null;
+                    if ($scaffolds[$key]['standing'] && $scaffolds[$key]['body'] === null) {
+                        $scaffolds[$key]['body'] = $sha;
+                    }
+                    if (($sha !== null && $sha === $scaffolds[$key]['body']) || ($sha === null && $scaffolds[$key]['standing'])) {
+                        if ($counts($entry['subject'])) {
+                            $scaffolded = ['subject' => $entry['subject'], 'seq' => $event->seq];
+                        }
+                        continue;
+                    }
+                }
                 if ($isServed && ! $counts($entry['subject'])) {
                     $unnamed = ['subject' => $entry['subject'], 'seq' => $event->seq];
                 } else {
@@ -164,10 +213,15 @@ final class HouseObservedClosure
             $reason = "the house could not be observed after the change at seq {$unobservable['seq']}: {$unobservable['error']}";
         } elseif ($failing !== []) {
             $reason = implode('; ', $failing);
-        } elseif ($observation === null && $unnamed !== null) {
-            // A route that went stale is the stronger fact; otherwise, say what was seen instead of the work.
-            $reason = $stale !== [] ? implode('; ', $stale)
-                : "the house observed «{$unnamed['subject']}» served (seq {$unnamed['seq']}), a subject the goal does not name";
+        } elseif ($observation === null && ($scaffolded !== null || $unnamed !== null)) {
+            // A route that went stale is the stronger fact; then a named route its scaffold answered; otherwise, say what
+            // was seen instead of the work.
+            $reason = match (true) {
+                $stale !== [] => implode('; ', $stale),
+                $scaffolded !== null => "the house observed «{$scaffolded['subject']}» serving the body of its scaffold (seq {$scaffolded['seq']}):"
+                    . ' what «make» generated is not the work',
+                default => "the house observed «{$unnamed['subject']}» served (seq {$unnamed['seq']}), a subject the goal does not name",
+            };
         } elseif ($observation === null) {
             $reason = 'nothing observed served in the house';
         } elseif ($stale !== []) {
@@ -201,5 +255,127 @@ final class HouseObservedClosure
         }
 
         return $lasting($payload['tool'], \is_array($payload['arguments'] ?? null) ? $payload['arguments'] : []) ?? true;
+    }
+
+    /**
+     * One writer as the stream recorded it: the tool, its arguments, and the house-relative paths it changed (null when
+     * its result does not say).
+     *
+     * @param array<string, mixed> $payload
+     * @param array<mixed>         $result
+     *
+     * @return array{tool: ?string, arguments: array<mixed>, changed: ?list<string>}
+     */
+    private static function writer(array $payload, array $result): array
+    {
+        return [
+            'tool' => \is_string($payload['tool'] ?? null) ? $payload['tool'] : null,
+            'arguments' => \is_array($payload['arguments'] ?? null) ? $payload['arguments'] : [],
+            'changed' => \is_array($result['changed'] ?? null) ? array_map('strval', array_keys($result['changed'])) : null,
+        ];
+    }
+
+    /**
+     * Who wrote what a change landed: for a promotion, the writers that ran in its trial (or, when the stream does not
+     * hold them, an unknown writer of every promoted path); for any other change, the call itself.
+     *
+     * @param array<string, mixed>                                                                       $payload
+     * @param array<mixed>                                                                               $result
+     * @param array<mixed>                                                                               $evidence
+     * @param array<string, list<array{tool: ?string, arguments: array<mixed>, changed: ?list<string>}>> $trials
+     *
+     * @return list<array{tool: ?string, arguments: array<mixed>, changed: ?list<string>}>
+     */
+    private static function writersOf(array $payload, array $result, array $evidence, array $trials): array
+    {
+        $from = \is_array($evidence['from'] ?? null) ? ($evidence['from']['workspace'] ?? null) : null;
+        if (($evidence['predicate'] ?? null) !== 'promoted' || ! \is_string($from)) {
+            return [self::writer($payload, $result)];
+        }
+        $promoted = \is_array($result['promoted'] ?? null) ? array_values(array_filter($result['promoted'], 'is_string')) : null;
+
+        return $trials[$from] ?? [['tool' => null, 'arguments' => [], 'changed' => $promoted]];
+    }
+
+    /**
+     * The scaffolds standing after a change landed (greenhouse decisions/0554): `make controller` stands a scaffold for
+     * its route, and any other writer of that scaffold's file — or, when either side does not say which files, of its
+     * plugin — takes it down. Another `make` never does: a scaffold is not the work.
+     *
+     * @param array<string, array{file: ?string, plugin: ?string, standing: bool, body: ?string}> $scaffolds
+     * @param list<array{tool: ?string, arguments: array<mixed>, changed: ?list<string>}>         $writers
+     *
+     * @return array<string, array{file: ?string, plugin: ?string, standing: bool, body: ?string}>
+     */
+    private static function afterLanding(array $scaffolds, array $writers): array
+    {
+        foreach ($writers as $writer) {
+            $arguments = $writer['arguments'];
+            $plugin = \is_string($arguments['plugin'] ?? null) ? $arguments['plugin'] : null;
+            if ($writer['tool'] === 'make') {
+                $route = self::scaffoldedRoute($arguments);
+                if ($route !== null) {
+                    $name = \is_string($arguments['name'] ?? null) ? $arguments['name'] : '';
+                    $file = null;
+                    foreach ($writer['changed'] ?? [] as $path) {
+                        $file ??= $name !== '' && str_ends_with($path, "/{$name}.php") ? $path : null;
+                    }
+                    $scaffolds[$route] = ['file' => $file, 'plugin' => $plugin, 'standing' => true, 'body' => null];
+                }
+                continue;
+            }
+            foreach ($scaffolds as $route => $scaffold) {
+                $touched = $scaffold['file'] !== null && $writer['changed'] !== null
+                    ? \in_array($scaffold['file'], $writer['changed'], true)
+                    : $plugin !== null && $plugin === $scaffold['plugin'];
+                if ($touched) {
+                    $scaffolds[$route]['standing'] = false;
+                }
+            }
+        }
+
+        return $scaffolds;
+    }
+
+    /**
+     * What a change generated when every writer it landed was `make` scaffolding something routed (a controller, a crud,
+     * a resource): the plugin those scaffolds belong to. Null when anything else was written with them — then the routes
+     * the house sees for the first time are not known to be a scaffold's.
+     *
+     * @param list<array{tool: ?string, arguments: array<mixed>, changed: ?list<string>}> $writers
+     *
+     * @return array{plugin: ?string}|null
+     */
+    private static function generatedBy(array $writers): ?array
+    {
+        $plugin = null;
+        foreach ($writers as $writer) {
+            if ($writer['tool'] !== 'make' || ! \in_array($writer['arguments']['what'] ?? null, self::ROUTED, true)) {
+                return null;
+            }
+            $plugin = \is_string($writer['arguments']['plugin'] ?? null) ? $writer['arguments']['plugin'] : $plugin;
+        }
+
+        return $writers === [] ? null : ['plugin' => $plugin];
+    }
+
+    /**
+     * The route a `make controller` call scaffolds, as milpa/devtools derives it: its `path`, else its `route`, else the
+     * controller's name without «Controller», lowercased — without slashes at either end, as observed subjects are
+     * compared here. Null for anything `make` writes that is not a controller.
+     *
+     * @param array<mixed> $arguments
+     */
+    private static function scaffoldedRoute(array $arguments): ?string
+    {
+        if (($arguments['what'] ?? null) !== 'controller') {
+            return null;
+        }
+        $route = $arguments['path'] ?? $arguments['route'] ?? null;
+        if (\is_string($route) && $route !== '') {
+            return trim($route, '/');
+        }
+
+        return \is_string($arguments['name'] ?? null) ? strtolower(str_replace('Controller', '', $arguments['name'])) : null;
     }
 }
