@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.206.3](https://github.com/getmilpa/app-runtime/compare/v0.206.2...v0.206.3) (2026-10-02)
+
+
+### Bug Fixes
+
+* a route the goal writes is the only one that closes (greenhouse decisions/0555) ([#685](https://github.com/getmilpa/app-runtime/issues/685)) ([62d75c1](https://github.com/getmilpa/app-runtime/commit/62d75c1b0aec6713bcd0f64d2cd41422ce839abf))
+
 ## [0.206.2](https://github.com/getmilpa/app-runtime/compare/v0.206.1...v0.206.2) (2026-10-02)
 
 
