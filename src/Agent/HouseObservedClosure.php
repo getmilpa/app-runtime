@@ -89,6 +89,15 @@ use Milpa\EventStore\Event;
  * else, so an observation of any other route — its scaffold's body or the work's — is said in the reason and never
  * counted: «the house observed «/posts» served (seq 201), and the goal writes «GET /blog»: only a route the goal
  * writes closes it».
+ *
+ * ── A SCAFFOLD'S BODY IS THE SCAFFOLD'S ON ANY ROUTE (greenhouse decisions/0556) ────────────────
+ *
+ * The scaffold was known by the route it was born on. Measured live (evidence/1089): `make crud` landed `/posts`
+ * answering its empty list, the resident edited the route to `/blog`, and the house observed `/blog` serving those same
+ * 34 bytes — a route it had seen before (404), changed by an `edit` — and counted it. So every body the house learned as
+ * a scaffold's is a scaffold's wherever it is served, for the rest of the session: an observation of those bytes on
+ * another route does not close either, and the reason says «the body of a scaffold». Bytes the house never learned from a
+ * scaffold count as before, and so does a receipt without a digest on a route with no scaffold of its own.
  */
 final class HouseObservedClosure
 {
@@ -125,6 +134,9 @@ final class HouseObservedClosure
         $scaffolds = [];
         // The last observation of a named route answered by its scaffold: said in the reason, never counted.
         $scaffolded = null;
+        // sha256 => true for every body the house learned as a scaffold's: those bytes are a scaffold's on any route
+        // (decisions/0556).
+        $bodies = [];
         foreach ($stream as $event) {
             if ($event->type !== SessionEvent::ToolCalled->value) {
                 continue;
@@ -189,15 +201,27 @@ final class HouseObservedClosure
                     $sha = \is_string($entry['sha256'] ?? null) ? $entry['sha256'] : null;
                     if ($scaffolds[$key]['standing'] && $scaffolds[$key]['body'] === null) {
                         $scaffolds[$key]['body'] = $sha;
+                        if ($sha !== null) {
+                            $bodies[$sha] = true;
+                        }
                     }
                     if (($sha !== null && $sha === $scaffolds[$key]['body']) || ($sha === null && $scaffolds[$key]['standing'])) {
                         if ($counts($entry['subject'])) {
-                            $scaffolded = ['subject' => $entry['subject'], 'seq' => $event->seq];
+                            $scaffolded = ['subject' => $entry['subject'], 'seq' => $event->seq, 'whose' => 'its'];
                         } else {
                             $unnamed = ['subject' => $entry['subject'], 'seq' => $event->seq];
                         }
                         continue;
                     }
+                }
+                // The bytes of a scaffold on a route that scaffold was not born on: still what `make` generated.
+                if ($isServed && \is_string($entry['sha256'] ?? null) && isset($bodies[$entry['sha256']])) {
+                    if ($counts($entry['subject'])) {
+                        $scaffolded = ['subject' => $entry['subject'], 'seq' => $event->seq, 'whose' => 'a'];
+                    } else {
+                        $unnamed = ['subject' => $entry['subject'], 'seq' => $event->seq];
+                    }
+                    continue;
                 }
                 if ($isServed && ! $counts($entry['subject'])) {
                     $unnamed = ['subject' => $entry['subject'], 'seq' => $event->seq];
@@ -230,7 +254,7 @@ final class HouseObservedClosure
             // was seen instead of the work.
             $reason = match (true) {
                 $stale !== [] => implode('; ', $stale),
-                $scaffolded !== null => "the house observed «{$scaffolded['subject']}» serving the body of its scaffold (seq {$scaffolded['seq']}):"
+                $scaffolded !== null => "the house observed «{$scaffolded['subject']}» serving the body of {$scaffolded['whose']} scaffold (seq {$scaffolded['seq']}):"
                     . ' what «make» generated is not the work',
                 $written !== [] => "the house observed «{$unnamed['subject']}» served (seq {$unnamed['seq']}), and the goal writes «"
                     . implode('», «', $written) . '»: only a route the goal writes closes it',
