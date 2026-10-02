@@ -234,6 +234,18 @@ final class AScaffoldsBodyOnAnotherRouteIsNotTheWorkTest extends TestCase
             . ' writes closes it', $this->verdict()['reasons']);
     }
 
+    /** Only a route SERVED is read as serving: a 404 that happens to carry those bytes says nothing about a scaffold. */
+    public function testAnAnswerThatIsNotServedIsNotTheScaffoldServed(): void
+    {
+        $this->blogPluginRegistered();
+        $this->land('make', ['what' => 'crud', 'plugin' => 'Blog', 'name' => 'Post'], ['src/Plugins/Blog/Controllers/PostController.php'], [$this->served('/posts', self::EMPTY_LIST, 34)]);
+        $this->land('edit', ['plugin' => 'Blog', 'class' => 'Blog'], ['src/Plugins/Blog/Blog.php'], [
+            ['predicate' => 'answered', 'route' => 'GET /blog', 'subject' => '/blog', 'status' => 404, 'environment' => ['kind' => 'house'], 'sha256' => self::EMPTY_LIST],
+        ]);
+
+        self::assertStringNotContainsString('«/blog» serving the body of a scaffold', implode('; ', $this->verdict()['reasons']));
+    }
+
     private function crudThenMovedToBlog(): int
     {
         $this->blogPluginRegistered();
