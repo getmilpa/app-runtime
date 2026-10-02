@@ -40,7 +40,8 @@ use PHPUnit\Framework\TestCase;
  *
  * The recorded stream is read from a cut of its FILE (`tests/Fixtures/streams/`), line by line up to seq 210: the lines
  * that carry the model's transcript are left out (`model_called`, `system_set`, `model_reasoned`, `compacted` — the
- * verdict reads none of them) and the lab's absolute directory is written `/lab`; every other line is the cattle's.
+ * verdict reads none of them), and what names the lab is written neutral: its absolute directory (`/lab`), the session id
+ * (`lab-session`), the host, the lab key's fingerprint, its signature and the passkey id. Every other byte is the cattle's.
  *
  * @guards a goal that writes no explicit route names its subjects as before; the route it writes still closes
  *
@@ -60,7 +61,7 @@ final class ARouteTheGoalWritesIsTheOnlyOneThatClosesTest extends TestCase
 
     private const STREAM_1088 = __DIR__ . '/../Fixtures/streams/camino-1088-first-cut-upto-210.jsonl';
 
-    private const SESSION_1088 = 'camino-rod-blog';
+    private const SESSION_1088 = 'lab-session';
 
     private const EMPTY_LIST = '2a797c8443253cb630662a190c304f5a70654f6d3c5e1f367d8bb1570fd1cac1';
 
