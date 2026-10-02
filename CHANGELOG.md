@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.206.4](https://github.com/getmilpa/app-runtime/compare/v0.206.3...v0.206.4) (2026-10-02)
+
+
+### Bug Fixes
+
+* a scaffold's body is the scaffold's on any route (greenhouse decisions/0556) ([#687](https://github.com/getmilpa/app-runtime/issues/687)) ([a0b3a3a](https://github.com/getmilpa/app-runtime/commit/a0b3a3a5bded5bb9310c73db68abde6d8aae83cc))
+
 ## [0.206.3](https://github.com/getmilpa/app-runtime/compare/v0.206.2...v0.206.3) (2026-10-02)
 
 
