@@ -81,6 +81,14 @@ use Milpa\EventStore\Event;
  * house first sees that route answer while the scaffold stands is the scaffold's. An observation of that body — then, or after, by a promotion or by `route:observe` — is not an
  * observation of the work, and the reason says so. Any other body counts as before. Read from the receipts alone: the
  * writers of a promotion are the calls recorded in its trial; nothing re-runs and no stub is rendered.
+ *
+ * ── A ROUTE THE GOAL WRITES IS THE ONLY ONE THAT CLOSES (greenhouse decisions/0555) ─────────────
+ *
+ * A `/posts` WITH data would still have closed that session: the scaffold rule knows a generated body, not which route
+ * was asked for. When the goal writes a route explicitly (`GET /blog`), {@see StandingAsk::namesSubject()} names nothing
+ * else, so an observation of any other route — its scaffold's body or the work's — is said in the reason and never
+ * counted: «the house observed «/posts» served (seq 201), and the goal writes «GET /blog»: only a route the goal
+ * writes closes it».
  */
 final class HouseObservedClosure
 {
@@ -94,10 +102,12 @@ final class HouseObservedClosure
      * @param (\Closure(string): bool)|null                        $named   whether the goal names an observed subject; null counts every subject
      * @param (\Closure(string, array<string, mixed>): ?bool)|null $lasting whether a call's own declaration says it lasts
      *                                                                      ({@see LastingCalls}); null reads the recorded flag alone
+     * @param list<string>                                         $written the routes the goal writes explicitly
+     *                                                                      ({@see StandingAsk::explicitRoutes()}), for the reason
      *
      * @return array{derived: bool, reason: ?string, observation: ?array{subject: string, seq: int}, lastChangeSeq: ?int, landed: list<int>}
      */
-    public static function of(array $stream, SessionFacts $facts, ?\Closure $named = null, ?\Closure $lasting = null): array
+    public static function of(array $stream, SessionFacts $facts, ?\Closure $named = null, ?\Closure $lasting = null, array $written = []): array
     {
         $counts = $named ?? static fn (string $subject): bool => true;
         // The last observation of a subject the goal does not name: said in the reason, never counted.
@@ -183,6 +193,8 @@ final class HouseObservedClosure
                     if (($sha !== null && $sha === $scaffolds[$key]['body']) || ($sha === null && $scaffolds[$key]['standing'])) {
                         if ($counts($entry['subject'])) {
                             $scaffolded = ['subject' => $entry['subject'], 'seq' => $event->seq];
+                        } else {
+                            $unnamed = ['subject' => $entry['subject'], 'seq' => $event->seq];
                         }
                         continue;
                     }
@@ -220,6 +232,8 @@ final class HouseObservedClosure
                 $stale !== [] => implode('; ', $stale),
                 $scaffolded !== null => "the house observed «{$scaffolded['subject']}» serving the body of its scaffold (seq {$scaffolded['seq']}):"
                     . ' what «make» generated is not the work',
+                $written !== [] => "the house observed «{$unnamed['subject']}» served (seq {$unnamed['seq']}), and the goal writes «"
+                    . implode('», «', $written) . '»: only a route the goal writes closes it',
                 default => "the house observed «{$unnamed['subject']}» served (seq {$unnamed['seq']}), a subject the goal does not name",
             };
         } elseif ($observation === null) {

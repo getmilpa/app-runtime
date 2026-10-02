@@ -63,7 +63,9 @@ final class AClosureSpeaksOnlyOfWhatTheGoalNamesTest extends TestCase
 
         self::assertFalse($closure['verified']);
         self::assertSame('recorded_work', $closure['scope']);
-        self::assertContains("the house observed «/» served (seq {$registered}), a subject the goal does not name", $closure['reasons']);
+        // 1050's goal writes its route, so the reason names it (greenhouse decisions/0555).
+        self::assertContains("the house observed «/» served (seq {$registered}), and the goal writes «GET /blog»: only a route the goal"
+            . ' writes closes it', $closure['reasons']);
     }
 
     public function testTheEpilogueDoesNotOpenOnAnObservationTheGoalDoesNotName(): void
@@ -99,7 +101,7 @@ final class AClosureSpeaksOnlyOfWhatTheGoalNamesTest extends TestCase
 
     public function testAHumanTurnThatNamesTheRouteNamesIt(): void
     {
-        $this->store->recordTurn('s', 'user', 'and the home page at / too');
+        $this->store->recordTurn('s', 'user', 'and the home page, GET /, too');
         $this->promote(['config/plugins.php'], [$this->served('/')]);
 
         self::assertTrue($this->verdict()['verified']);
@@ -134,7 +136,8 @@ final class AClosureSpeaksOnlyOfWhatTheGoalNamesTest extends TestCase
         yield 'the root, inside another path' => [self::GOAL_1050, '/', false];
         yield 'the root, written alone' => ['serve the home page at / first', '/', true];
         yield 'a longer path is another route' => ['serve GET /blog', '/blogs', false];
-        yield 'a deeper path of a named first segment' => ['serve GET /blog', '/blog/{slug}', true];
+        yield 'a deeper path of a named first segment' => ['serve /blog', '/blog/{slug}', true];
+        yield 'a deeper path of a route written with its method is another route (0555)' => ['serve GET /blog', '/blog/{slug}', false];
         yield 'a trailing slash is the same route' => ['serve GET /blog', '/blog/', true];
         yield 'the path at the end of a sentence' => ['confirm it at /blog.', '/blog', true];
         yield 'a file named after it names its first segment (the cost of 0496)' => ['download /blog.json', '/blog', true];
@@ -155,7 +158,7 @@ final class AClosureSpeaksOnlyOfWhatTheGoalNamesTest extends TestCase
     public function testTheAskIsTheCurrentGoalAndTheHumansTurns(): void
     {
         $this->store->recordTurn('s', 'assistant', 'I will also serve /about');
-        $this->store->recordTurn('s', 'user', 'and /archive');
+        $this->store->recordTurn('s', 'user', 'and GET /archive');
         $ask = StandingAsk::in($this->store->stream('s'));
 
         self::assertTrue($ask->namesSubject('/archive'));

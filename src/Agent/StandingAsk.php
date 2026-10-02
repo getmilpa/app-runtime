@@ -31,9 +31,21 @@ use Milpa\EventStore\Event;
  * plugin. The root `/` has no segment, so only an ask that writes `/` by itself names it. Measured (greenhouse
  * evidence/1050): an empty plugin was registered, the house observed `GET /` → 200, and that observation closed a
  * session whose goal was «GET /blog».
+ *
+ * ── A ROUTE THE ASK WRITES IS THE ONLY ONE THAT CLOSES (greenhouse decisions/0555) ──────────────
+ *
+ * An explicit route is the method and a literal path, as HTTP writes them: `GET /blog`. When the ask writes one, the
+ * words around it stop naming routes: only the paths it writes name a subject. Measured (evidence/1088): the goal said
+ * «serves GET /blog … listing only published posts», `make crud` landed `/posts`, the word «posts» named it, and the
+ * house verified the session on `/posts` while `/blog` answered 404. Only `GET` is read: it is the one method the
+ * house requests to see a route served ({@see HouseRouteObserver}). An ask that writes several is closed by any of
+ * them; one that writes none names its subjects as before.
  */
 final class StandingAsk
 {
+    /** `GET` as HTTP writes it, blanks, and a literal path: what {@see explicitRoutes()} reads. */
+    private const EXPLICIT_ROUTE = '~(?<![A-Za-z0-9_])GET[ \t]+(/[A-Za-z0-9_{}%:\~./-]*)~u';
+
     private function __construct(private readonly string $text)
     {
     }
@@ -103,13 +115,45 @@ final class StandingAsk
     }
 
     /**
+     * The routes the ask writes explicitly — `GET` and a literal path — as it writes them, each once, in order.
+     *
+     * The path ends where its characters do, and a full stop that closes the sentence is not part of it: «serves
+     * GET /blog.» writes `GET /blog`. A query string is not read. Lowercase «get /blog» is prose, not a route.
+     *
+     * @return list<string>
+     */
+    public function explicitRoutes(): array
+    {
+        preg_match_all(self::EXPLICIT_ROUTE, $this->text, $matches);
+        $routes = [];
+        foreach ($matches[1] as $path) {
+            $path = rtrim($path, '.');
+            $routes[self::pathKey($path)] ??= 'GET ' . ($path === '' ? '/' : $path);
+        }
+
+        return array_values($routes);
+    }
+
+    /**
      * Whether the ask names the subject the house observed: a route (`/blog`) or a screen (`tasks`).
      *
-     * A route is named by its whole path, or by its first static segment named as an identifier; a screen by its
-     * name as an identifier. Nothing else is read: not the prose around it, not the answer.
+     * When the ask writes explicit routes ({@see explicitRoutes()}), a subject is named only by being the path of one
+     * of them — compared without the slashes at its ends, as the house records a route both ways (`blog`, `/blog`), and
+     * ignoring case. Otherwise a route is named by its whole path, or by its first static segment named as an
+     * identifier; a screen by its name as an identifier. Nothing else is read: not the prose around it, not the answer.
      */
     public function namesSubject(string $subject): bool
     {
+        $explicit = $this->explicitRoutes();
+        if ($explicit !== []) {
+            foreach ($explicit as $route) {
+                if (self::pathKey(substr($route, 4)) === self::pathKey($subject)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
         if (!str_starts_with($subject, '/')) {
             return $this->namesIdentifier($subject);
         }
@@ -121,5 +165,13 @@ final class StandingAsk
         $first = explode('/', ltrim($path, '/'))[0];
 
         return $first !== '' && !str_contains($first, '{') && $this->namesIdentifier($first);
+    }
+
+    /**
+     * A path as two writings of it are compared: without the slashes at its ends, in lowercase.
+     */
+    private static function pathKey(string $path): string
+    {
+        return strtolower(trim($path, '/'));
     }
 }
