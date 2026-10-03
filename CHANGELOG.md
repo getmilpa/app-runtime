@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.207.1](https://github.com/getmilpa/app-runtime/compare/v0.207.0...v0.207.1) (2026-10-03)
+
+
+### Bug Fixes
+
+* the house's closure verdict reaches the surface watching the session (greenhouse decisions/0563) ([#692](https://github.com/getmilpa/app-runtime/issues/692)) ([d40ef63](https://github.com/getmilpa/app-runtime/commit/d40ef635610940254ab0409ef8e7aa5483cb6d9d))
+
 ## [0.207.0](https://github.com/getmilpa/app-runtime/compare/v0.206.4...v0.207.0) (2026-10-03)
 
 
