@@ -1318,7 +1318,7 @@ class AgentOperations implements CommandProvider
         // the capability a person is most likely to want. Growing it comes first, and it is exactly
         // the step nobody was told to run (greenhouse decisions/0241).
         if ($state['complete'] === false && \in_array('capabilities:refresh', $offered, true)) {
-            $next[] = ['step' => 'see what exists', 'command' => (string) ($state['grow'] ?? Capabilities::CLI . 'capabilities:refresh'), 'why' => 'this catalogue is the offline floor — the packages this runtime knows by name, without reaching the network. Deriving the registry index is what puts everything else the family publishes on the list below'];
+            $next[] = ['step' => 'see what exists', 'command' => (string) ($state['grow'] ?? Capabilities::cli() . 'capabilities:refresh'), 'why' => 'this catalogue is the offline floor — the packages this runtime knows by name, without reaching the network. Deriving the registry index is what puts everything else the family publishes on the list below'];
         }
         // THE PANEL COMES FIRST, because it is where a human meets this house (greenhouse
         // decisions/0241, station 2 of the ideal path). This step used to be unreachable in a newborn
@@ -1327,10 +1327,10 @@ class AgentOperations implements CommandProvider
         // they needed. The floor knows the panel now (decisions/0247), so the first minute proposes
         // it — which is what this branch always meant to do.
         if (\in_array('milpa/admin', $availablePackages, true) && \in_array('capabilities:enable', $offered, true)) {
-            $next[] = ['step' => 'open the panel', 'command' => Capabilities::ENABLE_COMMAND . 'milpa/admin --sign', 'why' => 'the admin panel: where a human equips the house, sees its routes and plugins, and gives the agent a place to work — served in the browser, no build step. `--sign` authorizes this exact call with your key; swap it for `--dry-run` to see what it would do without doing it'];
+            $next[] = ['step' => 'open the panel', 'command' => Capabilities::enableCommand() . 'milpa/admin --sign', 'why' => 'the admin panel: where a human equips the house, sees its routes and plugins, and gives the agent a place to work — served in the browser, no build step. `--sign` authorizes this exact call with your key; swap it for `--dry-run` to see what it would do without doing it'];
         }
         if (\in_array('milpa/devtools', $availablePackages, true) && \in_array('capabilities:enable', $offered, true)) {
-            $next[] = ['step' => 'switch on the generators', 'command' => Capabilities::ENABLE_COMMAND . 'milpa/devtools --sign', 'why' => 'make, validate and doctor: scaffold plugins, entities, controllers and tools, and let the house check them'];
+            $next[] = ['step' => 'switch on the generators', 'command' => Capabilities::enableCommand() . 'milpa/devtools --sign', 'why' => 'make, validate and doctor: scaffold plugins, entities, controllers and tools, and let the house check them'];
         }
         $recipes = array_map(static fn (string $f): string => basename($f, '.json'), glob($root . '/recipes/*.json') ?: []);
         // A RECIPE RUNS THROUGH THE GOVERNED RUNTIME — the session store (milpa/agent) that records its pauses.
@@ -1340,7 +1340,7 @@ class AgentOperations implements CommandProvider
         $missingForRecipes = array_values(array_intersect($governed, $availablePackages));
         if ($recipes !== [] && \in_array('recipe:apply', $offered, true) && $missingForRecipes !== [] && \in_array('capabilities:enable', $offered, true)) {
             foreach ($missingForRecipes as $package) {
-                $next[] = ['step' => 'switch on the governed runtime', 'command' => Capabilities::ENABLE_COMMAND . $package . ' --sign', 'why' => 'sessions that pause and are recorded: recipe:apply and sequence:run run through them'];
+                $next[] = ['step' => 'switch on the governed runtime', 'command' => Capabilities::enableCommand() . $package . ' --sign', 'why' => 'sessions that pause and are recorded: recipe:apply and sequence:run run through them'];
             }
             // 🚨 THE FOUNDATION TERM THE SIBLING BRANCH BELOW ALREADY HAD. Without it this rung
             // survived the act it proposes: a founded house went on being told to found itself, and on
@@ -1349,15 +1349,15 @@ class AgentOperations implements CommandProvider
             // domain is not the recipe's, and on `invalid`/`indeterminate` too. The last rung of the
             // ladder was the one that never resolved (greenhouse decisions/0305).
         } elseif ($recipes !== [] && \in_array('recipe:apply', $offered, true) && ($foundation['verdict'] ?? '') === 'unfounded') {
-            $next[] = ['step' => 'become a domain', 'command' => Capabilities::CLI . 'recipe:apply --recipe=' . $recipes[0], 'why' => 'a recipe originates governed work: the foundation, the capabilities it needs and the scaffolds, each through the gate — it pauses for your consent; answer with agent:answer and call it again'];
+            $next[] = ['step' => 'become a domain', 'command' => Capabilities::cli() . 'recipe:apply --recipe=' . $recipes[0], 'why' => 'a recipe originates governed work: the foundation, the capabilities it needs and the scaffolds, each through the gate — it pauses for your consent; answer with agent:answer and call it again'];
         } elseif (($foundation['verdict'] ?? '') === 'unfounded' && \in_array('foundation:found', $offered, true)) {
-            $next[] = ['step' => 'found the house', 'command' => Capabilities::CLI . 'foundation:found', 'why' => 'until a domain and an objective are declared, the agent can only read'];
+            $next[] = ['step' => 'found the house', 'command' => Capabilities::cli() . 'foundation:found', 'why' => 'until a domain and an objective are declared, the agent can only read'];
         }
         if (\in_array('milpa/auth', $availablePackages, true) && \in_array('capabilities:enable', $offered, true)) {
-            $next[] = ['step' => 'put a door on it', 'command' => Capabilities::ENABLE_COMMAND . 'milpa/auth --sign', 'why' => 'identity: a passkey session becomes the principal of every operation over HTTP'];
+            $next[] = ['step' => 'put a door on it', 'command' => Capabilities::enableCommand() . 'milpa/auth --sign', 'why' => 'identity: a passkey session becomes the principal of every operation over HTTP'];
         }
         if (\in_array('serve', $offered, true)) {
-            $next[] = ['step' => 'see it', 'command' => Capabilities::CLI . 'serve', 'why' => 'the development server, and the URL to open'];
+            $next[] = ['step' => 'see it', 'command' => Capabilities::cli() . 'serve', 'why' => 'the development server, and the URL to open'];
         }
 
         return [
@@ -1707,7 +1707,7 @@ class AgentOperations implements CommandProvider
     private static function answerHint(string $sessionId, \Milpa\Agent\PendingQuestion $question): string
     {
         // SIGNED (greenhouse decisions/0522): an unsigned call changes nothing that lasts, and an answer does.
-        return 'answer with: ' . Capabilities::CLI . 'agent:answer --session=' . $sessionId
+        return 'answer with: ' . Capabilities::cli() . 'agent:answer --session=' . $sessionId
             . ' --answer=<' . implode('|', $question->options ?: ['your answer']) . '> --sign';
     }
 
@@ -1852,7 +1852,7 @@ class AgentOperations implements CommandProvider
         $tool = McpProjector::toolName($operation);
 
         return "run it without `{$operation}` in --grant: when the agent reaches «{$tool}» this session asks once, and a signed yes admits that call — "
-            . Capabilities::CLI . 'agent:answer --session=' . $sessionId . ' --answer=yes --sign';
+            . Capabilities::cli() . 'agent:answer --session=' . $sessionId . ' --answer=yes --sign';
     }
 
     /**

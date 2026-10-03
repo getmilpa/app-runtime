@@ -1462,8 +1462,8 @@ final class SessionOperations implements CommandProvider
         $firma = $sesion?->sequenceAuthorization() !== null ? '' : ' --sign';
 
         return $recipe === null
-            ? 'pick it up with `' . Capabilities::CLI . 'agent "continue" --session=' . $id . $firma . '`'
-            : 'the recipe resumes where it paused: `' . Capabilities::CLI . 'recipe:apply --recipe=' . $recipe . ' --sign`';
+            ? 'pick it up with `' . Capabilities::cli() . 'agent "continue" --session=' . $id . $firma . '`'
+            : 'the recipe resumes where it paused: `' . Capabilities::cli() . 'recipe:apply --recipe=' . $recipe . ' --sign`';
     }
 
     /**

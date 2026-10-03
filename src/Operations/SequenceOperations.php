@@ -268,7 +268,7 @@ final class SequenceOperations implements CatalogueBorrower
         $store = (new AgentOperations($this->container))->sessionStore();
         if ($store === null) {
             return ['ok' => false, 'error' => 'no session store: install milpa/agent so a pause can be recorded ('
-                . Capabilities::ENABLE_COMMAND . "milpa/agent)"];
+                . Capabilities::enableCommand() . "milpa/agent)"];
         }
 
         $petition = 'run the ' . $name . ' sequence';

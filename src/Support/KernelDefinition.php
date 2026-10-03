@@ -313,8 +313,8 @@ final class KernelDefinition
         }
 
         return "This house does not boot: {$why}\n\n"
-            . 'Nothing was served with the kernel from before the change. Undo it from a terminal (`' . Capabilities::CLI . " sandbox:undo --workspace=<trial>`,\n"
-            . 'or `' . Capabilities::CLI . " plugins:disable-unsafe --name=<plugin> --sign`) or fix it; this server answers again as soon as the house boots.\n";
+            . 'Nothing was served with the kernel from before the change. Undo it from a terminal (`' . Capabilities::cli() . " sandbox:undo --workspace=<trial>`,\n"
+            . 'or `' . Capabilities::cli() . " plugins:disable-unsafe --name=<plugin> --sign`) or fix it; this server answers again as soon as the house boots.\n";
     }
 
     private static function fingerprint(string $file): string

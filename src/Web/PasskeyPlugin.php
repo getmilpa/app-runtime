@@ -317,7 +317,7 @@ final class PasskeyPlugin implements PluginInterface, RouteProviderInterface
             . 'ceremony to %s, the origins a new house gets for rpId "%s". Write them: `%scapabilities:enable identity --sign`.',
             self::originsLine(Capabilities::originsFor($rpId)),
             $rpId,
-            Capabilities::CLI,
+            Capabilities::cli(),
         );
     }
 

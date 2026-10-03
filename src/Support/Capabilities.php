@@ -106,6 +106,45 @@ final class Capabilities
     public const string CLI = 'php bin/coa ';
 
     /**
+     * Where the process that serves this house declares how a person reaches its terminal (greenhouse evidence/1091, E5).
+     *
+     * The Desktop runs the house in a container, so every line the house printed — the seat's `identity:accept`, the
+     * hints to continue or to answer — ran only after the person prepended `docker exec milpa-desktop-backend`. The
+     * house cannot know it is in a container; the process that serves it does, as it is the one that knows the origin
+     * a passkey sees (greenhouse decisions/0534). It says `docker exec -it milpa-desktop-backend` here, and every
+     * command to type is built from {@see self::cli()}.
+     */
+    public const string CLI_PREFIX_ENV = 'MILPA_CLI_PREFIX';
+
+    /**
+     * The CLI as a person types it to reach THIS house: {@see self::CLI}, after the way in the serving process declared.
+     *
+     * Undeclared, it is `php bin/coa ` as it always was. A declared value that would make the printed line do something
+     * else — a line break, a control character, `;`, `&`, `|`, a backtick, `$`, a redirection — or one longer than 200
+     * characters is not a way in, and the plain command is printed: the line a person copies never runs more than the
+     * command it names.
+     */
+    public static function cli(): string
+    {
+        $prefix = getenv(self::CLI_PREFIX_ENV);
+        if (!\is_string($prefix)) {
+            return self::CLI;
+        }
+        $prefix = trim($prefix);
+        if ($prefix === '' || \strlen($prefix) > 200 || preg_match('/[\x00-\x1f\x7f;&|`$<>]/', $prefix) === 1) {
+            return self::CLI;
+        }
+
+        return $prefix . ' ' . self::CLI;
+    }
+
+    /** The governed door as a person types it here: {@see self::ENABLE_COMMAND} after the declared way in ({@see self::cli()}). */
+    public static function enableCommand(): string
+    {
+        return self::cli() . 'capabilities:enable ';
+    }
+
+    /**
      * The capability id each known opt-in declares once installed — so `capabilities:enable identity`
      * resolves to `milpa/auth` BEFORE the package is there to say so itself. Read from each package's own
      * manifest (`extra.milpa.capability.id`) and pinned here; a mismatch on arrival is reported as a
@@ -1121,7 +1160,7 @@ final class Capabilities
                 // whoever types it, but the house stops TEACHING it. And `--sign` is part of the
                 // command because without it the call is refused, so a command printed without it is
                 // a command that does not run.
-                'command' => self::ENABLE_COMMAND . $package . ' --sign',
+                'command' => self::enableCommand() . $package . ' --sign',
             ];
         }
 
@@ -1138,7 +1177,7 @@ final class Capabilities
                 'unlocks' => [],
                 // EL COMANDO ARMADO, no descrito. Un agente que tiene que componerlo tiene una
                 // decisión más que tomar, y ya sabemos lo que cuesta cada una que se le agrega.
-                'command' => self::ENABLE_COMMAND . $paquete . ' --sign',
+                'command' => self::enableCommand() . $paquete . ' --sign',
             ];
         }
 
@@ -1156,7 +1195,7 @@ final class Capabilities
             // runtime happens to know by name — and presenting it as the world is how a human
             // concludes the panel does not exist (greenhouse decisions/0241).
             'complete' => $date !== null,
-            ...($date === null ? ['grow' => self::CLI . 'capabilities:refresh'] : []),
+            ...($date === null ? ['grow' => self::cli() . 'capabilities:refresh'] : []),
         ];
     }
 
@@ -1299,8 +1338,8 @@ final class Capabilities
                     // A HOUSE FROM BEFORE 0.201 (greenhouse decisions/0533): its door was open already, on derived origins.
                     ? 'passkey.origins is declared now beside the rpId this house already had, with the origins its door was held to: nothing changes for anyone enrolled. List where else the house is served from there, if anywhere'
                     : ($doorWired
-                    ? 'it was installed but not declared — the passkey door is declared now: run `' . self::CLI . 'serve` and open the first_passkey invitation a signed enable prints (`' . self::CLI . 'identity:invite --sign` mints another)'
-                    : 'it was installed but not declared — declared now; run `' . self::CLI . 'list` to see its operations'),
+                    ? 'it was installed but not declared — the passkey door is declared now: run `' . self::cli() . 'serve` and open the first_passkey invitation a signed enable prints (`' . self::cli() . 'identity:invite --sign` mints another)'
+                    : 'it was installed but not declared — declared now; run `' . self::cli() . 'list` to see its operations'),
             ] + $boot['said'];
             if ($relyingParty !== null) {
                 $wired['relying_party'] = $relyingParty;
@@ -1526,8 +1565,8 @@ final class Capabilities
                 // told to RUN, so it is held to the same rule as a `command` field.
                 // The first key is enrolled by the invitation a SIGNED enable mints on a house that recognizes
                 // nobody (greenhouse decisions/0498) — the page alone registers, it does not recognize.
-                ? 'the passkey door is declared: run `' . self::CLI . 'serve` and open the first_passkey invitation this act printed (a signed enable on a house that recognizes nobody mints it; `' . self::CLI . 'identity:invite --sign` mints another)'
-                : 'run `' . self::CLI . 'list` to see the new operations',
+                ? 'the passkey door is declared: run `' . self::cli() . 'serve` and open the first_passkey invitation this act printed (a signed enable on a house that recognizes nobody mints it; `' . self::cli() . 'identity:invite --sign` mints another)'
+                : 'run `' . self::cli() . 'list` to see the new operations',
         ];
         $okOut += $boot['said'];
         if ($composed['said'] !== []) {

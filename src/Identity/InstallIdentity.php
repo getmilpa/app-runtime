@@ -77,7 +77,7 @@ final class InstallIdentity
                 // Nobody is recognized and no key signed at the terminal: nobody answers for a first passkey.
                 $result['first_passkey'] = [
                     'minted' => false,
-                    'why' => 'this act was not signed at the terminal, so no key answers for the first passkey — run `' . Capabilities::CLI . 'identity:invite --sign`',
+                    'why' => 'this act was not signed at the terminal, so no key answers for the first passkey — run `' . Capabilities::cli() . 'identity:invite --sign`',
                 ];
             } else {
                 try {
