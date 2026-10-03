@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [0.207.0](https://github.com/getmilpa/app-runtime/compare/v0.206.4...v0.207.0) (2026-10-03)
+
+
+### Features
+
+* a command the house hands a person carries the way to reach it ([#690](https://github.com/getmilpa/app-runtime/issues/690)) ([dbd6300](https://github.com/getmilpa/app-runtime/commit/dbd630073db304c78a53ca2262e8c0fced70336d))
+
+
+### Bug Fixes
+
+* a trial runs inside an unprivileged container (greenhouse decisions/0558) ([#689](https://github.com/getmilpa/app-runtime/issues/689)) ([2c04974](https://github.com/getmilpa/app-runtime/commit/2c049742c20d67f27ab5a7f691ad5c50a1d00bc6))
+
 ## [0.206.4](https://github.com/getmilpa/app-runtime/compare/v0.206.3...v0.206.4) (2026-10-02)
 
 
