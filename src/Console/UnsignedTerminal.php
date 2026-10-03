@@ -194,7 +194,7 @@ final class UnsignedTerminal
      */
     public static function signedLine(Operation $op, array $input): string
     {
-        $line = Capabilities::CLI . str_replace(['_', '.'], ':', $op->name);
+        $line = Capabilities::cli() . str_replace(['_', '.'], ':', $op->name);
         foreach ($input as $name => $value) {
             $flag = '--' . str_replace('_', '-', (string) $name);
             $line .= match (true) {

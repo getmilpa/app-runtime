@@ -105,7 +105,7 @@ final class FirstHuman
             'expires_at' => $minted['expires_at'],
             'note' => 'open it in the browser where you will use the panel and register your passkey: one ceremony enrolls it'
                 . ' and signs you in. It works once, and this is the only place its secret is shown'
-                . ' (lost it? `' . Capabilities::CLI . 'identity:invite --sign`).',
+                . ' (lost it? `' . Capabilities::cli() . 'identity:invite --sign`).',
         ];
     }
 }

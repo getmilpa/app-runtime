@@ -88,7 +88,7 @@ final class ResidentSeat
 
         return [
             'label' => $label,
-            'command' => Capabilities::CLI . 'identity:accept --invite=' . $minted['token'] . ' --sign',
+            'command' => Capabilities::cli() . 'identity:accept --invite=' . $minted['token'] . ' --sign',
             'scopes' => $minted['scopes'],
             'vouched_by' => $minted['authorized_by'],
             'for_key' => $bound,

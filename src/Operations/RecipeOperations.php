@@ -198,8 +198,8 @@ final class RecipeOperations implements CommandProvider
         $session = $sessionId === self::sessionIdFor($recipe) ? '' : ' --session=' . $sessionId;
 
         return is_file($root . '/recipes/' . $recipe . '.json')
-            ? Capabilities::CLI . 'recipe:apply --recipe=' . $recipe . $session . ' --sign'
-            : Capabilities::CLI . 'sequence:run --sequence=' . $sequenceId . ' --session=' . $sessionId . ' --sign';
+            ? Capabilities::cli() . 'recipe:apply --recipe=' . $recipe . $session . ' --sign'
+            : Capabilities::cli() . 'sequence:run --sequence=' . $sequenceId . ' --session=' . $sessionId . ' --sign';
     }
 
     /**
@@ -318,7 +318,7 @@ final class RecipeOperations implements CommandProvider
                 // THE COMMAND COMES FROM THE AUTHORITY, never typed: `coa` is not on the PATH after a
                 // `create-project`, so a typed one names something the reader cannot run
                 // (greenhouse decisions/0305).
-                'command' => $ready ? '' : Capabilities::ENABLE_COMMAND . $package,
+                'command' => $ready ? '' : Capabilities::enableCommand() . $package,
                 ...($undeclared === [] ? [] : ['undeclared' => $undeclared]),
             ];
             if (! $ready) {
@@ -352,8 +352,8 @@ final class RecipeOperations implements CommandProvider
             ),
             'needs' => array_values(array_unique($missing)),
             'next' => $missing === []
-                ? Capabilities::CLI . 'recipe:apply --recipe=' . $recipe->name . ' --sign'
-                : Capabilities::ENABLE_COMMAND . $missing[0],
+                ? Capabilities::cli() . 'recipe:apply --recipe=' . $recipe->name . ' --sign'
+                : Capabilities::enableCommand() . $missing[0],
         ];
     }
 
@@ -391,8 +391,8 @@ final class RecipeOperations implements CommandProvider
         $store = (new AgentOperations($this->container))->sessionStore();
         if ($store === null) {
             return ['ok' => false, 'error' => 'no session store: a governed sequence records its pause where sessions live ('
-                . Capabilities::ENABLE_COMMAND . 'milpa/agent). What this recipe needs, free: '
-                . Capabilities::CLI . 'recipe:plan --recipe=' . $name];
+                . Capabilities::enableCommand() . 'milpa/agent). What this recipe needs, free: '
+                . Capabilities::cli() . 'recipe:plan --recipe=' . $name];
         }
 
         $sessionId = \is_string($input['session'] ?? null) && trim($input['session']) !== ''
