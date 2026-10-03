@@ -196,6 +196,37 @@ final class ClosureVerdict
     }
 
     /**
+     * What a surface watching the session is told when the house records its verdict, or null for any other fact.
+     *
+     * The stream keeps the whole fact; the surface gets what it paints — whether the house verified, why not,
+     * and on what scope — the same three things a reloaded page reads from the stream (greenhouse
+     * decisions/0563). Only a literal `true` is a verification.
+     *
+     * @return array{session: string, kind: 'closure', at: int, closure: array{verified: bool, reasons: list<string>, scope: string}}|null
+     */
+    public static function surface(Event $event, string $sessionId): ?array
+    {
+        if ($event->type !== self::EVENT) {
+            return null;
+        }
+        $p = $event->payload;
+
+        return [
+            'session' => $sessionId,
+            'kind' => 'closure',
+            'at' => $event->seq,
+            'closure' => [
+                'verified' => ($p['verified'] ?? null) === true,
+                'reasons' => array_values(array_filter(
+                    \is_array($p['reasons'] ?? null) ? $p['reasons'] : [],
+                    static fn (mixed $reason): bool => \is_string($reason) && $reason !== '',
+                )),
+                'scope' => \is_string($p['scope'] ?? null) ? $p['scope'] : '',
+            ],
+        ];
+    }
+
+    /**
      * Append the verdict to the session's own stream, so surfaces can project it.
      *
      * One append per leg that ends on the closure — a final answer, or an epilogue the house opened
