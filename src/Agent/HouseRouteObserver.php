@@ -77,6 +77,8 @@ final class HouseRouteObserver
     /** The PHP each observing process runs — found by {@see PhpBinary}, because under FrankenPHP `PHP_BINARY` is empty (0505). */
     private readonly string $php;
 
+    private ?TrialRunner $trialRunner = null;
+
     public function __construct(
         ?string $php = null,
         private readonly int $timeoutSeconds = 20,
@@ -196,7 +198,13 @@ final class HouseRouteObserver
      */
     public function confines(): bool
     {
-        return (new TrialRunner($this->bwrap))->available();
+        return $this->trialRunner()->available();
+    }
+
+    /** The trials' own runner, so a confined request runs in the namespaces a trial found here (evidence/1092). */
+    private function trialRunner(): TrialRunner
+    {
+        return $this->trialRunner ??= new TrialRunner($this->bwrap, php: $this->php);
     }
 
     /**
@@ -312,7 +320,7 @@ final class HouseRouteObserver
      */
     private function run(array $arguments, ?string $writable = null): array
     {
-        $confine = $writable === null ? [] : [$this->bwrap, '--unshare-net', '--unshare-pid', '--die-with-parent',
+        $confine = $writable === null ? [] : [$this->bwrap, ...$this->trialRunner()->namespaces() ?? ['--unshare-net', '--unshare-pid', '--die-with-parent'],
             '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null', '--bind', $writable, $writable];
         $command = ['timeout', '-k', '2', (string) $this->timeoutSeconds, ...$confine, $this->php,
             '-d', 'display_errors=stderr', '-d', 'html_errors=0', '-d', 'error_log=', $this->script, ...$arguments];
