@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Agent;
 
+use Milpa\AppRuntime\Support\ChildProcess;
 use Milpa\AppRuntime\Support\PhpBinary;
 
 /**
@@ -30,7 +31,15 @@ use Milpa\AppRuntime\Support\PhpBinary;
  */
 final class TrialRunner
 {
-    private ?bool $available = null;
+    /** The namespaces every trial is confined by: its own network (none) and its own pids. */
+    private const NAMESPACES = ['--unshare-net', '--unshare-pid', '--die-with-parent'];
+
+    /**
+     * The namespace arguments that run here, probed once: false before the probe, null when none does.
+     *
+     * @var list<string>|false|null
+     */
+    private array|false|null $namespaces = false;
 
     /** The PHP a trial runs — found by {@see PhpBinary}, because under FrankenPHP `PHP_BINARY` is empty (0505). */
     private readonly string $php;
@@ -47,23 +56,40 @@ final class TrialRunner
     /** Is there an unprivileged user namespace here for bwrap to use? Probed once, then remembered. */
     public function available(): bool
     {
-        if ($this->available !== null) {
-            return $this->available;
-        }
+        return $this->namespaces() !== null;
+    }
 
+    /**
+     * The namespace arguments a confined process runs with here — the trial's and a confined request's alike —
+     * or null when bubblewrap cannot confine anything on this kernel.
+     *
+     * ── ROOT IN A CONTAINER (greenhouse evidence/1092) ──────────────────────────────────────────────────
+     *
+     * The plain shape is asked first, and wherever it runs nothing changes: a host's unprivileged bubblewrap
+     * already makes a user namespace on its own, and a setuid one must not be asked for one. Root WITHOUT
+     * `CAP_SYS_ADMIN` — the house inside the Desktop's container — is refused the plain shape and never asks for
+     * a user namespace by itself, because it already is uid 0; there `--unshare-user` is the one shape that
+     * runs, with the same read-only root, no network and its own pids. Whichever shape answered is the one every
+     * run uses: a confinement is never claimed in one shape and imposed in another.
+     *
+     * @return list<string>|null
+     */
+    public function namespaces(): ?array
+    {
+        if ($this->namespaces !== false) {
+            return $this->namespaces;
+        }
         if (! $this->resolvable($this->bwrap)) {
-            return $this->available = false;
+            return $this->namespaces = null;
+        }
+        foreach ([self::NAMESPACES, ['--unshare-user', ...self::NAMESPACES]] as $shape) {
+            $probe = ChildProcess::run([$this->bwrap, ...$shape, '--ro-bind', '/', '/', '--', $this->php, '-r', 'exit(0);']);
+            if ($probe !== null && $probe['exit'] === 0) {
+                return $this->namespaces = $shape;
+            }
         }
 
-        $cmd = sprintf(
-            '%s --unshare-net --unshare-pid --die-with-parent --ro-bind / / -- %s -r %s 2>/dev/null',
-            escapeshellarg($this->bwrap),
-            escapeshellarg($this->php),
-            escapeshellarg('exit(0);'),
-        );
-        exec($cmd, $_, $code);
-
-        return $this->available = $code === 0;
+        return $this->namespaces = null;
     }
 
     /**
@@ -106,7 +132,7 @@ final class TrialRunner
         // boot witness of 0515 could not start its child — every witnessed writer refused inside a leg. The
         // sink is bound back with its device; /dev/zero, /dev/tty and the rest stay closed.
         $command = ['timeout', '-k', '2', (string) $this->timeoutSeconds, $this->bwrap,
-            '--unshare-net', '--unshare-pid', '--die-with-parent', '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null'];
+            ...$this->namespaces() ?? self::NAMESPACES, '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null'];
         if ($writePaths === null) {
             array_push($command, '--bind', $workspace->copy, $workspace->copy);
         } else {
