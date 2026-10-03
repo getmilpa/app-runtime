@@ -84,12 +84,15 @@ final readonly class BroadcastingEventStore implements EventStoreInterface, Firs
             return;
         }
 
-        $proyectado = $this->projector->project($event);
+        $sesion = substr($event->streamId, \strlen(SessionStore::PREFIX));
+
+        // THE HOUSE'S OWN FACTS ARE THE HOUSE'S TO TRANSLATE (greenhouse decisions/0563). milpa/agent's projector
+        // answers null for a type it does not know, and `session.closure_derived` is written outside its enum on
+        // purpose — so the verdict was stored and never pushed (evidence/1095: the badge only after a reload).
+        $proyectado = $this->projector->project($event) ?? ClosureVerdict::surface($event, $sesion);
         if ($proyectado === null) {
             return;
         }
-
-        $sesion = substr($event->streamId, \strlen(SessionStore::PREFIX));
 
         try {
             $this->broadcaster->broadcast(self::TOPIC_PREFIX . $sesion, $proyectado);
