@@ -172,10 +172,14 @@ final class Foundation
 
         $domain = \is_string($input['domain'] ?? null) ? trim($input['domain']) : '';
         $objective = \is_string($input['objective'] ?? null) ? trim($input['objective']) : '';
-        if ('' === $domain || '' === $objective) {
-            // Guessing an identity nobody declared would be the agent deciding what the app is —
-            // the exact move the named-target gate exists to prevent.
-            return ['ok' => false, 'error' => 'founding declares at least a domain and an objective'];
+        // Guessing an identity nobody declared would be the agent deciding what the app is — the
+        // exact move the named-target gate exists to prevent. And a marker is nobody's declaration
+        // either: a constitution is written once, so «…» must be refused BEFORE it is one.
+        foreach (['domain' => $domain, 'objective' => $objective] as $field => $value) {
+            $reason = self::saysNothing($field, $value);
+            if (null !== $reason) {
+                return ['ok' => false, 'error' => self::whatToPut($field, $value, $reason), 'field' => $field, 'reason' => $reason];
+            }
         }
 
         $boundaries = array_values(array_filter(
@@ -225,6 +229,47 @@ final class Foundation
         file_put_contents($actaFile, $acta);
 
         return ['ok' => true, 'foundation' => $foundation, 'wrote' => [$file, $actaFile]];
+    }
+
+    /** What each declared field is asked to say, and what one looks like — the refusal's second half. */
+    private const ASKS = [
+        'domain' => ['what this app is for, in the words of the person founding it', 'a blog for our team'],
+        'objective' => ['what founding it is meant to achieve, in one sentence', 'publish what the team writes'],
+    ];
+
+    /**
+     * Why a declared value declares nothing, or null when it says something.
+     *
+     * `missing` is the absent or blank field. `placeholder` is what a copied command leaves behind
+     * (greenhouse decisions/0566): no letter and no digit at all («…», `...`, `?`), a marker wholly
+     * inside one pair of brackets (`<what this app is for>`, `{{value}}`), or the field's own name
+     * (`DOMAIN`, `$objective`). Brevity is not refused: `x` is a word somebody chose.
+     */
+    private static function saysNothing(string $field, string $value): ?string
+    {
+        if ('' === $value) {
+            return 'missing';
+        }
+        // The letters and digits of the value, in any script. Bytes that are not UTF-8 say nothing.
+        $said = preg_replace('/[^\p{L}\p{N}]+/u', '', $value) ?? '';
+        if ('' === $said || mb_strtolower($said) === $field) {
+            return 'placeholder';
+        }
+        if (1 === preg_match('/^(?:<[^<>]*>|\[[^\[\]]*\]|\{+[^{}]*\}+)$/u', $value)) {
+            return 'placeholder';
+        }
+
+        return null;
+    }
+
+    /** The refusal, as a sentence that says what to put in the field it names. */
+    private static function whatToPut(string $field, string $value, string $reason): string
+    {
+        [$asks, $example] = self::ASKS[$field];
+        $needs = 'founding needs ' . ('objective' === $field ? 'an ' : 'a ') . $field;
+        $given = 'missing' === $reason ? 'nothing was given' : "«{$value}» is a placeholder, not a declaration";
+
+        return "{$needs}: {$given}. Put {$asks} — for example «{$example}». Nothing was written.";
     }
 
     /**
