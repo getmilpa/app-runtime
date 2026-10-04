@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.207.2](https://github.com/getmilpa/app-runtime/compare/v0.207.1...v0.207.2) (2026-10-04)
+
+
+### Bug Fixes
+
+* founding refuses a domain or an objective that says nothing (greenhouse decisions/0566) ([#694](https://github.com/getmilpa/app-runtime/issues/694)) ([c015a12](https://github.com/getmilpa/app-runtime/commit/c015a12928fa3548d575503924d46861a94adf70))
+
 ## [0.207.1](https://github.com/getmilpa/app-runtime/compare/v0.207.0...v0.207.1) (2026-10-03)
 
 
