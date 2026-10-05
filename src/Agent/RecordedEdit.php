@@ -67,13 +67,7 @@ final readonly class RecordedEdit
      */
     public function prepare(array $arguments, ToolContext $authority): array
     {
-        $plugin = $arguments['plugin'] ?? null;
-        $class = $arguments['class'] ?? null;
-        if (!is_string($plugin) || !is_string($class)
-            || !preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $plugin)
-            || !preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $class)) {
-            throw new \RuntimeException('Recorded repair requires bare plugin and class identifiers.');
-        }
+        [$plugin, $class] = self::identifiers($arguments);
         // Check both permissions before reading a session or disclosing whether a source exists.
         if (!$authority->hasScope('agent:read') && !$authority->hasScope('agent:answer')) {
             throw new \RuntimeException('Recorded repair requires agent:read or agent:answer.');
@@ -81,6 +75,55 @@ final readonly class RecordedEdit
         if (!$authority->hasScope('plugins.' . $plugin . ':write')) {
             throw new \RuntimeException("Recorded repair requires plugins.{$plugin}:write.");
         }
+        return $this->bind($plugin, $class, $arguments);
+    }
+
+    /**
+     * What this door answers to a session's call about ITS OWN record, permissions aside — or null when the
+     * source binds. The session gate asks before it asks a person: a yes is not spent on a call this door
+     * already refuses (greenhouse decisions/0571). Another session's record is not read here; whether the
+     * caller may read it is a permission, and {@see self::prepare()} judges that first.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    public function refusal(array $arguments, string $session): ?string
+    {
+        if (!is_array($arguments['source'] ?? null) || ($arguments['source']['session'] ?? null) !== $session) {
+            return null;
+        }
+        try {
+            [$plugin, $class] = self::identifiers($arguments);
+            $this->bind($plugin, $class, $arguments);
+        } catch (\RuntimeException $refused) {
+            return $refused->getMessage();
+        }
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $arguments
+     *
+     * @return array{string, string} plugin and class
+     */
+    private static function identifiers(array $arguments): array
+    {
+        $plugin = $arguments['plugin'] ?? null;
+        $class = $arguments['class'] ?? null;
+        if (!is_string($plugin) || !is_string($class)
+            || !preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $plugin)
+            || !preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $class)) {
+            throw new \RuntimeException('Recorded repair requires bare plugin and class identifiers.');
+        }
+        return [$plugin, $class];
+    }
+
+    /**
+     * @param array<string, mixed> $arguments
+     *
+     * @return array{input: array{plugin: string, class: string, content: string}, provenance: array<string, mixed>}
+     */
+    private function bind(string $plugin, string $class, array $arguments): array
+    {
         if (!class_exists(EditPairs::class)) {
             throw new \RuntimeException('Installed DevTools does not support recorded proposal repair.');
         }
@@ -173,9 +216,7 @@ final readonly class RecordedEdit
         if (!is_array($result) || ($result['schema'] ?? null) !== 'milpa.trial-authoring-failure/v1'
             || ($result['ok'] ?? null) !== false || ($result['ran_in_trial'] ?? null) !== true
             || ($result['applied'] ?? null) !== false || ($result['trial_exit'] ?? null) !== 1
-            || ($result['output']['ok'] ?? null) !== false || !is_array($diagnostic)
-            || ($diagnostic['schema'] ?? null) !== 'milpa.authoring-diagnostic/v1'
-            || ($diagnostic['stable_subject'] ?? null) !== true) {
+            || ($result['output']['ok'] ?? null) !== false || !self::native($diagnostic)) {
             throw new \RuntimeException('Recorded rejection lacks its native authoring receipt.');
         }
         $trials = array_values(array_filter($events, static fn (Event $trial): bool =>
@@ -186,25 +227,7 @@ final readonly class RecordedEdit
             || ($trials[0]->payload['exit'] ?? null) !== 1) {
             throw new \RuntimeException('Recorded rejection is not linked to one failed native trial.');
         }
-        $subject = $diagnostic['subject'] ?? null;
-        if (!is_string($subject) || !str_starts_with($subject, 'src/Plugins/' . $plugin . '/')
-            || basename($subject) !== $class . '.php') {
-            throw new \RuntimeException('Recorded proposal names a different destination.');
-        }
-        $syntax = ($diagnostic['phase'] ?? null) === 'syntax';
-        if ($syntax) {
-            if (($diagnostic['candidate_installed'] ?? null) !== false || ($diagnostic['destination_preserved'] ?? null) !== true
-                || array_key_exists('rolled_back', $diagnostic) || array_key_exists('restored_sha256', $diagnostic)) {
-                throw new \RuntimeException('Recorded syntax rejection did not preserve its destination.');
-            }
-        } elseif (!in_array($diagnostic['phase'] ?? null, ['static-analysis', 'behavior'], true)
-            || ($diagnostic['rolled_back'] ?? null) !== true) {
-            throw new \RuntimeException('Recorded rejection did not restore its destination.');
-        }
-        $baseline = $diagnostic[$syntax ? 'preserved_sha256' : 'restored_sha256'] ?? null;
-        if (!is_string($baseline) || !preg_match('/^[a-f0-9]{64}$/D', $baseline)) {
-            throw new \RuntimeException('Recorded rejection has no destination baseline.');
-        }
+        [$subject, $baseline] = self::destination($diagnostic, $plugin, $class);
         if ($call['tool'] === 'implement') {
             if (isset($input['mode']) || !is_string($input['content'] ?? null)) {
                 throw new \RuntimeException('Recorded repair requires a complete inline proposal, not a staged section.');
@@ -226,13 +249,85 @@ final readonly class RecordedEdit
                 throw new \RuntimeException('Recorded repair does not bind the effective implementation input.');
             }
         }
-        $digest = hash('sha256', $content);
-        if (strlen($content) > ImplementHandler::MAX_INLINE_BYTES || !mb_check_encoding($content, 'UTF-8')
-            || $digest !== $reference['sha256'] || $digest !== ($diagnostic['submitted_sha256'] ?? null)
-            || hash('sha256', ImplementationBody::normalize($content, $subject)) !== ($diagnostic['judged_sha256'] ?? null)) {
+        if (hash('sha256', $content) !== $reference['sha256'] || !self::judged($content, $subject, $diagnostic)) {
             throw new \RuntimeException('Recorded proposal bytes do not match the source hash and native judgment.');
         }
         return ['content' => $content, 'subject' => $subject, 'baseline_sha256' => $baseline];
+    }
+
+    /**
+     * Whether a rejection the trial just produced is one {@see self::source()} takes as a producer — asked
+     * where the repair hint is written, so the hint names this door only when it opens (greenhouse
+     * decisions/0571). The same checks as the door, on the same receipt: never a second list of phases.
+     *
+     * @param array<string, mixed>      $input       what the landing gate ran: plugin, class and the complete body
+     * @param array<string, mixed>|null $output      the gate's own answer
+     * @param list<string>              $diagnostics the identities the rejection's witness will carry
+     */
+    public static function admits(array $input, ?array $output, int $exit, array $diagnostics): bool
+    {
+        $diagnostic = $output['diagnostic'] ?? null;
+        if ($exit !== 1 || $diagnostics === [] || isset($input['mode']) || !is_string($input['content'] ?? null)
+            || !is_string($input['plugin'] ?? null) || !is_string($input['class'] ?? null)
+            || ($output['ok'] ?? null) !== false || !self::native($diagnostic)) {
+            return false;
+        }
+        try {
+            [$subject] = self::destination($diagnostic, $input['plugin'], $input['class']);
+        } catch (\RuntimeException) {
+            return false;
+        }
+        return self::judged($input['content'], $subject, $diagnostic);
+    }
+
+    /** @phpstan-assert-if-true array<string, mixed> $diagnostic */
+    private static function native(mixed $diagnostic): bool
+    {
+        return is_array($diagnostic) && ($diagnostic['schema'] ?? null) === 'milpa.authoring-diagnostic/v1'
+            && ($diagnostic['stable_subject'] ?? null) === true;
+    }
+
+    /**
+     * The file a rejection left as it was, and the bytes it left there.
+     *
+     * A plugin's class or its test: the landing gate takes both (a judge lands through the same gate), so
+     * the recorded door does too. Every phase that restores its destination is one whose proposal can be
+     * repaired; `syntax` never installed it.
+     *
+     * @param array<string, mixed> $diagnostic
+     *
+     * @return array{string, string} subject and baseline SHA-256
+     */
+    private static function destination(array $diagnostic, string $plugin, string $class): array
+    {
+        $subject = $diagnostic['subject'] ?? null;
+        if (!is_string($subject) || basename($subject) !== $class . '.php'
+            || (!str_starts_with($subject, 'src/Plugins/' . $plugin . '/') && !str_starts_with($subject, 'tests/Plugins/' . $plugin . '/'))) {
+            throw new \RuntimeException('Recorded proposal names a different destination.');
+        }
+        $syntax = ($diagnostic['phase'] ?? null) === 'syntax';
+        if ($syntax) {
+            if (($diagnostic['candidate_installed'] ?? null) !== false || ($diagnostic['destination_preserved'] ?? null) !== true
+                || array_key_exists('rolled_back', $diagnostic) || array_key_exists('restored_sha256', $diagnostic)) {
+                throw new \RuntimeException('Recorded syntax rejection did not preserve its destination.');
+            }
+        } elseif (!in_array($diagnostic['phase'] ?? null, ['static-analysis', 'container', 'behavior'], true)
+            || ($diagnostic['rolled_back'] ?? null) !== true) {
+            throw new \RuntimeException('Recorded rejection did not restore its destination.');
+        }
+        $baseline = $diagnostic[$syntax ? 'preserved_sha256' : 'restored_sha256'] ?? null;
+        if (!is_string($baseline) || !preg_match('/^[a-f0-9]{64}$/D', $baseline)) {
+            throw new \RuntimeException('Recorded rejection has no destination baseline.');
+        }
+        return [$subject, $baseline];
+    }
+
+    /** @param array<string, mixed> $diagnostic */
+    private static function judged(string $content, string $subject, array $diagnostic): bool
+    {
+        return strlen($content) <= ImplementHandler::MAX_INLINE_BYTES && mb_check_encoding($content, 'UTF-8')
+            && hash('sha256', $content) === ($diagnostic['submitted_sha256'] ?? null)
+            && hash('sha256', ImplementationBody::normalize($content, $subject)) === ($diagnostic['judged_sha256'] ?? null);
     }
 
     private static function patch(string $content, mixed $edits): string

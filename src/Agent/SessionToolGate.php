@@ -42,6 +42,8 @@ use Milpa\Command\Consent\OperationId;
 use Milpa\Command\Operation;
 use Milpa\Console\Consent;
 use Milpa\Console\McpProjector;
+use Milpa\DevTools\Operations\EditHandler;
+use Milpa\DevTools\Operations\ImplementHandler;
 
 /**
  * Une la política de la sesión con el bucle del agente (P16.4/P16.5).
@@ -265,6 +267,14 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
                 return self::UNJUDGEABLE . ': Invalid durable delivery expectation. ' . $error->getMessage();
             }
         }
+        // A PERSON'S YES IS NOT SPENT ON A CALL THE HOUSE ALREADY REFUSES (greenhouse decisions/0571). Rod's
+        // second live run: the house asked him to confirm an `edit`, he said yes, and the approved call died on
+        // a refusal no answer could change (evidence/1099). What the house can know by reading — never by
+        // running — it says now, before the intent contract and the policy get to ask anyone anything.
+        $foreknown = $this->foreknownRefusal($operacion, $arguments);
+        if ($foreknown !== null) {
+            return $foreknown;
+        }
         $duda = $this->intentUnderdetermined($operacion, $arguments, $deliveryTarget);
         if ($duda !== null && $deliveryTarget === null) {
             return $this->pause($duda);
@@ -385,6 +395,56 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
                 $this->policy->signatureQuestion($operacion->name, $arguments),
             ),
         };
+    }
+
+    /**
+     * The refusal this call will meet whatever a person answers, read from the house and its own record.
+     *
+     * Two doors, each asked through its own judge so this is never a second opinion: the recorded-repair
+     * door about a source in THIS session, and the landing gate about a class no scaffold declares. Without
+     * a trial router there is no house root to read, and the gate behaves as before.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function foreknownRefusal(Operation $operacion, array $arguments): ?string
+    {
+        $root = $this->trialRouter?->root();
+        if ($root === null) {
+            return null;
+        }
+        if (RecordedEdit::usesSource($operacion, $arguments)) {
+            return (new RecordedEdit($root, $this->sessions))->refusal($arguments, $this->session->id);
+        }
+        $plugin = $arguments['plugin'] ?? null;
+        $class = $arguments['class'] ?? null;
+        // DevTools is optional here and older releases keep this lookup private: without it nothing is foreknown.
+        $scaffold = self::installed(ImplementHandler::class, 'scaffold');
+        $unscaffolded = self::installed(ImplementHandler::class, 'unscaffolded');
+        if (!\in_array($operacion->handler, [[ImplementHandler::class, 'handle'], [EditHandler::class, 'handle']], true)
+            || $scaffold === null || $unscaffolded === null
+            || !\is_string($plugin) || !\is_string($class)
+            || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $plugin) !== 1 || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $class) !== 1
+            // A plugin that does not exist yet is the frontier's to speak about (decisions/0496), not this door's.
+            || !is_dir($root . '/src/Plugins/' . $plugin)
+            || $scaffold($root, $plugin, $class) !== null) {
+            return null;
+        }
+
+        return $unscaffolded($plugin, $class, $operacion->name === 'edit' ? 'editing' : 'filling')
+            . '. Nothing ran and nobody was asked.';
+    }
+
+    /**
+     * A static method of a package this `src/` only suggests, or `null` when the installed release lacks it.
+     *
+     * Plain strings on purpose: static analysis sees the vendor installed HERE and would rule the check
+     * redundant, while this code travels to apps holding whatever release their owner has.
+     */
+    private static function installed(string $class, string $method): ?callable
+    {
+        $callable = [$class, $method];
+
+        return \is_callable($callable) ? $callable : null;
     }
 
     /**

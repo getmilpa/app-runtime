@@ -45,8 +45,14 @@ final readonly class AuthoringDiagnostic
             array_keys($state),
             static fn (string $path): bool => str_starts_with($path, $tree . '/') && basename($path) === $basename,
         ));
+        // The landing gate looks in the plugin's sources, then in its tests: a judge lands through the same
+        // gate (greenhouse decisions/0571). Nothing judges a judge's behavior, so it has no selector.
         $subjects = $find('src/Plugins/' . $plugin, $class . '.php');
         $selectors = $find('tests/Plugins/' . $plugin, $class . 'Test.php');
+        if ($subjects === [] && in_array('tests/Plugins/' . $plugin, $writePaths, true)) {
+            $subjects = $find('tests/Plugins/' . $plugin, $class . '.php');
+            $selectors = [];
+        }
         if (count($subjects) !== 1) {
             return null;
         }
@@ -142,6 +148,9 @@ final readonly class AuthoringDiagnostic
         if (($receipt['phase'] ?? null) === 'static-analysis') {
             return $this->staticIdentities($receipt['result'] ?? null, $before);
         }
+        if (($receipt['phase'] ?? null) === 'container') {
+            return $this->constructionIdentities($receipt['result'] ?? null, $before);
+        }
         if (($receipt['phase'] ?? null) !== 'behavior' || $this->behavior === null) {
             return [];
         }
@@ -166,6 +175,24 @@ final readonly class AuthoringDiagnostic
         return [hash('sha256', json_encode([
             'native-authoring-diagnostic/v1', $this->expected['subject'], $this->expected['judged_sha256'],
             $this->behavior['selector'], $before,
+        ], JSON_THROW_ON_ERROR))];
+    }
+
+    /** What the container said when a route asked for the class: the same answer on the same tree is not news.
+     * @param array<string, string> $before
+     *
+     * @return list<string>
+     */
+    private function constructionIdentities(mixed $result, array $before): array
+    {
+        if (!is_array($result) || !is_array($result['routes'] ?? null) || $result['routes'] === []
+            || !array_is_list($result['routes']) || !is_string($result['error'] ?? null)
+            || !is_array($result['unresolvable'] ?? null)) {
+            return [];
+        }
+        return [hash('sha256', json_encode([
+            'native-construction-diagnostic/v1', $this->expected['subject'], $result['routes'], $result['error'],
+            $result['unresolvable'], $before,
         ], JSON_THROW_ON_ERROR))];
     }
 
