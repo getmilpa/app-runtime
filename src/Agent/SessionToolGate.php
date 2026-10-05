@@ -267,7 +267,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
                 return self::UNJUDGEABLE . ': Invalid durable delivery expectation. ' . $error->getMessage();
             }
         }
-        // A PERSON'S YES IS NOT SPENT ON A CALL THE HOUSE ALREADY REFUSES (greenhouse decisions/0569). Rod's
+        // A PERSON'S YES IS NOT SPENT ON A CALL THE HOUSE ALREADY REFUSES (greenhouse decisions/0571). Rod's
         // second live run: the house asked him to confirm an `edit`, he said yes, and the approved call died on
         // a refusal no answer could change (evidence/1099). What the house can know by reading — never by
         // running — it says now, before the intent contract and the policy get to ask anyone anything.

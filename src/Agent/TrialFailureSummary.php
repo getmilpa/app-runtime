@@ -24,7 +24,7 @@ final class TrialFailureSummary
      * bounded tool projection can show what failed and what transition is useful without forcing an
      * agent to page through incidental stack traces or rendered state envelopes.
      *
-     * ── `next` NAMES A CALL THE HOUSE RUNS (greenhouse decisions/0569) ──────────────────────────────
+     * ── `next` NAMES A CALL THE HOUSE RUNS (greenhouse decisions/0571) ──────────────────────────────
      *
      * It used to send every rejected `implement` to `edit` with a recorded source, while that door took
      * three phases of four, no test class, and nothing from an unrestricted caller. Rod's second live run

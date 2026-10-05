@@ -46,7 +46,7 @@ final readonly class AuthoringDiagnostic
             static fn (string $path): bool => str_starts_with($path, $tree . '/') && basename($path) === $basename,
         ));
         // The landing gate looks in the plugin's sources, then in its tests: a judge lands through the same
-        // gate (greenhouse decisions/0569). Nothing judges a judge's behavior, so it has no selector.
+        // gate (greenhouse decisions/0571). Nothing judges a judge's behavior, so it has no selector.
         $subjects = $find('src/Plugins/' . $plugin, $class . '.php');
         $selectors = $find('tests/Plugins/' . $plugin, $class . 'Test.php');
         if ($subjects === [] && in_array('tests/Plugins/' . $plugin, $writePaths, true)) {

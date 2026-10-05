@@ -24,7 +24,7 @@ use Milpa\EventStore\InMemoryEventStore;
 use PHPUnit\Framework\TestCase;
 
 /**
- * A person's yes is not spent on a call the house already refuses (greenhouse decisions/0569).
+ * A person's yes is not spent on a call the house already refuses (greenhouse decisions/0571).
  *
  * Rod's second live run (evidence/1099, seq 199–213): the resident called `edit PostController` with a
  * recorded source, the intent contract asked Rod «Confirm edit on «PostController»?», Rod said yes, and the

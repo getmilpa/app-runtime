@@ -76,7 +76,7 @@ final class TrialFailureSummaryTest extends TestCase
 
     /**
      * The hint names the recorded door only when whoever ran the trial says that door takes the rejection
-     * (greenhouse decisions/0569): by default it names the call every rejection leaves open.
+     * (greenhouse decisions/0571): by default it names the call every rejection leaves open.
      */
     public function testARejectionTheRecordedDoorRefusesIsSentToACompleteImplement(): void
     {

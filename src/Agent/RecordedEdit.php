@@ -81,7 +81,7 @@ final readonly class RecordedEdit
     /**
      * What this door answers to a session's call about ITS OWN record, permissions aside — or null when the
      * source binds. The session gate asks before it asks a person: a yes is not spent on a call this door
-     * already refuses (greenhouse decisions/0569). Another session's record is not read here; whether the
+     * already refuses (greenhouse decisions/0571). Another session's record is not read here; whether the
      * caller may read it is a permission, and {@see self::prepare()} judges that first.
      *
      * @param array<string, mixed> $arguments
@@ -258,7 +258,7 @@ final readonly class RecordedEdit
     /**
      * Whether a rejection the trial just produced is one {@see self::source()} takes as a producer — asked
      * where the repair hint is written, so the hint names this door only when it opens (greenhouse
-     * decisions/0569). The same checks as the door, on the same receipt: never a second list of phases.
+     * decisions/0571). The same checks as the door, on the same receipt: never a second list of phases.
      *
      * @param array<string, mixed>      $input       what the landing gate ran: plugin, class and the complete body
      * @param array<string, mixed>|null $output      the gate's own answer

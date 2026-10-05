@@ -147,7 +147,7 @@ final class TrialAwareRegistry extends ToolRegistry
             'arguments_digest' => EffectObservation::argumentsDigest($executionInput), 'repair' => $prepared['provenance']];
         $this->record($plan, $operation->name, $args, $run, $execution);
         // Whether `edit` with `source` will take this rejection: asked of that door, with the witness it will
-        // read, before the hint that names it is written (greenhouse decisions/0569).
+        // read, before the hint that names it is written (greenhouse decisions/0571).
         $recorded = false;
         if ($observe) {
             $after = FileEffectObserver::trialSnapshot($plan->workspace);
