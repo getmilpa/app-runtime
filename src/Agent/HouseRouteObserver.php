@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Agent;
 
+use Milpa\AppRuntime\Entity\SeedDeclarations;
 use Milpa\AppRuntime\Support\ChildProcess;
 use Milpa\AppRuntime\Support\PhpBinary;
 use Milpa\Attributes\PluginMetadata;
@@ -169,7 +170,8 @@ final class HouseRouteObserver
      */
     public static function mountedScreens(string $root, array $paths): array
     {
-        if (!\in_array(ScreenStore::DEFAULT_PATH, $paths, true)) {
+        // Rows that were just sown change what a page lists (greenhouse decisions/0574 §7): the house looks again.
+        if (!\in_array(ScreenStore::DEFAULT_PATH, $paths, true) && SeedDeclarations::landed($paths) === []) {
             return [];
         }
         try {
@@ -177,6 +179,31 @@ final class HouseRouteObserver
         } catch (\Throwable) {
             return [];
         }
+    }
+
+    /**
+     * Sow the seed declarations that landed (greenhouse decisions/0574 §4): a FRESH process of the house — one that
+     * boots with the plugins as they now are — saves each declared row not seeded before, through the entity's own
+     * repository. The process that promoted booted before the declaration (and maybe the plugin) existed.
+     *
+     * @param list<string> $paths what landed, relative to the root
+     *
+     * @return array{seeded: list<array<string, mixed>>, error?: string}
+     */
+    public function seed(string $root, array $paths): array
+    {
+        $landed = SeedDeclarations::landed($paths);
+        if ($landed === []) {
+            return ['seeded' => []];
+        }
+        [$exit, $said] = $this->run(['seed', $root, (string) json_encode($landed)]);
+        if ($exit !== 0 || !\is_array($said['seeded'] ?? null)) {
+            $why = \is_string($said['error'] ?? null) ? $said['error'] : 'exit ' . $exit;
+
+            return ['seeded' => [], 'error' => "the house could not be asked to seed what landed ({$why})"];
+        }
+
+        return ['seeded' => array_values(array_filter($said['seeded'], 'is_array'))];
     }
 
     /**

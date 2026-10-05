@@ -34,8 +34,8 @@ const HOUSE_OBSERVE_MARK = '@@house-observe ';
 
 $mode = $argv[1] ?? '';
 $root = $argv[2] ?? '';
-if (!\in_array($mode, ['routes', 'get', 'request', 'boot'], true) || !is_dir($root)) {
-    fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => false, 'error' => 'usage: house-observe.php routes|get|request|boot <root> <argument>']) . "\n");
+if (!\in_array($mode, ['routes', 'get', 'request', 'boot', 'seed'], true) || !is_dir($root)) {
+    fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => false, 'error' => 'usage: house-observe.php routes|get|request|boot|seed <root> <argument>']) . "\n");
     exit(2);
 }
 $root = (string) realpath($root);
@@ -70,6 +70,26 @@ if ($mode === 'routes') {
         exit(1);
     }
     fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => true, 'routes' => $routes], \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE) . "\n");
+    exit(0);
+}
+
+// SEED: the house, booted as it now is, saves the rows of the declarations that landed (greenhouse decisions/0574).
+if ($mode === 'seed') {
+    $landed = json_decode($argv[3] ?? '[]', true);
+    chdir($root);
+    require $root . '/vendor/autoload.php';
+    try {
+        $app = new Milpa\AppRuntime\Console\Application($root);
+        $container = (new ReflectionMethod($app, 'kernel'))->invoke($app)->container();
+        $seeded = (new Milpa\AppRuntime\Entity\SeedDeclarations($root))->apply(
+            \is_array($landed) ? array_values(array_filter($landed, 'is_string')) : [],
+            static fn (string $id): ?object => $container->has($id) && \is_object($service = $container->get($id)) ? $service : null,
+        );
+    } catch (Throwable $e) {
+        fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => false, 'error' => $e::class . ': ' . $e->getMessage()], \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE) . "\n");
+        exit(1);
+    }
+    fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => true, 'seeded' => $seeded], \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE) . "\n");
     exit(0);
 }
 

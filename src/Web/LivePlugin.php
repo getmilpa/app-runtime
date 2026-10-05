@@ -462,6 +462,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 // its readings in boot(), possibly after this one.
                 fn (): ?HouseReadings => $this->container->has(HouseReadings::class) && ($readings = $this->container->get(HouseReadings::class)) instanceof HouseReadings ? $readings : null,
                 $this->servedRoutes(...),
+                $this->publicRowsOf(...),
             ))->operations(),
             // How the house learns a word (decisions/0465).
             ...(new ComponentWordOperations(
@@ -500,6 +501,21 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         $kernel = $this->container->has(\Milpa\Runtime\Kernel::class) ? $this->container->get(\Milpa\Runtime\Kernel::class) : null;
 
         return $kernel instanceof \Milpa\Runtime\Kernel ? [...$rows, ...\Milpa\AppRuntime\Support\Routes::table($kernel)] : $rows;
+    }
+
+    /**
+     * How many public rows a screen's entity binding reads right now, or null when the house cannot say — the
+     * repository is not registered yet, or the entity declares nothing public (greenhouse decisions/0574 §8).
+     *
+     * @param array<string, mixed> $source
+     */
+    private function publicRowsOf(array $source): ?int
+    {
+        try {
+            return \count(PublicSource::rows($source, fn (string $id): ?object => $this->container->has($id) ? $this->serviceObject($id) : null));
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function overrideStore(): PresentationOverrideStore

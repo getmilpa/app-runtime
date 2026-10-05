@@ -521,6 +521,11 @@ final class TrialOperations implements CommandProvider
         // THE HOUSE LOOKS AT WHAT LANDED (greenhouse decisions/0494). A route is code, and this process booted
         // before that code existed — so a fresh process of the house requests the GET routes the touched
         // plugins declare, through its own front controller, and the receipt says what the house answered.
+        // THE HOUSE SEEDS WHAT WAS DECLARED (greenhouse decisions/0574). A trial cannot write the house's store — it
+        // lives in var/, which no trial copies or promotes — so the rows of a seed declaration that just landed are
+        // saved now, by a fresh process of the house, BEFORE it looks at the pages that list them.
+        $sown = $this->observer?->seed($root, $paths) ?? ['seeded' => []];
+
         $observation = $this->observer?->observe($root, $paths) ?? ['observed' => []];
 
         // THE PROMOTION EARNS ITS OWN VERB (greenhouse decisions/0463). Its receipt says what crossed
@@ -538,12 +543,14 @@ final class TrialOperations implements CommandProvider
                 'from' => ['kind' => 'trial', 'workspace' => $id],
                 'paths' => $paths,
             ],
+            ...($sown['seeded'] !== [] ? ['seeded' => $sown['seeded']] : []),
+            ...(isset($sown['error']) ? ['seed_error' => $sown['error']] : []),
             ...($observation['observed'] !== [] ? ['observed' => $observation['observed']] : []),
             // Routes that answered 5xx in the copy WITH the promotion and WITHOUT it too: not its doing, so not refused (0540).
             ...($routes['unjudged'] !== [] ? ['unjudged' => $routes['unjudged']] : []),
             ...(isset($observation['error']) ? ['observation_error' => $observation['error']] : []),
             'note' => 'Promoted into the house. What the trial observed (served, passed) was observed in the '
-                . 'copy; observe it here before claiming it about the house.' . self::whatTheHouseSaw($observation),
+                . 'copy; observe it here before claiming it about the house.' . self::whatTheHouseSowed($sown['seeded']) . self::whatTheHouseSaw($observation),
         ];
     }
 
@@ -648,6 +655,26 @@ final class TrialOperations implements CommandProvider
 
         return ' The house requested the routes this promotion declares, the way a browser does: ' . implode('; ', $answers)
             . (isset($observation['unobserved']) ? "; {$observation['unobserved']} more were not requested" : '') . '.';
+    }
+
+    /**
+     * What the house seeded, in one sentence for whoever reads the receipt.
+     *
+     * @param list<array<string, mixed>> $seeded
+     */
+    private static function whatTheHouseSowed(array $seeded): string
+    {
+        $said = [];
+        foreach ($seeded as $one) {
+            $said[] = sprintf(
+                'seeded %d row(s) of %s%s',
+                (int) ($one['added'] ?? 0),
+                (string) ($one['entity'] ?? '?'),
+                isset($one['unseeded']) ? ' — ' . $one['unseeded'] : ((int) ($one['already'] ?? 0) > 0 ? ' (' . (int) $one['already'] . ' were already there)' : ''),
+            );
+        }
+
+        return $said === [] ? '' : ' The house ' . implode('; ', $said) . '.';
     }
 
     /** @return array<string, mixed> */
