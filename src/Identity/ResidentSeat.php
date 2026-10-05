@@ -42,8 +42,15 @@ final class ResidentSeat
      * What a seat holds on arrival — declared by the house, never typed by a client: what evidence/1024
      * measured a resident needs to run and author plugins. No `plugins.<Name>:write`: that one still arrives
      * through the frontier, a refusal the human decides (decisions/0317, 0493).
+     *
+     * AND IT DECLARES SCREENS (greenhouse decisions/0567 §3.0). Measured (evidence/1101): a seat could land raw
+     * HTML in a controller with nothing beyond `plugins.<Name>:write`, and could not call `screen:declare` at
+     * all — its scope was not here, the refusal did not say who grants it, and no frontier offered it. The
+     * house's own components were the path that cost more authority. A screen is authored like any work — it is
+     * rehearsed in a trial and crosses on promotion (decisions/0463) — and shows only what an entity declared
+     * public (decisions/0462), so the scope opens nothing `plugins:write` does not already let a seat build.
      */
-    public const array SCOPES = ['agent:run', 'agent:read', 'plugins:read', 'plugins:write', 'plugins.config:write'];
+    public const array SCOPES = ['agent:run', 'agent:read', 'plugins:read', 'plugins:write', 'plugins.config:write', 'milpa:component:data-table:*'];
 
     /** The intent session a passkey touch for minting a seat is bound to — there is no agent session yet. */
     public const string INTENT_SESSION = 'identity:seat';

@@ -126,6 +126,23 @@ final class ScreenStore
     }
 
     /**
+     * The routes declared screens are mounted at, each with its screen (greenhouse decisions/0567 §3).
+     *
+     * @return array<string, string> route → screen name
+     */
+    public function mounts(): array
+    {
+        $out = [];
+        foreach ($this->all() as $name => $entry) {
+            if (\is_array($entry) && \is_string($entry['route'] ?? null) && $entry['route'] !== '') {
+                $out[$entry['route']] = (string) $name;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * A summary of every declared screen — name, component type, where it is served, and how many props it
      * carries — in declaration order. The readonly view `screen:list` projects.
      *
@@ -143,6 +160,7 @@ final class ScreenStore
                 'name' => $name,
                 'type' => $screen['type'],
                 'servedAt' => '/live/page?component=' . $name,
+                ...(\is_string($entry['route'] ?? null) ? ['route' => $entry['route']] : []),
                 'props' => \count($screen['props']),
                 ...(\is_array($entry['word'] ?? null) ? ['word' => $entry['word']['name'] ?? null, 'wordVersion' => $entry['word']['version'] ?? null] : []),
             ];
@@ -229,11 +247,25 @@ final class ScreenStore
             $props['source'] = $input['source'];
         }
         $props['name'] ??= $name;
+        $route = null;
+        if (($input['route'] ?? null) !== null && $input['route'] !== '') {
+            try {
+                $route = ScreenRoute::parse($input['route']);
+            } catch (InvalidScreenTree $error) {
+                return ['ok' => false, 'error' => 'invalid screen tree', 'path' => $error->path, 'reason' => $error->getMessage()];
+            }
+        }
 
         $lock = $this->lock();
         try {
             $screens = $this->all();
-            $screens[$name] = ['type' => $type, 'props' => $props];
+            foreach ($route === null ? [] : $screens as $other => $entry) {
+                if ((string) $other !== $name && \is_array($entry) && \is_string($entry['route'] ?? null)
+                    && ScreenRoute::key($entry['route']) === ScreenRoute::key($route)) {
+                    return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'route', 'reason' => "«{$other}» is already mounted at {$entry['route']}; one route serves one screen"];
+                }
+            }
+            $screens[$name] = ['type' => $type, 'props' => $props] + ($route === null ? [] : ['route' => $route]);
             // Which word of the house produced this screen, and which version (decisions/0465).
             if (\is_array($input['word'] ?? null)) {
                 $screens[$name]['word'] = $input['word'];
@@ -248,6 +280,7 @@ final class ScreenStore
             'screen' => $name,
             'type' => $type,
             'servedAt' => '/live/page?component=' . $name,
+            ...($route === null ? [] : ['route' => $route]),
             'props' => \count($props),
         ];
     }
@@ -268,7 +301,10 @@ final class ScreenStore
             if ($next === null) {
                 unset($all[$name]);
             } else {
-                $all[$name] = $next;
+                // Where a screen is mounted is not part of a proposal (greenhouse decisions/0567): a draft
+                // that replaces the declaration leaves the screen at the route it already answers.
+                $kept = \is_array($all[$name] ?? null) && \is_string($all[$name]['route'] ?? null) ? ['route' => $all[$name]['route']] : [];
+                $all[$name] = $next + $kept;
             }
             $this->write($all);
             return true;
