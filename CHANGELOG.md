@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [0.208.0](https://github.com/getmilpa/app-runtime/compare/v0.207.3...v0.208.0) (2026-10-05)
+
+
+### Features
+
+* a declared screen mounts at a route, and a seat declares screens (greenhouse decisions/0570) ([#696](https://github.com/getmilpa/app-runtime/issues/696)) ([5cdf655](https://github.com/getmilpa/app-runtime/commit/5cdf6558702bc213c6771c293397aab836d14862))
+
+
+### Bug Fixes
+
+* a repair hint names a call the house runs, and a yes is not spent on one it refuses ([#697](https://github.com/getmilpa/app-runtime/issues/697)) ([8813864](https://github.com/getmilpa/app-runtime/commit/88138646f3b668ec8342e8a909f9417313991189))
+
 ## [0.207.3](https://github.com/getmilpa/app-runtime/compare/v0.207.2...v0.207.3) (2026-10-05)
 
 
