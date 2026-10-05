@@ -19,6 +19,7 @@ use Milpa\Command\Consent\OperationId;
 use Milpa\AiGateway\OptionTable;
 use Milpa\Console\McpProjector;
 use Milpa\AppRuntime\Auth\PresentedToken;
+use Milpa\AppRuntime\Config\SecretRedaction;
 use Milpa\Auth\AuthContext;
 use Milpa\ToolRuntime\Contracts\ToolContext;
 use Milpa\ToolRuntime\Gate\GatedToolCalls;
@@ -109,6 +110,10 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
         private readonly ?\Closure $grown = null,
         // A request's explicit authority wins over the local token fallback, including empty scopes.
         private readonly ?ToolContext $authority = null,
+        // THE HOUSE ROOT, so a tool result is stripped of the house's own secret VALUES before it becomes a
+        // model-visible message (greenhouse decisions/0569). Null → no redaction (the bridge does not know the
+        // house); the governed executor always resolves it. {@see SecretRedaction} says how a secret is known.
+        private readonly ?string $root = null,
     ) {
         // THE DOOR DOES NOT NEED THE MODEL GATEWAY (greenhouse decisions/0225): gate, registry and recorder
         // are milpa/tool-runtime's. The option table is the model loop's own concern and stays optional —
@@ -238,7 +243,7 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
             // grant, and the grant is just as durable whichever path the effect profile chose.
             $this->declareIfEffect($name, $args, $this->grantThatCovers($name, $args));
 
-            return $result;
+            return $this->redactForModel($result);
         }
 
         $token = $result['confirm_token'] ?? null;
@@ -295,7 +300,17 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
 
         $this->declareIfEffect($name, $args, $grant);
 
-        return $executed;
+        return $this->redactForModel($executed);
+    }
+
+    /**
+     * The house's own secret values, out of a tool result before it becomes a model-visible message
+     * (greenhouse decisions/0569). A no-op when the bridge does not know the house root — the governed
+     * executor always supplies it. {@see SecretRedaction} decides what a secret is, and fails closed.
+     */
+    private function redactForModel(mixed $result): mixed
+    {
+        return $this->root === null ? $result : SecretRedaction::inResult($result, $this->root);
     }
 
     /**

@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.207.3](https://github.com/getmilpa/app-runtime/compare/v0.207.2...v0.207.3) (2026-10-05)
+
+
+### Bug Fixes
+
+* the house's secrets do not travel to the model ([#699](https://github.com/getmilpa/app-runtime/issues/699)) ([83d94a2](https://github.com/getmilpa/app-runtime/commit/83d94a2833f7cc57fe8ed32b7052174e19783045))
+
 ## [0.207.2](https://github.com/getmilpa/app-runtime/compare/v0.207.1...v0.207.2) (2026-10-04)
 
 

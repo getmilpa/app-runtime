@@ -75,6 +75,14 @@ final class ScreenOperations implements CommandProvider
          * @var \Closure(): ?HouseReadings|null
          */
         private readonly ?\Closure $readings = null,
+        /**
+         * The routes this house already serves, as `routes:list` folds them ({method, path, name, plugin}), so a
+         * screen is never mounted where something else answers (greenhouse decisions/0567 §3). Null: the caller
+         * has no route table, and only the store's own rule holds — one route, one screen.
+         *
+         * @var \Closure(): list<array<string, mixed>>|null
+         */
+        private readonly ?\Closure $routes = null,
     ) {
     }
 
@@ -102,13 +110,14 @@ final class ScreenOperations implements CommandProvider
             )]),
             new Operation(
                 name: 'screen:declare',
-                description: 'Declare a live screen by name and component type (default data-table) with its props. It is served at /live/page?component=<name> with no code deploy. A data-table may pass columns/rows at the top level. A type whose contract has rows (data-table, content) may bind to a public entity with source instead of rows. Any type passes its props under "props".',
+                description: 'Declare a live screen by name and component type (default data-table) with its props. It is served at /live/page?component=<name> with no code deploy, and also at the literal GET route it names (route: /blog) — the way to serve a page a visitor reads without writing its HTML. A data-table may pass columns/rows at the top level. A type whose contract has rows (data-table, content) may bind to a public entity with source instead of rows. Any type passes its props under "props".',
                 handler: fn (array $input): array => $this->declare($input),
                 inputSchema: [
                     'type' => 'object',
                     'required' => ['name'],
                     'properties' => [
                         'name' => ['type' => 'string', 'description' => 'a-z, 0-9, dash; starts with a letter'],
+                        'route' => ['type' => 'string', 'description' => 'mount the screen at this literal GET path, e.g. /blog: no parameters, no query; refused if the house already serves it. Omit it and the screen answers only at /live/page?component=<name>'],
                         'type' => $this->registry !== null
                             ? ['type' => 'string', 'description' => 'a currently registered HTML component; discover with screen:types', 'x-milpa-source' => ['tool' => 'screen:types', 'path' => 'types', 'key' => 'name']]
                             : ($this->types === []
@@ -445,6 +454,30 @@ final class ScreenOperations implements CommandProvider
                 $ignored = ContractJudge::judge(['type' => $type, 'props' => \is_array($input['props'] ?? null) ? $input['props'] : []], $schemas, $filled);
             } catch (InvalidScreenTree $error) {
                 return ['ok' => false, 'error' => 'invalid screen tree', 'path' => $error->path, 'reason' => $error->getMessage()];
+            }
+        }
+
+        // A SCREEN IS MOUNTED WHERE NOTHING ELSE ANSWERS (greenhouse decisions/0567 §3). The store keeps one route
+        // for one screen; what the rest of the house serves is asked of its route table, and the refusal names
+        // who answers there — a mount that silently lost to another route would be a page nobody can find.
+        if (($input['route'] ?? null) !== null && $input['route'] !== '') {
+            try {
+                $route = ScreenRoute::parse($input['route']);
+            } catch (InvalidScreenTree) {
+                $route = null; // not a route: the store refuses it by name, below — one authority for what a route is
+            }
+            foreach ($route !== null && $this->routes !== null ? ($this->routes)() : [] as $served) {
+                $path = \is_string($served['path'] ?? null) ? $served['path'] : null;
+                $name = \is_string($served['name'] ?? null) ? $served['name'] : '';
+                if ($path === null || ! \in_array('GET', explode(' ', (string) ($served['method'] ?? '')), true)
+                    || str_starts_with($name, ScreenRoute::NAME_PREFIX) || ! ScreenRoute::answers($path, $route)) {
+                    continue;
+                }
+                $who = ($name !== '' ? "«{$name}»" : 'another route')
+                    . (\is_string($served['plugin'] ?? null) && $served['plugin'] !== '' ? ' of plugin ' . $served['plugin'] : '')
+                    . (ScreenRoute::key($path) === ScreenRoute::key($route) ? '' : " ({$path})");
+
+                return ['ok' => false, 'error' => 'invalid screen tree', 'path' => 'route', 'reason' => "GET {$route} is already served by {$who}; mount the screen at a route nothing else answers"];
             }
         }
 

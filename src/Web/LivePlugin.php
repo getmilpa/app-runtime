@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Web;
 use Milpa\AppRuntime\Web\Controllers\LiveAssetsController;
 use Milpa\AppRuntime\Web\Controllers\LiveComponentPageController;
 use Milpa\AppRuntime\Web\Controllers\LiveController;
+use Milpa\AppRuntime\Web\Controllers\MountedScreenController;
 use Milpa\Attributes\PluginMetadata;
 use Milpa\Command\CommandProvider;
 use Milpa\Http\HttpMethod;
@@ -285,6 +286,12 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 $assets,
             ),
         );
+        // A DECLARED SCREEN ANSWERS AT THE ROUTE IT NAMES (greenhouse decisions/0567 §3): the same page controller,
+        // told which screen a path is.
+        $pages = $this->container->get(LiveComponentPageController::class);
+        if ($pages instanceof LiveComponentPageController) {
+            $this->container->registerService(MountedScreenController::class, new MountedScreenController($this->screenStore(), $pages));
+        }
         ScreenDraftFeature::boot($this->container, $screens, $this->root(), $route, $secret);
         $this->route = $route;
     }
@@ -325,6 +332,11 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         $design[ComponentStyles::FILE] = ComponentStyles::url($this->route . '/assets');
         foreach ($design as $name => $url) {
             $routes[] = new Route(path: $url, methods: HttpMethod::GET, name: 'live.design.' . $name, handler: new HandlerReference(LiveAssetsController::class, 'design'));
+        }
+        // The routes declared screens are mounted at (greenhouse decisions/0567 §3), read when the house boots:
+        // a mount lands by promotion, and the next request boots with it.
+        foreach ($this->screenStore()->mounts() as $path => $screen) {
+            $routes[] = new Route(path: $path, methods: HttpMethod::GET, name: ScreenRoute::NAME_PREFIX . $screen, handler: new HandlerReference(MountedScreenController::class, 'show'));
         }
 
         return $routes;
@@ -449,6 +461,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 // The readings the house lends (decisions/0484), resolved when asked: a plugin registers
                 // its readings in boot(), possibly after this one.
                 fn (): ?HouseReadings => $this->container->has(HouseReadings::class) && ($readings = $this->container->get(HouseReadings::class)) instanceof HouseReadings ? $readings : null,
+                $this->servedRoutes(...),
             ))->operations(),
             // How the house learns a word (decisions/0465).
             ...(new ComponentWordOperations(
@@ -467,6 +480,28 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
      * package that could restyle another's component by declaring it would have done the effect
      * before anybody was asked (greenhouse decisions/0246 §2).
      */
+    /**
+     * What this house already serves, for a screen that asks to be mounted (greenhouse decisions/0567 §3): the
+     * booted house's whole route table when there is a kernel to ask, and this door's own routes always.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function servedRoutes(): array
+    {
+        $rows = [];
+        foreach ($this->routes() as $route) {
+            $rows[] = [
+                'method' => implode(' ', array_map(static fn (HttpMethod $method): string => $method->value, $route->methods)),
+                'path' => $route->path,
+                'name' => (string) ($route->name ?? ''),
+                'plugin' => 'Live',
+            ];
+        }
+        $kernel = $this->container->has(\Milpa\Runtime\Kernel::class) ? $this->container->get(\Milpa\Runtime\Kernel::class) : null;
+
+        return $kernel instanceof \Milpa\Runtime\Kernel ? [...$rows, ...\Milpa\AppRuntime\Support\Routes::table($kernel)] : $rows;
+    }
+
     private function overrideStore(): PresentationOverrideStore
     {
         return PresentationOverrideStore::fromConfig($this->config(), $this->root());
