@@ -64,13 +64,35 @@ final class TrialFailureSummaryTest extends TestCase
                 'selector' => 'tests/Plugins/Owned/TodoItemRendererTest.php',
                 'result' => ['exit' => 2, 'tests' => 3, 'assertions' => 0, 'failures' => 0, 'errors' => 3],
             ],
-        ], '', []);
+        ], '', [], recorded: true);
 
         self::assertStringContainsString('Repair the recorded proposal with edit', $summary['next']);
         self::assertStringContainsString('source.session=current session', $summary['next']);
-        self::assertStringContainsString('source.seq=this failed implement tool-call seq', $summary['next']);
+        self::assertStringContainsString('source.seq=this failed tool-call seq', $summary['next']);
         self::assertStringContainsString('source.sha256=' . $sha, $summary['next']);
         self::assertStringContainsString('exact find/replace edits', $summary['next']);
         self::assertStringContainsString('Do not resubmit the complete file', $summary['next']);
+    }
+
+    /**
+     * The hint names the recorded door only when whoever ran the trial says that door takes the rejection
+     * (greenhouse decisions/0569): by default it names the call every rejection leaves open.
+     */
+    public function testARejectionTheRecordedDoorRefusesIsSentToACompleteImplement(): void
+    {
+        $output = ['error' => 'the house cannot build «PostController»', 'diagnostic' => ['phase' => 'container', 'submitted_sha256' => str_repeat('c', 64)]];
+
+        $unrecorded = TrialFailureSummary::from('implement', $output, '', [])['next'];
+        self::assertStringStartsWith('Resubmit the complete corrected file with implement.', $unrecorded);
+        self::assertStringNotContainsString('source.seq', $unrecorded);
+        self::assertStringContainsString('edit with source would be refused', $unrecorded);
+
+        // What the construction judge refuses may be cured in the plugin, not in the class: said either way.
+        $elsewhere = 'land that first with edit on the plugin class';
+        self::assertStringContainsString($elsewhere, $unrecorded);
+        $recorded = TrialFailureSummary::from('implement', $output, '', [], recorded: true)['next'];
+        self::assertStringContainsString('source.sha256=' . str_repeat('c', 64), $recorded);
+        self::assertStringContainsString($elsewhere, $recorded);
+        self::assertStringNotContainsString($elsewhere, TrialFailureSummary::from('implement', ['diagnostic' => ['phase' => 'behavior']], '', [])['next']);
     }
 }

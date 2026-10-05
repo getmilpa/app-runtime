@@ -146,6 +146,9 @@ final class TrialAwareRegistry extends ToolRegistry
         $execution = $prepared === null ? null : ['operation' => $executionName,
             'arguments_digest' => EffectObservation::argumentsDigest($executionInput), 'repair' => $prepared['provenance']];
         $this->record($plan, $operation->name, $args, $run, $execution);
+        // Whether `edit` with `source` will take this rejection: asked of that door, with the witness it will
+        // read, before the hint that names it is written (greenhouse decisions/0569).
+        $recorded = false;
         if ($observe) {
             $after = FileEffectObserver::trialSnapshot($plan->workspace);
             $evidence = FileEffectObserver::testEvidence($name, $args, $after, $run->output);
@@ -153,6 +156,7 @@ final class TrialAwareRegistry extends ToolRegistry
                 ? FileEffectObserver::testDiagnostics($name, $args, $after, $run->output) : [];
             $diagnostics = [...$diagnostics, ...($authoring?->identities($before, $after, $run->output, $run->exit) ?? [])];
             $this->recordEffect($name, $args, FileEffectObserver::compare($before, $after, 'proposal', $evidence, $diagnostics));
+            $recorded = $executionName === 'implement' && RecordedEdit::admits($executionInput, $run->output, $run->exit, $diagnostics);
         }
 
         $meta = [
@@ -176,7 +180,7 @@ final class TrialAwareRegistry extends ToolRegistry
                     'applied' => false,
                     'workspace' => $plan->workspace->id,
                     'trial_exit' => $run->exit,
-                    'summary' => TrialFailureSummary::from($executionName, $run->output, $run->stderr, $executionInput),
+                    'summary' => TrialFailureSummary::from($executionName, $run->output, $run->stderr, $executionInput, $recorded),
                     'output' => $run->output,
                     'stderr' => $run->stderr,
                     ...($prepared === null ? [] : ['repair' => $prepared['provenance']]),
