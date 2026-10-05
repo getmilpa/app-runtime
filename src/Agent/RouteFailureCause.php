@@ -14,7 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Agent;
 
-use Milpa\AppRuntime\Config\SecretOverlay;
+use Milpa\AppRuntime\Config\SecretRedaction;
 use Milpa\AppRuntime\Support\BootProbe;
 
 /**
@@ -92,35 +92,15 @@ final class RouteFailureCause
     /** Secrets out, the house's root off, the host's other paths cut to a file name — one bounded line. */
     private static function clean(string $said, string $root): string
     {
-        foreach (self::secretsOf($root) as $secret) {
-            $said = str_replace($secret, self::REDACTED, $said);
-        }
+        // The house's own secret VALUES, out — the same rule a tool result is redacted by
+        // ({@see SecretRedaction}, greenhouse decisions/0569): what the house keeps in its secret overlay,
+        // not a list of key names. The regex sweeps below catch a credential a FAILURE string carried that
+        // the overlay did not (a URL's userinfo, a Bearer header, a `password=` from a dependency's error).
+        $said = SecretRedaction::inText($said, $root);
         $said = (string) preg_replace('~(\b[a-z][a-z0-9+.-]*://[^\s:/@]+):[^\s@/]+@~i', '$1:' . self::REDACTED . '@', $said);
         $said = (string) preg_replace('~\b(Bearer)\s+[^\s,;]+~i', '$1 ' . self::REDACTED, $said);
         $said = (string) preg_replace('~\b((?:password|passwd|secret|token|api[_-]?key)["\']?\s*[=:]\s*)["\']?[^\s,;"\']+["\']?~i', '$1' . self::REDACTED, $said);
 
         return BootProbe::oneLine($said, $root);
-    }
-
-    /**
-     * Every value the house keeps as a secret, longest first so a secret that contains another goes whole.
-     *
-     * @return list<string>
-     */
-    private static function secretsOf(string $root): array
-    {
-        $values = [];
-        $tree = SecretOverlay::sobre([], $root);
-        array_walk_recursive(
-            $tree,
-            static function (mixed $value) use (&$values): void {
-                if (\is_scalar($value) && \strlen((string) $value) >= 4) {
-                    $values[] = (string) $value;
-                }
-            },
-        );
-        usort($values, static fn (string $a, string $b): int => \strlen($b) <=> \strlen($a));
-
-        return $values;
     }
 }
