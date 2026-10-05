@@ -268,6 +268,88 @@ return $loader;
         self::assertArrayNotHasKey('observation_error', $receipt);
     }
 
+    /**
+     * A MOUNTED SCREEN IS A ROUTE THAT LANDED (greenhouse decisions/0567 §3, slice BV-1). The declarations are not a
+     * plugin's source, so a promotion that mounted a screen at `/pages` used to ask the house nothing — and a goal
+     * that writes `GET /pages` closes only on the house having seen that route served (decisions/0494, 0555).
+     */
+    public function testAPromotionThatMountsAScreenObservesItsRoute(): void
+    {
+        $this->withTheLiveDoor();
+        $store = new SessionStore(new InMemoryEventStore());
+        $store->start('s', 'Serve GET /pages as a page', AutonomyMode::Ask);
+
+        $receipt = $this->promote(['config/screens.json' => (string) json_encode([
+            'pages' => ['type' => 'data-table', 'props' => ['columns' => [['key' => 't', 'label' => 'T']], 'rows' => [['t' => 'a mounted row']], 'name' => 'pages'], 'route' => '/pages'],
+            'unmounted' => ['type' => 'data-table', 'props' => ['columns' => [], 'rows' => [], 'name' => 'unmounted']],
+        ])]);
+
+        self::assertTrue($receipt['ok'] ?? false, (string) json_encode($receipt));
+        self::assertCount(1, $receipt['observed'] ?? [], 'the mounted route, and only it: a screen without a route has no route to ask');
+        self::assertSame('GET /pages', $receipt['observed'][0]['route']);
+        self::assertSame(200, $receipt['observed'][0]['status'], (string) json_encode($receipt));
+        self::assertSame('served', $receipt['observed'][0]['predicate']);
+
+        $store->recordToolCall('s', 'sandbox_promote', ['workspace' => 'w1'], (string) json_encode($receipt), mutating: true);
+        $session = $store->load('s');
+        self::assertNotNull($session);
+        $closure = ClosureVerdict::derive($session, $store->facts('s'), $store->stream('s'));
+        self::assertTrue($closure['verified'], implode('; ', $closure['reasons']));
+        self::assertSame('/pages', $closure['derivedFrom']['observation']['subject'] ?? null);
+    }
+
+    public function testAPromotionOfPluginSourceAndAMountObservesBothOnce(): void
+    {
+        $this->withTheLiveDoor();
+
+        $receipt = $this->promote([
+            'src/Plugins/Blog/Controller.php' => $this->controller('blog'),
+            'config/screens.json' => (string) json_encode(['pages' => ['type' => 'data-table', 'props' => ['columns' => [], 'rows' => [], 'name' => 'pages'], 'route' => '/pages']]),
+        ]);
+
+        self::assertSame(['GET /blog', 'GET /pages'], array_column($receipt['observed'] ?? [], 'route'));
+    }
+
+    public function testAMountThatDidNotLandIsNotAskedAgain(): void
+    {
+        $this->withTheLiveDoor();
+        file_put_contents($this->root . '/config/screens.json', (string) json_encode(['pages' => ['type' => 'data-table', 'props' => ['columns' => [], 'rows' => [], 'name' => 'pages'], 'route' => '/pages']]));
+
+        $receipt = $this->promote(['config/notes.php' => "<?php return [];\n"]);
+
+        self::assertTrue($receipt['ok'] ?? false, (string) json_encode($receipt));
+        self::assertArrayNotHasKey('observed', $receipt, 'the house asks what a promotion landed, not everything it serves');
+    }
+
+    public function testARouteThatLandedTwiceOverIsAskedOnce(): void
+    {
+        $this->withTheLiveDoor();
+
+        // Written past the declaration's own collision check: a plugin and a mount name the same path.
+        $receipt = $this->promote([
+            'src/Plugins/Blog/Controller.php' => $this->controller('blog'),
+            'config/screens.json' => (string) json_encode(['pages' => ['type' => 'data-table', 'props' => ['columns' => [], 'rows' => [], 'name' => 'pages'], 'route' => '/blog']]),
+        ]);
+
+        self::assertSame(['GET /blog'], array_column($receipt['observed'] ?? [], 'route'));
+    }
+
+    public function testDeclarationsTheHouseCannotReadMountNothingToObserve(): void
+    {
+        self::assertSame(['observed' => []], (new HouseRouteObserver())->observe($this->root, ['config/screens.json']), 'no declarations file: nothing is mounted');
+        file_put_contents($this->root . '/config/screens.json', '{not json');
+        self::assertSame(['observed' => []], (new HouseRouteObserver())->observe($this->root, ['config/screens.json']));
+    }
+
+    /** The fixture house gains the live door, the way the skeleton wires it: its plugin and a secret. */
+    private function withTheLiveDoor(): void
+    {
+        file_put_contents($this->root . '/config/plugins.php', '<?php return [Milpa\AppRuntime\Web\LivePlugin::class, App\Plugins\Blog\Blog::class, App\Plugins\Other\Other::class];');
+        // The store's path is named: this fixture borrows the package's own vendor/, so Composer would say the app
+        // root is the package. A real house has its own vendor/ and needs no such line.
+        file_put_contents($this->root . '/config/app.php', '<?php return ["live" => ["secret" => "' . str_repeat('k', 32) . '", "screens_path" => __DIR__ . "/screens.json"]];');
+    }
+
     public function testAHouseWithoutAFrontControllerAsksNothing(): void
     {
         unlink($this->root . '/public/index.php');

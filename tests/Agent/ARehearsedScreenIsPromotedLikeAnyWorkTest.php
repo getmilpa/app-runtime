@@ -128,6 +128,43 @@ final class ARehearsedScreenIsPromotedLikeAnyWorkTest extends TestCase
         }
     }
 
+    /**
+     * A SEAT DECLARES SCREENS WITHOUT ASKING FOR MORE (greenhouse decisions/0567 §3.0, slice BV-1). Measured
+     * (evidence/1101): a seat could land raw HTML with nothing beyond `plugins.<Plugin>:write`, and could not call
+     * `screen_declare` at all — the scope was not among the ones it holds on arrival, and no frontier offered it.
+     * The governed path is the one that costs no extra authority.
+     */
+    public function testASeatDeclaresAScreenAndPromotesItWithTheScopesItArrivesWith(): void
+    {
+        $seat = new ToolContext(principal: 'key:SEAT', channel: 'cli', scopes: \Milpa\AppRuntime\Identity\ResidentSeat::SCOPES);
+        self::assertContains(self::SCREEN_SCOPE, \Milpa\AppRuntime\Identity\ResidentSeat::SCOPES);
+        self::assertNotContains('*', \Milpa\AppRuntime\Identity\ResidentSeat::SCOPES);
+
+        foreach ((new \Milpa\AppRuntime\Web\ScreenOperations(ScreenStore::fromConfig([], $this->root)))->operations() as $operation) {
+            if (\in_array($operation->name, ['screen:declare', 'screen:forget'], true)) {
+                self::assertSame([], array_diff($operation->scopes, $seat->scopes), "a seat holds what «{$operation->name}» requires");
+            }
+        }
+
+        $trial = TrialWorkspace::materialize($this->root, 'seat-screen', \dirname(__DIR__) . '/Fixtures/trial-stub-runner.php');
+        ScreenStore::fromConfig([], $trial->copy)->declare(['name' => 'blog', 'columns' => [], 'rows' => [], 'route' => '/blog']);
+
+        $result = $this->promote($trial->id, $seat);
+
+        self::assertTrue($result['ok'], json_encode($result) ?: '');
+        self::assertSame(['/blog' => 'blog'], ScreenStore::fromConfig([], $this->root)->mounts(), 'the mount crosses with the declaration');
+
+        // …and what a seat arrives with is still not a key to the rest of config/.
+        $other = TrialWorkspace::materialize($this->root, 'seat-config', \dirname(__DIR__) . '/Fixtures/trial-stub-runner.php');
+        file_put_contents($other->copy . '/config/app.php', "<?php return ['debug' => true];\n");
+        try {
+            $this->promote($other->id, $seat);
+            self::fail('a seat may not promote the rest of config/');
+        } catch (\RuntimeException $refused) {
+            self::assertStringContainsString("Export 'config/app.php' is outside", $refused->getMessage());
+        }
+    }
+
     public function testAReceiptEarnedInATrialSaysWhereItWasObserved(): void
     {
         $sessions = new SessionStore(new InMemoryEventStore());

@@ -19,6 +19,7 @@ use Milpa\AppRuntime\Support\PhpBinary;
 use Milpa\Attributes\PluginMetadata;
 use Milpa\Http\HttpMethod;
 use Milpa\Runtime\Http\RouteProviderInterface;
+use Milpa\AppRuntime\Web\ScreenStore;
 use Milpa\Runtime\Kernel;
 
 /**
@@ -156,6 +157,29 @@ final class HouseRouteObserver
     }
 
     /**
+     * The routes of the screens mounted in a house whose declarations just landed (greenhouse decisions/0567 §3).
+     *
+     * A declared screen is not a plugin's source, so {@see touchedPlugins()} never sees it; a mount is a route that
+     * landed all the same, and the house asks it like any other. Read from the declarations as they are on disk —
+     * nothing boots to answer this. A file the house cannot read mounts nothing.
+     *
+     * @param list<string> $paths what landed, relative to the root
+     *
+     * @return list<string>
+     */
+    public static function mountedScreens(string $root, array $paths): array
+    {
+        if (!\in_array(ScreenStore::DEFAULT_PATH, $paths, true)) {
+            return [];
+        }
+        try {
+            return array_keys(ScreenStore::fromConfig([], $root)->mounts());
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    /**
      * Observe, in the house at `$root`, the GET routes the landed paths declare.
      *
      * Each entry names the route and what the house answered. Only a 200 from a process that finished
@@ -170,21 +194,31 @@ final class HouseRouteObserver
     public function observe(string $root, array $paths): array
     {
         $dirs = self::touchedPlugins($paths);
-        if ($dirs === []) {
+        $mounted = self::mountedScreens($root, $paths);
+        if ($dirs === [] && $mounted === []) {
             return ['observed' => []];
         }
         if (!is_file($root . '/public/index.php') || !is_file($root . '/vendor/autoload.php')) {
             return ['observed' => []];
         }
 
-        [$exit, $listed] = $this->run(['routes', $root, (string) json_encode($dirs)]);
-        if ($exit !== 0 || !\is_array($listed['routes'] ?? null)) {
-            $why = \is_string($listed['error'] ?? null) ? $listed['error'] : 'exit ' . $exit;
+        $listed = ['routes' => []];
+        if ($dirs !== []) {
+            [$exit, $listed] = $this->run(['routes', $root, (string) json_encode($dirs)]);
+            if ($exit !== 0 || !\is_array($listed['routes'] ?? null)) {
+                $why = \is_string($listed['error'] ?? null) ? $listed['error'] : 'exit ' . $exit;
 
-            return ['observed' => [], 'error' => "the house did not boot to list its routes after the change ({$why})"];
+                return ['observed' => [], 'error' => "the house did not boot to list its routes after the change ({$why})"];
+            }
         }
 
-        $routes = array_values(array_filter($listed['routes'], static fn (mixed $r): bool => \is_array($r) && \is_string($r['path'] ?? null)));
+        $routes = [];
+        foreach ([...$listed['routes'], ...array_map(static fn (string $path): array => ['path' => $path], $mounted)] as $route) {
+            if (\is_array($route) && \is_string($route['path'] ?? null)) {
+                $routes[$route['path']] ??= $route;
+            }
+        }
+        $routes = array_values($routes);
         $observed = [];
         foreach (\array_slice($routes, 0, self::MAX_ROUTES) as $route) {
             $observed[] = $this->request($root, $route['path'], 0, 'GET', null, null, false)['entry'];
