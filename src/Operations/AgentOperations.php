@@ -3637,7 +3637,21 @@ class AgentOperations implements CommandProvider
                 ? null
                 : new DebtSignal($this->sessionEvents, $this->sesionDeLosPermisos),
             grown: $this->grownDoor($registry, $gate),
+            // THE HOUSE ROOT, so every tool result is stripped of the house's own secret values before it
+            // reaches the model (greenhouse decisions/0569). Resolved the same way every other root here is;
+            // null only if the app's location cannot be told, in which case redaction is a no-op.
+            root: $this->rootOrNull(),
         );
+    }
+
+    /** The app root for redaction, or null when the app's location cannot be told (redaction then a no-op). */
+    private function rootOrNull(): ?string
+    {
+        try {
+            return \Milpa\AppRuntime\Support\AppRoot::of($this->container, 'agent');
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
