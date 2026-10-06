@@ -633,6 +633,8 @@ class AgentOperations implements CommandProvider
                 surfaces: ['cli', 'tui', 'mcp'],
                 observableEvidence: 'the answer itself: every field derived from the session stream — materialized and verified from the work-state fold, blocked from the pending question, house debt from the signalled facts',
             ),
+            // The rows a work is born with (greenhouse decisions/0574): declared, and the house seeds them.
+            ...(new \Milpa\AppRuntime\Entity\SeedOperations($this->container))->operations(),
             new Operation(
                 name: 'entity:contract',
                 description: 'The semantics of a generated entity, PROVEN by execution: mutability (immutable/mutable), update semantics (replace_entity/mutate_in_place) and the identity it persists by — so an implementation is judged against what the house actually created, not against what the model assumed (greenhouse decisions/0187, D-04)',

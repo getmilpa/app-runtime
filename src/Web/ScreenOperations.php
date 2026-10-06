@@ -83,6 +83,13 @@ final class ScreenOperations implements CommandProvider
          * @var \Closure(): list<array<string, mixed>>|null
          */
         private readonly ?\Closure $routes = null,
+        /**
+         * How many public rows an entity binding reads in this house right now (greenhouse decisions/0574 §8), or
+         * null when it cannot be asked. Null: the caller cannot read entities, and nothing is said about rows.
+         *
+         * @var \Closure(array<string, mixed>): ?int|null
+         */
+        private readonly ?\Closure $publicRows = null,
     ) {
     }
 
@@ -523,6 +530,21 @@ final class ScreenOperations implements CommandProvider
                 }
 
                 return $result;
+            }
+
+            // AN EMPTY PAGE SAYS IT IS EMPTY, AND WHERE ROWS COME FROM (greenhouse decisions/0574 §8). Measured
+            // (evidence/1107): a resident got `ok` and `served` for a page that read «Nothing to read yet», and
+            // spent 21 model calls looking for a way to leave rows the house did not have.
+            $bound = \is_array($input['source'] ?? null) && isset($input['source']['entity']) ? $input['source'] : null;
+            $public = $bound !== null && $this->publicRows !== null ? ($this->publicRows)($bound) : null;
+            if ($public !== null) {
+                $result['rows'] = ['public' => $public];
+                if ($public === 0) {
+                    $entity = substr((string) strrchr('\\' . $bound['entity'], '\\'), 1);
+                    $result['guidance'] = "The screen is declared and its page is served, but «{$entity}» has no public row yet: the page says there is "
+                        . "nothing to read. Leave the rows this work is born with by calling entity:seed (entity: {$entity}, rows: [{…}]) — "
+                        . 'not in a plugin\'s boot(), a seeder class or a sequence.';
+                }
             }
 
             $result['evidence'] = [
