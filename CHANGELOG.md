@@ -1,6 +1,16 @@
 # Changelog
 
 
+## [0.209.1](https://github.com/getmilpa/app-runtime/compare/v0.209.0...v0.209.1) (2026-10-06)
+
+
+### Bug Fixes
+
+* house:context says the storage the house runs on, not the block its config spells ([#706](https://github.com/getmilpa/app-runtime/issues/706)) ([e434d02](https://github.com/getmilpa/app-runtime/commit/e434d02e8454f618263ddf78c038bd79f4d2b115))
+* screen:observe asks the house in a process of its own, not the process that asks ([#705](https://github.com/getmilpa/app-runtime/issues/705)) ([e570140](https://github.com/getmilpa/app-runtime/commit/e570140ec8eb306f98e21e8e83e68e870d1a0621))
+* the house closes only over a page that lists ([#704](https://github.com/getmilpa/app-runtime/issues/704)) ([13903c4](https://github.com/getmilpa/app-runtime/commit/13903c419e1aafd30d75eb7789a91c62206c3301))
+* two comparisons PHPStan 2.3 proves constant in the agent run ([#707](https://github.com/getmilpa/app-runtime/issues/707)) ([5e0b99a](https://github.com/getmilpa/app-runtime/commit/5e0b99a0272cce92a56493d83a08f8d9df767581))
+
 ## [0.209.0](https://github.com/getmilpa/app-runtime/compare/v0.208.0...v0.209.0) (2026-10-06)
 
 
