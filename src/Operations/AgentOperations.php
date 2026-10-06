@@ -36,6 +36,7 @@ use Milpa\AppRuntime\Agent\{DiagnosticContract, SessionDiagnosticJudge};
 use Milpa\AiGateway\RunTermination;
 use Milpa\AiGateway\OutputTruncatedException;
 use Milpa\Agent\Principal;
+use Milpa\AppRuntime\Support\EffectiveStorage;
 use Milpa\AppRuntime\Support\ContratoInstalado;
 use Milpa\AppRuntime\Support\Foundation;
 use Milpa\Http\Routing\Route;
@@ -512,7 +513,7 @@ class AgentOperations implements CommandProvider
                         'ok' => ['type' => 'boolean'],
                         'app' => ['type' => 'object', 'description' => 'name (config `app.name`), root (the kernel\'s), and foundation — Foundation\'s own answer'],
                         'plugins' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'Each {class, name, provides?} in the exact order the kernel holds them'],
-                        'storage' => ['type' => 'object', 'description' => 'The storage block\'s shape: driver and where — never credentials'],
+                        'storage' => ['type' => 'object', 'description' => 'The effective storage: driver and where entities are kept, source (config, or the default generated code falls back to when config/app.php declares none) and configuration_required — never credentials'],
                         'routes' => ['type' => 'object', 'description' => 'count and paths of the route table the kernel\'s router holds'],
                         'events' => ['type' => 'object', 'description' => 'The event table\'s own summary, as events:catalogue folds it: the dispatcher, counts {declared, dispatched, undeclared}, the names and the same warnings for manifests that could not be resolved — or ok:false naming what the dispatcher lacks'],
                         'capabilities' => ['type' => 'object', 'description' => 'The capability registry\'s own answer: installed, available, ports'],
@@ -1573,9 +1574,11 @@ class AgentOperations implements CommandProvider
      *   verbatim, because FoundationOperations already owns that question;
      * - `plugins` — {@see Kernel::plugins()} as the kernel holds them, each named by its own
      *   `#[PluginMetadata]` (the same reading {@see self::pluginMetadata()} makes);
-     * - `storage` — the `storage` block of the config bag, the block
-     *   {@see \Milpa\Data\RepositoryFactory} reads: the driver and where it points, NEVER
-     *   `storage.user` / `storage.password`, and a DSN stripped of any credential pair;
+     * - `storage` — {@see EffectiveStorage}: the `storage` block of the config bag, the block
+     *   {@see \Milpa\Data\RepositoryFactory} reads, or the fallback generated code applies when the
+     *   bag declares none — the EFFECTIVE driver and where it points, which of the two it is, and
+     *   whether it needs configuring; NEVER `storage.user` / `storage.password`, and a DSN stripped
+     *   of any credential pair (greenhouse evidence/1109);
      * - `routes` — the table {@see Kernel::router()} actually holds. The router publishes no
      *   enumeration, so the table is read reflectively off the router itself rather than
      *   re-asking the plugins: a second derivation could drift from what the kernel serves;
@@ -1646,15 +1649,6 @@ class AgentOperations implements CommandProvider
             $plugins[] = $row;
         }
 
-        $declaredStorage = $config?->get('storage');
-        $declaredStorage = \is_array($declaredStorage) ? $declaredStorage : [];
-        $driver = \is_string($declaredStorage['driver'] ?? null) ? $declaredStorage['driver'] : null;
-        $where = \is_string($declaredStorage['path'] ?? null) ? $declaredStorage['path'] : null;
-        if ($where === null && \is_string($declaredStorage['dsn'] ?? null)) {
-            // The DSN is where a mysql backend points — minus anything that could be a credential.
-            $where = preg_replace('/(user|password)=[^;]*/i', '$1=…', $declaredStorage['dsn']);
-        }
-
         $table = (new \ReflectionProperty(Router::class, 'routes'))->getValue($kernel->router());
         $paths = [];
         foreach (\is_array($table) ? $table : [] as $route) {
@@ -1686,7 +1680,7 @@ class AgentOperations implements CommandProvider
                 'foundation' => Foundation::answer($root),
             ],
             'plugins' => $plugins,
-            'storage' => ['driver' => $driver, 'where' => $where],
+            'storage' => EffectiveStorage::of($config?->get('storage')),
             'routes' => ['count' => \count($paths), 'paths' => $paths],
             'events' => Events::summary($this->container),
             'capabilities' => Capabilities::answer(),
