@@ -388,6 +388,20 @@ final class TrialOperations implements CommandProvider
         $id = \is_string($input['workspace'] ?? null) ? $input['workspace'] : '';
         $ws = $id === '' ? null : TrialWorkspace::open($root, $id);
         if ($ws === null) {
+            // ALREADY PROMOTED IS AN ANSWER, NOT AN ERROR (greenhouse decisions/0578). When the house applied a trial
+            // the call asked it to, a model that then asks for the same promotion is told so. Nothing is written
+            // again, and nothing here says the house changed: no `promoted`, no receipt, no record.
+            $already = $id === '' ? null : TrialWorkspace::promotedPaths($root, $id);
+            if ($already !== null) {
+                return [
+                    'ok' => true,
+                    'already_promoted' => true,
+                    'workspace' => $id,
+                    'paths' => $already,
+                    'note' => 'This trial was already promoted into the house; nothing was written again.',
+                ];
+            }
+
             return ['ok' => false, 'error' => "no trial «{$id}» to promote"];
         }
 

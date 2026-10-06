@@ -48,6 +48,48 @@ final class TrialAwareRegistry extends ToolRegistry
     /** A staged multipart part whose native trial result still needs its explicit promotion. */
     private ?string $pendingMultipartPromotion = null;
 
+    /** Whether this leg's loop plays the promotion a call asked for ({@see houseAppliesWhenAsked()}). */
+    private bool $houseApplies = false;
+
+    /** @var array<string, true> the trials this registry said the house applies, until the leg asks ({@see saidItApplies()}) */
+    private array $applies = [];
+
+    /**
+     * Say whether the leg this registry serves can continue a call with its promotion (greenhouse decisions/0578).
+     *
+     * Only then is `apply: "when_verified"` offered and honoured: a registry never promises what its loop cannot
+     * do. The parameter is the trial layer's own — it is stripped before the producer sees it, either way.
+     */
+    public function houseAppliesWhenAsked(bool $can): void
+    {
+        $this->houseApplies = $can;
+    }
+
+    /**
+     * Whether THIS registry just ran this trial, saw it verify and said the house applies it — asked once: the
+     * answer is spent (greenhouse decisions/0578).
+     *
+     * What a tool answers is data. A result shaped like a verified trial — from a tool no trial confines, naming a
+     * trial of another session or one the model chose to leave — must not make the house promote anything, so the
+     * leg asks here, where the trial was run, and not the result.
+     */
+    public function saidItApplies(string $workspace): bool
+    {
+        $said = isset($this->applies[$workspace]);
+        unset($this->applies[$workspace]);
+
+        return $said;
+    }
+
+    /** Whether `apply` on this tool is the trial layer's parameter: a producer a trial confines, with none of its own. */
+    private function takesApply(string $tool): bool
+    {
+        $operation = $this->operationFor($tool);
+        $declared = $this->inner->getDefinition($tool)?->inputSchema['properties'] ?? [];
+
+        return $operation !== null && $this->router->eligible($operation) && !\array_key_exists('apply', (array) $declared);
+    }
+
     /**
      * @param list<Operation>                  $operations
      * @param (\Closure(): ?ScreenDrafts)|null $screenDrafts
@@ -72,6 +114,13 @@ final class TrialAwareRegistry extends ToolRegistry
      */
     public function call(string $name, array $args, ?ToolContext $ctx = null): ToolResult
     {
+        // THE INTENTION TO APPLY IS SAID IN THE CALL (greenhouse decisions/0578), and it is this layer's to read:
+        // the producer never receives it, and the trial is identified by the producer's own arguments.
+        $applyWhenVerified = false;
+        if (\array_key_exists('apply', $args) && $this->takesApply($name)) {
+            $applyWhenVerified = $this->houseApplies && $args['apply'] === AppliedWhenVerified::KEYWORD;
+            unset($args['apply']);
+        }
         $definition = $this->inner->getDefinition($name);
         if ($definition !== null) {
             $admission = $this->inner->getPolicyGate()->authorizeCall($ctx ?? ToolContext::cli(), $definition, $args);
@@ -257,6 +306,16 @@ final class TrialAwareRegistry extends ToolRegistry
         );
 
         $partial = self::partialTrialNote($executionName, $executionInput, $run->output, $run->report);
+        // THE HOUSE APPLIES WHAT THE CALL ASKED IT TO, WHEN THE TRIAL VERIFIED (greenhouse decisions/0578). It says
+        // so here and the leg's loop plays the promotion next, through the governed door. `to_apply` stays: if the
+        // loop does not get to it, the model still knows the call. An unfinished multipart part is never applied.
+        if ($applyWhenVerified && $partial === null && $this->pendingMultipartPromotion !== $ws && AppliedWhenVerified::verified($data)) {
+            $data['applies'] = $data['to_apply'];
+            $this->applies[$ws] = true;
+            $data['note'] = 'This ran in a disposable TRIAL and verified. You asked for it to be applied when verified '
+                . '(apply: "' . AppliedWhenVerified::KEYWORD . '"): the house calls sandbox:promote for it next, under the same '
+                . 'checks as if you had, and its result follows. Do not call it yourself.';
+        }
         if ($partial !== null) {
             // Preserve the producer output. Its directions describe the trial's filesystem;
             // the next agent invocation starts from the app and needs explicit promotion first.
@@ -310,6 +369,20 @@ final class TrialAwareRegistry extends ToolRegistry
     public function getToolSummaries(): array
     {
         $tools = $this->inner->getToolSummaries();
+        // THE PARAMETER IS OFFERED WHERE IT IS HONOURED (greenhouse decisions/0578): on the producers a trial
+        // confines, and only in a leg whose loop plays the promotion.
+        foreach ($this->houseApplies ? array_keys($tools) : [] as $i) {
+            if ($this->takesApply($tools[$i]['name'])) {
+                $schema = $tools[$i]['inputSchema'];
+                $schema['properties'] = (array) ($schema['properties'] ?? []) + ['apply' => [
+                    'type' => 'string',
+                    'enum' => [AppliedWhenVerified::KEYWORD],
+                    'description' => 'Pass "when_verified" to have the house apply this change itself once its trial verifies '
+                        . '(it then calls sandbox:promote for you). Omit it to decide after seeing the trial.',
+                ]];
+                $tools[$i]['inputSchema'] = $schema;
+            }
+        }
         if ($this->pendingMultipartPromotion !== null) {
             $workspace = $this->router->workspace($this->pendingMultipartPromotion);
             if ($workspace === null || $workspace->stale() !== []) {

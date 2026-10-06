@@ -73,6 +73,7 @@ use Milpa\Plugin\Runtime\MetadataGraphResolver;
 use Milpa\Resolver\Report\ResolutionReport;
 use Milpa\AiGateway\LlmService;
 use Milpa\AppRuntime\Agent\AgentTable;
+use Milpa\AppRuntime\Agent\AppliedWhenVerified;
 use Milpa\AppRuntime\Agent\EffectClasses;
 use Milpa\AppRuntime\Agent\ExecutionRecorder;
 use Milpa\AppRuntime\Agent\ObservedExecutor;
@@ -3309,6 +3310,7 @@ class AgentOperations implements CommandProvider
             && (new \ReflectionMethod($orquestador, 'run'))->getDeclaringClass()->getName() === AgentOrchestrator::class
             && (new \ReflectionMethod($orquestador, 'termination'))->getDeclaringClass()->getName() === AgentOrchestrator::class;
         $before = $proven ? $orquestador->termination() : null;
+        $this->continueWhatTheCallAskedFor($orquestador, $registry);
         try {
             $available = array_values(array_filter(array_column($cliente->getToolSummaries(), 'name'), 'is_string'));
             $this->skillInstructionProjection = null;
@@ -4228,6 +4230,38 @@ class AgentOperations implements CommandProvider
     public function sessionStore(): ?SessionStore
     {
         return $this->sessions();
+    }
+
+    /**
+     * THE HOUSE APPLIES A VERIFIED TRIAL WHEN THE CALL ASKED IT TO (greenhouse decisions/0578). Where the installed
+     * gateway lets the leg play the call that follows from a tool call, and the house runs producers in trials, a
+     * producer called with `apply: "when_verified"` is continued with its promotion: {@see AppliedWhenVerified}
+     * reads which, and the leg's own trial layer confirms it is the trial it just ran and said it applies. The
+     * promotion is a step of its own through the governed door, as the seat; the house records that it continued,
+     * and after which call.
+     */
+    private function continueWhatTheCallAskedFor(object $orquestador, ToolRegistry $registry): void
+    {
+        if (!method_exists($orquestador, 'setContinuation') || !$registry instanceof TrialAwareRegistry) {
+            return;
+        }
+        $registry->houseAppliesWhenAsked(true);
+        $session = $this->sesionDeLosPermisos;
+        $store = $this->sessionStore();
+        $events = $this->sessionEvents;
+        $as = ObservedExecutor::fromContext($this->contextoDeLaVuelta)->principal->id ?? '';
+        $orquestador->setContinuation(static function (string $tool, array $arguments, mixed $result) use ($registry, $session, $store, $events, $as): ?array {
+            $calls = AppliedWhenVerified::follows($tool, $arguments, $result);
+            // The result alone is never enough: only the trial this leg's own trial layer just ran and said it applies.
+            if ($calls === null || !$registry->saidItApplies($calls[0]['arguments']['workspace'])) {
+                return null;
+            }
+            if ($session !== null && $store !== null && $events !== null) {
+                AppliedWhenVerified::continued($events, $store->stream($session), $session, $calls, $as);
+            }
+
+            return $calls;
+        });
     }
 
     /**
