@@ -3314,25 +3314,24 @@ class AgentOperations implements CommandProvider
                     $gate instanceof SessionToolGate ? $gate->recoveryContext($available) : ['active' => null, 'result_readers' => []],
                 );
             }
-            if (method_exists($orquestador, 'setSystemPromptProjection')) {
-                $skillProjection = $this->skillInstructionProjection;
-                $referenceSession = $this->promptSession?->id;
-                $referenceStore = $referenceSession === null ? null : $this->sessions();
-                $referenceEvents = $referenceStore?->stream($referenceSession) ?? [];
-                $referenceStart = $referenceEvents === [] ? 0 : max(array_map(static fn ($event): int => $event->seq, $referenceEvents));
-                $orquestador->setSystemPromptProjection(static function (string $base, array $tools) use ($skillProjection, $referenceStore, $referenceSession, $referenceStart): string {
-                    $projected = $skillProjection === null ? $base : $skillProjection($base, $tools);
-                    if ($referenceStore !== null) {
-                        $projected .= \Milpa\AppRuntime\Agent\RecordedResultReferences::section(
-                            $referenceStore->stream($referenceSession),
-                            $referenceSession,
-                            $referenceStart,
-                            array_values(array_filter(array_column($tools, 'name'), 'is_string')),
-                        );
-                    }
-                    return $projected;
-                });
-            }
+            // WHAT GROWS RIDES AFTER THE CONVERSATION (greenhouse evidence/1111): the locators of the results
+            // this leg records are re-projected on every call. At the end of the system prompt they moved the
+            // text before the conversation on every step; where the installed gateway can send them after it,
+            // they go there and the system prompt stays still for the whole leg.
+            $referenceSession = $this->promptSession?->id;
+            $referenceStore = $referenceSession === null ? null : $this->sessions();
+            $referenceEvents = $referenceStore?->stream($referenceSession) ?? [];
+            $referenceStart = $referenceEvents === [] ? 0 : max(array_map(static fn ($event): int => $event->seq, $referenceEvents));
+            \Milpa\AppRuntime\Agent\RecordedResultProjection::attach(
+                $orquestador,
+                $this->skillInstructionProjection,
+                $referenceStore === null ? null : static fn (array $names): string => \Milpa\AppRuntime\Agent\RecordedResultReferences::section(
+                    $referenceStore->stream($referenceSession),
+                    $referenceSession,
+                    $referenceStart,
+                    $names,
+                ),
+            );
             return $orquestador->run(
                 $prompt,
                 $system,
