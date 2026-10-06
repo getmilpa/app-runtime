@@ -211,7 +211,7 @@ final class ApplyingTakesOnlyWhatIsSafeTest extends TestCase
         self::assertSame([], $noRepo['applied']);
         self::assertStringContainsString('not a git repository', (string) $noRepo['refused']);
 
-        exec('git -C ' . escapeshellarg($house) . ' init -q 2>/dev/null');
+        $this->git($house, 'init -q');
         $untracked = FrameworkUpdate::apply($house, self::AGAINST);
         self::assertSame([], $untracked['applied']);
         self::assertStringContainsString('git has never seen these files', (string) $untracked['refused'], 'the refusal `git status` alone could never make');
@@ -224,8 +224,8 @@ final class ApplyingTakesOnlyWhatIsSafeTest extends TestCase
         // views are independent, which is the point of asking git at all.
         $birth = (string) file_get_contents($house . '/composer.json');
         file_put_contents($house . '/composer.json', "{\"name\":\"committed/other\"}\n");
-        exec('git -C ' . escapeshellarg($house) . ' add -A 2>/dev/null');
-        exec('git -C ' . escapeshellarg($house) . ' -c user.email=t@t -c user.name=t commit -qm other 2>/dev/null');
+        $this->git($house, 'add -A');
+        $this->git($house, '-c user.email=t@t -c user.name=t commit -qm other');
         file_put_contents($house . '/composer.json', $birth);
 
         $dirty = FrameworkUpdate::apply($house, self::AGAINST);
@@ -321,6 +321,16 @@ final class ApplyingTakesOnlyWhatIsSafeTest extends TestCase
         );
 
         return $house;
+    }
+
+    /**
+     * Git, and it must have done what it was asked: a commit that failed and was not looked at left this test passing
+     * on a staged file instead of a committed one (greenhouse evidence/1110).
+     */
+    private function git(string $house, string $arguments): void
+    {
+        exec('git -C ' . escapeshellarg($house) . ' ' . $arguments . ' 2>&1', $said, $code);
+        self::assertSame(0, $code, "git {$arguments}: " . implode("\n", $said));
     }
 
     /** `git init` leaves a tree phpunit's tearDown will not clear on its own. */

@@ -114,6 +114,10 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
         // model-visible message (greenhouse decisions/0569). Null → no redaction (the bridge does not know the
         // house); the governed executor always resolves it. {@see SecretRedaction} says how a secret is known.
         private readonly ?string $root = null,
+        // THE SEAT'S FRONTIER, ASKED ABOUT ONE CALL (greenhouse evidence/1113): the scope a person can grant for
+        // a call this caller was just refused, or null. With it, a refusal only a person can lift ends the leg
+        // at this door instead of going back to the model; without it, nothing changes.
+        private readonly ?\Closure $waitsOnAPerson = null,
     ) {
         // THE DOOR DOES NOT NEED THE MODEL GATEWAY (greenhouse decisions/0225): gate, registry and recorder
         // are milpa/tool-runtime's. The option table is the model loop's own concern and stays optional —
@@ -222,6 +226,16 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
             // covering this call (the measured TareasPlugin case, greenhouse evidence/0444).
             $this->signalIfConsentScopeWasFragile($rechazo, $name, $args);
 
+            // A REFUSAL ONLY A PERSON CAN LIFT ENDS THE LEG HERE (greenhouse evidence/1113). A missing scope went
+            // back to the model like any error; the house then called the leg stalled, cut its catalogue and asked
+            // the model once more, which could only say that it waits (evidence/1109: 21,557 tokens, 28 s). Nothing
+            // the model does moves a grant. The sentence is untouched; only its type says the leg stops, which is
+            // what the loop does with every other refusal of a gate. What the frontier does not offer — an invented
+            // name, a session nobody enrolled, any other failure — still goes back to the model.
+            if ($this->onlyAPersonLiftsIt($rechazo, $name, $args)) {
+                throw new ToolCallRefused($rechazo->getMessage());
+            }
+
             throw $rechazo;
         }
 
@@ -301,6 +315,29 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
         $this->declareIfEffect($name, $args, $grant);
 
         return $this->redactForModel($executed);
+    }
+
+    /**
+     * Whether this refusal is one the seat's frontier offers to a person, for the scope the refusal itself names.
+     *
+     * The frontier is the one judge (greenhouse decisions/0496, 0510); it is asked, the text is only checked to be
+     * about that same scope. A frontier that cannot be asked is no frontier, and a refusal that already ends the leg
+     * is not judged again.
+     *
+     * @param array<string, mixed> $args
+     */
+    private function onlyAPersonLiftsIt(\Throwable $rechazo, string $tool, array $args): bool
+    {
+        if ($this->waitsOnAPerson === null || $rechazo instanceof ToolCallRefused) {
+            return false;
+        }
+        try {
+            $permission = ($this->waitsOnAPerson)($tool, $args);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return \is_string($permission) && $permission !== '' && str_contains($rechazo->getMessage(), "'" . $permission . "'");
     }
 
     /**

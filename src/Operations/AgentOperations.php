@@ -3066,8 +3066,10 @@ class AgentOperations implements CommandProvider
         // holds the seat's refusal open for a person; the ledger does not get a framework gap for it, and the
         // surface says who grants it. Asked once, for the two ends that can wait on a grant.
         // The producer's typed value, as above: whether this end is the one just called «stalled».
-        $stalled = $this->runTermination?->reason === RunEnd::ProgressStalled;
-        $awaiting = $sessionId !== '' && \in_array($this->runTermination?->reason, [RunEnd::HouseDebt, RunEnd::ProgressStalled], true)
+        // A LEG THE HOUSE ENDED AT THE FRONTIER WAITS TOO (greenhouse evidence/1113): the refusal a person can lift
+        // no longer goes back to the model, so the leg ends `tool_refused` on it — and says who it waits for.
+        $stalled = \in_array($this->runTermination?->reason, [RunEnd::ProgressStalled, RunEnd::ToolRefused], true);
+        $awaiting = $sessionId !== '' && \in_array($this->runTermination?->reason, [RunEnd::HouseDebt, RunEnd::ProgressStalled, RunEnd::ToolRefused], true)
             ? $this->grantableScopes($sessionId) : [];
         if ($awaiting !== []) {
             $resultado['awaiting_grant'] = $awaiting;
@@ -3639,7 +3641,28 @@ class AgentOperations implements CommandProvider
             // reaches the model (greenhouse decisions/0569). Resolved the same way every other root here is;
             // null only if the app's location cannot be told, in which case redaction is a no-op.
             root: $this->rootOrNull(),
+            waitsOnAPerson: $this->frontierOfTheSeat(),
         );
+    }
+
+    /**
+     * What the seat's frontier would offer a person for one call this leg was just refused — its scope, or null
+     * (greenhouse evidence/1113). Null without a session, a house or a store: then no refusal ends a leg for it.
+     *
+     * @return (\Closure(string, array<string, mixed>): ?string)|null
+     */
+    private function frontierOfTheSeat(): ?\Closure
+    {
+        $session = $this->sesionDeLosPermisos;
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        $store = $this->sessionStore();
+        if ($session === null || $session === '' || !$kernel instanceof Kernel || $store === null) {
+            return null;
+        }
+        $root = $kernel->root();
+
+        return static fn (string $tool, array $arguments): ?string
+            => SeatFrontier::forRoot($root, $store)->wouldOffer($session, $tool, $arguments)['permission'] ?? null;
     }
 
     /** The app root for redaction, or null when the app's location cannot be told (redaction then a no-op). */
