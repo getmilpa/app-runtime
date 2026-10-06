@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [0.210.0](https://github.com/getmilpa/app-runtime/compare/v0.209.1...v0.210.0) (2026-10-06)
+
+
+### Features
+
+* the receipt says what kind of thing was served, and the verdict says when the house did not read it ([#713](https://github.com/getmilpa/app-runtime/issues/713)) ([a0851c1](https://github.com/getmilpa/app-runtime/commit/a0851c1656b0f2205c6c3d129ebc9fb0c44dc86a))
+
+
+### Bug Fixes
+
+* a refusal only a person can lift ends the leg where it happened (greenhouse evidence/1113) ([#710](https://github.com/getmilpa/app-runtime/issues/710)) ([a3ba650](https://github.com/getmilpa/app-runtime/commit/a3ba65066c6be7eb658c3dd0ca7d4fea4201a265))
+* the contract of work:claim-verified says which reference the session holds (greenhouse evidence/1116) ([#715](https://github.com/getmilpa/app-runtime/issues/715)) ([becbbaf](https://github.com/getmilpa/app-runtime/commit/becbbafb7dc4ee886d2018834f48baac1d532ede))
+* the locators of recorded results ride after the conversation, and the system prompt stays the same ([#711](https://github.com/getmilpa/app-runtime/issues/711)) ([f2e6599](https://github.com/getmilpa/app-runtime/commit/f2e6599637b61fa2b0ef20c80ed11fc0b704515d))
+
 ## [0.209.1](https://github.com/getmilpa/app-runtime/compare/v0.209.0...v0.209.1) (2026-10-06)
 
 
