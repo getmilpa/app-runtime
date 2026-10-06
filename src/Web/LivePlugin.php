@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Web;
 
+use Milpa\AppRuntime\Agent\HouseRouteObserver;
 use Milpa\AppRuntime\Web\Controllers\LiveAssetsController;
 use Milpa\AppRuntime\Web\Controllers\LiveComponentPageController;
 use Milpa\AppRuntime\Web\Controllers\LiveController;
@@ -407,6 +408,30 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         return $response->getStatusCode();
     }
 
+    /**
+     * The HTTP status the HOUSE answers for a declared screen's page, asked the way {@see HouseRouteObserver} asks
+     * a route: a new process of the house, through its own front controller, as an anonymous visitor — or null
+     * when this house has no front controller to ask through.
+     *
+     * {@see self::statusOfScreen()} asks the process that is running. That is the right question for a declaration,
+     * which is rehearsed in a trial whose process IS the copy it describes. It is the wrong one for `screen:observe`:
+     * a leg that scaffolded the plugin, registered it and declared the screen booted before any of that landed, and
+     * its container holds no repository for the entity the screen lists. Measured (greenhouse evidence/1109): 422
+     * from the leg, 200 from a browser and from a new process. A process that dies serves nothing: that is a 500.
+     */
+    private function statusOfScreenInTheHouse(string $name): ?int
+    {
+        $root = $this->root();
+        if (! is_file($root . '/public/index.php') || ! is_file($root . '/vendor/autoload.php')) {
+            return null;
+        }
+        $observer = $this->container->has(HouseRouteObserver::class) ? $this->container->get(HouseRouteObserver::class) : null;
+        $observer = $observer instanceof HouseRouteObserver ? $observer : new HouseRouteObserver();
+        $entry = $observer->observeRoute($root, ($this->route ?? self::DEFAULT_ROUTE) . '/page?component=' . rawurlencode($name), 0)['entry'];
+
+        return \is_int($entry['status'] ?? null) ? $entry['status'] : 500;
+    }
+
     /** A container service as an object, or null when the id resolves to something that is not one. */
     private function serviceObject(string $id): ?object
     {
@@ -463,6 +488,7 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
                 fn (): ?HouseReadings => $this->container->has(HouseReadings::class) && ($readings = $this->container->get(HouseReadings::class)) instanceof HouseReadings ? $readings : null,
                 $this->servedRoutes(...),
                 $this->publicRowsOf(...),
+                $this->statusOfScreenInTheHouse(...),
             ))->operations(),
             // How the house learns a word (decisions/0465).
             ...(new ComponentWordOperations(
