@@ -276,15 +276,24 @@ register_shutdown_function(static function () use ($head): void {
         $body = (string) ob_get_clean() . $body;
     }
     $status = http_response_code();
+    // The Content-Type the response named, as it named it (decisions/0577): none named is none said.
+    $contentType = null;
+    foreach (\is_array($GLOBALS['__milpaHouseObservedHeaders'] ?? null) ? $GLOBALS['__milpaHouseObservedHeaders'] : [] as $line) {
+        if (\is_string($line) && stripos($line, 'content-type:') === 0) {
+            $contentType = trim(substr($line, 13));
+        }
+    }
     fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode([
         'ok' => true,
         'status' => \is_int($status) ? $status : null,
         'bytes' => \strlen($body),
         'sha256' => hash('sha256', $body),
+        'contentType' => $contentType,
         ...($head > 0 ? ['head' => base64_encode(substr($body, 0, $head))] : []),
     ]) . "\n");
 });
 
+require __DIR__ . '/house-observe-headers.php';
 ob_start();
 chdir($root . '/public');
 require $root . '/public/index.php';

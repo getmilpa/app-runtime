@@ -114,6 +114,8 @@ return $loader;
         self::assertSame([[
             'predicate' => 'served', 'route' => 'GET /blog', 'subject' => '/blog', 'status' => 200, 'environment' => ['kind' => 'house'],
             'servedAt' => '/blog', 'bytes' => \strlen('<h1>blog</h1>'), 'sha256' => hash('sha256', '<h1>blog</h1>'),
+            // What kind of thing answered (greenhouse decisions/0577): a page, and no declared screen serves it.
+            'contentType' => 'text/html', 'surface' => ['kind' => 'visual', 'screen' => null],
         ]], $receipt['observed'] ?? null, 'only the GET without parameters of the plugin it touched — not /blog/{id}, not the POST, not /other');
         self::assertStringContainsString('GET /blog answered HTTP 200', (string) $receipt['note']);
 
