@@ -34,7 +34,7 @@ const HOUSE_OBSERVE_MARK = '@@house-observe ';
 
 $mode = $argv[1] ?? '';
 $root = $argv[2] ?? '';
-if (!\in_array($mode, ['routes', 'get', 'request', 'boot', 'seed'], true) || !is_dir($root)) {
+if (!\in_array($mode, ['routes', 'get', 'request', 'boot', 'seed', 'content'], true) || !is_dir($root)) {
     fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => false, 'error' => 'usage: house-observe.php routes|get|request|boot|seed <root> <argument>']) . "\n");
     exit(2);
 }
@@ -90,6 +90,31 @@ if ($mode === 'seed') {
         exit(1);
     }
     fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => true, 'seeded' => $seeded], \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE) . "\n");
+    exit(0);
+}
+
+// CONTENT: what the screen mounted at a route had to list, against the page the house was served there (greenhouse
+// decisions/0576). The house, booted as it now is, reads the entity's rows; it decides nothing.
+if ($mode === 'content') {
+    $body = is_file($argv[4] ?? '') ? (string) file_get_contents($argv[4]) : '';
+    chdir($root);
+    require $root . '/vendor/autoload.php';
+    try {
+        $app = new Milpa\AppRuntime\Console\Application($root);
+        $container = (new ReflectionMethod($app, 'kernel'))->invoke($app)->container();
+        $config = $container->has(Milpa\Config\Config::class) ? $container->get(Milpa\Config\Config::class) : null;
+        $live = $config instanceof Milpa\Config\Config ? $config->get('live') : null;
+        $content = Milpa\AppRuntime\Web\ListedContent::of(
+            Milpa\AppRuntime\Web\ScreenStore::fromConfig(\is_array($live) ? $live : [], $root),
+            (string) ($argv[3] ?? ''),
+            static fn (string $id): ?object => $container->has($id) && \is_object($service = $container->get($id)) ? $service : null,
+            $body,
+        );
+    } catch (Throwable $e) {
+        fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => false, 'error' => $e::class . ': ' . $e->getMessage()], \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE) . "\n");
+        exit(1);
+    }
+    fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => true, 'content' => $content], \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE) . "\n");
     exit(0);
 }
 
