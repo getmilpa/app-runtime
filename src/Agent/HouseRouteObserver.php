@@ -20,6 +20,7 @@ use Milpa\AppRuntime\Support\PhpBinary;
 use Milpa\Attributes\PluginMetadata;
 use Milpa\Http\HttpMethod;
 use Milpa\Runtime\Http\RouteProviderInterface;
+use Milpa\AppRuntime\Web\ScreenRoute;
 use Milpa\AppRuntime\Web\ScreenStore;
 use Milpa\Runtime\Kernel;
 
@@ -66,6 +67,9 @@ final class HouseRouteObserver
     public const MAX_ROUTES = 8;
 
     /** The bytes of the body an on-demand observation hands back unless asked for other — ~400 tokens of a page. */
+    /** The most of a mounted screen's page the house reads to judge what it lists (decisions/0576). */
+    private const JUDGED_MAX = 2_097_152;
+
     public const EXCERPT = 1500;
 
     /** The most bytes of a body an on-demand observation ever hands back, whatever is asked — ~2k tokens. */
@@ -179,6 +183,42 @@ final class HouseRouteObserver
         } catch (\Throwable) {
             return [];
         }
+    }
+
+    /**
+     * What the screen mounted at a route had to list, against the page the house was served there (greenhouse
+     * decisions/0576 §1): a FRESH process of the house reads the entity's rows and counts. Null when there is nothing
+     * to compare — no screen is mounted there, it binds no entity's rows — or the house could not be asked. The page
+     * travels in a file that does not outlive the question.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function content(string $root, string $route, string $body = ''): ?array
+    {
+        $file = (string) tempnam(sys_get_temp_dir(), 'milpa-page-');
+        file_put_contents($file, $body);
+        try {
+            [, $answer] = $this->run(['content', $root, $route, $file]);
+        } finally {
+            @unlink($file);
+        }
+
+        return \is_array($answer['content'] ?? null) ? $answer['content'] : null;
+    }
+
+    /** Whether a declared screen is mounted at that route, read from the declarations on disk: nothing boots. */
+    private static function mounts(string $root, string $route): bool
+    {
+        try {
+            foreach (array_keys(ScreenStore::fromConfig([], $root)->mounts()) as $mounted) {
+                if (ScreenRoute::key((string) $mounted) === ScreenRoute::key($route)) {
+                    return true;
+                }
+            }
+        } catch (\Throwable) {
+        }
+
+        return false;
     }
 
     /**
@@ -318,15 +358,27 @@ final class HouseRouteObserver
      */
     private function request(string $root, string $path, int $excerpt, string $method, ?string $bodyFile, ?string $contentType, bool $confined): array
     {
-        $arguments = ['request', $root, $method, $path, (string) $excerpt, ...($bodyFile !== null ? [$bodyFile, (string) $contentType] : [])];
-        [$exit, $answer, $stderr] = $this->run($arguments, $confined ? $root : null);
         $subject = explode('?', $path, 2)[0];
+        // A mounted screen is judged on the whole page it served (greenhouse decisions/0576), so the whole page is asked.
+        $judged = $method === 'GET' && ! $confined && self::mounts($root, $subject);
+        $arguments = ['request', $root, $method, $path, (string) ($judged ? max($excerpt, self::JUDGED_MAX) : $excerpt), ...($bodyFile !== null ? [$bodyFile, (string) $contentType] : [])];
+        [$exit, $answer, $stderr] = $this->run($arguments, $confined ? $root : null);
+        $page = $judged && \is_string($answer['head'] ?? null) ? (string) base64_decode($answer['head'], true) : null;
+        if ($judged) {
+            // Whoever asked for an excerpt gets the excerpt it asked for, not the page the house read to judge it.
+            $answer = array_diff_key($answer, ['head' => 0]) + ($excerpt > 0 && $page !== null ? ['head' => base64_encode(substr($page, 0, $excerpt))] : []);
+        }
         $status = \is_int($answer['status'] ?? null) ? $answer['status'] : null;
         $entry = ['route' => $method . ' ' . $path, 'subject' => $subject, 'status' => $status, 'environment' => ['kind' => 'house']];
         if ($status === 200 && $exit === 0 && $method === 'GET') {
             $entry = ['predicate' => 'served', ...$entry, 'servedAt' => $subject,
                 'bytes' => \is_int($answer['bytes'] ?? null) ? $answer['bytes'] : null,
                 'sha256' => \is_string($answer['sha256'] ?? null) ? $answer['sha256'] : null];
+            // A page longer than the house read is not judged on the part it read.
+            $content = $page !== null && \strlen($page) === $entry['bytes'] ? $this->content($root, $subject, $page) : null;
+            if ($content !== null) {
+                $entry['content'] = $content;
+            }
         } elseif ($exit !== 0) {
             // A process that died answered nothing a browser could trust, whatever status it had set.
             $entry['status'] = $status !== null && $status >= 500 ? $status : null;

@@ -1,0 +1,149 @@
+<?php
+
+/**
+ * This file is part of Milpa App Runtime — the application runtime of the Milpa PHP framework.
+ *
+ * (c) Rodrigo Vicente - TeamX Agency — https://teamx.agency <hola@teamx.agency>
+ *
+ * @license Apache-2.0
+ *
+ * @link    https://github.com/getmilpa/app-runtime
+ */
+
+declare(strict_types=1);
+
+namespace Milpa\AppRuntime\Tests\Agent;
+
+use Milpa\Agent\AutonomyMode;
+use Milpa\Agent\SessionStore;
+use Milpa\AppRuntime\Agent\ClosureVerdict;
+use Milpa\EventStore\InMemoryEventStore;
+use PHPUnit\Framework\TestCase;
+
+/**
+ * THE HOUSE CLOSES ONLY OVER A PAGE THAT LISTS (greenhouse decisions/0576, slice BV-3b — H1 of decisions/0565).
+ *
+ * Measured on cattle (greenhouse evidence/1108 §4), app-runtime 0.208.0: a session without todos mounted a screen,
+ * the house observed `GET /blog` → 200, and `closure_derived` said `verified: true` — over a page reading «Nothing
+ * to read yet.». The receipt now says what the page listed, and only an observation that lists counts.
+ */
+final class TheHouseClosesOnlyOverAPageThatListsTest extends TestCase
+{
+    private const LISTS = ['entity' => 'Blog/Post', 'public' => 1, 'shown' => 1, 'withheld' => 1, 'leaked' => 0, 'withholding' => 'exercised'];
+    private const EMPTY = ['entity' => 'Blog/Post', 'public' => 0, 'shown' => 0, 'withheld' => 0, 'leaked' => 0, 'withholding' => 'unexercised'];
+
+    public function testAPageWithNothingToReadDoesNotClose(): void
+    {
+        $closure = $this->closureAfter([self::EMPTY]);
+
+        self::assertFalse($closure['verified'], 'the published house said verified: true here');
+        self::assertContains(
+            'the house observed «/blog» served with nothing to read (seq 2): its screen lists Blog/Post and no public row exists — leave rows with entity:seed',
+            $closure['reasons'],
+        );
+    }
+
+    public function testAPageThatListsCloses(): void
+    {
+        $closure = $this->closureAfter([self::LISTS]);
+
+        self::assertTrue($closure['verified'], implode('; ', $closure['reasons']));
+        self::assertSame('/blog', $closure['derivedFrom']['observation']['subject']);
+        self::assertSame(self::LISTS, $closure['derivedFrom']['observation']['content'], 'the verdict carries what the page listed');
+    }
+
+    public function testNothingWithheldIsSaidAndDoesNotStopTheClosure(): void
+    {
+        $closure = $this->closureAfter([['withheld' => 0, 'withholding' => 'unexercised'] + self::LISTS]);
+
+        self::assertTrue($closure['verified'], implode('; ', $closure['reasons']));
+        self::assertSame('unexercised', $closure['derivedFrom']['observation']['content']['withholding'], '«never drafts» was not exercised, and whoever reads the verdict sees it');
+    }
+
+    public function testAPageThatShowsOnlyPartOfWhatIsPublicDoesNotClose(): void
+    {
+        $closure = $this->closureAfter([['public' => 2] + self::LISTS]);
+
+        self::assertFalse($closure['verified']);
+        self::assertContains('the house observed «/blog» served showing 1 of 2 public rows of Blog/Post (seq 2)', $closure['reasons']);
+    }
+
+    public function testAPageThatShowsWhatIsNotPublicDoesNotClose(): void
+    {
+        $closure = $this->closureAfter([['leaked' => 1] + self::LISTS]);
+
+        self::assertFalse($closure['verified']);
+        self::assertContains('the house observed «/blog» served showing 1 row of Blog/Post that is not public (seq 2)', $closure['reasons']);
+    }
+
+    public function testTheLastThingTheHouseSawDecides(): void
+    {
+        self::assertTrue($this->closureAfter([self::EMPTY, self::LISTS])['verified'], 'empty, then seeded: the page that lists closes');
+
+        $emptied = $this->closureAfter([self::LISTS, self::EMPTY]);
+        self::assertFalse($emptied['verified'], 'a page that listed and no longer does is not closed by what it once listed');
+        self::assertStringContainsString('with nothing to read (seq 3)', implode('; ', $emptied['reasons']));
+    }
+
+    public function testAnEmptyPageIsNotClosedByAnotherRouteThatAnswers(): void
+    {
+        $store = new SessionStore(new InMemoryEventStore());
+        $store->start('s', 'Build the site: a blog and an about page.', AutonomyMode::Auto);
+        $served = static fn (string $subject, ?array $content): array => ['predicate' => 'served', 'route' => 'GET ' . $subject, 'subject' => $subject, 'status' => 200,
+            'environment' => ['kind' => 'house'], 'servedAt' => $subject, 'bytes' => 10, 'sha256' => hash('sha256', $subject)] + ($content === null ? [] : ['content' => $content]);
+        $store->recordToolCall('s', 'sandbox_promote', ['workspace' => 'w'], (string) json_encode(['ok' => true, 'promoted' => ['config/screens.json'],
+            'evidence' => ['predicate' => 'promoted', 'subject' => 'w', 'environment' => ['kind' => 'house'], 'paths' => ['config/screens.json']],
+            'observed' => [$served('/about', null), $served('/blog', self::EMPTY)]]), mutating: true);
+        $session = $store->load('s');
+        self::assertNotNull($session);
+
+        $closure = ClosureVerdict::derive($session, $store->facts('s'), $store->stream('s'));
+
+        self::assertFalse($closure['verified'], 'a goal that writes no route counts every route — and one of them has nothing to read');
+        self::assertStringContainsString('«/blog» served with nothing to read', implode('; ', $closure['reasons']));
+    }
+
+    public function testARouteTheHouseDidNotJudgeCountsAsBefore(): void
+    {
+        $closure = $this->closureAfter([null]);
+
+        self::assertTrue($closure['verified'], 'a receipt without «content» is one the house did not judge — a raw route, a screen with literal rows — not one that fails');
+        self::assertArrayNotHasKey('content', $closure['derivedFrom']['observation']);
+    }
+
+    public function testAnEmptyPageOfARouteTheGoalDoesNotWriteIsNotTheReason(): void
+    {
+        $closure = $this->closureAfter([self::EMPTY], subject: '/posts');
+
+        self::assertFalse($closure['verified']);
+        self::assertStringContainsString('only a route the goal writes closes it', implode('; ', $closure['reasons']), 'the unwritten route is the fact, as before');
+    }
+
+    /**
+     * The house's verdict over a session whose promotions observed the goal's route with these contents, in order.
+     *
+     * @param list<array<string, mixed>|null> $contents
+     *
+     * @return array{verified: bool, reasons: list<string>, derivedFrom?: array<string, mixed>}
+     */
+    private function closureAfter(array $contents, string $subject = '/blog'): array
+    {
+        $store = new SessionStore(new InMemoryEventStore());
+        $store->start('s', 'Build the blog: serve GET /blog as a page listing published posts.', AutonomyMode::Auto);
+        foreach ($contents as $at => $content) {
+            $store->recordToolCall('s', 'sandbox_promote', ['workspace' => 'w' . $at], (string) json_encode([
+                'ok' => true,
+                'promoted' => ['config/screens.json'],
+                'evidence' => ['predicate' => 'promoted', 'subject' => 'w' . $at, 'environment' => ['kind' => 'house'], 'paths' => ['config/screens.json']],
+                'observed' => [[
+                    'predicate' => 'served', 'route' => 'GET ' . $subject, 'subject' => $subject, 'status' => 200, 'environment' => ['kind' => 'house'],
+                    'servedAt' => $subject, 'bytes' => 3551 + $at, 'sha256' => hash('sha256', 'page ' . $at),
+                ] + ($content === null ? [] : ['content' => $content])],
+            ]), mutating: true);
+        }
+        $session = $store->load('s');
+        self::assertNotNull($session);
+
+        return ClosureVerdict::derive($session, $store->facts('s'), $store->stream('s'));
+    }
+}
