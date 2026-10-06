@@ -27,6 +27,7 @@ use Milpa\EventStore\FileEventStore;
 use Milpa\Http\HttpMethod;
 use Milpa\Http\Routing\HandlerReference;
 use Milpa\Http\Routing\Route;
+use Milpa\AppRuntime\Support\EffectiveStorage;
 use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\Interfaces\Plugin\PluginInterface;
 use Milpa\Runtime\Http\RouteProviderInterface;
@@ -90,7 +91,7 @@ final class HouseContextReadTest extends TestCase
     }
 
     /** Boots a real kernel over the fixture root and returns the operations facade plus the kernel. */
-    private function booted(): AgentOperations
+    private function booted(bool $declaresStorage = true): AgentOperations
     {
         $container = new DIContainer();
         // A real event store, so the session notebook exists deterministically in this fixture.
@@ -102,7 +103,7 @@ final class HouseContextReadTest extends TestCase
             'plugins' => [HouseContextRoutedPlugin::class],
             'config' => [
                 'app' => ['name' => 'context-house'],
-                'storage' => ['driver' => 'file', 'path' => 'var/data/app.json'],
+                ...($declaresStorage ? ['storage' => ['driver' => 'file', 'path' => 'var/data/app.json']] : []),
             ],
         ]);
         $container->registerService(Kernel::class, $kernel);
@@ -148,8 +149,9 @@ final class HouseContextReadTest extends TestCase
             $answer['plugins'],
         );
 
-        // storage — the config bag's own block: driver plus where, and nothing that could be a secret.
-        self::assertSame(['driver' => 'file', 'where' => 'var/data/app.json'], $answer['storage']);
+        // storage — what EffectiveStorage folds from the config bag's own block, and nothing that could be a secret.
+        self::assertSame(EffectiveStorage::of(['driver' => 'file', 'path' => 'var/data/app.json']), $answer['storage']);
+        self::assertSame(['driver' => 'file', 'where' => 'var/data/app.json', 'source' => 'config', 'configuration_required' => false], $answer['storage']);
 
         // routes — the table the kernel's router holds: the two the fixture plugin contributed.
         self::assertSame(['count' => 2, 'paths' => ['/context', '/context/{id}']], $answer['routes']);
@@ -190,6 +192,33 @@ final class HouseContextReadTest extends TestCase
     }
 
     /** H-GATE-1: an app with no kernel says so instead of assembling a plausible house. */
+    /**
+     * A house that declares no storage persists all the same, and the answer says where (greenhouse evidence/1109):
+     * `driver: null` sent a resident to read `config/app.php` for what the house already knew.
+     */
+    public function testAHouseThatDeclaresNoStorageSaysWhereItPersistsAnyway(): void
+    {
+        $answer = $this->booted(declaresStorage: false)->houseContext();
+
+        self::assertSame(['driver' => 'file', 'where' => 'var/<table>.json', 'source' => 'default', 'configuration_required' => false], $answer['storage']);
+    }
+
+    public function testTheContractSaysTheStorageAnswerIsTheEffectiveOne(): void
+    {
+        $operation = null;
+        foreach ($this->booted()->operations() as $candidate) {
+            if ($candidate->name === 'house:context') {
+                $operation = $candidate;
+            }
+        }
+        self::assertNotNull($operation);
+        $described = $operation->outputSchema['properties']['storage']['description'] ?? '';
+
+        self::assertStringContainsString('effective', $described);
+        self::assertStringContainsString('configuration_required', $described);
+        self::assertStringContainsString('never credentials', $described);
+    }
+
     public function testWithoutAKernelItFailsClosedInWords(): void
     {
         $answer = (new AgentOperations(new DIContainer()))->houseContext();
