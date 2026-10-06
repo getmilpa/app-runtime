@@ -121,6 +121,47 @@ final class IdentityGrantOperationTest extends TestCase
         self::assertStringContainsString('#' . $seq . ' (make plugin=Blog)', $told);
     }
 
+    /**
+     * The grant leaves, beside the sentence the model reads, the fact the house reads: which recorded call it was
+     * given for (greenhouse decisions/0577). The seat's next leg opens with that call.
+     */
+    public function testTheGrantRecordsWhichRecordedCallItWasGivenFor(): void
+    {
+        [$c, , $seq] = $this->house();
+        $sessions = $c->get(SessionStore::class);
+        \assert($sessions instanceof SessionStore);
+        $this->signed($c, self::HUMAN, ['session' => self::SESSION, 'seq' => $seq]);
+
+        self::assertTrue($this->call($c, ['session' => self::SESSION, 'seq' => $seq])['ok']);
+
+        $facts = array_values(array_filter($sessions->stream(self::SESSION), static fn ($e): bool => $e->type === \Milpa\AppRuntime\Agent\GrantedCall::GRANTED));
+        self::assertCount(1, $facts, 'one grant, one fact');
+        self::assertSame([
+            'seq' => $seq,
+            'tool' => 'make',
+            'permission' => 'plugins.Blog:write',
+            'arguments_sha256' => \Milpa\AppRuntime\Agent\ConsentBridge::digest(['what' => 'plugin', 'plugin' => 'Blog', 'name' => 'BlogPlugin']),
+            'authorized_by' => 'key:' . self::HUMAN,
+        ], $facts[0]->payload);
+        $types = array_map(static fn ($e): string => $e->type, $sessions->stream(self::SESSION));
+        self::assertSame('session.turn', end($types), 'the sentence the model reads stays the last word');
+        self::assertNull(
+            \Milpa\AppRuntime\Agent\GrantedCall::toResume($sessions->stream(self::SESSION), new \DateTimeImmutable()),
+            'the call granted is not the session\'s last call here: another refusal followed it, so nothing is resumed',
+        );
+    }
+
+    public function testARefusedGrantRecordsNoSuchFact(): void
+    {
+        [$c, , $seq] = $this->house();
+        $sessions = $c->get(SessionStore::class);
+        \assert($sessions instanceof SessionStore);
+        $this->signed($c, self::STRANGER, ['session' => self::SESSION, 'seq' => $seq]);
+
+        self::assertFalse($this->call($c, ['session' => self::SESSION, 'seq' => $seq])['ok']);
+        self::assertSame([], array_values(array_filter($sessions->stream(self::SESSION), static fn ($e): bool => $e->type === \Milpa\AppRuntime\Agent\GrantedCall::GRANTED)));
+    }
+
     public function testARefusedGrantTellsTheSessionNothing(): void
     {
         [$c, , $seq] = $this->house();

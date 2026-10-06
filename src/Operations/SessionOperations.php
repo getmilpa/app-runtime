@@ -2285,6 +2285,15 @@ final class SessionOperations implements CommandProvider
         // and only went back to the granted call once a person told it. So the house records the fact it just
         // made, as a turn the model reads — the same way a counter-offer reaches it. It asks nothing and grants
         // nothing more: the refusal stayed a refusal (decisions/0317), a human decided it, and this says so.
+        // AND WHICH CALL THE GRANT WAS GIVEN FOR, as a fact (greenhouse decisions/0577): the seat's next leg opens
+        // with that recorded call instead of asking the model to retype it. The sentence below tells the model; this
+        // tells the house, which never reads a grant out of words.
+        $log = (new AgentOperations($this->container))->sessionLog();
+        foreach ($log === null ? [] : $store->stream($session) as $recorded) {
+            if ($recorded->seq === $refusal['seq']) {
+                \Milpa\AppRuntime\Agent\GrantedCall::granted($log, $session, $recorded, $refusal['permission'], $enrolled->authorizedBy);
+            }
+        }
         $store->recordTurn($session, 'user', self::grantNotice($refusal, $enrolled->authorizedBy));
 
         return [
