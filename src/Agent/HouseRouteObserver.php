@@ -375,7 +375,7 @@ final class HouseRouteObserver
             $entry = ['predicate' => 'served', ...$entry, 'servedAt' => $subject,
                 'bytes' => \is_int($answer['bytes'] ?? null) ? $answer['bytes'] : null,
                 'sha256' => \is_string($answer['sha256'] ?? null) ? $answer['sha256'] : null,
-                // WHAT KIND OF THING ANSWERED (greenhouse decisions/0577): the type the response named, as it named it.
+                // WHAT KIND OF THING ANSWERED (greenhouse decisions/0579): the type the response named, as it named it.
                 'contentType' => \is_string($answer['contentType'] ?? null) ? $answer['contentType'] : null];
             if (strtolower(explode(';', (string) $entry['contentType'], 2)[0]) === 'text/html') {
                 // A page — and the declared screen that serves it, or that none does: then the house has no

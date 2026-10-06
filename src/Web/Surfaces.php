@@ -15,7 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Web;
 
 /**
- * The pages this house serves from a declaration, as `house:context` answers them (greenhouse decisions/0577 §5).
+ * The pages this house serves from a declaration, as `house:context` answers them (greenhouse decisions/0579 §5).
  *
  * `house:context` listed the paths of the route table and nothing about what answers there. Which of them a declared
  * screen serves is written in the declarations the house already reads, so it can say so without asking any route.

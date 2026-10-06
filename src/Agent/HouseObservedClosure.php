@@ -243,7 +243,7 @@ final class HouseObservedClosure
                 if ($isServed && ! $counts($entry['subject'])) {
                     $unnamed = ['subject' => $entry['subject'], 'seq' => $event->seq];
                 } else {
-                    // WHAT THE HOUSE DID WITH THE PAGE IT CLOSES ON (greenhouse decisions/0577 §3–4): it read it
+                    // WHAT THE HOUSE DID WITH THE PAGE IT CLOSES ON (greenhouse decisions/0579 §3–4): it read it
                     // (`content`, decisions/0576); it is a page and it did not («unjudged» — the closure stands, and
                     // the verdict says so); or what answered is no page, and nothing is said.
                     $surface = \is_array($entry['surface'] ?? null) ? $entry['surface'] : null;

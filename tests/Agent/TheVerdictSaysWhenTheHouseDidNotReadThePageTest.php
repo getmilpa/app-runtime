@@ -24,7 +24,7 @@ use Milpa\EventStore\InMemoryEventStore;
 use PHPUnit\Framework\TestCase;
 
 /**
- * THE VERDICT SAYS WHEN THE HOUSE DID NOT READ THE PAGE (greenhouse decisions/0577 §3–4, slice BV-3).
+ * THE VERDICT SAYS WHEN THE HOUSE DID NOT READ THE PAGE (greenhouse decisions/0579 §3–4, slice BV-3).
  *
  * A page written by hand and a page the house read row by row both closed `verified: true`, and nothing in the
  * verdict told them apart. The closure does not change — a surface no declaration serves has no contract to be judged

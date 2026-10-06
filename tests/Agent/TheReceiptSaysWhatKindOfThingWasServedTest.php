@@ -18,7 +18,7 @@ use Milpa\AppRuntime\Agent\HouseRouteObserver;
 use PHPUnit\Framework\TestCase;
 
 /**
- * THE RECEIPT SAYS WHAT KIND OF THING WAS SERVED (greenhouse decisions/0577 §1–2, slice BV-3).
+ * THE RECEIPT SAYS WHAT KIND OF THING WAS SERVED (greenhouse decisions/0579 §1–2, slice BV-3).
  *
  * The `served` receipt carried a status, a size and a digest: it did not say whether a page or a JSON document had
  * answered. So a page written by hand closed exactly like one the house read row by row (decisions/0576), and nothing

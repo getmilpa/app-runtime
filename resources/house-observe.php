@@ -276,7 +276,7 @@ register_shutdown_function(static function () use ($head): void {
         $body = (string) ob_get_clean() . $body;
     }
     $status = http_response_code();
-    // The Content-Type the response named, as it named it (decisions/0577): none named is none said.
+    // The Content-Type the response named, as it named it (decisions/0579): none named is none said.
     $contentType = null;
     foreach (\is_array($GLOBALS['__milpaHouseObservedHeaders'] ?? null) ? $GLOBALS['__milpaHouseObservedHeaders'] : [] as $line) {
         if (\is_string($line) && stripos($line, 'content-type:') === 0) {

@@ -14,7 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\Runtime\Http;
 
-// THE HEADERS A BROWSER WOULD HAVE BEEN SENT (greenhouse decisions/0577 §1).
+// THE HEADERS A BROWSER WOULD HAVE BEEN SENT (greenhouse decisions/0579 §1).
 //
 // The house is asked in a CLI process, and PHP's CLI drops every `header()`: `headers_list()` answers empty there, so
 // the child could say the status of a response and never its type. The runtime's emitter (`ResponseEmitter`, in this

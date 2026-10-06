@@ -158,7 +158,7 @@ final class HouseContextReadTest extends TestCase
         self::assertSame(['count' => 2, 'paths' => ['/context', '/context/{id}']], $answer['routes']);
 
         // surfaces — the pages the house serves from a declaration, as Surfaces folds its screens (greenhouse
-        // decisions/0577): this house mounts none, and the convention is said all the same.
+        // decisions/0579): this house mounts none, and the convention is said all the same.
         self::assertSame(['pages' => [], 'convention' => \Milpa\AppRuntime\Web\Surfaces::CONVENTION], $answer['surfaces']);
 
         // events — the dispatcher's own memory, as `events:catalogue` folds it (greenhouse decisions/0228):
