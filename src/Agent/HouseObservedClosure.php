@@ -115,7 +115,7 @@ final class HouseObservedClosure
      *                                                                      ({@see StandingAsk::explicitRoutes()}): for the reason, and
      *                                                                      so a receipt served elsewhere is not taken for one of them
      *
-     * @return array{derived: bool, reason: ?string, observation: ?array{subject: string, seq: int, content?: array<string, mixed>}, lastChangeSeq: ?int, landed: list<int>, unlisted: list<string>}
+     * @return array{derived: bool, reason: ?string, observation: ?array{subject: string, seq: int, content?: array<string, mixed>|string, surface?: array<string, mixed>}, lastChangeSeq: ?int, landed: list<int>, unlisted: list<string>}
      */
     public static function of(array $stream, SessionFacts $facts, ?\Closure $named = null, ?\Closure $lasting = null, array $written = []): array
     {
@@ -243,7 +243,16 @@ final class HouseObservedClosure
                 if ($isServed && ! $counts($entry['subject'])) {
                     $unnamed = ['subject' => $entry['subject'], 'seq' => $event->seq];
                 } else {
-                    $served ??= $isServed ? ['subject' => $entry['subject'], 'seq' => $event->seq] + ($content === null ? [] : ['content' => $content]) : null;
+                    // WHAT THE HOUSE DID WITH THE PAGE IT CLOSES ON (greenhouse decisions/0579 §3–4): it read it
+                    // (`content`, decisions/0576); it is a page and it did not («unjudged» — the closure stands, and
+                    // the verdict says so); or what answered is no page, and nothing is said.
+                    $surface = \is_array($entry['surface'] ?? null) ? $entry['surface'] : null;
+                    $read = match (true) {
+                        $content !== null => ['content' => $content],
+                        ($surface['kind'] ?? null) === 'visual' => ['content' => 'unjudged'],
+                        default => [],
+                    };
+                    $served ??= $isServed ? ['subject' => $entry['subject'], 'seq' => $event->seq] + $read + ($surface === null ? [] : ['surface' => $surface]) : null;
                 }
             }
             $observation = $served ?? $observation;

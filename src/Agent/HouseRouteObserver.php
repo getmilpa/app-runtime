@@ -206,19 +206,19 @@ final class HouseRouteObserver
         return \is_array($answer['content'] ?? null) ? $answer['content'] : null;
     }
 
-    /** Whether a declared screen is mounted at that route, read from the declarations on disk: nothing boots. */
-    private static function mounts(string $root, string $route): bool
+    /** The declared screen mounted at that route, or null: read from the declarations on disk, nothing boots. */
+    private static function screenAt(string $root, string $route): ?string
     {
         try {
-            foreach (array_keys(ScreenStore::fromConfig([], $root)->mounts()) as $mounted) {
+            foreach (ScreenStore::fromConfig([], $root)->mounts() as $mounted => $screen) {
                 if (ScreenRoute::key((string) $mounted) === ScreenRoute::key($route)) {
-                    return true;
+                    return $screen;
                 }
             }
         } catch (\Throwable) {
         }
 
-        return false;
+        return null;
     }
 
     /**
@@ -360,7 +360,8 @@ final class HouseRouteObserver
     {
         $subject = explode('?', $path, 2)[0];
         // A mounted screen is judged on the whole page it served (greenhouse decisions/0576), so the whole page is asked.
-        $judged = $method === 'GET' && ! $confined && self::mounts($root, $subject);
+        $screen = self::screenAt($root, $subject);
+        $judged = $method === 'GET' && ! $confined && $screen !== null;
         $arguments = ['request', $root, $method, $path, (string) ($judged ? max($excerpt, self::JUDGED_MAX) : $excerpt), ...($bodyFile !== null ? [$bodyFile, (string) $contentType] : [])];
         [$exit, $answer, $stderr] = $this->run($arguments, $confined ? $root : null);
         $page = $judged && \is_string($answer['head'] ?? null) ? (string) base64_decode($answer['head'], true) : null;
@@ -373,7 +374,14 @@ final class HouseRouteObserver
         if ($status === 200 && $exit === 0 && $method === 'GET') {
             $entry = ['predicate' => 'served', ...$entry, 'servedAt' => $subject,
                 'bytes' => \is_int($answer['bytes'] ?? null) ? $answer['bytes'] : null,
-                'sha256' => \is_string($answer['sha256'] ?? null) ? $answer['sha256'] : null];
+                'sha256' => \is_string($answer['sha256'] ?? null) ? $answer['sha256'] : null,
+                // WHAT KIND OF THING ANSWERED (greenhouse decisions/0579): the type the response named, as it named it.
+                'contentType' => \is_string($answer['contentType'] ?? null) ? $answer['contentType'] : null];
+            if (strtolower(explode(';', (string) $entry['contentType'], 2)[0]) === 'text/html') {
+                // A page — and the declared screen that serves it, or that none does: then the house has no
+                // declaration to compare it with. Read from the declarations; no process is started for this.
+                $entry['surface'] = ['kind' => 'visual', 'screen' => $screen];
+            }
             // A page longer than the house read is not judged on the part it read.
             $content = $page !== null && \strlen($page) === $entry['bytes'] ? $this->content($root, $subject, $page) : null;
             if ($content !== null) {

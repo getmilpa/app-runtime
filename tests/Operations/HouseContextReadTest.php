@@ -62,6 +62,7 @@ final class HouseContextReadTest extends TestCase
         'plugins',
         'storage',
         'routes',
+        'surfaces',
         'events',
         'capabilities',
         'operations',
@@ -155,6 +156,10 @@ final class HouseContextReadTest extends TestCase
 
         // routes — the table the kernel's router holds: the two the fixture plugin contributed.
         self::assertSame(['count' => 2, 'paths' => ['/context', '/context/{id}']], $answer['routes']);
+
+        // surfaces — the pages the house serves from a declaration, as Surfaces folds its screens (greenhouse
+        // decisions/0579): this house mounts none, and the convention is said all the same.
+        self::assertSame(['pages' => [], 'convention' => \Milpa\AppRuntime\Web\Surfaces::CONVENTION], $answer['surfaces']);
 
         // events — the dispatcher's own memory, as `events:catalogue` folds it (greenhouse decisions/0228):
         // the section EQUALS the compact fold, and the fold equals the catalogue's counts. The kernel's own

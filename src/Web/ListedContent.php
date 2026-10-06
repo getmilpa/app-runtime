@@ -95,15 +95,21 @@ final class ListedContent
         }
 
         return [
-            'entity' => preg_match('~\\\\Plugins\\\\([A-Za-z_][A-Za-z0-9_]*)\\\\Entities\\\\([A-Za-z_][A-Za-z0-9_]*)$~D', $class, $names) === 1
-                ? $names[1] . '/' . $names[2]
-                : substr((string) strrchr('\\' . $class, '\\'), 1),
+            'entity' => self::named($class),
             'public' => \count($public),
             'shown' => $shown,
             'withheld' => \count($withheld),
             'leaked' => $leaked,
             'withholding' => $withheld === [] ? 'unexercised' : 'exercised',
         ];
+    }
+
+    /** An entity as the house names it to a reader: `Plugin/Entity` for a plugin's entity, else its short class name. */
+    public static function named(string $class): string
+    {
+        return preg_match('~\\\\Plugins\\\\([A-Za-z_][A-Za-z0-9_]*)\\\\Entities\\\\([A-Za-z_][A-Za-z0-9_]*)$~D', $class, $names) === 1
+            ? $names[1] . '/' . $names[2]
+            : substr((string) strrchr('\\' . $class, '\\'), 1);
     }
 
     /** A value as a visitor reads it: text, with its whitespace collapsed. */

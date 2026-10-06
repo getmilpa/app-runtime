@@ -21,6 +21,8 @@ use Milpa\AppRuntime\Agent\LegWindow;
 use Milpa\AppRuntime\Agent\CandidateState;
 use Milpa\AppRuntime\Agent\AcceptanceEvidence;
 use Milpa\AppRuntime\Web\ScreenDrafts;
+use Milpa\AppRuntime\Web\ScreenStore;
+use Milpa\AppRuntime\Web\Surfaces;
 use Milpa\AppRuntime\Agent\TrialRunner;
 use Milpa\AppRuntime\Agent\TrialInputObserver;
 use Milpa\AppRuntime\Agent\TrialRouter;
@@ -515,6 +517,7 @@ class AgentOperations implements CommandProvider
                         'plugins' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'Each {class, name, provides?} in the exact order the kernel holds them'],
                         'storage' => ['type' => 'object', 'description' => 'The effective storage: driver and where entities are kept, source (config, or the default generated code falls back to when config/app.php declares none) and configuration_required — never credentials'],
                         'routes' => ['type' => 'object', 'description' => 'count and paths of the route table the kernel\'s router holds'],
+                        'surfaces' => ['type' => 'object', 'description' => 'The pages this house serves from a declaration — pages: each {route, screen, type, lists?} — and the convention for making one. A page written by hand is not listed: the house learns of it when it observes it'],
                         'events' => ['type' => 'object', 'description' => 'The event table\'s own summary, as events:catalogue folds it: the dispatcher, counts {declared, dispatched, undeclared}, the names and the same warnings for manifests that could not be resolved — or ok:false naming what the dispatcher lacks'],
                         'capabilities' => ['type' => 'object', 'description' => 'The capability registry\'s own answer: installed, available, ports'],
                         'operations' => ['type' => 'object', 'description' => 'count and names of the assembled catalogue — Operations::all'],
@@ -1682,6 +1685,7 @@ class AgentOperations implements CommandProvider
             'plugins' => $plugins,
             'storage' => EffectiveStorage::of($config?->get('storage')),
             'routes' => ['count' => \count($paths), 'paths' => $paths],
+            'surfaces' => Surfaces::declared(ScreenStore::fromConfig(\is_array($live = $config?->get('live')) ? $live : [], $root)),
             'events' => Events::summary($this->container),
             'capabilities' => Capabilities::answer(),
             'operations' => ['count' => \count($names), 'names' => $names],

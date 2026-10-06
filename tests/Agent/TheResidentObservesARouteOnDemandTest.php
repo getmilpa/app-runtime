@@ -145,6 +145,8 @@ final class Blog implements \Milpa\Interfaces\Plugin\PluginInterface, \Milpa\Run
         self::assertSame([[
             'predicate' => 'served', 'route' => 'GET /blog', 'subject' => '/blog', 'status' => 200, 'environment' => ['kind' => 'house'],
             'servedAt' => '/blog', 'bytes' => \strlen('<h1>blog</h1>'), 'sha256' => hash('sha256', '<h1>blog</h1>'),
+            // What kind of thing answered (greenhouse decisions/0579): a page, and no declared screen serves it.
+            'contentType' => 'text/html', 'surface' => ['kind' => 'visual', 'screen' => null],
         ]], $seen['observed'] ?? null);
         self::assertSame('<h1>blog</h1>', $seen['excerpt'] ?? null);
         self::assertArrayNotHasKey('truncated', $seen);
