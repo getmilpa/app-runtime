@@ -15,7 +15,10 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Agent;
 
 use Milpa\Agent\AutonomyMode;
+use Milpa\Agent\Evidence;
 use Milpa\Agent\SessionStore;
+use Milpa\Agent\Todo;
+use Milpa\Agent\TodoStatus;
 use Milpa\AppRuntime\Agent\ClosureVerdict;
 use Milpa\EventStore\InMemoryEventStore;
 use PHPUnit\Framework\TestCase;
@@ -37,10 +40,13 @@ final class TheHouseClosesOnlyOverAPageThatListsTest extends TestCase
         $closure = $this->closureAfter([self::EMPTY]);
 
         self::assertFalse($closure['verified'], 'the published house said verified: true here');
-        self::assertContains(
-            'the house observed «/blog» served with nothing to read (seq 2): its screen lists Blog/Post and no public row exists — leave rows with entity:seed',
-            $closure['reasons'],
+        self::assertSame(
+            ['the house observed «/blog» served with nothing to read (seq 2): its screen lists Blog/Post and no public row exists — leave rows with entity:seed'],
+            array_values(array_filter($closure['reasons'], static fn (string $why): bool => str_contains($why, '/blog'))),
+            'said, and said once',
         );
+        self::assertArrayNotHasKey('derivedFrom', $closure, 'a page with nothing to read is not an observation the house derives a closure from');
+        self::assertSame('recorded_work', $closure['scope']);
     }
 
     public function testAPageThatListsCloses(): void
@@ -103,6 +109,121 @@ final class TheHouseClosesOnlyOverAPageThatListsTest extends TestCase
         self::assertStringContainsString('«/blog» served with nothing to read', implode('; ', $closure['reasons']));
     }
 
+    /**
+     * Measured with the real resident (greenhouse evidence/1110 §5): it always plans with todos, and a session with
+     * todos whose house observation does not derive was judged by its record alone — so closing its todos made the
+     * house's finding vanish and the empty page closed `verified: true`. What the house SAW is said in both forms.
+     */
+    public function testWithTodosAnEmptyPageDoesNotCloseEither(): void
+    {
+        $store = new SessionStore(new InMemoryEventStore());
+        $store->start('s', 'Build the blog: serve GET /blog as a page listing published posts.', AutonomyMode::Auto);
+        $store->setTodo('s', new Todo('t1', 'Confirm /blog served', TodoStatus::Pending));
+        $this->promote($store, 'w1', [$this->route('/blog', self::EMPTY)]);
+        $store->completeTodo('s', 't1', Evidence::operationOk('e1', 'sandbox_promote'));
+
+        $closure = $this->verdict($store);
+
+        self::assertFalse($closure['verified'], 'every todo is closed with accepted evidence, and the page has nothing to read');
+        self::assertContains(
+            'the house observed «/blog» served with nothing to read (seq 3): its screen lists Blog/Post and no public row exists — leave rows with entity:seed',
+            $closure['reasons'],
+        );
+
+        $this->promote($store, 'w2', [$this->route('/blog', self::LISTS)]);
+        $closed = $this->verdict($store);
+        self::assertTrue($closed['verified'], implode('; ', $closed['reasons']));
+        self::assertSame('recorded_work_and_house_observation', $closed['scope']);
+    }
+
+    public function testAnEmptyPageIsSaidOnceEvenWhenNothingLandedInTheSession(): void
+    {
+        $store = new SessionStore(new InMemoryEventStore());
+        $store->start('s', 'Check that GET /blog lists the published posts.', AutonomyMode::Auto);
+        $store->recordToolCall('s', 'route_observe', ['path' => '/blog'], (string) json_encode(['ok' => true, 'observed' => [$this->route('/blog', self::EMPTY)]]), mutating: false);
+
+        $closure = $this->verdict($store);
+
+        self::assertFalse($closure['verified']);
+        self::assertSame(1, \count(array_filter($closure['reasons'], static fn (string $why): bool => str_contains($why, 'nothing to read'))), implode('; ', $closure['reasons']));
+    }
+
+    /**
+     * Measured with the real resident (greenhouse evidence/1110 §5): its verdict rested on `screen:observe` of the
+     * screen «blog» — a receipt of `/live/page?component=blog`, which the house does not judge — because a screen
+     * named like the route was taken for the route. A screen served at its own page is not `GET /blog`.
+     */
+    public function testAScreenObservedAtItsOwnPageIsNotTheRouteTheGoalWrites(): void
+    {
+        $store = new SessionStore(new InMemoryEventStore());
+        $store->start('s', 'Build the blog: serve GET /blog as a page listing published posts.', AutonomyMode::Auto);
+        $this->promote($store, 'w1', []);
+        $this->observeScreen($store, 'blog');
+
+        $closure = $this->verdict($store);
+
+        self::assertFalse($closure['verified'], 'nobody ever saw /blog answer: the published house said verified: true here');
+        self::assertContains(
+            'the house observed «blog» served at «/live/page?component=blog» (seq 3), and the goal writes «GET /blog»: only a route the goal writes closes it',
+            $closure['reasons'],
+        );
+    }
+
+    public function testAReceiptServedAtTheWrittenRouteCountsWhateverItsQuery(): void
+    {
+        $store = new SessionStore(new InMemoryEventStore());
+        $store->start('s', 'Build the blog: serve GET /blog as a page listing published posts.', AutonomyMode::Auto);
+        $this->promote($store, 'w1', []);
+        $store->recordToolCall('s', 'verify', [], (string) json_encode([
+            'ok' => true, 'evidence' => ['predicate' => 'served', 'subject' => 'blog', 'servedAt' => '/blog?page=1', 'environment' => ['kind' => 'house']],
+        ]), mutating: false);
+
+        $closure = $this->verdict($store);
+
+        self::assertTrue($closure['verified'], implode('; ', $closure['reasons']));
+    }
+
+    public function testAReceiptThatDoesNotSayWhereItWasServedKeepsItsReason(): void
+    {
+        $store = new SessionStore(new InMemoryEventStore());
+        $store->start('s', 'Build the blog: serve GET /blog as a page listing published posts.', AutonomyMode::Auto);
+        $this->promote($store, 'w1', []);
+        $store->recordToolCall('s', 'screen_observe', ['name' => 'posts'], (string) json_encode([
+            'ok' => true, 'evidence' => ['predicate' => 'served', 'subject' => 'posts', 'environment' => ['kind' => 'house']],
+        ]), mutating: false);
+
+        self::assertContains(
+            'the house observed «posts» served (seq 3), and the goal writes «GET /blog»: only a route the goal writes closes it',
+            $this->verdict($store)['reasons'],
+        );
+    }
+
+    public function testTheVerdictRestsOnTheRouteTheHouseJudgedNotOnAScreenOfTheSameName(): void
+    {
+        $store = new SessionStore(new InMemoryEventStore());
+        $store->start('s', 'Build the blog: serve GET /blog as a page listing published posts.', AutonomyMode::Auto);
+        $this->promote($store, 'w1', [$this->route('/blog', self::LISTS)]);
+        $this->observeScreen($store, 'blog');
+
+        $closure = $this->verdict($store);
+
+        self::assertTrue($closure['verified'], implode('; ', $closure['reasons']));
+        self::assertSame(['subject' => '/blog', 'seq' => 2, 'content' => self::LISTS], $closure['derivedFrom']['observation']);
+    }
+
+    public function testAScreenTheGoalNamesInWordsStillClosesAGoalThatWritesNoRoute(): void
+    {
+        $store = new SessionStore(new InMemoryEventStore());
+        $store->start('s', 'Declare a screen named blog that lists the published posts.', AutonomyMode::Auto);
+        $this->promote($store, 'w1', []);
+        $this->observeScreen($store, 'blog');
+
+        $closure = $this->verdict($store);
+
+        self::assertTrue($closure['verified'], 'no route is written: a screen the goal names is observed where screens are served, as before (decisions/0522)');
+        self::assertSame('blog', $closure['derivedFrom']['observation']['subject']);
+    }
+
     public function testARouteTheHouseDidNotJudgeCountsAsBefore(): void
     {
         $closure = $this->closureAfter([null]);
@@ -117,6 +238,49 @@ final class TheHouseClosesOnlyOverAPageThatListsTest extends TestCase
 
         self::assertFalse($closure['verified']);
         self::assertStringContainsString('only a route the goal writes closes it', implode('; ', $closure['reasons']), 'the unwritten route is the fact, as before');
+    }
+
+    /**
+     * A promotion that landed the screens' declarations, and what the house observed after it.
+     *
+     * @param list<array<string, mixed>> $observed
+     */
+    private function promote(SessionStore $store, string $workspace, array $observed): void
+    {
+        $store->recordToolCall('s', 'sandbox_promote', ['workspace' => $workspace], (string) json_encode([
+            'ok' => true,
+            'promoted' => ['config/screens.json'],
+            'evidence' => ['predicate' => 'promoted', 'subject' => $workspace, 'environment' => ['kind' => 'house'], 'paths' => ['config/screens.json']],
+        ] + ($observed === [] ? [] : ['observed' => $observed])), mutating: true);
+    }
+
+    /** `screen:observe` as the house answers it: a receipt of the screen, served at its own page. */
+    private function observeScreen(SessionStore $store, string $name): void
+    {
+        $store->recordToolCall('s', 'screen_observe', ['name' => $name], (string) json_encode([
+            'ok' => true, 'screen' => $name, 'status' => 200, 'servedAt' => '/live/page?component=' . $name,
+            'evidence' => ['predicate' => 'served', 'subject' => $name, 'servedAt' => '/live/page?component=' . $name, 'environment' => ['kind' => 'house']],
+        ]), mutating: false);
+    }
+
+    /**
+     * @param array<string, mixed>|null $content
+     *
+     * @return array<string, mixed>
+     */
+    private function route(string $subject, ?array $content): array
+    {
+        return ['predicate' => 'served', 'route' => 'GET ' . $subject, 'subject' => $subject, 'status' => 200, 'environment' => ['kind' => 'house'],
+            'servedAt' => $subject, 'bytes' => 3551, 'sha256' => hash('sha256', $subject . json_encode($content))] + ($content === null ? [] : ['content' => $content]);
+    }
+
+    /** @return array{verified: bool, reasons: list<string>, scope: string, derivedFrom?: array<string, mixed>} */
+    private function verdict(SessionStore $store): array
+    {
+        $session = $store->load('s');
+        self::assertNotNull($session);
+
+        return ClosureVerdict::derive($session, $store->facts('s'), $store->stream('s'));
     }
 
     /**

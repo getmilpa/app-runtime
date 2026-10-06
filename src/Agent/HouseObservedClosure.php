@@ -112,9 +112,10 @@ final class HouseObservedClosure
      * @param (\Closure(string, array<string, mixed>): ?bool)|null $lasting whether a call's own declaration says it lasts
      *                                                                      ({@see LastingCalls}); null reads the recorded flag alone
      * @param list<string>                                         $written the routes the goal writes explicitly
-     *                                                                      ({@see StandingAsk::explicitRoutes()}), for the reason
+     *                                                                      ({@see StandingAsk::explicitRoutes()}): for the reason, and
+     *                                                                      so a receipt served elsewhere is not taken for one of them
      *
-     * @return array{derived: bool, reason: ?string, observation: ?array{subject: string, seq: int}, lastChangeSeq: ?int, landed: list<int>}
+     * @return array{derived: bool, reason: ?string, observation: ?array{subject: string, seq: int, content?: array<string, mixed>}, lastChangeSeq: ?int, landed: list<int>, unlisted: list<string>}
      */
     public static function of(array $stream, SessionFacts $facts, ?\Closure $named = null, ?\Closure $lasting = null, array $written = []): array
     {
@@ -170,10 +171,16 @@ final class HouseObservedClosure
             }
             if (($evidence['predicate'] ?? null) === 'served' && $environment === 'house'
                 && ($evidence['invalidates'] ?? false) !== true && \is_string($evidence['subject'] ?? null)) {
-                if ($counts($evidence['subject'])) {
+                // A SCREEN SERVED AT ITS OWN PAGE IS NOT THE ROUTE THE GOAL WRITES (greenhouse decisions/0576 §8).
+                // Measured (evidence/1110): `screen:observe` of a screen named «blog» — a receipt of
+                // `/live/page?component=blog`, which the house does not judge — closed a goal that writes `GET /blog`.
+                // When the goal writes a route, a receipt that says where it was served counts only if it was there.
+                $at = \is_string($evidence['servedAt'] ?? null) ? explode('?', $evidence['servedAt'], 2)[0] : $evidence['subject'];
+                if ($counts($evidence['subject']) && ($written === [] || $counts($at))) {
                     $observation = ['subject' => $evidence['subject'], 'seq' => $event->seq];
                 } else {
-                    $unnamed = ['subject' => $evidence['subject'], 'seq' => $event->seq];
+                    $unnamed = ['subject' => $evidence['subject'], 'seq' => $event->seq]
+                        + ($at === $evidence['subject'] ? [] : ['at' => $evidence['servedAt']]);
                 }
             }
             if ($rehearsed) {
@@ -268,7 +275,8 @@ final class HouseObservedClosure
                 $stale !== [] => implode('; ', $stale),
                 $scaffolded !== null => "the house observed «{$scaffolded['subject']}» serving the body of {$scaffolded['whose']} scaffold (seq {$scaffolded['seq']}):"
                     . ' what «make» generated is not the work',
-                $written !== [] => "the house observed «{$unnamed['subject']}» served (seq {$unnamed['seq']}), and the goal writes «"
+                $written !== [] => "the house observed «{$unnamed['subject']}» served" . (isset($unnamed['at']) ? " at «{$unnamed['at']}»" : '')
+                    . " (seq {$unnamed['seq']}), and the goal writes «"
                     . implode('», «', $written) . '»: only a route the goal writes closes it',
                 default => "the house observed «{$unnamed['subject']}» served (seq {$unnamed['seq']}), a subject the goal does not name",
             };
@@ -283,7 +291,8 @@ final class HouseObservedClosure
             $reason = "the house observation of «{$observation['subject']}» went stale";
         }
 
-        return ['derived' => $reason === null, 'reason' => $reason, 'observation' => $observation, 'lastChangeSeq' => $lastChange, 'landed' => $landed];
+        return ['derived' => $reason === null, 'reason' => $reason, 'observation' => $observation, 'lastChangeSeq' => $lastChange, 'landed' => $landed,
+            'unlisted' => array_values(array_filter($unlisted))];
     }
 
     /**
