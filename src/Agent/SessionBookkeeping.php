@@ -204,7 +204,13 @@ final readonly class SessionBookkeeping implements ContractProducer
             new Operation(
                 name: 'work:claim-verified',
                 scopes: ['agent:run'],
-                description: 'Claim a todo as verified done: name the todo, the kind of evidence (test-passed, operation-ok, artifact-created, screen-served) and the reference that backs it. The session judges the claim against its RECORDED facts — a claim nothing covers is refused and the todo stays open',
+                // THE CONTRACT SAYS WHICH REFERENCE THE SESSION HOLDS (greenhouse evidence/1116). The judge compares
+                // the reference letter by letter against identifiers of the session's own record, and only its
+                // refusal used to say which: the first round of claims was written as prose and refused, every
+                // time it was measured. Said here it costs no call. It is said by rule, not as a list of what the
+                // session holds now: a contract that changed as the session worked would change the catalogue
+                // under the model at every step.
+                description: 'Claim a todo as verified done: name the todo, the kind of evidence and the reference that backs it. The reference is one identifier this session\'s record already holds, copied exactly — the session judges the claim against its RECORDED facts, and a claim nothing covers is refused and the todo stays open',
                 handler: fn (array $input): array => $this->claimVerified($input),
                 inputSchema: [
                     'type' => 'object',
@@ -212,10 +218,10 @@ final readonly class SessionBookkeeping implements ContractProducer
                         'todo' => ['type' => 'string', 'description' => 'The id of the todo this claim closes'],
                         'kind' => [
                             'type' => 'string',
-                            'enum' => ['test-passed', 'operation-ok', 'artifact-created', 'screen-served'],
+                            'enum' => array_keys(self::HELD),
                             'description' => 'What kind of recorded evidence backs the claim',
                         ],
-                        'reference' => ['type' => 'string', 'description' => 'What backs it: the artifact, operation or test a reader can re-check'],
+                        'reference' => ['type' => 'string', 'description' => self::whichReference()],
                     ],
                     'required' => ['todo', 'kind', 'reference'],
                 ],
@@ -235,6 +241,29 @@ final readonly class SessionBookkeeping implements ContractProducer
                 surfaces: ['mcp'],
             ),
         ];
+    }
+
+    /**
+     * WHICH REFERENCE THE SESSION HOLDS, KIND BY KIND — the rule {@see coveringFact()} judges by, with one example of
+     * each that it accepts as written (a test claims with every example, so the two cannot drift apart).
+     */
+    private const HELD = [
+        'test-passed' => 'the filter or path a `test` run of this session declared, when its last run is green, e.g. `BlogTest`',
+        'operation-ok' => 'the name of a tool this session called and that answered ok, as it was called, e.g. `plugins_register`',
+        'artifact-created' => 'one path a `sandbox_promote` of this session carried into the house, e.g. `src/Plugins/Blog/Blog.php`',
+        'screen-served' => 'the screen the house answered `served` for and that still is, as `screen_observe` named it, e.g. `blog`',
+    ];
+
+    /** What the contract says of `reference`: one identifier, and which one for each kind. */
+    private static function whichReference(): string
+    {
+        $byKind = [];
+        foreach (self::HELD as $kind => $held) {
+            $byKind[] = $kind . ': ' . $held;
+        }
+
+        return 'One identifier, exactly as this session\'s record holds it and nothing else — not a sentence, no explanation '
+            . 'after it. Which one, by kind — ' . implode('; ', $byKind) . '.';
     }
 
     /**
