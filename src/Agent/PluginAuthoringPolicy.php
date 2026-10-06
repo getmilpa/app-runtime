@@ -237,8 +237,8 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
 
         return $offered === null ? '' : sprintf(
             ' Whoever enrolled this seat can grant «%s» in the panel (Agent → Decisions). This is a person\'s decision,'
-            . ' not a gap in the house: do not declare HOUSE_DEBT for it. End this leg with a short answer saying you'
-            . ' are waiting for that grant; after it, `continue` runs this same call again.',
+            . ' not a gap in the house: do not declare HOUSE_DEBT for it. The leg ends here and waits for that grant;'
+            . ' after it, `continue` runs this same call again.',
             $offered['permission'],
         );
     }
