@@ -112,9 +112,10 @@ final class HouseObservedClosure
      * @param (\Closure(string, array<string, mixed>): ?bool)|null $lasting whether a call's own declaration says it lasts
      *                                                                      ({@see LastingCalls}); null reads the recorded flag alone
      * @param list<string>                                         $written the routes the goal writes explicitly
-     *                                                                      ({@see StandingAsk::explicitRoutes()}), for the reason
+     *                                                                      ({@see StandingAsk::explicitRoutes()}): for the reason, and
+     *                                                                      so a receipt served elsewhere is not taken for one of them
      *
-     * @return array{derived: bool, reason: ?string, observation: ?array{subject: string, seq: int}, lastChangeSeq: ?int, landed: list<int>}
+     * @return array{derived: bool, reason: ?string, observation: ?array{subject: string, seq: int, content?: array<string, mixed>}, lastChangeSeq: ?int, landed: list<int>, unlisted: list<string>}
      */
     public static function of(array $stream, SessionFacts $facts, ?\Closure $named = null, ?\Closure $lasting = null, array $written = []): array
     {
@@ -134,6 +135,9 @@ final class HouseObservedClosure
         $scaffolds = [];
         // The last observation of a named route answered by its scaffold: said in the reason, never counted.
         $scaffolded = null;
+        // route => why the last page the house saw there does not list what its screen had to, or null when it does
+        // or the house did not judge it (decisions/0576).
+        $unlisted = [];
         // sha256 => true for every body the house learned as a scaffold's: those bytes are a scaffold's on any route
         // (decisions/0556).
         $bodies = [];
@@ -167,10 +171,16 @@ final class HouseObservedClosure
             }
             if (($evidence['predicate'] ?? null) === 'served' && $environment === 'house'
                 && ($evidence['invalidates'] ?? false) !== true && \is_string($evidence['subject'] ?? null)) {
-                if ($counts($evidence['subject'])) {
+                // A SCREEN SERVED AT ITS OWN PAGE IS NOT THE ROUTE THE GOAL WRITES (greenhouse decisions/0576 §8).
+                // Measured (evidence/1110): `screen:observe` of a screen named «blog» — a receipt of
+                // `/live/page?component=blog`, which the house does not judge — closed a goal that writes `GET /blog`.
+                // When the goal writes a route, a receipt that says where it was served counts only if it was there.
+                $at = \is_string($evidence['servedAt'] ?? null) ? explode('?', $evidence['servedAt'], 2)[0] : $evidence['subject'];
+                if ($counts($evidence['subject']) && ($written === [] || $counts($at))) {
                     $observation = ['subject' => $evidence['subject'], 'seq' => $event->seq];
                 } else {
-                    $unnamed = ['subject' => $evidence['subject'], 'seq' => $event->seq];
+                    $unnamed = ['subject' => $evidence['subject'], 'seq' => $event->seq]
+                        + ($at === $evidence['subject'] ? [] : ['at' => $evidence['servedAt']]);
                 }
             }
             if ($rehearsed) {
@@ -223,10 +233,17 @@ final class HouseObservedClosure
                     }
                     continue;
                 }
+                // A PAGE THAT DOES NOT LIST IS NOT THE WORK (greenhouse decisions/0576). The receipt of a mounted screen
+                // says what it listed against what it had to; one with nothing to read, part of what is public, or what
+                // is not public, does not count — and the last thing the house saw of that route decides.
+                $content = \is_array($entry['content'] ?? null) ? $entry['content'] : null;
+                if ($isServed && $counts($entry['subject'])) {
+                    $unlisted[$entry['subject']] = $content === null ? null : self::doesNotList($content, $entry['subject'], $event->seq);
+                }
                 if ($isServed && ! $counts($entry['subject'])) {
                     $unnamed = ['subject' => $entry['subject'], 'seq' => $event->seq];
                 } else {
-                    $served ??= $isServed ? ['subject' => $entry['subject'], 'seq' => $event->seq] : null;
+                    $served ??= $isServed ? ['subject' => $entry['subject'], 'seq' => $event->seq] + ($content === null ? [] : ['content' => $content]) : null;
                 }
             }
             $observation = $served ?? $observation;
@@ -249,6 +266,8 @@ final class HouseObservedClosure
             $reason = "the house could not be observed after the change at seq {$unobservable['seq']}: {$unobservable['error']}";
         } elseif ($failing !== []) {
             $reason = implode('; ', $failing);
+        } elseif (array_filter($unlisted) !== []) {
+            $reason = implode('; ', array_filter($unlisted));
         } elseif ($observation === null && ($scaffolded !== null || $unnamed !== null)) {
             // A route that went stale is the stronger fact; then a named route its scaffold answered; otherwise, say what
             // was seen instead of the work.
@@ -256,7 +275,8 @@ final class HouseObservedClosure
                 $stale !== [] => implode('; ', $stale),
                 $scaffolded !== null => "the house observed «{$scaffolded['subject']}» serving the body of {$scaffolded['whose']} scaffold (seq {$scaffolded['seq']}):"
                     . ' what «make» generated is not the work',
-                $written !== [] => "the house observed «{$unnamed['subject']}» served (seq {$unnamed['seq']}), and the goal writes «"
+                $written !== [] => "the house observed «{$unnamed['subject']}» served" . (isset($unnamed['at']) ? " at «{$unnamed['at']}»" : '')
+                    . " (seq {$unnamed['seq']}), and the goal writes «"
                     . implode('», «', $written) . '»: only a route the goal writes closes it',
                 default => "the house observed «{$unnamed['subject']}» served (seq {$unnamed['seq']}), a subject the goal does not name",
             };
@@ -271,7 +291,31 @@ final class HouseObservedClosure
             $reason = "the house observation of «{$observation['subject']}» went stale";
         }
 
-        return ['derived' => $reason === null, 'reason' => $reason, 'observation' => $observation, 'lastChangeSeq' => $lastChange, 'landed' => $landed];
+        return ['derived' => $reason === null, 'reason' => $reason, 'observation' => $observation, 'lastChangeSeq' => $lastChange, 'landed' => $landed,
+            'unlisted' => array_values(array_filter($unlisted))];
+    }
+
+    /**
+     * Why a judged page does not list what its screen had to, or null when it does: at least one public row, every
+     * public row shown, and none that is not public (decisions/0576).
+     *
+     * @param array<string, mixed> $content the `content` of a `served` receipt
+     */
+    private static function doesNotList(array $content, string $subject, int $seq): ?string
+    {
+        $entity = \is_string($content['entity'] ?? null) ? $content['entity'] : 'its entity';
+        $public = \is_int($content['public'] ?? null) ? $content['public'] : 0;
+        $shown = \is_int($content['shown'] ?? null) ? $content['shown'] : 0;
+        $leaked = \is_int($content['leaked'] ?? null) ? $content['leaked'] : 0;
+
+        $saw = "the house observed «{$subject}» served";
+
+        return match (true) {
+            $public < 1 => "{$saw} with nothing to read (seq {$seq}): its screen lists {$entity} and no public row exists — leave rows with entity:seed",
+            $shown < $public => "{$saw} showing {$shown} of {$public} public rows of {$entity} (seq {$seq})",
+            $leaked > 0 => "{$saw} showing {$leaked} row" . ($leaked === 1 ? '' : 's') . " of {$entity} that is not public (seq {$seq})",
+            default => null,
+        };
     }
 
     /**
