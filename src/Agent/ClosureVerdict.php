@@ -130,6 +130,10 @@ final class ClosureVerdict
         $house = $stream !== null && $ask !== null
             ? HouseObservedClosure::of($stream, $facts, static fn (string $subject): bool => $ask->namesSubject($subject), $lasting, $ask->explicitRoutes())
             : null;
+        // A PAGE THE HOUSE SAW AND THAT DOES NOT LIST IS SAID IN EVERY FORM (greenhouse decisions/0576 §2). Measured
+        // (evidence/1110): a session with todos whose house observation does not derive is judged by its record alone
+        // (§3 of 0509, below), so closing the todos made the house's finding vanish and an empty page closed verified.
+        $notListing = $house['unlisted'] ?? [];
         if ($session->todos !== [] && $house !== null && ! ($house['derived'] && $house['lastChangeSeq'] !== null)) {
             $house = null;
         }
@@ -174,8 +178,10 @@ final class ClosureVerdict
                 $hasEvidence = true;
             } elseif ($house['lastChangeSeq'] !== null && $house['reason'] !== null) {
                 $reasons[] = $house['reason'];
+                $notListing = [];
             }
         }
+        $reasons = [...$reasons, ...$notListing];
         if (!$hasEvidence) {
             $reasons[] = 'no positive verification evidence recorded';
         }

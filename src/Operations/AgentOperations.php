@@ -2174,7 +2174,8 @@ class AgentOperations implements CommandProvider
             if (array_intersect(['expectation', 'deliveryCandidate'], array_keys($input)) !== [] && $this->sessionEvents === null) {
                 throw new \RuntimeException('A delivery expectation or binding requires a durable session event store.');
             }
-            $rows = $store !== null && $sessionId !== '' ? $store->stream($sessionId) : [];
+            // A run with a store always has a session id by here: an empty one was given a name above.
+            $rows = $store !== null ? $store->stream($sessionId) : [];
             $diagnostic = DiagnosticContract::read($rows, $sessionId);
             $diagnosticAsked = array_key_exists('diagnostic', $input) ? DiagnosticContract::validate($rows, $sessionId, $input['diagnostic']) : null;
             if ($diagnostic !== null || $diagnosticAsked !== null) {
@@ -3064,11 +3065,13 @@ class AgentOperations implements CommandProvider
         // A DEBT OVER A SCOPE THE PANEL GRANTS IS NOT THE HOUSE'S (greenhouse decisions/0543). The frontier
         // holds the seat's refusal open for a person; the ledger does not get a framework gap for it, and the
         // surface says who grants it. Asked once, for the two ends that can wait on a grant.
+        // The producer's typed value, as above: whether this end is the one just called «stalled».
+        $stalled = $this->runTermination?->reason === RunEnd::ProgressStalled;
         $awaiting = $sessionId !== '' && \in_array($this->runTermination?->reason, [RunEnd::HouseDebt, RunEnd::ProgressStalled], true)
             ? $this->grantableScopes($sessionId) : [];
         if ($awaiting !== []) {
             $resultado['awaiting_grant'] = $awaiting;
-            if (($resultado['stalled'] ?? false) === true) {
+            if ($stalled) {
                 // Waiting on a person is the answer the refusal asked for, not «none of the options» (evidence/1077).
                 $resultado['answer'] = sprintf('The leg is waiting for a person to grant «%s».', implode('», «', $awaiting));
             }
