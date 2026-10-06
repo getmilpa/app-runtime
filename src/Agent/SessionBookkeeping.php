@@ -251,7 +251,7 @@ final readonly class SessionBookkeeping implements ContractProducer
         'test-passed' => 'the filter or path a `test` run of this session declared, when its last run is green, e.g. `BlogTest`',
         'operation-ok' => 'the name of a tool this session called and that answered ok, as it was called, e.g. `plugins_register`',
         'artifact-created' => 'one path a `sandbox_promote` of this session carried into the house, e.g. `src/Plugins/Blog/Blog.php`',
-        'screen-served' => 'the screen the house answered `served` for and that still is, as `screen_observe` named it, e.g. `blog`',
+        'screen-served' => 'the route the house observed served and that still is, as the house wrote it — or the name of the screen `screen_observe` answered for —, e.g. `/blog`',
     ];
 
     /** What the contract says of `reference`: one identifier, and which one for each kind. */
@@ -637,7 +637,27 @@ final readonly class SessionBookkeeping implements ContractProducer
                 ];
             }
 
-            return null;
+            // WHAT THE HOUSE OBSERVED COVERS TOO (greenhouse decisions/0580). A promotion and `route:observe` leave
+            // the house's own `served` receipt of a route under `observed[]`, and the judge did not look there:
+            // with `/blog` served twice on record it answered «nothing of that kind yet» (evidence/1109 §6.4).
+            // It asks the reading the house closes by ({@see ObservedInTheHouse}), so the contract of
+            // decisions/0576 is not derived a second time — a page that does not list does not close a todo —
+            // and what that reading says of the page («unjudged», decisions/0579) is carried, never left out.
+            $observed = ObservedInTheHouse::served($stream, $facts, $reference, $this->lasting);
+            if ($observed !== null && !$observed['covers']) {
+                $refusal = "the claim is refused: {$observed['reason']}. When it holds, have the house look again with "
+                    . 'route:observe {"path":' . json_encode($reference, \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE) . '} and claim again';
+            }
+
+            return $observed === null || !$observed['covers'] ? null : [
+                'fact' => 'observed',
+                'predicate' => 'served',
+                'subject' => $reference,
+                'environment' => 'house',
+                'seq' => $observed['seq'],
+                'fresh' => true,
+                ...array_intersect_key($observed, ['content' => true, 'surface' => true]),
+            ];
         }
 
         // artifact-created: the derived work state must have reached materialisation — a mutating
@@ -692,6 +712,11 @@ final readonly class SessionBookkeeping implements ContractProducer
         if ($kind === EvidenceKind::ArtifactCreated) {
             foreach (array_keys($this->promotedPaths($stream)) as $path) {
                 $found[$path] = true;
+            }
+        }
+        if ($kind === EvidenceKind::ScreenServed) {
+            foreach (array_keys(ObservedInTheHouse::last($stream)) as $route) {
+                $found[$route] = true;
             }
         }
         // Only what the judge would accept today: a served subject that went stale is not offered.
@@ -764,10 +789,16 @@ final readonly class SessionBookkeeping implements ContractProducer
             // A receipt earned in a trial never covers the house (decisions/0463); the verb that earns
             // one here is named, so the agent observes instead of re-declaring (decisions/0466).
             EvidenceKind::ScreenServed => sprintf(
-                'a recorded call whose result declares the served predicate for «%s» (a served screen). '
-                . 'If it was promoted from a trial, observe it in the house with screen:observe {"name":"%s"}',
+                'a recorded call whose result declares the served predicate for «%s» (a served screen), or the '
+                . 'house\'s own observation of that route served. %s',
                 $reference,
-                $reference,
+                // THE HINT IS A CALL THE HOUSE RUNS, OR NONE (greenhouse decisions/0580): with a sentence for a
+                // reference it used to print the sentence inside the call.
+                match (true) {
+                    preg_match('#^/[\w\-./]*$#D', $reference) === 1 => 'Observe it in the house with route:observe {"path":"' . $reference . '"}',
+                    preg_match('/^[\w][\w\-.]*$/D', $reference) === 1 => 'If it was promoted from a trial, observe it in the house with screen:observe {"name":"' . $reference . '"}',
+                    default => 'The reference is the screen\'s name or the route, alone — not a sentence about it',
+                },
             ),
         };
     }
