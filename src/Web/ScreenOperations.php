@@ -90,6 +90,14 @@ final class ScreenOperations implements CommandProvider
          * @var \Closure(array<string, mixed>): ?int|null
          */
         private readonly ?\Closure $publicRows = null,
+        /**
+         * What the HOUSE answers for a declared screen's page, asked in a process of its own — or null when the
+         * house cannot be asked that way, and then `screen:observe` asks {@see self::$serve} as before. The
+         * process that observes may have booted before the screen's plugin landed (greenhouse evidence/1109).
+         *
+         * @var \Closure(string): ?int|null
+         */
+        private readonly ?\Closure $observe = null,
     ) {
     }
 
@@ -611,7 +619,10 @@ final class ScreenOperations implements CommandProvider
         if ($this->store->screen($name) === null) {
             return ['ok' => false, 'error' => "this house has no declared screen «{$name}»", 'screens' => array_column($this->store->catalogue(), 'name')];
         }
-        $status = $this->serve !== null ? ($this->serve)($name) : null;
+        // THE HOUSE, NOT WHOEVER ASKS (greenhouse evidence/1109): a leg that scaffolded, registered and declared a
+        // screen booted before any of it existed, and its own process answered 422 for a page a browser was served.
+        $status = $this->observe !== null ? ($this->observe)($name) : null;
+        $status ??= $this->serve !== null ? ($this->serve)($name) : null;
         $servedAt = '/live/page?component=' . $name;
         if ($status !== 200) {
             return [
