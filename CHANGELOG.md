@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.209.0](https://github.com/getmilpa/app-runtime/compare/v0.208.0...v0.209.0) (2026-10-06)
+
+
+### Features
+
+* rows are declared, and the house seeds them on promotion (greenhouse decisions/0574) ([#702](https://github.com/getmilpa/app-runtime/issues/702)) ([7c86ab5](https://github.com/getmilpa/app-runtime/commit/7c86ab56ecbc6f330ed12a59fb3502a220dfa4ec))
+
 ## [0.208.0](https://github.com/getmilpa/app-runtime/compare/v0.207.3...v0.208.0) (2026-10-05)
 
 
