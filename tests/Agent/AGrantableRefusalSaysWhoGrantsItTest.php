@@ -85,7 +85,7 @@ final class AGrantableRefusalSaysWhoGrantsItTest extends TestCase
         self::assertStringStartsWith("Missing required permission 'plugins.Blog:write' for plugin 'Blog'.", $error, 'the refusal stays the policy\'s sentence');
         self::assertStringContainsString('Whoever enrolled this seat can grant «plugins.Blog:write» in the panel (Agent → Decisions)', $error);
         self::assertStringContainsString('not a gap in the house: do not declare HOUSE_DEBT for it', $error);
-        self::assertStringContainsString('saying you are waiting for that grant', $error);
+        self::assertStringContainsString('The leg ends here and waits for that grant', $error, 'the house ends the leg itself (evidence/1113)');
     }
 
     public function testARefusalThePanelWouldNotOfferSaysNothingAboutThePanel(): void
