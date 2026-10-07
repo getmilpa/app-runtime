@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Operations;
 
 use Milpa\AppRuntime\Agent\FatalTermination;
+use Milpa\AppRuntime\Agent\GrantedCall;
 use Milpa\AppRuntime\Agent\OfferedTools;
 use Milpa\AppRuntime\Agent\LegMemory;
 use Milpa\AppRuntime\Agent\LegWindow;
@@ -3299,6 +3300,7 @@ class AgentOperations implements CommandProvider
         $sonda = $this->progressProbe();
 
         $orquestador = $this->orchestrator($modeloRemoto, $cliente, $pasos, $tablero, $lazyTools, $sonda);
+        $this->playTheGrantedCall($orquestador);
 
         // Only the base ask/run/getter chain proves what this return actually observed.
         // An override may return after another base run, or never run the producer at all.
@@ -4171,6 +4173,55 @@ class AgentOperations implements CommandProvider
         }
 
         return $productores;
+    }
+
+    /**
+     * THE GRANT RESUMES THE CALL IT WAS GIVEN FOR (greenhouse decisions/0577). When a person granted the scope this
+     * session's last call was refused for, and nothing has happened since, this leg opens with that recorded call
+     * instead of asking the model to retype it. {@see GrantedCall} decides which call, from the stream alone. The
+     * leg adds what only it can know:
+     *
+     *  - THE SEAT RUNS THE LEG. The call was the seat's; a leg run by anybody else — the person who granted
+     *    included — plays nothing, and neither does an unproven claim to be the seat.
+     *  - THE HOUSE HAS TRIALS. Outside one the call would land; then the model asks for it, as before.
+     *
+     * The move is not an authority: it goes through the governed door like any call the model makes — the gate,
+     * the mode's question, the scopes the seat holds NOW, the trial — and it spends a step. What the house adds
+     * is one fact, so the ledger never reads this call as the model's.
+     */
+    private function playTheGrantedCall(object $orquestador): void
+    {
+        $session = $this->sesionDeLosPermisos;
+        $store = $this->sessionStore();
+        $events = $this->sessionEvents;
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if ($session === null || $store === null || $events === null || !$kernel instanceof Kernel) {
+            return;
+        }
+        $call = GrantedCall::toResume($store->stream($session), new \DateTimeImmutable());
+        if ($call === null || $this->trialRouter($kernel) === null) {
+            return;
+        }
+        $by = ObservedExecutor::fromContext($this->contextoDeLaVuelta)->principal;
+        $seat = SeatFrontier::forRoot($kernel->root(), $store)->seatOf($session);
+        if ($seat === null || $by === null || !$by->verified || $by->id !== 'key:' . $seat) {
+            return;
+        }
+        if (GrantedCall::open($orquestador, $call)) {
+            GrantedCall::resumed($events, $session, $call, $by->id);
+        }
+    }
+
+    /**
+     * The log this app's session store writes to, when it can be reached — so a fact about a session is appended
+     * to the stream the session itself writes (greenhouse decisions/0577). Null when the store was composed
+     * without one.
+     */
+    public function sessionLog(): ?EventStoreInterface
+    {
+        $this->sessions();
+
+        return $this->sessionEvents;
     }
 
     /** The session store this app writes to, or null when it has nowhere to keep sessions. */
