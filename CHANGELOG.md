@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.211.2](https://github.com/getmilpa/app-runtime/compare/v0.211.1...v0.211.2) (2026-10-07)
+
+
+### Bug Fixes
+
+* a rehearsal is not evidence of the house ([#730](https://github.com/getmilpa/app-runtime/issues/730)) ([18e526c](https://github.com/getmilpa/app-runtime/commit/18e526c8d2b32444360b6f5d02ebd40d9093fb16))
+
 ## [0.211.1](https://github.com/getmilpa/app-runtime/compare/v0.211.0...v0.211.1) (2026-10-07)
 
 
