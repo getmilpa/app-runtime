@@ -208,6 +208,9 @@ final class WithdrawingAnAdmissionTest extends TestCase
             self::assertTrue($r['ok'], $spelled . ': ' . ($r['error'] ?? ''));
             self::assertSame('(no scope) herramientas.contar', $r['withdrawn']);
             self::assertSame([], $this->ledger($root)->admissionsFor(self::SEAT));
+            // The ledger keeps its own spelling; the list a person reads spells it, as it does what is admitted.
+            self::assertSame('=herramientas.contar', $this->ledger($root)->withdrawalsFor(self::SEAT)[0]['scope']);
+            self::assertSame('(no scope) herramientas.contar', $this->seat($c, self::SEAT)['withdrawn'][0]['scope']);
         }
     }
 

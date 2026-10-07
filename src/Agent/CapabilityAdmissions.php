@@ -230,7 +230,14 @@ final readonly class CapabilityAdmissions
             }
         }
 
-        return ['admitted' => $admitted, 'unadmitted' => $unadmitted, 'withdrawn' => $this->ledger->withdrawalsFor($seat)];
+        // The trail as a person reads it: a verb admitted by itself is spelled, as in `admitted`.
+        $withdrawn = array_map(static function (array $line): array {
+            $line['scope'] = MissingAdmission::spelled($line['scope']);
+
+            return $line;
+        }, $this->ledger->withdrawalsFor($seat));
+
+        return ['admitted' => $admitted, 'unadmitted' => $unadmitted, 'withdrawn' => $withdrawn];
     }
 
     /**
