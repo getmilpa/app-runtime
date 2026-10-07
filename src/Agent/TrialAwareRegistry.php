@@ -315,6 +315,12 @@ final class TrialAwareRegistry extends ToolRegistry
             $data['note'] = 'This ran in a disposable TRIAL and verified. You asked for it to be applied when verified '
                 . '(apply: "' . AppliedWhenVerified::KEYWORD . '"): the house calls sandbox:promote for it next, under the same '
                 . 'checks as if you had, and its result follows. Do not call it yourself.';
+        } elseif ($this->houseApplies && $partial === null && $this->pendingMultipartPromotion !== $ws && $this->takesApply($name)) {
+            // THE NOTE STATES THE RULE (greenhouse decisions/0578, «option 1»; evidence/1121). The resident does what
+            // this note says, and it said only «call sandbox:promote»: of 15 trials that changed something it asked
+            // the house to apply 2. So the house says here, where the next producer call is decided, what it does
+            // when that call asks — a rule, after the call that applies, which stays. Only where it would honour it.
+            $data['note'] .= ' ' . AppliedWhenVerified::RULE;
         }
         if ($partial !== null) {
             // Preserve the producer output. Its directions describe the trial's filesystem;

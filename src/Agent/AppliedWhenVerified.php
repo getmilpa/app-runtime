@@ -33,6 +33,13 @@ final class AppliedWhenVerified
     /** The one value the parameter takes. */
     public const KEYWORD = 'when_verified';
 
+    /**
+     * The rule, as the house states it in the note of a trial nobody asked it to apply (greenhouse evidence/1121).
+     * The resident does what that note says, and it only said «call sandbox:promote». This is a rule of the house,
+     * stated where the next producer call is decided — never an instruction.
+     */
+    public const RULE = 'A producer called with apply: "' . self::KEYWORD . '" is applied by the house once its trial verifies.';
+
     /** The fact the house leaves when it continues a call, so the ledger never reads the promotion as the model's. */
     public const CONTINUED = 'session.call_continued';
 

@@ -118,15 +118,56 @@ final class TheCallSaysWhetherTheHouseAppliesItTest extends TestCase
         self::assertSame(['plugin' => 'Blog'], $result->data['output']['received']);
     }
 
-    public function testWithoutTheParameterTheResultIsWhatItWas(): void
+    public function testWithoutTheParameterNothingIsAppliedAndTheCallThatAppliesIsStillSaid(): void
     {
         $result = $this->registry()->call('make', ['plugin' => 'Blog']);
 
         self::assertTrue($result->success);
         self::assertArrayNotHasKey('applies', $result->data);
-        self::assertArrayHasKey('to_apply', $result->data);
+        self::assertSame(['operation' => 'sandbox:promote', 'arguments' => ['workspace' => $result->data['workspace']]], $result->data['to_apply']);
         self::assertStringContainsString('To apply the change, call sandbox:promote', $result->data['note']);
         self::assertStringNotContainsString('the house calls', $result->data['note']);
+    }
+
+    /**
+     * THE NOTE SAYS THE RULE (greenhouse decisions/0578, «option 1», evidence/1121). The resident does what the note
+     * of a trial says: it said «call sandbox:promote», and of 15 trials that changed something the resident asked
+     * the house to apply 2. The note now also states what the house does when the producer call asks — as a rule of
+     * the house, not an instruction, and with the call that applies still there.
+     */
+    public function testTheNoteOfATrialNobodyAskedToApplyStatesTheRule(): void
+    {
+        $result = $this->registry()->call('make', ['plugin' => 'Blog']);
+
+        self::assertSame('A producer called with apply: "when_verified" is applied by the house once its trial verifies.', AppliedWhenVerified::RULE);
+        self::assertStringEndsWith(' ' . AppliedWhenVerified::RULE, $result->data['note']);
+        self::assertStringContainsString('To apply the change, call sandbox:promote', $result->data['note'], 'the call that applies it is still said, first');
+        self::assertArrayNotHasKey('applies', $result->data, 'stating the rule applies nothing');
+        self::assertFalse($this->registry()->saidItApplies($result->data['workspace']));
+    }
+
+    public function testATrialThatWasAskedAndDidNotVerifyStillSaysItIsNotAppliedAndTheRule(): void
+    {
+        $result = $this->registry()->call('make', ['plugin' => 'Blog', 'apply' => 'when_verified', 'fixture' => 'unverified']);
+
+        self::assertStringContainsString('is NOT applied to the app yet', $result->data['note']);
+        self::assertStringEndsWith(' ' . AppliedWhenVerified::RULE, $result->data['note'], 'the rule says why: it applies a trial that verifies');
+    }
+
+    public function testATrialTheHouseAppliesDoesNotRepeatTheRule(): void
+    {
+        $result = $this->registry()->call('make', ['plugin' => 'Blog', 'apply' => 'when_verified']);
+
+        self::assertStringContainsString('the house calls sandbox:promote for it next', $result->data['note']);
+        self::assertStringNotContainsString(AppliedWhenVerified::RULE, $result->data['note']);
+    }
+
+    public function testATrialThatChangedNothingSaysNoRule(): void
+    {
+        $result = $this->registry()->call('make', ['plugin' => 'Blog', 'fixture' => 'no-change']);
+
+        self::assertStringContainsString('there is nothing to apply', $result->data['note']);
+        self::assertStringNotContainsString(AppliedWhenVerified::RULE, $result->data['note']);
     }
 
     /** @param array<string, mixed> $arguments */
@@ -174,6 +215,8 @@ final class TheCallSaysWhetherTheHouseAppliesItTest extends TestCase
         self::assertTrue($result->success, (string) $result->error);
         self::assertStringContainsString('The accepted part exists only in this trial', $result->data['note'], 'a part is not the work: the model promotes it, as before');
         self::assertArrayNotHasKey('applies', $result->data);
+        self::assertStringNotContainsString(AppliedWhenVerified::RULE, $result->data['note'], 'the rule is not said of a part: the house would not apply it');
+        self::assertStringNotContainsString(AppliedWhenVerified::RULE, $registry->call('implement', ['fixture' => 'start', 'mode' => 'start'])->data['note']);
     }
 
     public function testAProducerWithAnApplyOfItsOwnKeepsIt(): void
@@ -194,6 +237,7 @@ final class TheCallSaysWhetherTheHouseAppliesItTest extends TestCase
         $result = $registry->call('make', ['plugin' => 'Blog', 'apply' => 'when_verified']);
         self::assertSame(['plugin' => 'Blog', 'apply' => 'when_verified'], $result->data['output']['received'], 'the parameter is the producer\'s: it reaches it');
         self::assertArrayNotHasKey('applies', $result->data);
+        self::assertStringNotContainsString(AppliedWhenVerified::RULE, $result->data['note'], 'the rule is not said where `apply` means something else');
     }
 
     public function testALoopThatCannotContinueStillStripsTheParameterAndSaysTheModelApplies(): void
@@ -203,6 +247,8 @@ final class TheCallSaysWhetherTheHouseAppliesItTest extends TestCase
         self::assertTrue($result->success);
         self::assertSame(['plugin' => 'Blog'], $result->data['output']['received']);
         self::assertStringContainsString('To apply the change, call sandbox:promote', $result->data['note']);
+        self::assertStringNotContainsString(AppliedWhenVerified::RULE, $result->data['note'], 'a house that cannot do it does not state the rule');
+        self::assertStringNotContainsString(AppliedWhenVerified::RULE, $this->registry(houseApplies: false)->call('make', ['plugin' => 'Shop'])->data['note']);
     }
 
     public function testTheCatalogueOffersTheParameterOnlyWhereTheHouseWillHonourIt(): void
