@@ -56,6 +56,10 @@ final class OperationContractReadTest extends TestCase
         'requiresConfirmation',
         'namedTarget',
         'surfaces',
+        'scopes',
+        'permission',
+        'declared_by',
+        'state',
         'preconditions',
         'postconditions',
         'artifacts',
@@ -123,6 +127,10 @@ final class OperationContractReadTest extends TestCase
         self::assertSame($declared->effectCeiling()->authority->value, $answer['authority']);
         self::assertSame($declared->namedTarget, $answer['namedTarget']);
         self::assertSame($declared->mutating, $answer['mutating']);
+        // What it asks of its caller, and that no capability built in this house declares it (decisions/0590).
+        self::assertSame(array_values($declared->scopes), $answer['scopes']);
+        self::assertSame($declared->permission, $answer['permission']);
+        self::assertNull($answer['declared_by'], 'make comes from a package, not from this house\'s own tree');
     }
 
     /** The self-contained positive control: a provider that declares everything projects everything. */

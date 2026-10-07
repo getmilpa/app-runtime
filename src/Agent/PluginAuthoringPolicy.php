@@ -54,12 +54,14 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
 
     /**
      * @param (\Closure(): ?\Milpa\Agent\SessionStore)|null $sessions
-     * @param JudgedPermission|null                         $judged      the HTTP policy's verdict on the permissioned
-     *                                                                   operation now running; without it a mutation
-     *                                                                   typed by `permission` is judged by its scopes
-     * @param (\Closure(): mixed)|null                      $permissions the host's OperationPermissionPolicy, asked
-     *                                                                   for a finite caller of an operation typed by
-     *                                                                   `permission`; without it that call is refused
+     * @param JudgedPermission|null                         $judged       the HTTP policy's verdict on the permissioned
+     *                                                                    operation now running; without it a mutation
+     *                                                                    typed by `permission` is judged by its scopes
+     * @param (\Closure(): mixed)|null                      $permissions  the host's OperationPermissionPolicy, asked
+     *                                                                    for a finite caller of an operation typed by
+     *                                                                    `permission`; without it that call is refused
+     * @param (\Closure(): ?BuiltCapabilities)|null         $capabilities the capabilities built in this house; without
+     *                                                                    them no verb is judged as a built one
      */
     public function __construct(
         private readonly string $root,
@@ -67,6 +69,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         private readonly ?\Closure $sessions = null,
         private readonly ?JudgedPermission $judged = null,
         private readonly ?\Closure $permissions = null,
+        private readonly ?\Closure $capabilities = null,
     ) {
         $this->permissioned = new \ArrayObject();
     }
@@ -99,6 +102,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             sessions: static fn () => (new \Milpa\AppRuntime\Operations\AgentOperations($container))->sessionStore(),
             judged: $events instanceof MilpaEventDispatcherInterface ? JudgedPermission::listen($events) : null,
             permissions: static fn (): mixed => $container->has(OperationPermissionPolicy::class) ? $container->get(OperationPermissionPolicy::class) : null,
+            capabilities: static fn (): ?BuiltCapabilities => BuiltCapabilities::ofContainer($container),
         );
         // THE JUDGE MCP AND A FINITE TERMINAL CALLER ANSWER TO (GHSA-xj7j-99jx-52hh, greenhouse decisions/0545): the
         // host's own resolver, the one its HTTP policy asks. A host that brought its own judge keeps it.
@@ -169,6 +173,20 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             if ($context->hasScope('*')) {
                 return AuthorizationResult::allowed();
             }
+            // A VERB OF A CAPABILITY BUILT IN THIS HOUSE RUNS FOR A SEAT ONLY IF A PERSON ADMITTED IT (greenhouse
+            // decisions/0590). The word it declares as its scope is its author's, and the author may be the seat:
+            // measured on the published train, a capability naming its scope after one the seat already held was
+            // read and written by it with no human act. So for an enrolled key the admission is the whole verdict —
+            // its declared scopes are not asked here, and holding them is not asked either.
+            $admissions = $this->admissions();
+            $built = $admissions?->seatOf($context->principal) === null ? null : $admissions->verb($name);
+            if ($admissions !== null && $built !== null) {
+                $missing = $admissions->missing($context->principal, $name);
+
+                return $missing === null
+                    ? AuthorizationResult::allowed()
+                    : AuthorizationResult::denied($missing->sentence() . $this->whoGrantsIt($name, $arguments));
+            }
             if (in_array($name, self::BUILD, true)) {
                 $this->writePaths($context, $name, $arguments);
                 if (!$this->runner->available()) {
@@ -192,6 +210,57 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         } catch (\Throwable $error) {
             return AuthorizationResult::denied($error->getMessage());
         }
+    }
+
+    /**
+     * The caller as the tool runtime's gate is to see it for ONE call to this tool (greenhouse decisions/0590).
+     *
+     * That gate asks for the word a tool declares before it asks this policy, and for a seat calling a built verb
+     * the word is not the question: the admission is, and this policy answers it right after. So that one call
+     * carries the verb's own declared words — admitted or not; the verdict is this policy's. Any other caller, and
+     * any other tool, gets the context back as it came: nothing is written to the seat, and no other operation
+     * that asks for the same word ever sees it.
+     */
+    public function contextFor(ToolContext $context, string $tool): ToolContext
+    {
+        $admissions = $context->hasScope('*') ? null : $this->admissions();
+        $verb = $admissions?->seatOf($context->principal) === null ? null : $admissions->verb($tool);
+        $words = $verb === null ? [] : array_values(array_diff($verb->operation->scopes, $context->scopes));
+        if ($words === []) {
+            return $context;
+        }
+
+        return new ToolContext(
+            principal: $context->principal,
+            channel: $context->channel,
+            scopes: [...$context->scopes, ...$words],
+            request_id: $context->request_id,
+            ip: $context->ip,
+            userAgent: $context->userAgent,
+            extra: $context->extra,
+            mode: $context->mode,
+            resultBudget: $context->resultBudget,
+        );
+    }
+
+    /** The judge of built verbs over this house's ledger, or null when nobody told this policy what was built. */
+    public function admissions(): ?CapabilityAdmissions
+    {
+        $built = $this->built();
+
+        return $built === null ? null : CapabilityAdmissions::forRoot($this->root, $built);
+    }
+
+    /** What this house built, as this policy was told — or null: nobody told it, or the house built nothing. */
+    private function built(): ?BuiltCapabilities
+    {
+        try {
+            $built = $this->capabilities === null ? null : ($this->capabilities)();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $built instanceof BuiltCapabilities && !$built->isEmpty() ? $built : null;
     }
 
     /**
@@ -230,9 +299,18 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             return '';
         }
         try {
-            $offered = SeatFrontier::forRoot($this->root, $this->seatStore)->wouldOffer($this->seatSession, $tool, $arguments);
+            $offered = SeatFrontier::forRoot($this->root, $this->seatStore, $this->built())->wouldOffer($this->seatSession, $tool, $arguments);
         } catch (\Throwable) {
             return '';
+        }
+        if (($offered['kind'] ?? null) === 'capability') {
+            // Admitting is another act than granting a scope (greenhouse decisions/0590): a person sees the verb's
+            // contract and approves its digest. And the house does not replay a call of the domain after it
+            // (decisions/0577 resumes only what a trial confines), so the sentence must not promise that it will.
+            return ' Whoever enrolled this seat admits it, seeing its contract — Agent → Decisions in the panel, or'
+                . ' `identity:grant` with the digest the house shows. This is a person\'s decision, not a gap in the'
+                . ' house: do not declare HOUSE_DEBT for it. The leg ends here and waits for that admission; after'
+                . ' it, `continue` and make this same call again.';
         }
 
         return $offered === null ? '' : sprintf(

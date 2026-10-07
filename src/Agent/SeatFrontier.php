@@ -42,8 +42,17 @@ use Milpa\ToolRuntime\Contracts\ToolContext;
  * call a reading took for «empties the plugin» was refused by its own handler. And a refusal the seat
  * moved on from — a later run worked and ended without retrying it — is no longer offered.
  *
- * @phpstan-type Refusal array{seq: int, tool: string, plugin: ?string, permission: string, call: array<string, string|int|float|bool|null>, target: 'new'|'existing'|null, named: bool, consent: 'touch'|'informed'}
- * @phpstan-type SeatRefusal array{seq: int, tool: string, plugin: ?string, permission: string, call: array<string, string|int|float|bool|null>, target: 'new'|'existing'|null, named: bool, consent: 'touch'|'informed', seat: string}
+ * A SECOND KIND OF REFUSAL IS OPEN HERE (greenhouse decisions/0590): the seat called a verb of a capability built
+ * in this house, and no person has admitted that verb for it. The authoring policy names nothing for such a call;
+ * the judge of admissions does ({@see CapabilityAdmissions}) — the same one the gate asks. Its row is marked
+ * `kind: capability` and carries what a person must see to admit: every verb that scope of the capability opens,
+ * each with what it declares, where its work keeps its state and how a call of it would run here, and `contract`,
+ * the digest of exactly that — which is what the admission approves.
+ * It is offered only by a frontier that was told what the house built; one that was not offers what it always did.
+ *
+ * @phpstan-type Verb array{verb: string, tool: string, description: string, mutating: bool, requiresConfirmation: bool, namedTarget: ?string, surfaces: ?list<string>, scopes: list<string>, effects: array<string, mixed>, state: array{paths: list<string>, source: string, refused?: string}|null, runs: array{how: string, why?: string, pre_image?: bool}, digest: string, standing: 'admitted'|'never'|'changed'|'added', not_admissible: ?string}
+ * @phpstan-type Refusal array{seq: int, tool: string, plugin: ?string, permission: string, call: array<string, string|int|float|bool|null>, target: 'new'|'existing'|null, named: bool, consent: 'touch'|'informed', kind?: 'capability', capability?: string, scope?: string, why?: 'never'|'changed'|'added', opens?: list<Verb>, contract?: string, not_admissible?: ?string}
+ * @phpstan-type SeatRefusal array{seq: int, tool: string, plugin: ?string, permission: string, call: array<string, string|int|float|bool|null>, target: 'new'|'existing'|null, named: bool, consent: 'touch'|'informed', seat: string, kind?: 'capability', capability?: string, scope?: string, why?: 'never'|'changed'|'added', opens?: list<Verb>, contract?: string, not_admissible?: ?string}
  */
 final class SeatFrontier
 {
@@ -59,17 +68,27 @@ final class SeatFrontier
         private readonly SessionStore $sessions,
         private readonly FileEnrollmentStore $enrollments,
         private readonly PluginAuthoringPolicy $policy,
+        private readonly ?CapabilityAdmissions $admissions = null,
     ) {
         $this->line = new EnrollmentLine($enrollments);
     }
 
-    /** Build the frontier over an app root's ledger, its policy and the session store it was handed. */
-    public static function forRoot(string $root, SessionStore $sessions): self
+    /**
+     * Build the frontier over an app root's ledger, its policy and the session store it was handed.
+     *
+     * `$built` is what the house built, for the frontier that offers the admission of a built verb (greenhouse
+     * decisions/0590). Without it nothing of that kind is offered — which is what a reader that only knows the
+     * authoring card must be handed.
+     */
+    public static function forRoot(string $root, SessionStore $sessions, ?BuiltCapabilities $built = null): self
     {
+        $enrollments = new FileEnrollmentStore($root . '/storage/identity/enrollments.json');
+
         return new self(
             $sessions,
-            new FileEnrollmentStore($root . '/storage/identity/enrollments.json'),
+            $enrollments,
             new PluginAuthoringPolicy($root),
+            $built === null || $built->isEmpty() ? null : new CapabilityAdmissions($enrollments, $built),
         );
     }
 
@@ -95,7 +114,11 @@ final class SeatFrontier
     /**
      * The sessions whose seat this principal answers for, each with its open refusals.
      *
-     * @return list<array{session: string, goal: string, seat: string, refusals: list<Refusal>}>
+     * `refusals` are the authoring ones, as every reader of this list knows them; a built verb waiting for a
+     * person's admission is listed apart, under `admissions`, so a reader that only knows the authoring card is
+     * never handed one it would word as write over a plugin (greenhouse decisions/0590).
+     *
+     * @return list<array{session: string, goal: string, seat: string, refusals: list<Refusal>, admissions: list<Refusal>}>
      */
     public function sessionsFor(string $principal): array
     {
@@ -106,11 +129,13 @@ final class SeatFrontier
             if ($seat === null || !$this->line->answersFor($principal, $seat)) {
                 continue;
             }
+            $open = $this->refusalsIn($events, $seat);
             $out[] = [
                 'session' => $id,
                 'goal' => self::goalIn($events),
                 'seat' => 'key:' . $seat,
-                'refusals' => $this->refusalsIn($events, $seat),
+                'refusals' => array_values(array_filter($open, static fn (array $row): bool => !isset($row['kind']))),
+                'admissions' => array_values(array_filter($open, static fn (array $row): bool => isset($row['kind']))),
             ];
         }
 
@@ -288,7 +313,7 @@ final class SeatFrontier
         $scopes = $this->enrollments->scopesFor($seat) ?? [];
         $missing = $this->policy->missing(new ToolContext('key:' . $seat, 'cli', $scopes), $payload['tool'], $arguments);
         if ($missing === null) {
-            return null;
+            return $this->admission($event->seq, $payload['tool'], $arguments, $seat, $standing);
         }
         $plugin = $missing->plugin ?? (\is_string($arguments['plugin'] ?? null) ? $arguments['plugin'] : null);
         $exists = $plugin !== null && $this->policy->pluginExists($plugin);
@@ -308,6 +333,47 @@ final class SeatFrontier
             // Write over work the house already has is never one touch, named or not: a destructive call can
             // only touch what exists, and which call is destructive is not read from its text.
             'consent' => $exists ? 'informed' : 'touch',
+        ];
+    }
+
+    /**
+     * The row for a call to a built verb no standing admission covers — or null: the frontier was not told what the
+     * house built, the tool is no built verb, or a person already admitted it as it stands (decisions/0590).
+     *
+     * @param array<mixed> $arguments
+     *
+     * @return Refusal|null
+     */
+    private function admission(int $seq, string $tool, array $arguments, string $seat, string $standing): ?array
+    {
+        $admissions = $this->admissions;
+        $verb = $admissions?->verb($tool);
+        if ($admissions === null || $verb === null) {
+            return null;
+        }
+        $missing = $admissions->missingFor($seat, $verb);
+        $card = $missing === null ? null : $admissions->card($seat, $verb->capability, $missing->scope);
+        if ($missing === null || $card === null) {
+            return null;
+        }
+
+        return [
+            'seq' => $seq,
+            'tool' => $tool,
+            'plugin' => $verb->capability,
+            'permission' => $card['permission'],
+            'call' => self::shown($arguments),
+            'target' => 'existing',
+            'named' => self::names($standing, $verb->capability),
+            // A built capability is work the house already has: admitting it is never one touch (decisions/0510).
+            'consent' => 'informed',
+            'kind' => 'capability',
+            'capability' => $verb->capability,
+            'scope' => $missing->scope,
+            'why' => $missing->why,
+            'opens' => $card['opens'],
+            'contract' => $card['contract'],
+            'not_admissible' => $card['not_admissible'],
         ];
     }
 

@@ -630,6 +630,7 @@ final class SessionOperations implements CommandProvider
                         'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'What it may do'],
                         'authorized_by' => ['type' => 'string', 'description' => 'The verified principal that authorized the recognition, as key:<fingerprint>'],
                         'history_entries' => ['type' => 'integer', 'description' => 'How many prior states the ledger keeps for this key after this recognition — 0 on a first enrollment; a re-recognition pushes the state it replaces onto the entry\'s history and erases nothing (greenhouse decisions/0207)'],
+                        'admissions_dropped' => ['type' => 'integer', 'description' => 'Present when this recognition was laid over a seat persons had admitted built capabilities to: how many of those admissions it dropped — a typed list saw no contract (greenhouse decisions/0590)'],
                         'previously_revoked_by' => ['type' => 'string', 'description' => 'Present only when this recognition re-recognizes a key whose standing entry was revoked: the principal that revoked it, as key:<fingerprint>'],
                         'error' => ['type' => 'string', 'description' => 'Why enrollment did not happen; absent when ok'],
                     ],
@@ -664,6 +665,7 @@ final class SessionOperations implements CommandProvider
                         'session' => ['type' => 'string', 'description' => 'The seat\'s session that recorded the refusal'],
                         'seq' => ['type' => 'integer', 'description' => 'The refused call\'s position in that session — the house re-derives the missing scope from it; no scope is ever typed'],
                         'existing' => ['type' => 'string', 'description' => 'Required when the refused call targets a plugin the house already has: that plugin\'s name, repeated knowingly — the grant opens write over its whole work (greenhouse decisions/0510). Signed with the rest of the call'],
+                        'admits' => ['type' => 'string', 'description' => 'Required when the refused call is a verb of a capability built in this house: the digest of the contract the frontier shows for it (`contract`), repeated knowingly — the admission is refused without it, and when the contract moved since (greenhouse decisions/0590)'],
                         'assertion' => [
                             'type' => 'object',
                             'description' => 'Over HTTP: the passkey assertion over the challenge /webauthn/intent/options bound to identity:grant {session, seq}',
@@ -677,6 +679,9 @@ final class SessionOperations implements CommandProvider
                         'ok' => ['type' => 'boolean', 'description' => 'False when nothing was granted — the error says why'],
                         'fingerprint' => ['type' => 'string', 'description' => 'The seat that received the scope'],
                         'granted' => ['type' => 'string', 'description' => 'The one scope granted, as the refusal named it'],
+                        'capability' => ['type' => 'string', 'description' => 'For the admission of a built verb: the capability whose scope was admitted'],
+                        'admitted' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'For an admission: the verbs it opens to the seat, each pinned by the contract it has now'],
+                        'contract' => ['type' => 'string', 'description' => 'For an admission: the digest that was approved'],
                         'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'What the seat may do now'],
                         'authorized_by' => ['type' => 'string', 'description' => 'The verified principal that decided, as passkey:<id> or key:<fingerprint>'],
                         'session_told' => ['type' => 'boolean', 'description' => 'The seat\'s session recorded the grant as a turn it reads (decisions/0495)'],
@@ -864,6 +869,31 @@ final class SessionOperations implements CommandProvider
                 surfaces: ['cli', 'http'],
                 mutating: true,
                 requiresConfirmation: true,
+            ),
+            new Operation(
+                name: 'identity:seats',
+                // It reads the ledger and what the house declares; it changes nothing and reaches nobody.
+                effects: EffectProfile::readOnly(),
+                description: 'The seats you answer for and what each holds: its scopes, what persons admitted to it of the capabilities built in this house — and whether that still stands — and the built verbs no admission covers, marked when the seat\'s own words used to open them (greenhouse decisions/0590)',
+                handler: fn (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array => $this->asientos($authority),
+                inputSchema: ['type' => 'object', 'properties' => new \stdClass()],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean'],
+                        'seats' => [
+                            'type' => 'array',
+                            'description' => 'One per seat: fingerprint, label, scopes, authorized_by; `admitted` — capability, scope, who and when, and each verb as admitted, changed or gone; `unadmitted` — capability, scope, the verbs no admission covers, and ran_before: true when the seat ran them while only the declared word was asked',
+                            'items' => ['type' => 'object'],
+                        ],
+                        'error' => ['type' => 'string'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // Whoever may decide a seat's frontier may read what it holds.
+                scopes: ['identity:enroll'],
+                // Never MCP, like every act about a seat: a seat does not read the line it answers to.
+                surfaces: ['cli', 'http'],
             ),
             new Operation(
                 name: 'identity:accept',
@@ -2194,6 +2224,11 @@ final class SessionOperations implements CommandProvider
         if ($report['previously_revoked_by'] !== null) {
             $out['previously_revoked_by'] = $report['previously_revoked_by'];
         }
+        // A list somebody typed saw no capability's contract: what persons had admitted to this key is dropped with
+        // the state it belonged to, and the act says how much (greenhouse decisions/0590, rule 13).
+        if (($report['admissions_dropped'] ?? 0) > 0) {
+            $out['admissions_dropped'] = $report['admissions_dropped'];
+        }
 
         return $out;
     }
@@ -2226,9 +2261,14 @@ final class SessionOperations implements CommandProvider
         if ($existing !== null && (!\is_string($existing) || $existing === '')) {
             return ['ok' => false, 'error' => '`existing` names one plugin the house has, or is absent; nothing was granted'];
         }
+        $admits = $input['admits'] ?? null;
+        if ($admits !== null && (!\is_string($admits) || $admits === '')) {
+            return ['ok' => false, 'error' => '`admits` is the digest of one contract the frontier shows, or is absent; nothing was admitted'];
+        }
         // What the proof must cover, exactly: an informed grant's `existing` is part of the approved call, so a
-        // touch for the plain grant never approves write over existing work (decisions/0510).
-        $call = ['session' => $session, 'seq' => $seq] + ($existing === null ? [] : ['existing' => $existing]);
+        // touch for the plain grant never approves write over existing work (decisions/0510) — and so is the
+        // digest of the contract an admission approves (decisions/0590).
+        $call = ['session' => $session, 'seq' => $seq] + ($existing === null ? [] : ['existing' => $existing]) + ($admits === null ? [] : ['admits' => $admits]);
         $decider = $this->decider('identity:grant', $call, $session, $input['assertion'] ?? null, $authority, 'granted');
         if (\is_array($decider)) {
             return $decider;
@@ -2242,13 +2282,19 @@ final class SessionOperations implements CommandProvider
             return ['ok' => false, 'error' => 'this app has no ledger or session store to judge a grant against'];
         }
         $root = $kernel->root();
-        $frontier = \Milpa\AppRuntime\Agent\SeatFrontier::forRoot($root, $store);
+        $frontier = \Milpa\AppRuntime\Agent\SeatFrontier::forRoot($root, $store, \Milpa\AppRuntime\Agent\BuiltCapabilities::of($kernel));
         if (!$frontier->answersFor($decider, $session)) {
             return ['ok' => false, 'error' => 'you do not answer for this session\'s seat — only the line that enrolled it may decide its frontier; nothing was granted'];
         }
         $refusal = $frontier->refusal($session, $seq);
         if ($refusal === null) {
             return ['ok' => false, 'error' => 'that call is not an open refusal — nothing it lacks remains to grant; nothing was granted'];
+        }
+        if (($refusal['kind'] ?? null) === 'capability') {
+            return $this->admitir($refusal, $decider, $existing, $admits, $root, $store, $session);
+        }
+        if ($admits !== null) {
+            return ['ok' => false, 'error' => \sprintf('call #%d (%s) was refused a scope of authoring, and `admits` admits nothing about that; nothing was granted', $refusal['seq'], $refusal['tool'])];
         }
         // Write over work the house already has is an informed act, never one touch (decisions/0510): the decider
         // repeats the plugin's name, and that name travelled inside what the passkey or the signature approved.
@@ -2273,7 +2319,8 @@ final class SessionOperations implements CommandProvider
         try {
             $enrolled = (new IdentityEnrollment(IdentityInvitations::rootFor($root)))
                 ->enroll($refusal['seat'], array_values(array_unique($scopes)), $decider);
-            $ledger->recordAndReport($enrolled);
+            // One more scope for a standing seat is not a list somebody typed: what persons admitted to it stays.
+            $ledger->recordAndReport($enrolled, keepAdmissions: true);
         } catch (IdentityNotRooted $e) {
             return ['ok' => false, 'error' => $e->getMessage()];
         } catch (\RuntimeException $e) {
@@ -2302,6 +2349,127 @@ final class SessionOperations implements CommandProvider
             'granted' => $refusal['permission'],
             'scopes' => $enrolled->scopes,
             'authorized_by' => $enrolled->authorizedBy,
+            'session_told' => true,
+        ];
+    }
+
+    /**
+     * The seats the caller answers for, with what each holds (greenhouse decisions/0590). The terminal's operator —
+     * whoever holds every scope — reads them all; a person reads the line they enrolled.
+     *
+     * @return array{ok: bool, seats?: list<array<string, mixed>>, error?: string}
+     */
+    private function asientos(?ToolContext $authority): array
+    {
+        $kernel = $this->container->has(\Milpa\Runtime\Kernel::class)
+            ? $this->container->get(\Milpa\Runtime\Kernel::class)
+            : null;
+        if (!$kernel instanceof \Milpa\Runtime\Kernel) {
+            return ['ok' => false, 'error' => 'this app has no kernel, so it has no ledger of seats to read'];
+        }
+        $operator = $authority === null || $authority->hasScope('*');
+        $principal = $operator ? null : (string) $authority->principal;
+        try {
+            return ['ok' => true, 'seats' => \Milpa\AppRuntime\Identity\ResidentSeat::holdings($kernel->root(), $principal, \Milpa\AppRuntime\Agent\BuiltCapabilities::of($kernel))];
+        } catch (\RuntimeException $e) {
+            return ['ok' => false, 'error' => 'the seats could not be read: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Admit to a seat one scope of a capability built in this house — the verbs it opens, each pinned by the
+     * contract it has now — or refuse (greenhouse decisions/0590).
+     *
+     * The caller already proved who decides and that they answer for the seat. What is left is WHAT they approved:
+     * `admits` must be the digest of the contract the frontier shows for this refusal, judged again now. A touch
+     * for the plain grant admits nothing; a digest of what the card showed admits nothing once the contract moved;
+     * a scope with a verb that does not say what it does is not admitted at all. The seat's scopes do not move.
+     *
+     * @param array<string, mixed> $refusal the open refusal, `kind: capability`, with its seat
+     *
+     * @return array{ok: bool, fingerprint?: string, granted?: string, capability?: string, admitted?: list<string>, contract?: string, scopes?: list<string>, authorized_by?: string, session_told?: bool, error?: string}
+     */
+    private function admitir(array $refusal, string $decider, ?string $existing, ?string $admits, string $root, SessionStore $store, string $session): array
+    {
+        $capability = (string) $refusal['capability'];
+        $permission = (string) $refusal['permission'];
+        $contract = (string) $refusal['contract'];
+        /** @var list<array{verb: string, digest: string}> $opens */
+        $opens = $refusal['opens'];
+        $verbs = array_column($opens, 'digest', 'verb');
+        $names = implode(', ', array_keys($verbs));
+        if ($existing !== null) {
+            return ['ok' => false, 'error' => \sprintf('call #%d (%s) was refused a verb of the capability «%s», and `existing` approves write over a plugin — not that; nothing was admitted', $refusal['seq'], $refusal['tool'], $capability)];
+        }
+        if ($admits === null) {
+            return ['ok' => false, 'error' => \sprintf(
+                'this admits «%s» of the capability «%s» for the seat — its verbs %s, with the contract each has now, not only call #%d (%s); read what the frontier shows for it and approve it knowingly with admits=%s; nothing was admitted',
+                $permission,
+                $capability,
+                $names,
+                $refusal['seq'],
+                $refusal['tool'],
+                $contract,
+            )];
+        }
+        if ($admits !== $contract) {
+            return ['ok' => false, 'error' => \sprintf(
+                '«%s» is not the contract «%s» of «%s» has now (%s: %s) — it moved since it was shown, or it was never this one; read it again; nothing was admitted',
+                $admits,
+                $permission,
+                $capability,
+                $contract,
+                $names,
+            )];
+        }
+        if (\is_string($refusal['not_admissible'] ?? null)) {
+            return ['ok' => false, 'error' => \sprintf(
+                '%s, and a scope of a capability is admitted whole: «%s» of «%s» cannot be admitted until it does; nothing was admitted',
+                $refusal['not_admissible'],
+                $permission,
+                $capability,
+            )];
+        }
+
+        $seat = (string) $refusal['seat'];
+        $ledger = new FileEnrollmentStore($root . '/storage/identity/enrollments.json');
+        try {
+            if (!$ledger->admit($seat, $capability, (string) $refusal['scope'], $verbs, $decider)) {
+                return ['ok' => false, 'error' => 'the seat has no live recognition to admit anything to; nothing was admitted'];
+            }
+        } catch (\RuntimeException $e) {
+            return ['ok' => false, 'error' => 'nothing was admitted: ' . $e->getMessage()];
+        }
+
+        // The session is told, as after a grant (decisions/0495), and the house keeps which call it was given for
+        // (decisions/0577) — with what was admitted. That fact resumes nothing here: the house replays only a
+        // producer a trial confines, and a verb of the domain is not one. The model makes the call again.
+        $log = (new AgentOperations($this->container))->sessionLog();
+        foreach ($log === null ? [] : $store->stream($session) as $recorded) {
+            if ($recorded->seq === $refusal['seq']) {
+                \Milpa\AppRuntime\Agent\GrantedCall::granted($log, $session, $recorded, $permission, $decider, ['capability' => $capability, 'contract' => $contract]);
+            }
+        }
+        $store->recordTurn($session, 'user', \sprintf(
+            \Milpa\AppRuntime\Agent\SeatFrontier::NOTICE_PREFIX . '%s admitted «%s» of the capability «%s» for this seat: its verbs %s, with the contract each has now. Your call #%d (%s) was refused for lacking that; make that same call again. Nothing else changed: a verb of «%s» that is added or whose contract changes is not admitted until a person admits it.',
+            $decider,
+            $permission,
+            $capability,
+            $names,
+            $refusal['seq'],
+            (string) $refusal['tool'],
+            $capability,
+        ));
+
+        return [
+            'ok' => true,
+            'fingerprint' => $seat,
+            'granted' => $permission,
+            'capability' => $capability,
+            'admitted' => array_keys($verbs),
+            'contract' => $contract,
+            'scopes' => $ledger->scopesFor($seat) ?? [],
+            'authorized_by' => $decider,
             'session_told' => true,
         ];
     }

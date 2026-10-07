@@ -49,8 +49,11 @@ final class GrantedCall
      *
      * Written by the grant, after it succeeded. A refusal that is not a recorded tool call with arguments leaves
      * nothing: there would be no call to name.
+     *
+     * @param array<string, string> $admitted for the admission of a built verb (greenhouse decisions/0590): the
+     *                                        capability and the digest of the contract a person approved
      */
-    public static function granted(EventStoreInterface $events, string $session, Event $refused, string $permission, string $authorizedBy): void
+    public static function granted(EventStoreInterface $events, string $session, Event $refused, string $permission, string $authorizedBy, array $admitted = []): void
     {
         $tool = $refused->payload['tool'] ?? null;
         $arguments = $refused->payload['arguments'] ?? null;
@@ -66,6 +69,7 @@ final class GrantedCall
                 'permission' => $permission,
                 'arguments_sha256' => ConsentBridge::digest($arguments),
                 'authorized_by' => $authorizedBy,
+                ...$admitted,
             ],
             seq: $events->nextSeq(),
         ));

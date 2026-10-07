@@ -77,7 +77,7 @@ final readonly class ScopeGrowth
             [...$current, ...$added],
             $enroller,
             ['principal' => $principal, 'capability' => $capability],
-        ));
+        ), keepAdmissions: true);
 
         return $added;
     }

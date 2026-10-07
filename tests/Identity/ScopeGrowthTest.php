@@ -73,6 +73,16 @@ final class ScopeGrowthTest extends TestCase
         self::assertFalse((new EnrollmentLine($this->ledger))->answersFor('passkey:pk-1', self::SEAT));
     }
 
+    /** A scope the house grew is one more thing about a standing key, not a list somebody typed (decisions/0590). */
+    public function testGrowingAKeyKeepsWhatPersonsAdmittedToIt(): void
+    {
+        self::assertTrue($this->ledger->admit('pk-1', 'Prestamos', 'herramientas:write', ['herramientas.prestar' => 'sha256:a'], 'key:' . self::KEY));
+
+        self::assertNotSame([], (new ScopeGrowth($this->ledger))->grow('passkey:pk-1', ['agent:read'], 'milpa/agent-workspace'));
+
+        self::assertArrayHasKey('herramientas:write', $this->ledger->admissionsFor('pk-1')['Prestamos'] ?? []);
+    }
+
     public function testNothingGrowsForWhatIsNotALiveRecognitionOrHasNothingNew(): void
     {
         $growth = new ScopeGrowth($this->ledger);

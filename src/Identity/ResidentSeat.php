@@ -160,8 +160,11 @@ final class ResidentSeat
      *
      * @return list<array{fingerprint: string, label: string|null, scopes: list<string>, authorized_by: string}>
      */
-    public static function seatsFor(string $root, string $principal): array
+    public static function seatsFor(string $root, ?string $principal): array
     {
+        if ($principal === null) {
+            return self::everySeat($root);
+        }
         $ledger = new FileEnrollmentStore(rtrim($root, '/') . '/storage/identity/enrollments.json');
         $line = new EnrollmentLine($ledger);
         $invitations = IdentityInvitations::forRoot($root);
@@ -180,6 +183,43 @@ final class ResidentSeat
                 'scopes' => $ledger->scopesFor($key) ?? [],
                 'authorized_by' => (string) $ledger->authorizedBy($key),
             ];
+        }
+
+        return $seats;
+    }
+
+    /**
+     * Every seat of the house — for the terminal's operator, who answers to no line.
+     *
+     * @return list<array{fingerprint: string, label: string|null, scopes: list<string>, authorized_by: string}>
+     */
+    private static function everySeat(string $root): array
+    {
+        $ledger = new FileEnrollmentStore(rtrim($root, '/') . '/storage/identity/enrollments.json');
+        $invitations = IdentityInvitations::forRoot($root);
+        $seats = [];
+        foreach ($ledger->liveKeys() as $key) {
+            if (IdentityKey::isFingerprint($key)) {
+                $seats[] = ['fingerprint' => $key, 'label' => $invitations->labelFor($key), 'scopes' => $ledger->scopesFor($key) ?? [], 'authorized_by' => (string) $ledger->authorizedBy($key)];
+            }
+        }
+
+        return $seats;
+    }
+
+    /**
+     * Those seats with what each holds of the capabilities built here (greenhouse decisions/0590): what persons
+     * admitted to it and what no admission covers — {@see \Milpa\AppRuntime\Agent\CapabilityAdmissions::holdingsOf()}.
+     * A null principal is the terminal's operator, who reads every seat.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function holdings(string $root, ?string $principal, \Milpa\AppRuntime\Agent\BuiltCapabilities $built): array
+    {
+        $admissions = \Milpa\AppRuntime\Agent\CapabilityAdmissions::forRoot(rtrim($root, '/'), $built);
+        $seats = [];
+        foreach (self::seatsFor($root, $principal) as $seat) {
+            $seats[] = $seat + $admissions->holdingsOf($seat['fingerprint'], $seat['scopes']);
         }
 
         return $seats;
