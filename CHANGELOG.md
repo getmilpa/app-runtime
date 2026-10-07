@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.211.1](https://github.com/getmilpa/app-runtime/compare/v0.211.0...v0.211.1) (2026-10-07)
+
+
+### Bug Fixes
+
+* a screen-served claim sees what the house observed ([#717](https://github.com/getmilpa/app-runtime/issues/717)) ([035d5ea](https://github.com/getmilpa/app-runtime/commit/035d5ea41df61663b9d17f5d2cdf348f6534b7dc))
+
 ## [0.211.0](https://github.com/getmilpa/app-runtime/compare/v0.210.0...v0.211.0) (2026-10-07)
 
 
