@@ -29,13 +29,16 @@ use Milpa\AppRuntime\Identity\FileEnrollmentStore;
  * only by static policy keep being judged by the declared word, wherever that is done today.
  *
  * @phpstan-type Group array{capability: string, scope: string, verbs: array<string, string>, contract: string}
- * @phpstan-type Verb array{verb: string, tool: string, description: string, mutating: bool, requiresConfirmation: bool, namedTarget: ?string, surfaces: ?list<string>, scopes: list<string>, effects: array<string, mixed>, state: array{paths: list<string>, source: string, refused?: string}|null, runs: array{how: string, why?: string, pre_image?: bool}, digest: string, standing: 'admitted'|'never'|'changed'|'added', not_admissible: ?string}
- * @phpstan-type Card array{capability: string, scope: string, permission: string, opens: list<Verb>, contract: string, not_admissible: ?string}
+ * @phpstan-type Verb array{verb: string, tool: string, description: string, mutating: bool, requiresConfirmation: bool, namedTarget: ?string, surfaces: ?list<string>, scopes: list<string>, effects: array<string, mixed>, state: array{paths: list<string>, source: string, refused?: string}|null, runs: array{how: string, why?: string, pre_image?: bool}, digest: string, standing: 'admitted'|'never'|'changed'|'added'|'withdrawn', not_admissible: ?string}
+ * @phpstan-type Card array{capability: string, scope: string, permission: string, opens: list<Verb>, contract: string, not_admissible: ?string, withdrawn: array{by: string, at: string}|null}
  */
 final readonly class CapabilityAdmissions
 {
     /** The intent session a passkey touch for admitting without a refusal is bound to: there is no agent session. */
     public const string INTENT_SESSION = 'identity:admit';
+
+    /** The intent session a passkey touch for withdrawing an admission is bound to. */
+    public const string WITHDRAW_INTENT_SESSION = 'identity:withdraw';
 
     public function __construct(private FileEnrollmentStore $ledger, private BuiltCapabilities $built)
     {
@@ -99,7 +102,38 @@ final readonly class CapabilityAdmissions
             }
         }
 
+        // NEVER ADMITTED AND TAKEN BACK ARE NOT THE SAME THING TO READ (decisions/0590, rule 12): where no admission
+        // stands under any of the verb's scopes and a person withdrew one, the refusal says so.
+        if ($why === MissingAdmission::NEVER) {
+            foreach ($verb->scopes() as $scope) {
+                if ($this->withdrawalOf($seat, $verb->capability, $scope) !== null) {
+                    return new MissingAdmission($verb, $scope, MissingAdmission::WITHDRAWN);
+                }
+            }
+        }
+
         return new MissingAdmission($verb, $under ?? $verb->scopes()[0], $why);
+    }
+
+    /**
+     * Who last took that scope of that capability out of the seat, and when — or null: nobody did, or a person
+     * admitted it again since and it stands.
+     *
+     * @return array{by: string, at: string}|null
+     */
+    public function withdrawalOf(string $seat, string $capability, string $scope): ?array
+    {
+        if (isset($this->ledger->admissionsFor($seat)[$capability][$scope])) {
+            return null;
+        }
+        $last = null;
+        foreach ($this->ledger->withdrawalsFor($seat) as $line) {
+            if ($line['capability'] === $capability && $line['scope'] === $scope) {
+                $last = ['by' => $line['withdrawn_by'], 'at' => $line['at']];
+            }
+        }
+
+        return $last;
     }
 
     /**
@@ -145,7 +179,10 @@ final readonly class CapabilityAdmissions
      * Each scope no admission covers carries what a person must read to admit it without waiting for a refusal
      * (decisions/0597): the same card a refusal gets — `opens`, `not_admissible` — and `contract`, its digest.
      *
-     * @return array{admitted: list<array{capability: string, scope: string, admitted_by: string, at: string, verbs: array<string, 'admitted'|'changed'|'gone'>}>, unadmitted: list<array{capability: string, scope: string, verbs: list<string>, ran_before: bool, contract: ?string, opens: list<Verb>, not_admissible: ?string}>}
+     * `withdrawn` is the trail of what persons took back from the seat (rule 12), oldest first; a scope that waits
+     * because it was withdrawn says by whom.
+     *
+     * @return array{admitted: list<array{capability: string, scope: string, key: string, admitted_by: string, at: string, verbs: array<string, 'admitted'|'changed'|'gone'>}>, unadmitted: list<array{capability: string, scope: string, verbs: list<string>, ran_before: bool, contract: ?string, opens: list<Verb>, not_admissible: ?string, withdrawn: array{by: string, at: string}|null}>, withdrawn: list<array{capability: string, scope: string, verbs: list<string>, withdrawn_by: string, at: string, admitted_by: string}>}
      */
     public function holdingsOf(string $seat, array $scopes): array
     {
@@ -157,7 +194,8 @@ final readonly class CapabilityAdmissions
                     $verb = $this->built->verb($name);
                     $verbs[$name] = $verb === null || $verb->capability !== $capability ? 'gone' : ($verb->digest() === $digest ? 'admitted' : 'changed');
                 }
-                $admitted[] = ['capability' => $capability, 'scope' => MissingAdmission::spelled($scope), 'admitted_by' => $admission['admitted_by'], 'at' => $admission['at'], 'verbs' => $verbs];
+                // `key` is the scope as the ledger keeps it: what a withdrawal names.
+                $admitted[] = ['capability' => $capability, 'scope' => MissingAdmission::spelled($scope), 'key' => $scope, 'admitted_by' => $admission['admitted_by'], 'at' => $admission['at'], 'verbs' => $verbs];
             }
         }
 
@@ -187,11 +225,19 @@ final readonly class CapabilityAdmissions
                     'contract' => $card['contract'] ?? null,
                     'opens' => $card['opens'] ?? [],
                     'not_admissible' => $card['not_admissible'] ?? null,
+                    'withdrawn' => $card['withdrawn'] ?? null,
                 ];
             }
         }
 
-        return ['admitted' => $admitted, 'unadmitted' => $unadmitted];
+        // The trail as a person reads it: a verb admitted by itself is spelled, as in `admitted`.
+        $withdrawn = array_map(static function (array $line): array {
+            $line['scope'] = MissingAdmission::spelled($line['scope']);
+
+            return $line;
+        }, $this->ledger->withdrawalsFor($seat));
+
+        return ['admitted' => $admitted, 'unadmitted' => $unadmitted, 'withdrawn' => $withdrawn];
     }
 
     /**
@@ -266,6 +312,8 @@ final readonly class CapabilityAdmissions
             'opens' => $opens,
             'contract' => $group['contract'],
             'not_admissible' => $notAdmissible,
+            // Not part of what is approved: a fact about this seat, for the person who reads the card.
+            'withdrawn' => $this->withdrawalOf($seat, $capability, $scope),
         ];
     }
 

@@ -87,6 +87,12 @@ final class FileEnrollmentStore implements EnrollmentStore
                     } elseif ($admitted !== []) {
                         $report['admissions_dropped'] = array_sum(array_map(\count(...), $admitted));
                     }
+                    // What was withdrawn travels with what was admitted: both are what persons decided about this
+                    // seat, and a typed list starts that over (the trail stays in the history).
+                    $withdrawn = ($previous['revoked_by'] ?? null) === null ? self::withdrawalsIn($previous) : [];
+                    if ($withdrawn !== [] && $keepAdmissions) {
+                        $entry['withdrawals'] = $withdrawn;
+                    }
                     // The state being replaced goes onto the history, flat: the states it carried move
                     // along with it rather than nesting. A `history` that is not a list is not lifted —
                     // it rides inside the pushed state, kept as it was found.
@@ -159,6 +165,110 @@ final class FileEnrollmentStore implements EnrollmentStore
         });
 
         return $admitted;
+    }
+
+    /**
+     * Take ONE admission out of a live seat — one scope of one capability — and keep who did it, when, and what it
+     * was (greenhouse decisions/0590, rule 12). Null when that seat holds no such admission: nothing is written.
+     *
+     * It only removes authority, and it removes nothing else: the seat's scopes and its other admissions stay. The
+     * state it replaces goes onto the history, and the entry gains a line in `withdrawals` — the trail a person
+     * reads without digging in the history.
+     *
+     * @return array{capability: string, scope: string, verbs: list<string>, withdrawn_by: string, at: string, admitted_by: string}|null
+     *
+     * @throws \RuntimeException when the ledger could not be written
+     */
+    public function withdraw(string $fingerprint, string $capability, string $scope, string $withdrawnBy, ?string $at = null): ?array
+    {
+        $key = IdentityKey::normalize($fingerprint);
+        $at ??= gmdate('Y-m-d\TH:i:s\Z');
+        $taken = null;
+        $this->mutate(static function (array $map) use ($key, $capability, $scope, $withdrawnBy, $at, &$taken): array {
+            $entry = $map[$key] ?? null;
+            if (!\is_array($entry) || !\is_array($entry['scopes'] ?? null) || ($entry['revoked_by'] ?? null) !== null) {
+                return $map;
+            }
+            $admissions = self::admissionsIn($entry);
+            $admission = $admissions[$capability][$scope] ?? null;
+            if ($admission === null) {
+                return $map;
+            }
+            $previous = $entry;
+            $history = \is_array($previous['history'] ?? null) ? array_values($previous['history']) : [];
+            unset($previous['history']);
+            $history[] = $previous;
+
+            unset($admissions[$capability][$scope]);
+            if ($admissions[$capability] === []) {
+                unset($admissions[$capability]);
+            }
+            $taken = [
+                'capability' => $capability,
+                'scope' => $scope,
+                'verbs' => array_keys($admission['verbs']),
+                'withdrawn_by' => $withdrawnBy,
+                'at' => $at,
+                'admitted_by' => $admission['admitted_by'],
+            ];
+            if ($admissions === []) {
+                unset($entry['admissions']);
+            } else {
+                $entry['admissions'] = $admissions;
+            }
+            $entry['withdrawals'] = [...self::withdrawalsIn($entry), $taken];
+            $entry['history'] = $history;
+            $map[$key] = $entry;
+
+            return $map;
+        });
+
+        return $taken;
+    }
+
+    /**
+     * What persons withdrew from this seat, oldest first — each scope of a capability, the verbs it had opened, who
+     * took it out and when, and who had admitted it. Empty for a key never enrolled, and empty once revoked.
+     *
+     * @return list<array{capability: string, scope: string, verbs: list<string>, withdrawn_by: string, at: string, admitted_by: string}>
+     */
+    public function withdrawalsFor(string $fingerprint): array
+    {
+        $map = $this->read() ?? [];
+        $entry = $map[IdentityKey::normalize($fingerprint)] ?? null;
+        if (!\is_array($entry) || !\is_array($entry['scopes'] ?? null) || ($entry['revoked_by'] ?? null) !== null) {
+            return [];
+        }
+
+        return self::withdrawalsIn($entry);
+    }
+
+    /**
+     * The withdrawals an entry carries, read strictly: anything that is not the shape {@see withdraw()} writes is
+     * not one.
+     *
+     * @param array<mixed> $entry
+     *
+     * @return list<array{capability: string, scope: string, verbs: list<string>, withdrawn_by: string, at: string, admitted_by: string}>
+     */
+    private static function withdrawalsIn(array $entry): array
+    {
+        $out = [];
+        foreach (\is_array($entry['withdrawals'] ?? null) ? $entry['withdrawals'] : [] as $line) {
+            if (!\is_array($line) || !\is_string($line['capability'] ?? null) || !\is_string($line['scope'] ?? null) || !\is_string($line['withdrawn_by'] ?? null)) {
+                continue;
+            }
+            $out[] = [
+                'capability' => $line['capability'],
+                'scope' => $line['scope'],
+                'verbs' => array_values(array_filter(\is_array($line['verbs'] ?? null) ? $line['verbs'] : [], '\is_string')),
+                'withdrawn_by' => $line['withdrawn_by'],
+                'at' => \is_string($line['at'] ?? null) ? $line['at'] : '',
+                'admitted_by' => \is_string($line['admitted_by'] ?? null) ? $line['admitted_by'] : '',
+            ];
+        }
+
+        return $out;
     }
 
     /**
