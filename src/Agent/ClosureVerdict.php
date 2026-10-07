@@ -110,6 +110,36 @@ final class ClosureVerdict
             }
         }
 
+        // NOR OVER A REHEARSAL (greenhouse decisions/0587). A done todo backed by a call that only ran in a trial
+        // nothing promoted — or by an artifact only such trials hold — rests on a fact about a copy. Measured on
+        // published 0.211.1 (decisions/0585): a domain write ran in a trial with «nothing to apply», its claim was
+        // accepted, and this verdict said `verified: true` with the house's store untouched. The door refuses that
+        // claim now; a session recorded before it did already holds the evidence, so the verdict asks the stream
+        // too, with the door's own reading ({@see LandedCalls}). It speaks only when the stream SHOWS the rehearsal:
+        // evidence the stream says nothing about is judged as it always was.
+        if ($stream !== null) {
+            $calls = LandedCalls::of($stream, $lasting);
+            foreach ($session->evidence as $evidence) {
+                if ($evidence->todo === null || ! $session->isDoneVerified($evidence->todo)) {
+                    continue;
+                }
+                if ($evidence->kind === EvidenceKind::OperationOk) {
+                    $rehearsal = $calls->answeredOk($evidence->reference) === null && $calls->executed($evidence->reference) === null
+                        ? $calls->rehearsalOf($evidence->reference) : null;
+                    $did = 'answered ok';
+                } elseif ($evidence->kind === EvidenceKind::ArtifactCreated) {
+                    $state = $facts->workStateFor($evidence->reference);
+                    $rehearsal = $calls->madeOnlyInATrial(\is_array($state['workState']['attempts'] ?? null) ? $state['workState']['attempts'] : []);
+                    $did = 'was made';
+                } else {
+                    continue;
+                }
+                if ($rehearsal !== null) {
+                    $reasons[] = "todo {$evidence->todo} rests on «{$evidence->reference}», which {$did} only inside a trial nothing promoted (seq {$rehearsal['seq']})";
+                }
+            }
+        }
+
         // A session that never opened a todo kept no record of its own; given its stream, the HOUSE derives the
         // closure from what landed in it and what it observed after (decisions/0487).
         //
