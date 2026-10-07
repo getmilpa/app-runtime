@@ -32,9 +32,12 @@ final readonly class MissingAdmission
     /** Its scope was admitted before the capability declared this verb. */
     public const string ADDED = 'added';
 
+    /** A person took its admission back (greenhouse decisions/0590, rule 12). */
+    public const string WITHDRAWN = 'withdrawn';
+
     /**
-     * @param string                                $scope the scope an admission would be given under
-     * @param self::NEVER|self::CHANGED|self::ADDED $why
+     * @param string                                                $scope the scope an admission would be given under
+     * @param self::NEVER|self::CHANGED|self::ADDED|self::WITHDRAWN $why
      */
     public function __construct(public BuiltVerb $verb, public string $scope, public string $why)
     {
@@ -67,6 +70,7 @@ final readonly class MissingAdmission
         return match ($this->why) {
             self::CHANGED => \sprintf('%s, and its contract changed since a person admitted it for this seat: that admission, under %s, no longer covers it.', $verb, $under),
             self::ADDED => \sprintf('%s, added after %s was admitted for this seat: no person has admitted this verb.', $verb, $under),
+            self::WITHDRAWN => \sprintf('%s, and a person withdrew its admission for this seat: nothing admits it under %s now. A person admits it again, seeing its contract.', $verb, $under),
             default => \sprintf('%s, and no person has admitted it for this seat: it is admitted under %s. The scope a built verb declares does not open it — a person admits it, seeing its contract.', $verb, $under),
         };
     }
