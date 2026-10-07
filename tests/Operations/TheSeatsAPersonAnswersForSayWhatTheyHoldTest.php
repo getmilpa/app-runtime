@@ -110,6 +110,8 @@ final class TheSeatsAPersonAnswersForSayWhatTheyHoldTest extends TestCase
         self::assertSame([[
             'capability' => 'Prestamos',
             'scope' => 'herramientas:write',
+            // The scope as the ledger keeps it: what a withdrawal names (decisions/0590, rule 12).
+            'key' => 'herramientas:write',
             'admitted_by' => 'key:' . self::HUMAN,
             'at' => '2026-10-07T00:00:00Z',
             'verbs' => ['herramientas.agregar' => 'admitted', 'herramientas.devolver' => 'admitted', 'herramientas.prestar' => 'admitted'],
