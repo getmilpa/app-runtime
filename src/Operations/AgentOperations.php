@@ -74,8 +74,10 @@ use Milpa\Plugin\Runtime\MetadataGraphResolver;
 use Milpa\Resolver\Report\ResolutionReport;
 use Milpa\AiGateway\LlmService;
 use Milpa\AppRuntime\Agent\AgentTable;
+use Milpa\AppRuntime\Agent\ConfinedWork;
 use Milpa\AppRuntime\Agent\EffectClasses;
 use Milpa\AppRuntime\Agent\ExecutionRecorder;
+use Milpa\AppRuntime\Agent\HouseWork;
 use Milpa\AppRuntime\Agent\ObservedExecutor;
 use Milpa\AppRuntime\Agent\IntakeObserver;
 use Milpa\AiGateway\OptionTable;
@@ -2770,6 +2772,12 @@ class AgentOperations implements CommandProvider
                 $sessionId !== '' ? $sessionId : null,
                 fn (): ?ScreenDrafts => $this->container->has(ScreenDrafts::class) ? $this->container->get(ScreenDrafts::class) : null,
             );
+            // WORK IN THE DOMAIN RUNS IN THE HOUSE, NOT IN A COPY (greenhouse decisions/0588) — the SAME work layer
+            // the gate judges the call with, so the plan the gate judged is the plan this registry runs.
+            $work = $this->houseWork($kernel);
+            if ($work !== null) {
+                $registry->runsWorkInTheHouse($work, new ConfinedWork($kernel->root(), $trialRouter->runner(), \dirname(__DIR__, 2) . '/resources/work-run.php'));
+            }
         }
 
         $vistos = 0;
@@ -3217,6 +3225,9 @@ class AgentOperations implements CommandProvider
     // «not resolved yet», `null` means «resolved to none» — the leaf is off, or there is no sandbox.
     private TrialRouter|null|false $trialRouterMemo = false;
 
+    /** The house's work layer for this invocation: `false` means «not resolved yet», `null` «this house runs no work in itself». */
+    private HouseWork|null|false $houseWorkMemo = false;
+
     /**
      * Run the model with its governed tools and capture this run's producer observation.
      *
@@ -3654,6 +3665,9 @@ class AgentOperations implements CommandProvider
             // null only if the app's location cannot be told, in which case redaction is a no-op.
             root: $this->rootOrNull(),
             waitsOnAPerson: $this->frontierOfTheSeat(),
+            // The receipt of a work call carries what the layer that ran it saw of its state — asked of that layer,
+            // never read out of a result (greenhouse decisions/0588).
+            landed: $registry instanceof TrialAwareRegistry ? $registry->landedWork(...) : null,
         );
     }
 
@@ -4073,6 +4087,32 @@ class AgentOperations implements CommandProvider
      * and the registry share ONE instance: the gate plans the call during composition, the executor
      * reuses that plan.
      */
+    /**
+     * The house's work layer for this invocation, or `null` when this house runs no work in itself (greenhouse
+     * decisions/0588): confinement was switched off, or its session store cannot say where an execution ran.
+     */
+    private function houseWork(Kernel $kernel): ?HouseWork
+    {
+        if ($this->houseWorkMemo !== false) {
+            return $this->houseWorkMemo;
+        }
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $store = $this->sessionStore();
+        // The same switch as trials: a house that turned confinement off runs everything as it did before it. And
+        // a move the house cannot record is a move it does not make — the receipt of work says where it ran.
+        if (($config instanceof Config && $config->get('agent.trialWorkspace') === false) || $store === null || ! HouseWork::canBeRecordedBy($store)) {
+            return $this->houseWorkMemo = null;
+        }
+
+        return $this->houseWorkMemo = new HouseWork(
+            $kernel->root(),
+            // Asked for when a call declares work, not before: most legs never do.
+            static fn (): array => $kernel->plugins(),
+            $config instanceof Config ? $config->get('storage') : null,
+            $this->trialRouter($kernel)?->runner() ?? new TrialRunner(),
+        );
+    }
+
     private function trialRouter(Kernel $kernel): ?TrialRouter
     {
         if ($this->trialRouterMemo !== false) {
@@ -4142,6 +4182,7 @@ class AgentOperations implements CommandProvider
             policyProvider: $policyProvider,
             identity: $identity,
             trialRouter: $this->trialRouter($kernel),
+            houseWork: $this->houseWork($kernel),
             // THE INTERNAL PRODUCERS, so the gate judges the notebook and delegation by their declared
             // contracts instead of allowing them by name (greenhouse decisions/0078). Built from THIS
             // session's id, so a child spawned through this same builder governs its own internal tools.

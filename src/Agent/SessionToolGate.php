@@ -154,6 +154,10 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // decisions/0589). `null` when it is not known: the overlay cannot be read then, and the credentials of
         // the environment are kept out all the same.
         private readonly ?string $houseRoot = null,
+        // THE HOUSE'S WORK LAYER (greenhouse decisions/0588), or `null` to judge as before. Work in the domain runs
+        // in the house, not in a disposable copy, so what a trial bought — «this can be thrown away» — is asked
+        // here of the house: a mode that does not pause carries on alone only with what the house can undo.
+        private readonly ?HouseWork $houseWork = null,
     ) {
     }
 
@@ -279,6 +283,12 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         if ($foreknown !== null) {
             return $foreknown;
         }
+        // The same of work whose state is not a place for state (greenhouse decisions/0588, rule 3): it never
+        // runs, so nobody is asked about it.
+        $work = $operacion->mutating ? $this->houseWork?->planFor($operacion) : null;
+        if ($work !== null && $work->refused !== null) {
+            return $work->refused;
+        }
         $duda = $this->intentUnderdetermined($operacion, $arguments, $deliveryTarget);
         if ($duda !== null && $deliveryTarget === null) {
             return $this->pause($duda);
@@ -385,8 +395,9 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             // admits this call was recorded for OTHER arguments, the human is asked again — for these.
             PolicyDecision::Allow => $this->aRecordedYesCoversTheseArguments($operacion, $arguments)
                 && ! $this->nobodyConsentedToWhatTheOtherDoorDemands($operacion, $arguments, $composicion)
+                && ! $this->workWaitsOnAPerson($work, $operacion, $arguments)
                 ? null
-                : $this->askUnlessAConfirmedIntentAdmits($operacion, $arguments, $composicion),
+                : $this->askUnlessAConfirmedIntentAdmits($operacion, $arguments, $composicion, $work?->asks),
             // EL «why» SE GUARDA ESTRUCTURADO, igual que el de la pregunta de intención (:254).
             // `SessionPolicy` lo escribe como el JSON pelón de los argumentos, y así el operativo
             // que después quiera saber QUÉ autorizó el humano tendría que sacar la operación del
@@ -813,6 +824,33 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
     }
 
     /**
+     * Whether this work call waits on a person: the house cannot undo it, or cannot confine it, and nobody said
+     * yes to exactly this call (greenhouse decisions/0588, rules 2 and 7).
+     *
+     * A trial bought «this can be thrown away», and that is why a mode that does not pause could carry on alone.
+     * Work runs in the house. So the same question is asked of the house: with a pre-image it keeps, or a reversal
+     * the operation guarantees, the mode carries on as before; without either — or without a sandbox to confine
+     * the call, or with a store on the network — a person is asked, and the yes covers the arguments they were
+     * shown and no others. Once per call.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function workWaitsOnAPerson(?WorkPlan $work, Operation $operacion, array $arguments): bool
+    {
+        if ($work === null || $work->asks === null) {
+            return false;
+        }
+        $this->recordedGrants ??= SessionGrants::of($this->session->decisions, $this->session->id, new \DateTimeImmutable(), $this->operations);
+        foreach ($this->recordedGrants as $grant) {
+            if ($grant->operation->is($operacion->name) && $grant->covers($operacion->name, $arguments)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * The perm: pause of the AskPermission arm — unless a confirmed intent claim already answers it.
      *
      * «La intención describe qué quiere el humano. La policy decide qué autoridad compra haberlo
@@ -844,6 +882,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         Operation $operacion,
         array $arguments,
         ?ProfileComposition $composicion,
+        ?string $because = null,
     ): ?string {
         $techo = $composicion !== null ? $composicion->effective : $operacion->effectCeiling();
         if ($this->aConfirmedIntentAdmits($operacion, $arguments, $techo)) {
@@ -875,6 +914,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
                 // authorises a trial's consequences seeing the diff, not a workspace id
                 // (greenhouse decisions/0069, 0068). Any other pause gets null and is unchanged.
                 $this->cambiosDeUnaPromocion($operacion->name, $arguments),
+                $because,
             ),
         );
 
@@ -1143,7 +1183,11 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         string $executorSource,
         ?array $authorizedBy,
         string $argumentsDigest,
+        ?array $landed = null,
     ): void {
+        // WHERE IT RAN AND WHAT IT LEFT rides the same fact (greenhouse decisions/0588), when the store keeps it.
+        // An older store keeps the fact it always kept: the house never ran work in itself over one ({@see
+        // HouseWork::canBeRecordedBy()}), so nothing is lost here.
         $this->sessions->recordExecution(
             $this->session->id,
             $operation,
@@ -1151,6 +1195,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             $executorSource,
             $authorizedBy,
             $argumentsDigest,
+            ...($landed !== null && HouseWork::canBeRecordedBy($this->sessions) ? [$landed] : []),
         );
     }
 
@@ -1183,6 +1228,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         ?array $base = null,
         ?array $composed = null,
         ?array $cambios = null,
+        ?string $because = null,
     ): \Milpa\Agent\PendingQuestion {
         $hecho = ['operation' => $operacion, 'arguments' => $arguments];
         if ($base !== null) {
@@ -1195,6 +1241,11 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // (decisions/0031), so `cambios` is display for the human and cannot pollute what is granted.
         if ($cambios !== null && $cambios !== []) {
             $hecho['cambios'] = $cambios;
+        }
+        // Why the house asks about work a mode would have carried on with (greenhouse decisions/0588): beside
+        // the arguments, for the person, never inside them.
+        if ($because !== null) {
+            $hecho['because'] = $because;
         }
 
         return new \Milpa\Agent\PendingQuestion(

@@ -103,6 +103,79 @@ final class TrialRunner
     }
 
     /**
+     * Run one operation of work IN THE HOUSE, confined to its state (greenhouse decisions/0588, rule 2).
+     *
+     * Not a trial: there is no copy. The child runs against the house itself with the same confinement a trial
+     * has — the root read-only, no network, its own pids — and of the house only the paths of the operation's
+     * state are bound for writing, with a scratch directory for its temporary files. A handler that writes
+     * anywhere else gets the system's error.
+     *
+     * THE PATHS ARE JUDGED AGAIN HERE, ON THE REAL PATH. They were judged when the declaration was read; between
+     * the two a link may have appeared, and a mount follows links. So each one must still be a place for state
+     * ({@see HouseWork::notAPlaceForState()}, which walks the real path of the house for links) and must exist.
+     *
+     * @param string               $runner  the script the child runs: `<runner> <root> <operation> <json>`
+     * @param array<string, mixed> $input
+     * @param list<string>         $state   the paths the call may write, relative to the house root
+     * @param string               $scratch a directory of this call's own, for temporary files
+     *
+     * @throws \RuntimeException when a path is not a place for state, does not exist or is reached through a link
+     */
+    public function work(string $root, string $runner, string $operation, array $input, array $state, string $scratch): TrialRun
+    {
+        $house = realpath($root);
+        if ($house === false || $state === []) {
+            throw new \RuntimeException('Work runs confined to a declared state, and none was given.');
+        }
+        $command = ['timeout', '-k', '2', (string) $this->timeoutSeconds, $this->bwrap,
+            ...$this->namespaces() ?? self::NAMESPACES, '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null'];
+        foreach ($state as $relative) {
+            $why = HouseWork::notAPlaceForState($house, $relative);
+            if ($why !== null) {
+                throw new \RuntimeException("«{$relative}» is not mounted for work: {$why}.");
+            }
+            $path = $house . '/' . $relative;
+            if (! file_exists($path)) {
+                throw new \RuntimeException("«{$relative}» is not mounted for work: it does not exist.");
+            }
+            array_push($command, '--bind', $path, $path);
+        }
+        if (! is_dir($scratch) || is_link($scratch)) {
+            throw new \RuntimeException('Work needs a scratch directory of its own.');
+        }
+        array_push(
+            $command,
+            '--bind',
+            $scratch,
+            $scratch,
+            '--setenv',
+            'TMPDIR',
+            $scratch,
+            '--',
+            $this->php,
+            '-d',
+            'sys_temp_dir=' . $scratch,
+            $runner,
+            $house,
+            $operation,
+            json_encode($input, \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES) ?: '{}'
+        );
+        [$exit, $stdout, $stderr] = $this->exec(implode(' ', array_map('escapeshellarg', $command)));
+        if ($exit === 124 || $exit === 137) {
+            $stderr = trim($stderr . "\ntimeout: the call exceeded {$this->timeoutSeconds}s and was killed");
+        }
+
+        return new TrialRun(
+            exit: $exit,
+            output: $this->lastJson($stdout),
+            stdout: $stdout,
+            stderr: $stderr,
+            bounds: ['fs' => 'ro-root+rw-declared-state+rw-scratch', 'net' => 'unshared', 'pid' => 'unshared'],
+            report: [],
+        );
+    }
+
+    /**
      * Run one operation in the trial and read the result on the host side.
      *
      * @param array<string, mixed> $input

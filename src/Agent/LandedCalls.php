@@ -45,7 +45,7 @@ use Milpa\EventStore\Event;
  */
 final class LandedCalls
 {
-    /** @var array<int, array{tool: string, succeeded: bool, rehearsed: bool, workspace: ?string, promotable: bool}> seq => call */
+    /** @var array<int, array{tool: string, succeeded: bool, rehearsed: bool, workspace: ?string, promotable: bool, unchanged: bool}> seq => call */
     private array $calls = [];
 
     /** @var array<int, array{operation: string, call: ?int}> seq => the receipt of an execution and the call it belongs to */
@@ -79,10 +79,14 @@ final class LandedCalls
             }
             if ($event->type === SessionEvent::OperationExecuted->value) {
                 $operation = \is_string($payload['operation'] ?? null) ? $payload['operation'] : '';
-                $self->receipts[$event->seq] = [
-                    'operation' => $operation,
-                    'call' => $last !== null && (new OperationId($operation))->is($self->calls[$last]['tool']) ? $last : null,
-                ];
+                $call = $last !== null && (new OperationId($operation))->is($self->calls[$last]['tool']) ? $last : null;
+                $self->receipts[$event->seq] = ['operation' => $operation, 'call' => $call];
+                // WORK THAT LEFT THE HOUSE AS IT WAS DID NOT REACH IT (greenhouse decisions/0588, rule 5). A work call
+                // runs in the house, and its receipt carries the house's own account of its state: the same digest
+                // before and after is «it did not change», whatever the handler answered.
+                if ($call !== null && ($payload['environment'] ?? null) === 'house' && ($payload['changed'] ?? null) === false) {
+                    $self->calls[$call]['unchanged'] = true;
+                }
 
                 continue;
             }
@@ -105,6 +109,7 @@ final class LandedCalls
                 'workspace' => $rehearsed && $workspace !== '' ? $workspace : null,
                 // The house says so itself: a trial with something to apply answers with the call that applies it.
                 'promotable' => ! $readable || \is_array($result['to_apply'] ?? null),
+                'unchanged' => false,
             ];
             if ($succeeded && ! $rehearsed) {
                 $carried = self::carriedBy($payload, $readable ? $result : null);
@@ -137,6 +142,10 @@ final class LandedCalls
         $call = $this->calls[$seq] ?? null;
         if ($call === null || ! $call['succeeded']) {
             return null;
+        }
+
+        if ($call['unchanged']) {
+            return false;
         }
 
         return ! $call['rehearsed'] || ($call['workspace'] !== null && isset($this->promoted[$call['workspace']]));
@@ -181,7 +190,7 @@ final class LandedCalls
     /**
      * The last rehearsal of a tool or operation that nothing promoted, in either spelling — or null when there is none.
      *
-     * @return array{seq: int, workspace: ?string, promotable: bool}|null
+     * @return array{seq: int, workspace: ?string, promotable: bool, left_as_it_was?: true}|null
      */
     public function rehearsalOf(string $tool): ?array
     {
@@ -196,7 +205,7 @@ final class LandedCalls
      *
      * @param array<mixed> $attempts the artifact's recorded attempts ({@see \Milpa\Agent\SessionFacts::workStateFor()})
      *
-     * @return array{seq: int, workspace: ?string, promotable: bool}|null
+     * @return array{seq: int, workspace: ?string, promotable: bool, left_as_it_was?: true}|null
      */
     public function madeOnlyInATrial(array $attempts): ?array
     {
@@ -218,13 +227,15 @@ final class LandedCalls
     /**
      * @param \Closure(int, string): bool $asked which calls to look at
      *
-     * @return array{seq: int, workspace: ?string, promotable: bool}|null
+     * @return array{seq: int, workspace: ?string, promotable: bool, left_as_it_was?: true}|null
      */
     private function lastRehearsal(\Closure $asked): ?array
     {
         foreach (array_reverse($this->calls, true) as $seq => $call) {
             if ($asked($seq, $call['tool']) && $this->reached($seq) === false) {
-                return ['seq' => $seq, 'workspace' => $call['workspace'], 'promotable' => $call['promotable']];
+                return $call['unchanged']
+                    ? ['seq' => $seq, 'workspace' => null, 'promotable' => false, 'left_as_it_was' => true]
+                    : ['seq' => $seq, 'workspace' => $call['workspace'], 'promotable' => $call['promotable']];
             }
         }
 
@@ -235,11 +246,15 @@ final class LandedCalls
      * Why a claim over that rehearsal is refused, with the call that would land it when there is one
      * (greenhouse decisions/0571: a hint names a call the house runs, or none).
      *
-     * @param array{seq: int, workspace: ?string, promotable: bool} $rehearsal
-     * @param string                                                $did       what the reference did there, as the claim's kind says it
+     * @param array{seq: int, workspace: ?string, promotable: bool, left_as_it_was?: true} $rehearsal
+     * @param string                                                                       $did       what the reference did there, as the claim's kind says it
      */
     public static function refusal(string $reference, array $rehearsal, string $did = 'answered ok'): string
     {
+        if (($rehearsal['left_as_it_was'] ?? false) === true) {
+            return "«{$reference}» {$did} in the house (seq {$rehearsal['seq']}) and left the house as it was: its state is "
+                . 'what it was before the call, so there is nothing of it in the house to claim';
+        }
         $said = "«{$reference}» {$did} only inside a trial (seq {$rehearsal['seq']})";
         if (! $rehearsal['promotable'] || $rehearsal['workspace'] === null) {
             return $said . ' that changed nothing the house keeps, so there is nothing to promote: a rehearsal is not a fact '

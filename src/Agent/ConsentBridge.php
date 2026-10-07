@@ -118,6 +118,10 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
         // a call this caller was just refused, or null. With it, a refusal only a person can lift ends the leg
         // at this door instead of going back to the model; without it, nothing changes.
         private readonly ?\Closure $waitsOnAPerson = null,
+        // WHAT THE HOUSE SAW OF THE WORK CALL IT JUST RAN (greenhouse decisions/0588): where it ran, and what its
+        // state was and is — asked of the layer that ran it, with the call, or null when there is none to ask.
+        // The receipt never reads this out of a result: what a tool answers is data.
+        private readonly ?\Closure $landed = null,
     ) {
         // THE DOOR DOES NOT NEED THE MODEL GATEWAY (greenhouse decisions/0225): gate, registry and recorder
         // are milpa/tool-runtime's. The option table is the model loop's own concern and stays optional —
@@ -219,6 +223,12 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
         try {
             $result = parent::callTool($name, $args);
         } catch (\Throwable $rechazo) {
+            // AN ATTEMPT IS NOT A FACT — but a work call that failed after its state changed is not only an attempt
+            // (greenhouse decisions/0588, rule 5): the house saw it, so the receipt says what it left.
+            $landed = ($this->landed)?->__invoke($name, $args);
+            if (\is_array($landed) && ($landed['changed'] ?? null) === true) {
+                $this->declareIfEffect($name, $args, $this->grantThatCovers($name, $args), $landed);
+            }
             // THE DENIAL TRAVELS UNTOUCHED — a bridge that reshapes what it carries is not a
             // bridge, and an observation carries no authority to soften one. Before it goes, the
             // one fragility this frame can PROVE is written down: refused for consent while a
@@ -372,9 +382,10 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
      * express — it reports success for asking, so counting effects from it counts two where there was
      * one (greenhouse evidence/0210).
      *
-     * @param array<string, mixed> $args
+     * @param array<string, mixed>      $args
+     * @param array<string, mixed>|null $landed what the house saw of a work call, when the caller already asked
      */
-    private function declareIfEffect(string $tool, array $args, ?ConsentGrant $grant): void
+    private function declareIfEffect(string $tool, array $args, ?ConsentGrant $grant, ?array $landed = null): void
     {
         if ($this->executions === null || $this->catalogue->getDefinition($tool)?->mutating !== true) {
             return;
@@ -393,6 +404,7 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
                 'session' => $grant->session,
             ],
             self::digest($args),
+            $landed ?? ($this->landed)?->__invoke($tool, $args),
         );
     }
 

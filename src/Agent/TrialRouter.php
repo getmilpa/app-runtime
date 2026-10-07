@@ -52,6 +52,9 @@ final class TrialRouter
     /** @var array<string, ?TrialPlan> memoised by operation name + argument digest */
     private array $plans = [];
 
+    /** The house's work layer, when domain work runs in the house instead of a trial ({@see runsWorkInTheHouse()}). */
+    private ?HouseWork $work = null;
+
     /** @var array<string, array{tool: string, arguments: array<string, mixed>, witness: ?TrialInputWitness, recorded: bool}> */
     private array $inputCalls = [];
 
@@ -169,6 +172,22 @@ final class TrialRouter
         return $this->root;
     }
 
+    /**
+     * Say that work in the domain runs in the house (greenhouse decisions/0588): from here on no trial is planned
+     * for a call the work layer has a plan for. A trial's copy is born without the domain's state, so rehearsing
+     * work there answers against nothing. Authoring is planned as before.
+     */
+    public function runsWorkInTheHouse(HouseWork $work): void
+    {
+        $this->work = $work;
+    }
+
+    /** How this call runs in the house when it is work in the domain — or null: it is planned as a trial, or not at all. */
+    public function workFor(Operation $operation): ?WorkPlan
+    {
+        return $this->work?->planFor($operation);
+    }
+
     /** Whether this operation may be rehearsed in a trial at all — see the class docblock. */
     public function eligible(Operation $operation): bool
     {
@@ -195,7 +214,7 @@ final class TrialRouter
      */
     public function planFor(Operation $operation, array $arguments): ?TrialPlan
     {
-        if (! $this->eligible($operation)) {
+        if (! $this->eligible($operation) || $this->workFor($operation) !== null) {
             return null;
         }
 

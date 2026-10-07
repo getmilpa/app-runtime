@@ -42,6 +42,10 @@ interface ExecutionRecorder
      *                                                                                          plainly that none did, and saying it is not the same as
      *                                                                                          staying silent
      * @param string                                                           $argumentsDigest a reference to the arguments, not a second copy of them
+     * @param array<string, mixed>|null                                        $landed          where it ran and what state it left, when the house itself
+     *                                                                                          saw it (greenhouse decisions/0588): `environment`, `confined`,
+     *                                                                                          `state`, `changed`, `pre_image`. Null says nothing — and
+     *                                                                                          it is never read out of what a tool answered
      */
     public function executed(
         string $operation,
@@ -49,5 +53,6 @@ interface ExecutionRecorder
         string $executorSource,
         ?array $authorizedBy,
         string $argumentsDigest,
+        ?array $landed = null,
     ): void;
 }
