@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.212.1](https://github.com/getmilpa/app-runtime/compare/v0.212.0...v0.212.1) (2026-10-07)
+
+
+### Bug Fixes
+
+* the package ships no session log of its own ([#742](https://github.com/getmilpa/app-runtime/issues/742)) ([87b93f9](https://github.com/getmilpa/app-runtime/commit/87b93f9761b325bfc0302eae420e9ecb6754824a))
+
 ## [0.212.0](https://github.com/getmilpa/app-runtime/compare/v0.211.3...v0.212.0) (2026-10-07)
 
 

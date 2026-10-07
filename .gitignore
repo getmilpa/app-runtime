@@ -3,4 +3,4 @@
 /.phpunit.cache/
 /build/
 /.php-cs-fixer.cache
-/var/agent-runs/
+/var/
