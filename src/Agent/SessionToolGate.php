@@ -79,6 +79,9 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
     /** Cause of the last synchronous refusal, cleared before every new judgment. */
     private ?string $recoveryRefusedTool = null;
 
+    /** The tool this gate just refused by READING the house: a fact the model lifts, not a frontier (decisions/0591). */
+    private ?string $foreknownRefusedTool = null;
+
     /**
      * SUMMARY: The marker every UNJUDGEABLE refusal carries, so audit can tell «I cannot judge this»
      * apart from «I know this is forbidden» — both block the call, but they are NOT the same fact
@@ -167,6 +170,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
     public function refuse(string $tool, array $arguments): ?string
     {
         $this->recoveryRefusedTool = null;
+        $this->foreknownRefusedTool = null;
         $this->trialRouter?->beginInputCall($this->session->id, $tool, $arguments);
         // LA EXENCIÓN POR NOMBRE SE RETIRÓ AQUÍ, y lo que la sustituye es la regla.
         //
@@ -277,6 +281,14 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // running — it says now, before the intent contract and the policy get to ask anyone anything.
         $foreknown = $this->foreknownRefusal($operacion, $arguments);
         if ($foreknown !== null) {
+            // IT IS THE FAILED RESULT OF THIS CALL, AND IT GOES BACK TO THE MODEL (greenhouse decisions/0591). A
+            // refusal ends the leg so the model does not walk around a gate a person was going to decide; here
+            // nobody decides anything — it is a fact about the house, and one call lifts it. Measured with the real
+            // resident (evidence/1127): it ended the leg in two runs of three, and neither the call nor the sentence
+            // was in the ledger, so the next leg began without knowing why the last one had stopped.
+            $this->recorded($tool, $arguments, $foreknown, false);
+            $this->foreknownRefusedTool = $tool;
+
             return $foreknown;
         }
         $duda = $this->intentUnderdetermined($operacion, $arguments, $deliveryTarget);
@@ -434,8 +446,53 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             return null;
         }
 
+        // THE SCAFFOLD MAY BE ONE PROMOTION AWAY (greenhouse decisions/0591). `make` writes in a trial like every
+        // other author, so «scaffold it first with `make`» named the step the resident had just taken.
+        $trial = $this->trialThatScaffolds($root, $scaffold, $plugin, $class);
+        if ($trial !== null) {
+            return \sprintf(
+                'class «%s» in plugin «%s» is scaffolded in trial «%s», and that trial is not in the house yet — '
+                . 'promote it first: sandbox:promote {"workspace":"%s"}; then send this call again. Nothing ran and nobody was asked.',
+                $class,
+                $plugin,
+                $trial,
+                $trial,
+            );
+        }
+
         return $unscaffolded($plugin, $class, $operacion->name === 'edit' ? 'editing' : 'filling')
             . '. Nothing ran and nobody was asked.';
+    }
+
+    /**
+     * The newest trial of THIS session that still exists and declares the class — asked with the landing gate's
+     * own lookup, over the trial's copy — or null.
+     *
+     * Only this session's trials: the sentence names a promotion, and it must be one the caller can be told to
+     * make. A trial that was promoted or discarded has no copy left, so it is never named.
+     *
+     * @param callable(string, string, string): ?string $scaffold
+     */
+    private function trialThatScaffolds(string $root, callable $scaffold, string $plugin, string $class): ?string
+    {
+        $seen = [];
+        foreach (array_reverse($this->sessions->stream($this->session->id)) as $event) {
+            $workspace = $event->type === SessionEvent::TrialRunRecorded->value ? ($event->payload['workspace'] ?? null) : null;
+            if (!\is_string($workspace) || isset($seen[$workspace])) {
+                continue;
+            }
+            $seen[$workspace] = true;
+            try {
+                $trial = TrialWorkspace::open($root, $workspace);
+            } catch (\Throwable) {
+                continue;
+            }
+            if ($trial !== null && $scaffold($trial->copy, $plugin, $class) !== null) {
+                return $workspace;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -682,6 +739,15 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
     public function recoveryRefusalWasHidden(string $tool): bool
     {
         return $this->recoveryRefusedTool === $tool;
+    }
+
+    /**
+     * Whether the refusal this gate just gave for the tool is one it read from the house (greenhouse
+     * decisions/0591): nobody was asked and nobody decides, so the reason returns to the model like a failed call.
+     */
+    public function refusalWasForeknown(string $tool): bool
+    {
+        return $this->foreknownRefusedTool === $tool;
     }
 
     /** A declared reader contract, never an exemption based on a coinciding tool name. */
