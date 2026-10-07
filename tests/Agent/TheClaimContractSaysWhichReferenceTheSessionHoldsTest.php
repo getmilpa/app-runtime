@@ -129,9 +129,9 @@ final class TheClaimContractSaysWhichReferenceTheSessionHoldsTest extends TestCa
         );
         $this->store->recordToolCall(
             's1',
-            'screen_observe',
-            ['name' => 'blog'],
-            '{"ok":true,"screen":"blog","status":200,"evidence":{"predicate":"served","subject":"blog","environment":{"kind":"house"}}}',
+            'route_observe',
+            ['path' => '/blog'],
+            '{"ok":true,"observed":[{"predicate":"served","route":"GET /blog","subject":"/blog","status":200,"environment":{"kind":"house"},"servedAt":"/blog"}]}',
             true,
         );
     }
