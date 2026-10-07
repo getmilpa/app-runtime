@@ -25,7 +25,8 @@
         "nyholm/psr7": "^1.8"
     },
     "conflict": {
-        "milpa/agent": "<0.52",
+        "milpa/agent": "<0.53",
+        "milpa/agent-workspace": "<0.91",
         "milpa/auth": "<0.11",
         "milpa/command": "<0.25",
         "milpa/event-store": "<0.4",
@@ -33,7 +34,7 @@
     },
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.75",
-        "milpa/agent": ">=0.52 <1.0",
+        "milpa/agent": ">=0.53 <1.0",
         "milpa/ai-gateway": ">=0.39 <1.0",
         "milpa/auth": ">=0.11 <1.0",
         "milpa/data": ">=0.2.2 <1.0",
