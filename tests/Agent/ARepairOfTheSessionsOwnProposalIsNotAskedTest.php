@@ -76,9 +76,6 @@ final class ARepairOfTheSessionsOwnProposalIsNotAskedTest extends TestCase
         if (!method_exists(ImplementHandler::class, 'scaffold') || !class_exists(EditPairs::class)) {
             self::markTestSkipped('The installed DevTools has no native editor to repair with, or keeps its scaffold lookup private.');
         }
-        if (!property_exists(Operation::class, 'amendsNamedTarget')) {
-            self::markTestSkipped('The installed milpa/command cannot carry amendsNamedTarget (greenhouse decisions/0596): nothing declares it, and the gate asks as before.');
-        }
         $this->root = sys_get_temp_dir() . '/milpa-repair-' . bin2hex(random_bytes(5));
         mkdir($this->root . '/src/Plugins/Owned/Services', 0o700, true);
         $this->fixture = json_decode((string) file_get_contents(__DIR__ . '/../Fixtures/recorded-edit-origin.json'), true, flags: \JSON_THROW_ON_ERROR);

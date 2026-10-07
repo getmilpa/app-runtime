@@ -27,6 +27,7 @@ use Milpa\Command\Effect\Mutation;
 use Milpa\Command\Effect\Reversibility;
 use Milpa\Command\Effect\Subject;
 use Milpa\Command\Operation;
+use Milpa\DevTools\Operations\DevToolsOperations;
 use Milpa\DevTools\Operations\EditHandler;
 use Milpa\DevTools\Operations\ImplementHandler;
 use Milpa\EventStore\InMemoryEventStore;
@@ -48,7 +49,8 @@ use PHPUnit\Framework\TestCase;
  * is still, byte for byte, what this session left. It is read from facts the house wrote — never from what a model
  * says — and it fails closed: whatever the record does not say is asked, as before.
  *
- * @guards a class this session brought being named by its record, in the plugin's sources and in its tests; the
+ * @guards a class this session brought being named by its record, in the plugin's sources and in its tests, by the
+ *         fixture's `edit` and by the one milpa/devtools installs; the
  *         digest the file must still have being the one of the last trial of this session that LANDED, in the order
  *         the trials landed; a later trial that never landed changing nothing
  *
@@ -74,9 +76,6 @@ final class AnEditOnWhatTheSessionBroughtIsNotAskedTest extends TestCase
     {
         if (!method_exists(ImplementHandler::class, 'scaffold')) {
             self::markTestSkipped('The installed DevTools keeps its scaffold lookup private; the gate cannot find the class to read its record.');
-        }
-        if (!property_exists(Operation::class, 'amendsNamedTarget')) {
-            self::markTestSkipped('The installed milpa/command cannot carry amendsNamedTarget (greenhouse decisions/0596): nothing declares it, and the gate asks as before.');
         }
         $this->root = sys_get_temp_dir() . '/milpa-brought-' . bin2hex(random_bytes(5));
         mkdir($this->root . '/src/Plugins/Blog/Controllers', 0o700, true);
@@ -109,6 +108,25 @@ final class AnEditOnWhatTheSessionBroughtIsNotAskedTest extends TestCase
 
         self::assertNull($this->edit('BlogTest'));
         self::assertNull($this->asked(), 'the judge of a plugin is a class of it too (evidence/1128: both long runs)');
+    }
+
+    public function testTheEditThisHouseInstallsIsOneThatDeclaresIt(): void
+    {
+        $this->lands('camino', 'w1', [self::CONTROLLER => ['added', "<?php // scaffold\n"]]);
+        $installed = array_column((new DevToolsOperations())->operations(), null, 'name')['edit'];
+        $session = $this->sessions->load('camino');
+        self::assertNotNull($session);
+        $gate = new SessionToolGate(
+            $this->sessions,
+            $session,
+            [RecordedEdit::operation($installed)],
+            petition: 'continue',
+            trialRouter: new TrialRouter($this->root, new TrialRunner(bwrap: '/nonexistent/bwrap'), __FILE__),
+        );
+
+        $gate->refuse('edit', ['plugin' => 'Blog', 'class' => 'PostController', 'edits' => [['find' => '// scaffold', 'replace' => '// filled']]]);
+
+        self::assertNull($this->asked(), 'the rule is one an operation declares, and the `edit` this package requires declares it');
     }
 
     public function testAClassThatWasInTheHouseBeforeTheSessionIsStillAsked(): void
