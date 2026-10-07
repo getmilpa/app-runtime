@@ -126,6 +126,58 @@ final readonly class CapabilityAdmissions
     }
 
     /**
+     * What one seat holds of the capabilities built here, for a person to read (decisions/0590): what persons
+     * admitted to it, verb by verb, with whether that still stands — `admitted`, `changed` since, or `gone` from
+     * the capability — and what no standing admission covers.
+     *
+     * `ran_before` marks what this rule shut: a verb the seat's own words opened where only the declared word was
+     * asked — it holds one of them, or the verb reads and asks for none. Nothing is migrated for it: a word
+     * somebody typed carried no contract anybody saw. It is said, so a person finds it here and not when a seat
+     * trips on it.
+     *
+     * @param list<string> $scopes the seat's own scopes
+     *
+     * @return array{admitted: list<array{capability: string, scope: string, admitted_by: string, at: string, verbs: array<string, 'admitted'|'changed'|'gone'>}>, unadmitted: list<array{capability: string, scope: string, verbs: list<string>, ran_before: bool}>}
+     */
+    public function holdingsOf(string $seat, array $scopes): array
+    {
+        $admitted = [];
+        foreach ($this->ledger->admissionsFor($seat) as $capability => $byScope) {
+            foreach ($byScope as $scope => $admission) {
+                $verbs = [];
+                foreach ($admission['verbs'] as $name => $digest) {
+                    $verb = $this->built->verb($name);
+                    $verbs[$name] = $verb === null || $verb->capability !== $capability ? 'gone' : ($verb->digest() === $digest ? 'admitted' : 'changed');
+                }
+                $admitted[] = ['capability' => $capability, 'scope' => MissingAdmission::spelled($scope), 'admitted_by' => $admission['admitted_by'], 'at' => $admission['at'], 'verbs' => $verbs];
+            }
+        }
+
+        $unadmitted = [];
+        foreach ($this->built->capabilities() as $capability) {
+            $groups = [];
+            foreach ($this->built->verbsOf($capability) as $verb) {
+                if ($this->missingFor($seat, $verb) === null) {
+                    continue;
+                }
+                $declared = $verb->operation->scopes;
+                $ran = $declared === [] ? !$verb->operation->mutating && $verb->operation->permission === null : array_intersect($declared, $scopes) !== [];
+                foreach ($verb->scopes() as $scope) {
+                    $groups[$scope]['verbs'][] = $verb->operation->name;
+                    $groups[$scope]['ran'] = ($groups[$scope]['ran'] ?? false) || $ran;
+                }
+            }
+            ksort($groups);
+            foreach ($groups as $scope => $group) {
+                sort($group['verbs']);
+                $unadmitted[] = ['capability' => $capability, 'scope' => MissingAdmission::spelled((string) $scope), 'verbs' => $group['verbs'], 'ran_before' => $group['ran']];
+            }
+        }
+
+        return ['admitted' => $admitted, 'unadmitted' => $unadmitted];
+    }
+
+    /**
      * The verbs of that group, to be shown.
      *
      * @return list<BuiltVerb>

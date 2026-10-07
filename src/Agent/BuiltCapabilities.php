@@ -97,6 +97,19 @@ final class BuiltCapabilities
         return array_values(array_filter($this->verbs, static fn (BuiltVerb $verb): bool => $verb->capability === $capability));
     }
 
+    /**
+     * The capabilities this house built that declare at least one verb, by name.
+     *
+     * @return list<string>
+     */
+    public function capabilities(): array
+    {
+        $names = array_values(array_unique(array_map(static fn (BuiltVerb $verb): string => $verb->capability, array_values($this->verbs))));
+        sort($names);
+
+        return $names;
+    }
+
     public function isEmpty(): bool
     {
         return $this->verbs === [];

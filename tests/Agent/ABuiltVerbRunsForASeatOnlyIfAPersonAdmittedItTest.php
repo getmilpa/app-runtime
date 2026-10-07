@@ -195,6 +195,35 @@ final class ABuiltVerbRunsForASeatOnlyIfAPersonAdmittedItTest extends TestCase
         self::assertTrue($this->policy($root, $kernel)->authorize($this->seat(self::SEAT), $this->tool($kernel, 'almacen.contar'), [])->allowed);
     }
 
+    public function testAHouseThatBuiltNothingHasNothingToAdmit(): void
+    {
+        $root = $this->root();
+
+        // No tree of its own at all.
+        $bare = BuiltCapabilities::of($this->kernel($root, [new PackagedWorkshop([$this->verb('almacen.contar', ['almacen:read'])])]));
+        self::assertTrue($bare->isEmpty());
+        self::assertSame([], $bare->capabilities());
+        self::assertTrue(BuiltCapabilities::none()->isEmpty());
+
+        // A file straight under src/Plugins is nobody's tree; a plugin that declares no operation builds no verb.
+        mkdir($root . '/src/Plugins', 0o777, true);
+        $class = 'Loose' . bin2hex(random_bytes(4));
+        file_put_contents($root . '/src/Plugins/' . $class . '.php', "<?php\nnamespace MilpaTest\\Built;\nfinal class {$class} implements \\Milpa\\Command\\CommandProvider { public function operations(): array { return [new \\Milpa\\Command\\Operation(name: 'suelto.leer', description: 'x', handler: static fn (): array => [])]; } }\n");
+        require_once $root . '/src/Plugins/' . $class . '.php';
+        $loose = 'MilpaTest\\Built\\' . $class;
+        $built = BuiltCapabilities::of($this->kernel($root, [new $loose(), new \stdClass(), $this->capability($root, 'Prestamos', $this->prestamos())]));
+        self::assertNull($built->verb('suelto_leer'));
+        self::assertSame(['Prestamos'], $built->capabilities());
+        self::assertCount(4, $built->verbsOf('Prestamos'));
+        self::assertSame([], $built->verbsOf('Otra'));
+
+        // A kernel that cannot say what it booted — a test double, a half-built one — built nothing it can be asked about.
+        $blank = (new \ReflectionClass(Kernel::class))->newInstanceWithoutConstructor();
+        (new \ReflectionProperty(Kernel::class, 'root'))->setValue($blank, $root);
+        self::assertTrue(BuiltCapabilities::of($blank)->isEmpty());
+        self::assertNull(BuiltCapabilities::ofContainer(new \Milpa\Container\DIContainer()));
+    }
+
     /** The same judge stands at the operation boundary, where the terminal and every other surface execute. */
     public function testTheBoundaryRefusesAndAdmitsTheSameCall(): void
     {

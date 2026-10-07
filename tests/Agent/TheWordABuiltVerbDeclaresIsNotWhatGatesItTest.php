@@ -134,6 +134,57 @@ final class TheWordABuiltVerbDeclaresIsNotWhatGatesItTest extends TestCase
         self::assertSame($policy, $wrapped->getPolicyGate()->getCallPolicy());
     }
 
+    /**
+     * In everything else the wrapper IS the registry it wraps, and its gate the gate it wraps: what a leg reads or
+     * sets through one is read or set on the other. A wrapper that answered for itself would show a leg an empty
+     * catalogue, or keep a policy the registry never asks.
+     */
+    public function testEverythingElseIsTheWrappedRegistryAndItsGate(): void
+    {
+        $root = $this->root();
+        $kernel = $this->kernel($root, [$this->capability($root, 'Prestamos', $this->prestamos())]);
+        $inner = $this->registry($root, $kernel);
+        $wrapped = new AdmissionAwareRegistry($inner);
+
+        self::assertSame($inner, $wrapped->inner());
+        self::assertSame($inner->getToolSummaries(), $wrapped->getToolSummaries());
+        self::assertSame($inner->getToolDefinitions(), $wrapped->getToolDefinitions());
+        self::assertSame($inner->getToolsByScopes(['herramientas:write']), $wrapped->getToolsByScopes(['herramientas:write']));
+        self::assertSame($inner->getToolsByPrefix('herramientas_'), $wrapped->getToolsByPrefix('herramientas_'));
+        self::assertSame($inner->getToolsWithinBudget('gpt-4'), $wrapped->getToolsWithinBudget('gpt-4'));
+        self::assertSame($inner->getTokenUsageReport(), $wrapped->getTokenUsageReport());
+        self::assertSame($inner->estimateTokens(), $wrapped->estimateTokens());
+        self::assertSame($inner->checkTokenBudget('gpt-4'), $wrapped->checkTokenBudget('gpt-4'));
+        self::assertSame($inner->getTokenEstimator(), $wrapped->getTokenEstimator());
+        self::assertSame($inner->getConfirmationStore(), $wrapped->getConfirmationStore());
+        self::assertTrue($wrapped->has('herramientas_listar'));
+        self::assertSame($inner->getDefinition('herramientas_listar'), $wrapped->getDefinition('herramientas_listar'));
+        self::assertSame($inner->hasDispatcher(), $wrapped->hasDispatcher());
+        self::assertFalse($wrapped->hasRateLimiter());
+        self::assertNull($wrapped->getRateLimiter());
+
+        $wrapped->register('lab_ping', 'a tool registered through the wrapper', ['type' => 'object'], static fn (array $args): array => ['pong' => true]);
+        self::assertTrue($inner->has('lab_ping'), 'registered on the registry the leg really calls');
+        $limiter = new \Milpa\ToolRuntime\RateLimiting\InMemoryRateLimiter();
+        $wrapped->setRateLimiter($limiter);
+        self::assertSame($limiter, $inner->getRateLimiter());
+        self::assertTrue($wrapped->hasRateLimiter());
+
+        $gate = $wrapped->getPolicyGate();
+        $innerGate = $inner->getPolicyGate();
+        self::assertSame($innerGate->channelPolicy('cli'), $gate->channelPolicy('cli'));
+        $gate->setChannelPolicy('lab', ['allow_all' => true]);
+        self::assertSame(['allow_all' => true], $innerGate->channelPolicy('lab'));
+        self::assertSame($innerGate->hasRuleProvider(), $gate->hasRuleProvider());
+        self::assertSame($innerGate->getRuleProvider(), $gate->getRuleProvider());
+        $definition = $this->definition($inner, 'herramientas_prestar');
+        self::assertSame($innerGate->requiresConfirmation($this->seat(), $definition), $gate->requiresConfirmation($this->seat(), $definition));
+        // The gate's two other questions are asked the house's way too.
+        self::assertTrue($gate->authorizeScopes($this->seat(), 'herramientas_prestar', $definition->scopes)->allowed, 'the word is not the question for a seat');
+        self::assertFalse($innerGate->authorizeScopes($this->seat(), 'herramientas_prestar', $definition->scopes)->allowed);
+        self::assertFalse($gate->authorize($this->seat(), $definition, [])->allowed, 'and the policy still answers: nobody admitted it');
+    }
+
     /** The terminal's door: one process runs one operation, and its signer is handed that operation's words. */
     public function testTheContextOfASeatsCallCarriesTheVerbsWordsForThatCallOnly(): void
     {

@@ -871,6 +871,31 @@ final class SessionOperations implements CommandProvider
                 requiresConfirmation: true,
             ),
             new Operation(
+                name: 'identity:seats',
+                // It reads the ledger and what the house declares; it changes nothing and reaches nobody.
+                effects: EffectProfile::readOnly(),
+                description: 'The seats you answer for and what each holds: its scopes, what persons admitted to it of the capabilities built in this house — and whether that still stands — and the built verbs no admission covers, marked when the seat\'s own words used to open them (greenhouse decisions/0590)',
+                handler: fn (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array => $this->asientos($authority),
+                inputSchema: ['type' => 'object', 'properties' => new \stdClass()],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean'],
+                        'seats' => [
+                            'type' => 'array',
+                            'description' => 'One per seat: fingerprint, label, scopes, authorized_by; `admitted` — capability, scope, who and when, and each verb as admitted, changed or gone; `unadmitted` — capability, scope, the verbs no admission covers, and ran_before: true when the seat ran them while only the declared word was asked',
+                            'items' => ['type' => 'object'],
+                        ],
+                        'error' => ['type' => 'string'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // Whoever may decide a seat's frontier may read what it holds.
+                scopes: ['identity:enroll'],
+                // Never MCP, like every act about a seat: a seat does not read the line it answers to.
+                surfaces: ['cli', 'http'],
+            ),
+            new Operation(
                 name: 'identity:accept',
                 effects: new EffectProfile(
                     Mutation::Persistent,
@@ -2326,6 +2351,29 @@ final class SessionOperations implements CommandProvider
             'authorized_by' => $enrolled->authorizedBy,
             'session_told' => true,
         ];
+    }
+
+    /**
+     * The seats the caller answers for, with what each holds (greenhouse decisions/0590). The terminal's operator —
+     * whoever holds every scope — reads them all; a person reads the line they enrolled.
+     *
+     * @return array{ok: bool, seats?: list<array<string, mixed>>, error?: string}
+     */
+    private function asientos(?ToolContext $authority): array
+    {
+        $kernel = $this->container->has(\Milpa\Runtime\Kernel::class)
+            ? $this->container->get(\Milpa\Runtime\Kernel::class)
+            : null;
+        if (!$kernel instanceof \Milpa\Runtime\Kernel) {
+            return ['ok' => false, 'error' => 'this app has no kernel, so it has no ledger of seats to read'];
+        }
+        $operator = $authority === null || $authority->hasScope('*');
+        $principal = $operator ? null : (string) $authority->principal;
+        try {
+            return ['ok' => true, 'seats' => \Milpa\AppRuntime\Identity\ResidentSeat::holdings($kernel->root(), $principal, \Milpa\AppRuntime\Agent\BuiltCapabilities::of($kernel))];
+        } catch (\RuntimeException $e) {
+            return ['ok' => false, 'error' => 'the seats could not be read: ' . $e->getMessage()];
+        }
     }
 
     /**
