@@ -18,7 +18,8 @@ declare(strict_types=1);
  * The process that promoted booted before the promoted code existed, so it cannot see it. This one boots
  * the house as it is now, and answers ONE question on a line marked `@@house-observe `:
  *
- *   php house-observe.php routes <root> '<json dirs>'   the GET routes without parameters the touched plugins declare
+ *   php house-observe.php routes <root> '<json dirs>'   the GET routes without parameters the touched plugins declare,
+ *                                                       and what the capabilities built there declare (decisions/0595)
  *   php house-observe.php get <root> <path> [<n>]       what the house's own front controller answers an anonymous GET —
  *                                                       with the first <n> bytes of the body when asked (decisions/0549)
  *   php house-observe.php request <root> <method> <path> <n> [<body file> <content type>]
@@ -64,12 +65,15 @@ if ($mode === 'routes') {
     try {
         $app = new Milpa\AppRuntime\Console\Application($root);
         $kernel = (new ReflectionMethod($app, 'kernel'))->invoke($app);
-        $routes = Milpa\AppRuntime\Agent\HouseRouteObserver::routesOf($kernel, $root, \is_array($dirs) ? array_values(array_filter($dirs, 'is_string')) : []);
+        $dirs = \is_array($dirs) ? array_values(array_filter($dirs, 'is_string')) : [];
+        $routes = Milpa\AppRuntime\Agent\HouseRouteObserver::routesOf($kernel, $root, $dirs);
+        // WHAT THE BUILT CAPABILITIES DECLARE (greenhouse decisions/0595): read from the same booted house, called by nobody.
+        $capabilities = Milpa\AppRuntime\Agent\HouseRouteObserver::capabilitiesOf($kernel, $root, $dirs);
     } catch (Throwable $e) {
         fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => false, 'error' => $e::class], \JSON_UNESCAPED_SLASHES) . "\n");
         exit(1);
     }
-    fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => true, 'routes' => $routes], \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE) . "\n");
+    fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => true, 'routes' => $routes, 'capabilities' => $capabilities], \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE) . "\n");
     exit(0);
 }
 
