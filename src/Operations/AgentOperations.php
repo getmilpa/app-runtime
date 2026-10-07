@@ -68,6 +68,7 @@ use Milpa\AppRuntime\Policy\PolicyConfig;
 use Milpa\ToolRuntime\Identity\GnupgSignatureVerifier;
 use Milpa\AppRuntime\Config\AgentEndpoint;
 use Milpa\AppRuntime\Config\ContextWindow;
+use Milpa\AppRuntime\Config\ProviderCredentials;
 use Milpa\Attributes\PluginMetadata;
 use Milpa\Plugin\Runtime\MetadataGraphResolver;
 use Milpa\Resolver\Report\ResolutionReport;
@@ -990,6 +991,11 @@ class AgentOperations implements CommandProvider
             'model_from' => AgentEndpoint::modelSource($config),
             'endpoint_from' => AgentEndpoint::baseUrlSource($config),
         ];
+        if ($out['endpoint'] !== null) {
+            // WHICH key a declared endpoint will be sent, never the key (greenhouse decisions/0589): `declared`
+            // (`agent.apiKey`, which wins), `environment` (MILPA_AGENT_API_KEY) or `none`.
+            $out['key_from'] = ProviderCredentials::endpointKey($this->rootOrNull())[1] ?? 'none';
+        }
 
         if (!$ask) {
             // Said, not implied: a reader who sees no `reached` must know whether that means
@@ -4145,6 +4151,7 @@ class AgentOperations implements CommandProvider
             // signal lands in the very stream it observes. With no reachable store the seam
             // degrades to silence — an observation must never break the observed run.
             debtSignals: new DebtSignal($this->sessionEvents, $session->id),
+            houseRoot: $kernel->root(),
         );
     }
 
@@ -5594,19 +5601,17 @@ class AgentOperations implements CommandProvider
      */
     private function extraHeaders(): array
     {
-        $basica = getenv('MILPA_AGENT_BASIC_AUTH');
-        if (!\is_string($basica) || !str_contains($basica, ':')) {
-            return [];
-        }
+        $basica = ProviderCredentials::basicAuth();
 
-        return ['Authorization' => 'Basic ' . base64_encode($basica)];
+        return $basica === null ? [] : ['Authorization' => 'Basic ' . base64_encode($basica)];
     }
 
     /**
      * What to do when a DECLARED endpoint refused the key it was sent — or null for any other failure.
      *
-     * A declared endpoint is sent `MILPA_AGENT_API_KEY`, and only that: `OPENAI_API_KEY` and
-     * `ANTHROPIC_API_KEY` belong to their providers, and handing one to whatever host
+     * A declared endpoint is sent its OWN key, and only that — the one `provider:declare` wrote as
+     * `agent.apiKey`, or `MILPA_AGENT_API_KEY` when none is declared (greenhouse decisions/0589):
+     * `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` belong to their providers, and handing one to whatever host
      * `MILPA_AGENT_BASE_URL` names would send a provider's secret to a third party (greenhouse
      * decisions/0551). Measured on a new house (evidence/1085): with only `OPENAI_API_KEY` exported, the
      * endpoint answered 401 to the placeholder and nothing named the variable it wanted. The hint says
@@ -5622,14 +5627,16 @@ class AgentOperations implements CommandProvider
             return null;
         }
 
-        $propia = getenv('MILPA_AGENT_API_KEY');
-        if (\is_string($propia) && $propia !== '') {
-            return "the endpoint {$base} refused MILPA_AGENT_API_KEY ({$cause['status']}): check it is the key this endpoint expects";
+        $propia = ProviderCredentials::endpointKey($this->rootOrNull());
+        if ($propia !== null) {
+            $cual = $propia[1] === 'declared' ? 'the key this house declared (agent.apiKey)' : 'MILPA_AGENT_API_KEY';
+
+            return "the endpoint {$base} refused {$cual} ({$cause['status']}): check it is the key this endpoint expects";
         }
 
         $ajenas = array_values(array_filter(
             ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY'],
-            static fn (string $v): bool => \is_string(getenv($v)) && getenv($v) !== '',
+            static fn (string $v): bool => ProviderCredentials::providerKey(strtolower(substr($v, 0, -8))) !== null,
         ));
         $nota = $ajenas === []
             ? ''
@@ -5637,7 +5644,9 @@ class AgentOperations implements CommandProvider
                 . ' never sent to a declared endpoint — a provider key stays with its provider';
 
         return "the endpoint {$base} answered {$cause['status']}: it wants a key and this house sent none of its own "
-            . "(MILPA_AGENT_API_KEY is not set){$nota}. Export MILPA_AGENT_API_KEY with the endpoint's key and run it again";
+            . "(none is declared and MILPA_AGENT_API_KEY is not set){$nota}. Declare the endpoint's key with "
+            . '`' . Capabilities::cli() . 'provider:declare --key=agent.apiKey --file=<a file outside this app> --sign`, '
+            . 'or export MILPA_AGENT_API_KEY, and run it again';
     }
 
     /**
@@ -5656,11 +5665,13 @@ class AgentOperations implements CommandProvider
         // Un endpoint propio manda: quien apuntó su agente a un modelo local no quiere que una
         // ANTHROPIC_API_KEY olvidada en el entorno lo mande a otro lado —y a cobrar.
         if ($this->baseUrl() !== null) {
-            $llaveLocal = getenv('MILPA_AGENT_API_KEY');
+            // ITS OWN KEY, AND THE DECLARED ONE FIRST (greenhouse decisions/0589): `provider:declare` wrote
+            // `agent.apiKey` and nothing here read it, so the only key that worked was the one no redaction knew.
+            $llavePropia = ProviderCredentials::endpointKey($this->rootOrNull());
 
             return [
                 'openai',
-                \is_string($llaveLocal) && $llaveLocal !== '' ? $llaveLocal : 'local',
+                $llavePropia[0] ?? 'local',
                 // WHO OWNS THIS FALLBACK, AND WHY (greenhouse decisions/0542): the house's lab model on
                 // 2026-08-04, when a request to its own endpoint needed some name. It is now the last resort only:
                 // a declared model wins, then the ONE model the endpoint serves. It remains for an endpoint that
@@ -5670,13 +5681,13 @@ class AgentOperations implements CommandProvider
             ];
         }
 
-        $anthropic = getenv('ANTHROPIC_API_KEY');
-        if (\is_string($anthropic) && $anthropic !== '') {
+        $anthropic = ProviderCredentials::providerKey('anthropic');
+        if ($anthropic !== null) {
             return ['anthropic', $anthropic, \is_string($modeloDeclarado) ? $modeloDeclarado : 'claude-sonnet-4-5'];
         }
 
-        $openai = getenv('OPENAI_API_KEY');
-        if (\is_string($openai) && $openai !== '') {
+        $openai = ProviderCredentials::providerKey('openai');
+        if ($openai !== null) {
             return ['openai', $openai, \is_string($modeloDeclarado) ? $modeloDeclarado : 'gpt-4o'];
         }
 

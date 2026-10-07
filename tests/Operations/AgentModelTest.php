@@ -117,6 +117,26 @@ final class AgentModelTest extends TestCase
         self::assertSame('environment', $fromEnv['model_from']);
     }
 
+    /** WHICH key a declared endpoint will be sent, never the key (greenhouse decisions/0589). */
+    public function testItSaysWhereTheKeyOfADeclaredEndpointComesFromAndNeverTheKey(): void
+    {
+        $before = getenv('MILPA_AGENT_API_KEY');
+        try {
+            putenv('MILPA_AGENT_API_KEY');
+            $none = self::report(['agent' => ['baseUrl' => 'https://propio.local', 'model' => 'm']], ask: false);
+            self::assertSame('none', $none['key_from']);
+
+            putenv('MILPA_AGENT_API_KEY=lab-key-that-is-never-printed');
+            $exported = self::report(['agent' => ['baseUrl' => 'https://propio.local', 'model' => 'm']], ask: false);
+            self::assertSame('environment', $exported['key_from']);
+            self::assertStringNotContainsString('lab-key-that-is-never-printed', (string) json_encode($exported));
+
+            self::assertArrayNotHasKey('key_from', self::report(null, ask: false), 'with no declared endpoint there is no such key to speak of');
+        } finally {
+            $before === false ? putenv('MILPA_AGENT_API_KEY') : putenv('MILPA_AGENT_API_KEY=' . $before);
+        }
+    }
+
     /**
      * `ask: false` GOES NOWHERE, and this counts the requests.
      *

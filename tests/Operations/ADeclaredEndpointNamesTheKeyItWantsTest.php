@@ -75,8 +75,9 @@ final class ADeclaredEndpointNamesTheKeyItWantsTest extends TestCase
         self::assertFalse($r['ok']);
         self::assertStringContainsString('HTTP 401', (string) $r['error'], 'the provider sentence still travels as it came');
         $hint = (string) ($r['hint'] ?? '');
-        self::assertStringContainsString('MILPA_AGENT_API_KEY is not set', $hint);
-        self::assertStringContainsString('Export MILPA_AGENT_API_KEY', $hint);
+        self::assertStringContainsString('none is declared and MILPA_AGENT_API_KEY is not set', $hint);
+        self::assertStringContainsString('provider:declare --key=agent.apiKey --file=<a file outside this app> --sign', $hint, 'the way in that keeps the key out of a command line (greenhouse decisions/0589)');
+        self::assertStringContainsString('or export MILPA_AGENT_API_KEY', $hint, 'and the environment is still a way in');
         self::assertStringContainsString('OPENAI_API_KEY is never sent to a declared endpoint', $hint);
         self::assertStringNotContainsString('sk-a-provider-secret', $hint, 'a hint never prints a value');
     }
@@ -101,6 +102,32 @@ final class ADeclaredEndpointNamesTheKeyItWantsTest extends TestCase
 
         self::assertStringContainsString('refused MILPA_AGENT_API_KEY (401)', $hint);
         self::assertStringNotContainsString('lab-wrong-secret', $hint);
+    }
+
+    /** The key that went was the one this house declared (greenhouse decisions/0589): the hint names that one, not the variable. */
+    public function testADeclaredKeyTheEndpointRefusedIsNamedAsTheDeclaredOne(): void
+    {
+        $root = sys_get_temp_dir() . '/milpa-declared-key-' . bin2hex(random_bytes(5));
+        mkdir($root . '/.milpa', 0o700, true);
+        file_put_contents($root . '/.milpa/secrets.json', (string) json_encode(['agent' => ['apiKey' => 'lab-declared-wrong-secret']]));
+        try {
+            $this->container = new DIContainer();
+            $this->container->registerService(Kernel::class, Kernel::boot(['root' => $root, 'container' => $this->container, 'toolRegistry' => new ToolRegistry(new NullLogger()), 'plugins' => []]));
+            putenv('MILPA_AGENT_BASE_URL=http://lab.invalid:11434');
+            putenv('MILPA_AGENT_API_KEY=lab-exported-secret');
+
+            $hint = (string) ($this->legAgainst(401)['hint'] ?? '');
+
+            self::assertStringContainsString('refused the key this house declared (agent.apiKey) (401)', $hint);
+            self::assertStringNotContainsString('lab-declared-wrong-secret', $hint);
+            self::assertStringNotContainsString('lab-exported-secret', $hint);
+        } finally {
+            $left = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::CHILD_FIRST);
+            foreach ($left as $entry) {
+                $entry->isDir() ? rmdir((string) $entry) : unlink((string) $entry);
+            }
+            rmdir($root);
+        }
     }
 
     public function testAnyOtherStatusOrAPublicProviderGetsNoKeyHint(): void

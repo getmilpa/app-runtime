@@ -107,6 +107,7 @@ final class GovernedDoor
             // on — safe, but not what a recipe's internal producer tools deserve. Wiring them here
             // lets the gate judge them by their declared contract, exactly as the agent gate does.
             contractProducers: self::contractProducers($store, $session->id),
+            houseRoot: $root,
         );
 
         // WHEN A STEP MAKES THE APP GROW (`capabilities:enable` writes a provider into config/operations.php),
@@ -156,6 +157,9 @@ final class GovernedDoor
             // default and the other replaced it (greenhouse decisions/0311).
             identity: $authority === null ? self::presented($kernel) : null,
             authority: $authority,
+            // The same boundary the agent's door keeps (greenhouse decisions/0569, 0589): a step's result goes
+            // back to whoever drives the sequence without the house's secrets.
+            root: $root,
         );
     }
 

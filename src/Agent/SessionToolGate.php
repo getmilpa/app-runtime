@@ -150,6 +150,10 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // gate makes, and with no seam every path behaves byte-identically — which is the A/B
         // falsifier its own suite pins.
         private readonly ?DebtSignal $debtSignals = null,
+        // THE HOUSE ROOT, so the ledger keeps what a tool answered WITHOUT the house's secrets (greenhouse
+        // decisions/0589). `null` when it is not known: the overlay cannot be read then, and the credentials of
+        // the environment are kept out all the same.
+        private readonly ?string $houseRoot = null,
     ) {
     }
 
@@ -1048,14 +1052,21 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // `resultChars` se sigue mandando: hoy iguala el largo guardado, y ese es el punto. Es el
         // mecanismo que declararía cualquier tope futuro —uno de disco, que es otra escasez y otro
         // tope— y no se quita porque haya dejado de tener algo que confesar (evidence/0202).
+        //
+        // …MINUS THE HOUSE'S SECRETS (greenhouse decisions/0589). The ledger is what a later leg re-voices, what a
+        // surface paints and what `agent:result` hands back: a secret kept here travels from here. Measured on
+        // published 0.211.1 (evidence/1130): the model was sent `[secret]` and this log kept the key. The
+        // observers above saw the call as it was; what is WRITTEN is the redacted answer, and its length.
+        $kept = \Milpa\AppRuntime\Config\SecretRedaction::inText($result, $this->houseRoot);
+        $keptArguments = \Milpa\AppRuntime\Config\SecretRedaction::inResult($arguments, $this->houseRoot);
         $seqDeLaLlamada = $this->sessions->recordToolCall(
             $this->session->id,
             $tool,
-            $arguments,
-            $result,
+            \is_array($keptArguments) ? $keptArguments : $arguments,
+            $kept,
             $ok,
             $operacion instanceof Operation && $operacion->mutating,
-            mb_strlen($result),
+            mb_strlen($kept),
             // PEDIR NO ES HABER HECHO, y esta compuerta tiene la respuesta delante.
             //
             // Una petición de confirmación y una escritura consumada vuelven las dos con éxito, así
