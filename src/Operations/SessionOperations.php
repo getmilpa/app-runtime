@@ -918,6 +918,53 @@ final class SessionOperations implements CommandProvider
                 requiresConfirmation: true,
             ),
             new Operation(
+                name: 'identity:withdraw',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    // It takes authority away, and admitting again gives it back: the ledger keeps both.
+                    Reversibility::Compensatable,
+                    // Deciding what a seat may do is an institutional act, in either direction.
+                    Authority::Privileged,
+                    subject: Subject::Configuration,
+                ),
+                description: 'Take back ONE admission from a seat — one scope of one capability built in this house. It only removes authority; the seat\'s scopes and its other admissions stay, and the ledger keeps who withdrew, when, and what (greenhouse decisions/0590, rule 12)',
+                handler: fn (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array => $this->retirar($input, $authority),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'seat' => ['type' => 'string', 'description' => 'The fingerprint of a seat you answer for'],
+                        'capability' => ['type' => 'string', 'description' => 'The capability the admission is of, as `identity:seats` lists it under `admitted`'],
+                        'scope' => ['type' => 'string', 'description' => 'The scope of that capability to take back, as `identity:seats` lists it — it names something the seat holds, never something to give'],
+                        'assertion' => [
+                            'type' => 'object',
+                            'description' => 'Over HTTP: the passkey assertion over the challenge /webauthn/intent/options bound to identity:withdraw {seat, capability, scope}',
+                        ],
+                    ],
+                    'required' => ['seat', 'capability', 'scope'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean', 'description' => 'False when nothing was withdrawn — the error says why'],
+                        'fingerprint' => ['type' => 'string', 'description' => 'The seat it was taken from'],
+                        'capability' => ['type' => 'string'],
+                        'withdrawn' => ['type' => 'string', 'description' => 'The scope of that capability that was taken back'],
+                        'verbs' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'The verbs it had opened: the seat\'s next call to any of them is refused'],
+                        'authorized_by' => ['type' => 'string', 'description' => 'The verified principal that withdrew, as passkey:<id> or key:<fingerprint>'],
+                        'at' => ['type' => 'string', 'description' => 'When, as the ledger keeps it'],
+                        'error' => ['type' => 'string', 'description' => 'Why nothing was withdrawn; absent when ok'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // The same scope as admitting: whoever decides what a seat may do decides it both ways.
+                scopes: ['identity:enroll'],
+                // Never MCP: a seat does not decide what it holds.
+                surfaces: ['cli', 'http'],
+                mutating: true,
+                requiresConfirmation: true,
+            ),
+            new Operation(
                 name: 'identity:seats',
                 // It reads the ledger and what the house declares; it changes nothing and reaches nobody.
                 effects: EffectProfile::readOnly(),
@@ -2482,6 +2529,68 @@ final class SessionOperations implements CommandProvider
     }
 
     /**
+     * Take ONE admission back from a seat — or refuse (greenhouse decisions/0590, rule 12).
+     *
+     * It only removes authority, so it asks no reading and no digest: it names what the seat HOLDS — a capability
+     * and one of its scopes, as `identity:seats` lists them. WHO is asked as for admitting: a principal proven for
+     * THIS call that answers for the seat, and never the seat itself. The seat's own scopes and its other
+     * admissions are not touched, and the ledger keeps who withdrew, when, and which verbs it had opened.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array{ok: bool, fingerprint?: string, capability?: string, withdrawn?: string, verbs?: list<string>, authorized_by?: string, at?: string, error?: string}
+     */
+    private function retirar(array $input, ?ToolContext $authority): array
+    {
+        $seat = \is_string($input['seat'] ?? null) ? trim($input['seat']) : '';
+        $capability = \is_string($input['capability'] ?? null) ? trim($input['capability']) : '';
+        $scope = \is_string($input['scope'] ?? null) ? trim($input['scope']) : '';
+        if ($seat === '' || $capability === '' || $scope === '') {
+            return ['ok' => false, 'error' => 'which admission? `seat`, `capability` and `scope` are required — `identity:seats` lists what each seat holds; nothing was withdrawn'];
+        }
+        $decider = $this->decider('identity:withdraw', ['seat' => $seat, 'capability' => $capability, 'scope' => $scope], \Milpa\AppRuntime\Agent\CapabilityAdmissions::WITHDRAW_INTENT_SESSION, $input['assertion'] ?? null, $authority, 'withdrawn');
+        if (\is_array($decider)) {
+            return $decider;
+        }
+        $kernel = $this->container->has(\Milpa\Runtime\Kernel::class)
+            ? $this->container->get(\Milpa\Runtime\Kernel::class)
+            : null;
+        if (!$kernel instanceof \Milpa\Runtime\Kernel) {
+            return ['ok' => false, 'error' => 'this app has no ledger to withdraw anything from; nothing was withdrawn'];
+        }
+        $ledger = new FileEnrollmentStore($kernel->root() . '/storage/identity/enrollments.json');
+        // A verb admitted by itself is listed as «(no scope) <verb>» and kept under another spelling: both name it.
+        $spelled = '(no scope) ';
+        $key = str_starts_with($scope, $spelled) ? \Milpa\AppRuntime\Agent\BuiltVerb::ITSELF . substr($scope, \strlen($spelled)) : $scope;
+        try {
+            if (!\Milpa\AppRuntime\Identity\IdentityKey::isFingerprint($seat) || $ledger->scopesFor($seat) === null) {
+                return ['ok' => false, 'error' => \sprintf('«%s» is no seat of this house — a live key its ledger enrolled; nothing was withdrawn', $seat)];
+            }
+            $own = \Milpa\AppRuntime\Identity\EnrollmentLine::keyOf($decider);
+            $itself = $own !== null && \Milpa\AppRuntime\Identity\IdentityKey::normalize($own) === \Milpa\AppRuntime\Identity\IdentityKey::normalize($seat);
+            if ($itself || !(new \Milpa\AppRuntime\Identity\EnrollmentLine($ledger))->answersFor($decider, $seat)) {
+                return ['ok' => false, 'error' => 'you do not answer for that seat — only the line that enrolled it decides what it holds, and a seat does not decide it for itself; nothing was withdrawn'];
+            }
+            $taken = $ledger->withdraw($seat, $capability, $key, $decider);
+        } catch (\RuntimeException $e) {
+            return ['ok' => false, 'error' => 'nothing was withdrawn: ' . $e->getMessage()];
+        }
+        if ($taken === null) {
+            return ['ok' => false, 'error' => \sprintf('«%s» of «%s» is not admitted to that seat — `identity:seats` lists what it holds; nothing was withdrawn', $scope, $capability)];
+        }
+
+        return [
+            'ok' => true,
+            'fingerprint' => $seat,
+            'capability' => $capability,
+            'withdrawn' => \Milpa\AppRuntime\Agent\MissingAdmission::spelled($key),
+            'verbs' => $taken['verbs'],
+            'authorized_by' => $decider,
+            'at' => $taken['at'],
+        ];
+    }
+
+    /**
      * The seats the caller answers for, with what each holds (greenhouse decisions/0590). The terminal's operator —
      * whoever holds every scope — reads them all; a person reads the line they enrolled.
      *
@@ -2628,7 +2737,7 @@ final class SessionOperations implements CommandProvider
      *
      * @param array<string, mixed> $call          the arguments the proof must cover, exactly
      * @param string               $intentSession the session the passkey challenge was bound to
-     * @param string               $done          what did not happen, for the refusal — «granted», «admitted», «minting»
+     * @param string               $done          what did not happen, for the refusal — «granted», «admitted», «withdrawn», «minting»
      *
      * @return string|array{ok: false, error: string}
      */
@@ -2637,6 +2746,7 @@ final class SessionOperations implements CommandProvider
         $nothing = match ($done) {
             'granted' => 'nothing was granted',
             'admitted' => 'nothing was admitted',
+            'withdrawn' => 'nothing was withdrawn',
             default => 'nothing was minted',
         };
         $granted = $this->container->has(GrantedAuthorization::class)

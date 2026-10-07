@@ -50,9 +50,9 @@ use Milpa\ToolRuntime\Contracts\ToolContext;
  * the digest of exactly that — which is what the admission approves.
  * It is offered only by a frontier that was told what the house built; one that was not offers what it always did.
  *
- * @phpstan-type Verb array{verb: string, tool: string, description: string, mutating: bool, requiresConfirmation: bool, namedTarget: ?string, surfaces: ?list<string>, scopes: list<string>, effects: array<string, mixed>, state: array{paths: list<string>, source: string, refused?: string}|null, runs: array{how: string, why?: string, pre_image?: bool}, digest: string, standing: 'admitted'|'never'|'changed'|'added', not_admissible: ?string}
- * @phpstan-type Refusal array{seq: int, tool: string, plugin: ?string, permission: string, call: array<string, string|int|float|bool|null>, target: 'new'|'existing'|null, named: bool, consent: 'touch'|'informed', kind?: 'capability', capability?: string, scope?: string, why?: 'never'|'changed'|'added', opens?: list<Verb>, contract?: string, not_admissible?: ?string}
- * @phpstan-type SeatRefusal array{seq: int, tool: string, plugin: ?string, permission: string, call: array<string, string|int|float|bool|null>, target: 'new'|'existing'|null, named: bool, consent: 'touch'|'informed', seat: string, kind?: 'capability', capability?: string, scope?: string, why?: 'never'|'changed'|'added', opens?: list<Verb>, contract?: string, not_admissible?: ?string}
+ * @phpstan-type Verb array{verb: string, tool: string, description: string, mutating: bool, requiresConfirmation: bool, namedTarget: ?string, surfaces: ?list<string>, scopes: list<string>, effects: array<string, mixed>, state: array{paths: list<string>, source: string, refused?: string}|null, runs: array{how: string, why?: string, pre_image?: bool}, digest: string, standing: 'admitted'|'never'|'changed'|'added'|'withdrawn', not_admissible: ?string}
+ * @phpstan-type Refusal array{seq: int, tool: string, plugin: ?string, permission: string, call: array<string, string|int|float|bool|null>, target: 'new'|'existing'|null, named: bool, consent: 'touch'|'informed', kind?: 'capability', capability?: string, scope?: string, why?: 'never'|'changed'|'added'|'withdrawn', opens?: list<Verb>, contract?: string, not_admissible?: ?string, withdrawn?: array{by: string, at: string}|null}
+ * @phpstan-type SeatRefusal array{seq: int, tool: string, plugin: ?string, permission: string, call: array<string, string|int|float|bool|null>, target: 'new'|'existing'|null, named: bool, consent: 'touch'|'informed', seat: string, kind?: 'capability', capability?: string, scope?: string, why?: 'never'|'changed'|'added'|'withdrawn', opens?: list<Verb>, contract?: string, not_admissible?: ?string, withdrawn?: array{by: string, at: string}|null}
  */
 final class SeatFrontier
 {
@@ -374,6 +374,8 @@ final class SeatFrontier
             'opens' => $card['opens'],
             'contract' => $card['contract'],
             'not_admissible' => $card['not_admissible'],
+            // When a person took this scope back from the seat (decisions/0590, rule 12): who, and when.
+            'withdrawn' => $card['withdrawn'],
         ];
     }
 
