@@ -46,10 +46,11 @@ use Milpa\ToolRuntime\Contracts\ToolContext;
  * in this house, and no person has admitted that verb for it. The authoring policy names nothing for such a call;
  * the judge of admissions does ({@see CapabilityAdmissions}) — the same one the gate asks. Its row is marked
  * `kind: capability` and carries what a person must see to admit: every verb that scope of the capability opens,
- * each with what it declares, and `contract`, the digest of exactly that — which is what the admission approves.
+ * each with what it declares, where its work keeps its state and how a call of it would run here, and `contract`,
+ * the digest of exactly that — which is what the admission approves.
  * It is offered only by a frontier that was told what the house built; one that was not offers what it always did.
  *
- * @phpstan-type Verb array{verb: string, tool: string, description: string, mutating: bool, requiresConfirmation: bool, namedTarget: ?string, surfaces: ?list<string>, scopes: list<string>, effects: array<string, mixed>, digest: string, standing: 'admitted'|'never'|'changed'|'added', not_admissible: ?string}
+ * @phpstan-type Verb array{verb: string, tool: string, description: string, mutating: bool, requiresConfirmation: bool, namedTarget: ?string, surfaces: ?list<string>, scopes: list<string>, effects: array<string, mixed>, state: array{paths: list<string>, source: string, refused?: string}|null, runs: array{how: string, why?: string, pre_image?: bool}, digest: string, standing: 'admitted'|'never'|'changed'|'added', not_admissible: ?string}
  * @phpstan-type Refusal array{seq: int, tool: string, plugin: ?string, permission: string, call: array<string, string|int|float|bool|null>, target: 'new'|'existing'|null, named: bool, consent: 'touch'|'informed', kind?: 'capability', capability?: string, scope?: string, why?: 'never'|'changed'|'added', opens?: list<Verb>, contract?: string, not_admissible?: ?string}
  * @phpstan-type SeatRefusal array{seq: int, tool: string, plugin: ?string, permission: string, call: array<string, string|int|float|bool|null>, target: 'new'|'existing'|null, named: bool, consent: 'touch'|'informed', seat: string, kind?: 'capability', capability?: string, scope?: string, why?: 'never'|'changed'|'added', opens?: list<Verb>, contract?: string, not_admissible?: ?string}
  */
@@ -351,38 +352,16 @@ final class SeatFrontier
             return null;
         }
         $missing = $admissions->missingFor($seat, $verb);
-        $group = $missing === null ? null : $admissions->group($verb->capability, $missing->scope);
-        if ($missing === null || $group === null) {
+        $card = $missing === null ? null : $admissions->card($seat, $verb->capability, $missing->scope);
+        if ($missing === null || $card === null) {
             return null;
         }
-        $opens = [];
-        $notAdmissible = null;
-        foreach ($admissions->verbsUnder($verb->capability, $missing->scope) as $opened) {
-            $operation = $opened->operation;
-            $why = $admissions->missingFor($seat, $opened)?->why;
-            $notAdmissible ??= $opened->notAdmissible();
-            $opens[] = [
-                'verb' => $operation->name,
-                'tool' => $opened->tool(),
-                'description' => $operation->description,
-                'mutating' => $operation->mutating,
-                'requiresConfirmation' => $operation->requiresConfirmation,
-                'namedTarget' => $operation->namedTarget,
-                'surfaces' => $operation->surfaces,
-                'scopes' => $operation->scopes,
-                'effects' => $operation->effectCeiling()->toArray(),
-                'digest' => $opened->digest(),
-                'standing' => $why ?? 'admitted',
-                'not_admissible' => $opened->notAdmissible(),
-            ];
-        }
-        usort($opens, static fn (array $a, array $b): int => strcmp($a['verb'], $b['verb']));
 
         return [
             'seq' => $seq,
             'tool' => $tool,
             'plugin' => $verb->capability,
-            'permission' => $missing->permission(),
+            'permission' => $card['permission'],
             'call' => self::shown($arguments),
             'target' => 'existing',
             'named' => self::names($standing, $verb->capability),
@@ -392,9 +371,9 @@ final class SeatFrontier
             'capability' => $verb->capability,
             'scope' => $missing->scope,
             'why' => $missing->why,
-            'opens' => $opens,
-            'contract' => $group['contract'],
-            'not_admissible' => $notAdmissible,
+            'opens' => $card['opens'],
+            'contract' => $card['contract'],
+            'not_admissible' => $card['not_admissible'],
         ];
     }
 

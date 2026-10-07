@@ -29,6 +29,8 @@ use Milpa\AppRuntime\Identity\FileEnrollmentStore;
  * only by static policy keep being judged by the declared word, wherever that is done today.
  *
  * @phpstan-type Group array{capability: string, scope: string, verbs: array<string, string>, contract: string}
+ * @phpstan-type Verb array{verb: string, tool: string, description: string, mutating: bool, requiresConfirmation: bool, namedTarget: ?string, surfaces: ?list<string>, scopes: list<string>, effects: array<string, mixed>, state: array{paths: list<string>, source: string, refused?: string}|null, runs: array{how: string, why?: string, pre_image?: bool}, digest: string, standing: 'admitted'|'never'|'changed'|'added', not_admissible: ?string}
+ * @phpstan-type Card array{capability: string, scope: string, permission: string, opens: list<Verb>, contract: string, not_admissible: ?string}
  */
 final readonly class CapabilityAdmissions
 {
@@ -175,6 +177,55 @@ final readonly class CapabilityAdmissions
         }
 
         return ['admitted' => $admitted, 'unadmitted' => $unadmitted];
+    }
+
+    /**
+     * What a person is shown before admitting one scope of a capability to a seat (decisions/0590): every verb that
+     * scope opens today — what it declares, where its work keeps its state and how a call of it would run in this
+     * house, whether this seat already has it — the first reason the scope is not admissible, if any, and
+     * `contract`: the digest of exactly this, which is what the admission approves. Null when the capability
+     * declares nothing under that scope.
+     *
+     * @return Card|null
+     */
+    public function card(string $seat, string $capability, string $scope): ?array
+    {
+        $group = $this->group($capability, $scope);
+        if ($group === null) {
+            return null;
+        }
+        $opens = [];
+        $notAdmissible = null;
+        foreach ($this->verbsUnder($capability, $scope) as $verb) {
+            $operation = $verb->operation;
+            $notAdmissible ??= $verb->notAdmissible();
+            $opens[] = [
+                'verb' => $operation->name,
+                'tool' => $verb->tool(),
+                'description' => $operation->description,
+                'mutating' => $operation->mutating,
+                'requiresConfirmation' => $operation->requiresConfirmation,
+                'namedTarget' => $operation->namedTarget,
+                'surfaces' => $operation->surfaces,
+                'scopes' => $operation->scopes,
+                'effects' => $operation->effectCeiling()->toArray(),
+                'state' => $verb->state(),
+                'runs' => $this->built->runs($verb),
+                'digest' => $verb->digest(),
+                'standing' => $this->missingFor($seat, $verb)->why ?? 'admitted',
+                'not_admissible' => $verb->notAdmissible(),
+            ];
+        }
+        usort($opens, static fn (array $a, array $b): int => strcmp($a['verb'], $b['verb']));
+
+        return [
+            'capability' => $capability,
+            'scope' => $scope,
+            'permission' => MissingAdmission::spelled($scope),
+            'opens' => $opens,
+            'contract' => $group['contract'],
+            'not_admissible' => $notAdmissible,
+        ];
     }
 
     /**

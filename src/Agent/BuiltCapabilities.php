@@ -15,7 +15,9 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Agent;
 
 use Milpa\Command\CommandProvider;
+use Milpa\Command\Operation;
 use Milpa\Console\McpProjector;
+use Milpa\Runtime\Config;
 use Milpa\Runtime\Kernel;
 
 /**
@@ -28,8 +30,16 @@ use Milpa\Runtime\Kernel;
  */
 final class BuiltCapabilities
 {
-    /** @param array<string, BuiltVerb> $verbs by tool name */
-    private function __construct(private readonly array $verbs)
+    /** A sandbox binary that is not there: a runner given it answers «unavailable» without starting a process. */
+    private const string NO_PROBE = '/nonexistent/no-confinement-is-asked-here';
+
+    private ?HouseWork $drawing = null;
+
+    /**
+     * @param array<string, BuiltVerb>                                        $verbs by tool name
+     * @param array{root: string, plugins: list<object>, storage: mixed}|null $house what a card is drawn from
+     */
+    private function __construct(private readonly array $verbs, private readonly ?array $house = null)
     {
     }
 
@@ -51,6 +61,13 @@ final class BuiltCapabilities
         } catch (\Error) {
             return self::none(); // a kernel that cannot say what it booted built nothing it can be asked about
         }
+        $root = $kernel->root();
+        $storage = self::storageOf($kernel);
+        // WHERE A VERB'S STATE LIVES is read from its declaration by the judge of work (decisions/0588) — with a
+        // runner that never probes: the paths and who said them are decided before that judge asks whether this
+        // house can confine a process, and a gate that is asked on every call must not start one to find out.
+        $declared = new HouseWork($root, $plugins, $storage, new TrialRunner(self::NO_PROBE));
+        $planOf = static fn (Operation $operation): ?WorkPlan => $declared->planFor($operation);
         $verbs = [];
         foreach ($plugins as $plugin) {
             if (!$plugin instanceof CommandProvider) {
@@ -66,11 +83,52 @@ final class BuiltCapabilities
                 continue; // a file straight under src/Plugins is no plugin's tree
             }
             foreach ($plugin->operations() as $operation) {
-                $verbs[McpProjector::toolName($operation->name)] = new BuiltVerb($inside[0], $operation);
+                $verbs[McpProjector::toolName($operation->name)] = new BuiltVerb($inside[0], $operation, $planOf);
             }
         }
 
-        return new self($verbs);
+        return new self($verbs, ['root' => $root, 'plugins' => $plugins, 'storage' => $storage]);
+    }
+
+    /**
+     * How a call of this verb would run in this house NOW, for a card a person reads — never for the gate.
+     *
+     * `reads`: it changes nothing. `trial`: it is not work in the domain, so it runs in a trial and lands by a
+     * promotion, as authoring does. Otherwise it is work (decisions/0588): `house` — confined to its state, with a
+     * pre-image kept or not; `asks` — a person is asked first, and why; `refused` — its state is not a place for
+     * state, and no call of it runs. This one does ask whether the house can confine a process.
+     *
+     * @return array{how: 'reads'|'trial'|'house'|'asks'|'refused', why?: string, pre_image?: bool}
+     */
+    public function runs(BuiltVerb $verb): array
+    {
+        if (!$verb->operation->mutating) {
+            return ['how' => 'reads'];
+        }
+        if ($this->house !== null) {
+            $this->drawing ??= new HouseWork($this->house['root'], $this->house['plugins'], $this->house['storage'], new TrialRunner());
+        }
+        $plan = $this->drawing?->planFor($verb->operation);
+
+        return match (true) {
+            $plan === null => ['how' => 'trial'],
+            $plan->refused !== null => ['how' => 'refused', 'why' => $plan->refused],
+            $plan->asks !== null => ['how' => 'asks', 'why' => $plan->asks],
+            default => ['how' => 'house', 'pre_image' => $plan->preImage],
+        };
+    }
+
+    /** The `storage` block of the house's config, or null: it declares none, or the kernel cannot be asked. */
+    private static function storageOf(Kernel $kernel): mixed
+    {
+        try {
+            $container = $kernel->container();
+            $config = $container->has(Config::class) ? $container->get(Config::class) : null;
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $config instanceof Config ? $config->get('storage') : null;
     }
 
     /** What the house behind a container built, or null when it has no kernel to ask. */

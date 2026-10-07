@@ -59,6 +59,7 @@ final class OperationContractReadTest extends TestCase
         'scopes',
         'permission',
         'declared_by',
+        'state',
         'preconditions',
         'postconditions',
         'artifacts',

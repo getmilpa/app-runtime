@@ -384,6 +384,7 @@ class AgentOperations implements CommandProvider
                         'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'The scopes it declares; any one admits a caller judged by the word. For a seat calling a verb a capability of this house declares, the word is not asked: a person\'s admission is (greenhouse decisions/0590)'],
                         'permission' => ['type' => ['string', 'null'], 'description' => 'The permission it is typed by instead of scopes, or null'],
                         'declared_by' => ['type' => ['string', 'null'], 'description' => 'The capability built in this house that declares it — a plugin under src/Plugins — or null for an operation of the house or of a package'],
+                        'state' => ['type' => ['object', 'null'], 'description' => 'For a verb of a built capability that is work in the domain: `paths`, relative to the house, that a call of it may write, and `source` — `declared` by the plugin or the store of its `entities`; `refused` says why that is not a place for state. Null otherwise'],
                         'preconditions' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'Each {name, description}, enforced by the handler — empty when the operation declares none'],
                         'postconditions' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'Each {name, description}, proven by the producing package\'s verifier'],
                         'artifacts' => ['type' => 'array', 'items' => ['type' => 'string']],
@@ -1206,7 +1207,10 @@ class AgentOperations implements CommandProvider
                 // the house itself built it. `declared_by` is the capability built in this house, or null.
                 'scopes' => $operation->scopes,
                 'permission' => $operation->permission,
-                'declared_by' => \Milpa\AppRuntime\Agent\BuiltCapabilities::of($kernel)->verb($operation->name)?->capability,
+                'declared_by' => ($built = \Milpa\AppRuntime\Agent\BuiltCapabilities::of($kernel)->verb($operation->name))?->capability,
+                // Where a call of it keeps its state, when a built capability declares it as work in the domain
+                // (decisions/0588): the paths, and whether the plugin said them or they are its entities' store.
+                'state' => $built?->state(),
                 'preconditions' => array_map(static fn (DeclaredCondition $c): array => $c->toArray(), $operation->preconditions),
                 'postconditions' => array_map(static fn (DeclaredCondition $c): array => $c->toArray(), $operation->postconditions),
                 'artifacts' => $operation->artifacts,

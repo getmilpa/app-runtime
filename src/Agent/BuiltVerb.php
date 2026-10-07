@@ -25,14 +25,42 @@ use Milpa\Console\McpProjector;
  * verb whose declaration moved afterwards — another effect, another input, another scope, no confirmation — is no
  * longer the verb that was admitted. It is read from the declaration and never from the code behind it: the house
  * holds a verb to what it declares, it does not read what its handler does.
+ *
+ * WHERE ITS STATE LIVES is part of that contract (greenhouse decisions/0588, rule 3): the paths a call of work may
+ * write, and whether the plugin declared them or they are the store of its entities. A verb that moves its state
+ * elsewhere is another verb. Whether the house can confine a process right now, or how large that state has grown,
+ * is not: those are facts of the moment, asked when a card is drawn ({@see BuiltCapabilities::runs()}).
  */
-final readonly class BuiltVerb
+final class BuiltVerb
 {
     /** How the scope of a verb that declares none is spelled: itself, so it is admitted one by one. */
     public const string ITSELF = '=';
 
-    public function __construct(public string $capability, public Operation $operation)
+    /** @var array{paths: list<string>, source: string, refused?: string}|null|false false until it is asked */
+    private array|null|false $state = false;
+
+    /**
+     * @param (\Closure(Operation): ?WorkPlan)|null $planOf how the house would run a call of this verb as work, read from
+     *                                                      its declaration alone; without it the verb declares no state
+     */
+    public function __construct(public readonly string $capability, public readonly Operation $operation, private readonly ?\Closure $planOf = null)
     {
+    }
+
+    /**
+     * Where this verb's work keeps its state, as declared — or null when it is not work in the domain: it reads, or
+     * it lands the way authoring does, by a trial and a promotion.
+     *
+     * @return array{paths: list<string>, source: string, refused?: string}|null
+     */
+    public function state(): ?array
+    {
+        if ($this->state !== false) {
+            return $this->state;
+        }
+        $plan = $this->planOf === null ? null : ($this->planOf)($this->operation);
+
+        return $this->state = $plan === null ? null : ['paths' => $plan->state, 'source' => $plan->source] + ($plan->refused === null ? [] : ['refused' => $plan->refused]);
     }
 
     /** The verb as a tool is called. */
@@ -64,6 +92,9 @@ final readonly class BuiltVerb
         }
         if ($this->operation->mutating && $this->operation->scopes === [] && $this->operation->permission === null) {
             return \sprintf('«%s» changes state and declares no scope', $this->operation->name);
+        }
+        if (\is_string($this->state()['refused'] ?? null)) {
+            return \sprintf('«%s» keeps its state where the house keeps none', $this->operation->name);
         }
 
         return null;
@@ -98,6 +129,7 @@ final readonly class BuiltVerb
             'postconditions' => array_map(static fn (DeclaredCondition $c): array => $c->toArray(), $operation->postconditions),
             'artifacts' => $operation->artifacts,
             'observableEvidence' => $operation->observableEvidence,
+            'state' => $this->state(),
         ];
     }
 

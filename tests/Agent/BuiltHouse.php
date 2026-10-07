@@ -77,35 +77,54 @@ trait BuiltHouse
     }
 
     /**
-     * A plugin whose class lives under `<root>/src/Plugins/<name>/`, declaring what {@see declare()} hands it.
+     * A plugin whose class lives under `<root>/src/Plugins/<name>/`, declaring what {@see declare()} hands it —
+     * named the way a house names its plugins (`…\\Plugins\\<name>\\<name>`), with one entity, so the store of its
+     * entities is `var/<entity>s.json` as generated code keeps it (greenhouse decisions/0588).
      *
      * @param list<Operation> $operations
      */
-    private function capability(string $root, string $name, array $operations): object
+    private function capability(string $root, string $name, array $operations, string $entity = 'Herramienta'): object
     {
-        $class = 'P' . bin2hex(random_bytes(6));
+        $space = 'MilpaTest\\B' . bin2hex(random_bytes(6)) . '\\Plugins\\' . $name;
         $dir = $root . '/src/Plugins/' . $name;
-        mkdir($dir, 0o777, true);
+        mkdir($dir . '/Entities', 0o777, true);
+        file_put_contents($dir . '/Entities/' . $entity . '.php', "<?php\n// The entity this capability registers.\n");
         $file = $dir . '/' . $name . '.php';
         file_put_contents($file, <<<PHP
             <?php
-            namespace MilpaTest\\Built;
-            final class {$class} implements \\Milpa\\Command\\CommandProvider
+            namespace {$space};
+            final class {$name} implements \\Milpa\\Command\\CommandProvider, \\Milpa\\AppRuntime\\Agent\\DeclaresWorkState
             {
                 /** @var list<\\Milpa\\Command\\Operation> */
                 public array \$declared = [];
+                /** @var array<string, mixed> */
+                public array \$states = [];
                 public function operations(): array
                 {
                     return \$this->declared;
                 }
+                public function workState(): array
+                {
+                    return \$this->states;
+                }
             }
             PHP);
         require_once $file;
-        $fqcn = 'MilpaTest\\Built\\' . $class;
+        $fqcn = $space . '\\' . $name;
         $plugin = new $fqcn();
         $this->declare($plugin, $operations);
 
         return $plugin;
+    }
+
+    /**
+     * Where the plugin says each operation's work keeps its state, when that is not the store of its entities.
+     *
+     * @param array<string, mixed> $states the operation's name => its paths
+     */
+    private function keepsStateIn(object $plugin, array $states): void
+    {
+        $plugin->states = $states; // @phpstan-ignore property.notFound
     }
 
     /**

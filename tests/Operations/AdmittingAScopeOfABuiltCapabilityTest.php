@@ -74,6 +74,9 @@ final class AdmittingAScopeOfABuiltCapabilityTest extends TestCase
         self::assertSame('persistent', $prestar['effects']['mutation']);
         self::assertSame('manual_recovery', $prestar['effects']['reversibility']);
         self::assertSame(['herramientas:write'], $prestar['scopes']);
+        // Where its work keeps its state, and how a call of it would run in this house.
+        self::assertSame(['paths' => ['var/herramientas.json'], 'source' => 'entities'], $prestar['state']);
+        self::assertContains($prestar['runs']['how'], ['house', 'asks']);
         self::assertStringStartsWith('sha256:', $prestar['digest']);
         self::assertSame('never', $prestar['standing']);
 
@@ -382,10 +385,12 @@ final class AdmittingAScopeOfABuiltCapabilityTest extends TestCase
         self::assertSame(['herramientas:write'], $built['scopes']);
         self::assertNull($built['permission']);
         self::assertSame('Prestamos', $built['declared_by']);
+        self::assertSame(['paths' => ['var/herramientas.json'], 'source' => 'entities'], $built['state']);
 
         $other = $agent->contractFor(['name' => 'almacen.vaciar']);
         self::assertSame(['almacen:write'], $other['scopes']);
         self::assertNull($other['declared_by'], 'no capability of this house declares it');
+        self::assertNull($other['state']);
     }
 
     /**
