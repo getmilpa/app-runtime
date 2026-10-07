@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.211.3](https://github.com/getmilpa/app-runtime/compare/v0.211.2...v0.211.3) (2026-10-07)
+
+
+### Bug Fixes
+
+* the key of a declared endpoint is a secret the house keeps ([#733](https://github.com/getmilpa/app-runtime/issues/733)) ([53579eb](https://github.com/getmilpa/app-runtime/commit/53579eb04d69fef4e13fb04eb2891ec65523af90))
+
 ## [0.211.2](https://github.com/getmilpa/app-runtime/compare/v0.211.1...v0.211.2) (2026-10-07)
 
 
