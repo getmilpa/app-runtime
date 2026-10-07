@@ -127,7 +127,7 @@ final class ExecutionFactTest extends TestCase
             $registro,
             $grants,
             executions: $this->testigo(),
-            executor: $ejecutor ?? new ObservedExecutor(new Principal('cli:impostor@cm4070'), 'terminal-environment'),
+            executor: $ejecutor ?? new ObservedExecutor(new Principal('cli:impostor@workstation'), 'terminal-environment'),
         );
     }
 
@@ -157,7 +157,7 @@ final class ExecutionFactTest extends TestCase
 
         self::assertCount(1, $this->hechos, 'one effect, one fact');
         self::assertSame('config.set', $this->hechos[0]['operation'], 'the canonical identity, not the tool spelling');
-        self::assertSame('cli:impostor@cm4070', $this->hechos[0]['executedBy']);
+        self::assertSame('cli:impostor@workstation', $this->hechos[0]['executedBy']);
         self::assertSame('cli:rod@casa', $this->hechos[0]['authorizedBy']['principal']);
         self::assertSame('session.question_answered', $this->hechos[0]['authorizedBy']['provenance']);
         self::assertSame('terminal-environment', $this->hechos[0]['source']);
@@ -202,7 +202,7 @@ final class ExecutionFactTest extends TestCase
         self::assertSame(['capabilities_refresh'], $this->corridas);
         self::assertCount(1, $this->hechos, 'the effect happened, so it is declared');
         self::assertNull($this->hechos[0]['authorizedBy'], 'no consent covered this call, and the record says it');
-        self::assertSame('cli:impostor@cm4070', $this->hechos[0]['executedBy'], 'who ran it is still known');
+        self::assertSame('cli:impostor@workstation', $this->hechos[0]['executedBy'], 'who ran it is still known');
     }
 
     /** 4 · READING IS NOT AN EFFECT. A record of everything is a record of nothing. */

@@ -33,7 +33,7 @@ final class ContextWindowPrecedenceTest extends TestCase
 {
     private const MODELS_AS_MEASURED = '{"object":"list","data":[{"id":"qwen3.8-27b","meta":{"n_ctx":32768,"n_ctx_train":262144}}]}';
 
-    private const PROVIDER = 'http://llama.tailf880b7.ts.net:11438';
+    private const PROVIDER = 'http://llama.tailnet.example:11438';
 
     /** @var array<string, false|string> */
     private array $antes = [];

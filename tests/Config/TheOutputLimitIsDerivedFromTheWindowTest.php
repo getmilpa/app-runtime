@@ -30,7 +30,7 @@ use PHPUnit\Framework\TestCase;
  */
 final class TheOutputLimitIsDerivedFromTheWindowTest extends TestCase
 {
-    private const PROVIDER = 'http://llama.tailf880b7.ts.net:11438';
+    private const PROVIDER = 'http://llama.tailnet.example:11438';
 
     /** @var array<string, false|string> */
     private array $before = [];
