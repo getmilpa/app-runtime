@@ -101,6 +101,31 @@ final readonly class RecordedEdit
     }
 
     /**
+     * Whether a call repairs a proposal of THAT session which this door binds (greenhouse decisions/0596).
+     *
+     * A recorded source is a producer of that session that ran in a trial and that a judge rejected: it had already
+     * passed the intent contract — unasked, or with a person's yes — when it ran. The repair applies bounded changes
+     * to that same proposal, on the same plugin and class, over a destination that still matches the baseline the
+     * rejection was judged against. So the session's floor does not ask about its target again. Another session's
+     * source is not this session's proposal, and answers false: whether the caller may read it is a permission.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    public function repairsItsOwnProposal(array $arguments, string $session): bool
+    {
+        if (($arguments['source']['session'] ?? null) !== $session) {
+            return false;
+        }
+        try {
+            [$plugin, $class] = self::identifiers($arguments);
+            $this->bind($plugin, $class, $arguments);
+        } catch (\RuntimeException) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
      * @param array<string, mixed> $arguments
      *
      * @return array{string, string} plugin and class

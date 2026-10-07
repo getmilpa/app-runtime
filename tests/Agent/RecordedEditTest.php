@@ -241,6 +241,29 @@ final class RecordedEditTest extends TestCase
         }
     }
 
+    public function testACallThatRepairsAProposalOfItsOwnSessionSaysSo(): void
+    {
+        $door = new RecordedEdit($this->root, $this->sessions);
+
+        self::assertTrue($door->repairsItsOwnProposal($this->arguments(), self::SESSION), 'greenhouse decisions/0596: the repair inherits the intent of its proposal');
+        self::assertFalse($door->repairsItsOwnProposal($this->arguments(), 'another-session'), 'a proposal of another session is not its own');
+        self::assertFalse($door->repairsItsOwnProposal(['plugin' => 'Owned', 'class' => 'TodoItemRenderer', 'edits' => []], self::SESSION), 'a call with no source repairs nothing');
+    }
+
+    public function testACallThisDoorDoesNotBindRepairsNothing(): void
+    {
+        $door = new RecordedEdit($this->root, $this->sessions);
+        $unbound = $this->arguments();
+        $unbound['source']['sha256'] = str_repeat('a', 64);
+        $pathShaped = ['plugin' => '../Owned'] + $this->arguments();
+
+        self::assertFalse($door->repairsItsOwnProposal($unbound, self::SESSION), 'the proposal it names is not the one recorded');
+        self::assertFalse($door->repairsItsOwnProposal($pathShaped, self::SESSION), 'a plugin that is not a bare identifier names nothing');
+
+        file_put_contents($this->root . '/' . self::SUBJECT, $this->fixture['host'] . "\n// someone else was here\n");
+        self::assertFalse($door->repairsItsOwnProposal($this->arguments(), self::SESSION), 'the destination no longer matches the baseline the rejection was judged against');
+    }
+
     public function testAChangedHostCannotBeSilentlyRebased(): void
     {
         file_put_contents($this->root . '/' . self::SUBJECT, '<?php // newer implementation');

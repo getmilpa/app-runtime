@@ -152,6 +152,18 @@ final class LandedCalls
     }
 
     /**
+     * When a trial of this stream reached the house: the seq of the promotion that carried it — or null while nothing
+     * has promoted it (greenhouse decisions/0596).
+     *
+     * For whoever has to say what a session BROUGHT into the house, and in which order: the trial's own fact says
+     * which files it changed, and this says whether, and when, that change became the house's.
+     */
+    public function carriedAt(string $workspace): ?int
+    {
+        return $this->promoted[$workspace] ?? null;
+    }
+
+    /**
      * The call that answers for a tool in the house: its last recorded call, rehearsals aside. Null when that call
      * failed, or when the tool was never called outside a rehearsal.
      *
