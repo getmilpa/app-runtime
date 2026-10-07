@@ -656,7 +656,7 @@ class AgentOperations implements CommandProvider
                     'properties' => [
                         'class' => [
                             'type' => 'string',
-                            'description' => 'The entity by its short name, e.g. Post — or Blog/Post when two plugins have one (its class also works)',
+                            'description' => 'The entity by its short name, e.g. <Entity> — or <Plugin>/<Entity> when two plugins have one (its class also works)',
                         ],
                     ],
                     'required' => ['class'],
@@ -744,7 +744,7 @@ class AgentOperations implements CommandProvider
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
-                        'name' => ['type' => 'string', 'description' => 'the skill name, e.g. deploy'],
+                        'name' => ['type' => 'string', 'description' => 'the skill name, e.g. <skill>'],
                     ],
                     'required' => ['name'],
                 ],
@@ -3990,7 +3990,7 @@ class AgentOperations implements CommandProvider
     {
         $class = \is_string($input['class'] ?? null) ? trim($input['class']) : '';
         if ($class === '') {
-            return ['ok' => false, 'error' => 'which entity? `class` is required — its short name, e.g. Post'];
+            return ['ok' => false, 'error' => 'which entity? `class` is required — its short name, e.g. <Entity>'];
         }
 
         // The same name every door reads (greenhouse decisions/0472): a short name taught at screen:declare
@@ -5362,7 +5362,7 @@ class AgentOperations implements CommandProvider
             // (t-0074, B-c): /blog answered 500 and the resident, reading `BlogController.php`, wrote «GET /blog → 200».
             // Said only when the tool travels: a name the model cannot call is a step it cannot take.
             . (\in_array('route_observe', $herramientas, true)
-                ? "\n- To confirm a route serves, call `route_observe` with its path (e.g. /blog): the house requests it the way a\n"
+                ? "\n- To confirm a route serves, call `route_observe` with its path (e.g. /<path>): the house requests it the way a\n"
                     . '  browser does and says the status and, on a server error, its cause. Never conclude it from reading its code.'
                 : '');
 

@@ -70,14 +70,14 @@ final class SeedDeclarations
             return self::refused($ambiguous->getMessage());
         }
         if (! class_exists($class)) {
-            return self::refused("this house has no entity «{$entity}»: name one a plugin declares, e.g. Post or Blog/Post");
+            return self::refused("this house has no entity «{$entity}»: name one a plugin declares, e.g. <Entity> or <Plugin>/<Entity>");
         }
         if (! is_subclass_of($class, EntityInterface::class) || preg_match(self::ENTITY, $class, $names) !== 1) {
             return self::refused("«{$entity}» is not an entity of a plugin of this house: rows are seeded for src/Plugins/<Plugin>/Entities/<Entity>");
         }
         [, $plugin, $short] = $names;
         if (! \is_array($rows) || ! array_is_list($rows)) {
-            return self::refused('«rows» is a list of rows, each an object of the entity\'s fields: [{"title": "…", "published": true}]');
+            return self::refused('«rows» is a list of rows, each an object of the entity\'s fields: [{"<field>": <value>, …}]');
         }
         if ($rows === []) {
             return self::refused('a seed needs at least one row');

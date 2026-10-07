@@ -231,10 +231,14 @@ final class Foundation
         return ['ok' => true, 'foundation' => $foundation, 'wrote' => [$file, $actaFile]];
     }
 
-    /** What each declared field is asked to say, and what one looks like — the refusal's second half. */
+    /**
+     * What each declared field is asked to say, and how one reads — the refusal's second half. In words, never
+     * a sample: a sample of a domain IS a domain, and this sentence is read by whoever is about to name theirs
+     * (greenhouse decisions/0594 §5).
+     */
     private const ASKS = [
-        'domain' => ['what this app is for, in the words of the person founding it', 'a blog for our team'],
-        'objective' => ['what founding it is meant to achieve, in one sentence', 'publish what the team writes'],
+        'domain' => ['what this app is for, in the words of the person founding it', 'a few plain words: the thing it is, and who it is for'],
+        'objective' => ['what founding it is meant to achieve, in one sentence', 'one plain sentence: what the app will do once it exists'],
     ];
 
     /**
@@ -265,11 +269,11 @@ final class Foundation
     /** The refusal, as a sentence that says what to put in the field it names. */
     private static function whatToPut(string $field, string $value, string $reason): string
     {
-        [$asks, $example] = self::ASKS[$field];
+        [$asks, $how] = self::ASKS[$field];
         $needs = 'founding needs ' . ('objective' === $field ? 'an ' : 'a ') . $field;
         $given = 'missing' === $reason ? 'nothing was given' : "«{$value}» is a placeholder, not a declaration";
 
-        return "{$needs}: {$given}. Put {$asks} — for example «{$example}». Nothing was written.";
+        return "{$needs}: {$given}. Put {$asks} — {$how}. Nothing was written.";
     }
 
     /**

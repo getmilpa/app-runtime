@@ -132,6 +132,31 @@ final class FoundingRefusesAPlaceholderTest extends TestCase
         self::assertFileDoesNotExist($this->root . '/.milpa/foundation.json');
     }
 
+    /**
+     * AN EXAMPLE IS NOT THE EXAM (greenhouse decisions/0594 §5). The refusal says what to put in words: it
+     * quotes the value it was given and nothing else. A sample of a domain IS a domain, read by whoever is
+     * about to name theirs.
+     */
+    public function testTheRefusalQuotesWhatItWasGivenAndShowsNoSampleOfItsOwn(): void
+    {
+        $quoted = static function (array $refusal): array {
+            preg_match_all('/«([^»]*)»/u', (string) $refusal['error'], $found);
+
+            return $found[1];
+        };
+
+        $placeholder = Foundation::found(['domain' => '<what this app is for>', 'objective' => 'x'], $this->root);
+        $missing = Foundation::found(['domain' => 'x'], $this->root);
+
+        self::assertSame(['<what this app is for>'], $quoted($placeholder));
+        self::assertSame([], $quoted($missing));
+        foreach ([$placeholder, $missing] as $refusal) {
+            self::assertStringNotContainsString('for example', (string) $refusal['error']);
+            self::assertStringContainsString(' — ', (string) $refusal['error'], 'what to put, and how one reads');
+            self::assertStringEndsWith('Nothing was written.', (string) $refusal['error']);
+        }
+    }
+
     /** A rehearsal is held to the same rule: a dry run that accepts «…» would teach that «…» founds. */
     public function testADryRunRefusesAPlaceholderToo(): void
     {

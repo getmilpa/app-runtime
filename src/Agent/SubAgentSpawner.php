@@ -119,54 +119,54 @@ final class SubAgentSpawner implements ContractProducer
     {
         return new Operation(
             'agent_spawn',
-            'Delega una sub-tarea a un sub-agente con contexto fresco. El sub-agente no ve esta '
-            . 'conversación: dale en `brief` todo lo que necesita (objetivo, rutas concretas, '
-            . 'restricciones) y en `done_when` cómo sabrá que terminó. Devuelve su reporte final, '
-            . 'nunca su historial. Útil cuando una sub-tarea es autocontenida y su desarrollo no le '
-            . 'importa a esta conversación, sólo su resultado.',
+            'Delegate a sub-task to a sub-agent with a fresh context. The sub-agent does not see this '
+            . 'conversation: give it in `brief` everything it needs (the goal, concrete paths, '
+            . 'constraints) and in `done_when` how it will know it has finished. It returns its final '
+            . 'report, never its history. Useful when a sub-task is self-contained and this conversation '
+            . 'cares about its result, not about how it got there.',
             fn (array $input): array => $this->spawn($input),
             inputSchema: [
                 'type' => 'object',
                 'properties' => [
                     'brief' => [
                         'type' => 'string',
-                        'description' => 'El encargo completo: objetivo, insumos (rutas, no contenido pegado) y '
-                            . 'restricciones. ENUMÉRALO: lo que va numerado llega, y lo que cuelga después de la lista '
-                            . 'se pierde — medido, 8/8 contra 1/8.',
+                        'description' => 'The whole assignment: the goal, the inputs (paths, not pasted content) and '
+                            . 'the constraints. NUMBER IT: what is numbered arrives, and what hangs after the list is '
+                            . 'lost — measured, 8/8 against 1/8.',
                     ],
                     'done_when' => [
                         'type' => 'string',
-                        'description' => 'OPCIONAL, y sólo si puedes nombrar un hecho que el sub-agente pueda comprobar '
-                            . 'CON LAS HERRAMIENTAS QUE TIENE. Un criterio inalcanzable es peor que ninguno: lo deja '
-                            . 'buscando un estado que nunca llega. Ante la duda, omítelo.',
+                        'description' => 'OPTIONAL, and only if you can name a fact the sub-agent can check WITH THE '
+                            . 'TOOLS IT HAS. A criterion it cannot reach is worse than none: it leaves it looking for a '
+                            . 'state that never comes. When in doubt, leave it out.',
                     ],
                     'must' => [
                         'type' => 'array',
                         'items' => ['type' => 'string'],
-                        'description' => 'Obligaciones que el sub-agente debe cumplir SIEMPRE, una por elemento '
-                            . '(p. ej. «escribe un plan antes de empezar»). Van aparte del brief porque llegan '
-                            . 'garantizadas: el sistema las numera y las pone al final del encargo. Medido, una '
-                            . 'obligación de orden así se cumple 8/8. Para una PROHIBICIÓN prefiere `deny`, que la '
-                            . 'ejecuta; para una garantía dura de orden, `first`.',
+                        'description' => 'Obligations the sub-agent must ALWAYS meet, one per item '
+                            . '(e.g. «write a plan before you start»). They go apart from the brief because they '
+                            . 'arrive guaranteed: the system numbers them and puts them at the end of the assignment. '
+                            . 'Measured, an obligation of order given this way is met 8/8. For a PROHIBITION prefer '
+                            . '`deny`, which enforces it; for a hard guarantee of order, `first`.',
                     ],
                     'deny' => [
                         'type' => 'array',
                         'items' => ['type' => 'string'],
-                        'description' => 'Herramientas que el sub-agente NO debe tener, por nombre (p. ej. '
-                            . '«plugins_lock»). No es una petición: salen de su catálogo y no puede llamarlas. '
-                            . 'Prefiere esto a pedirlo en `must` — lo pedido se cumple menos que lo que no existe.',
+                        'description' => 'Tools the sub-agent must NOT have, by name (e.g. «plugins_lock»). It is '
+                            . 'not a request: they leave its catalogue and it cannot call them. Prefer this to asking '
+                            . 'in `must` — what is asked for is met less often than what does not exist.',
                     ],
                     'first' => [
                         'type' => 'array',
                         'items' => ['type' => 'string'],
-                        'description' => 'Herramientas que el sub-agente tiene que correr ANTES que cualquier otra, '
-                            . 'por nombre (p. ej. «plan»). No es una petición: hasta que corran, el resto de sus '
-                            . 'llamadas no proceden. Es la forma ejecutada de «haz X antes de empezar» — pedirlo en '
-                            . '`must` entrega la frase, esto cambia lo que puede hacer.',
+                        'description' => 'Tools the sub-agent has to run BEFORE any other, by name (e.g. «plan»). '
+                            . 'It is not a request: until they have run, the rest of its calls do not proceed. It is '
+                            . 'the enforced form of «do X before you start» — asking in `must` delivers the sentence, '
+                            . 'this changes what it can do.',
                     ],
                     'role' => [
                         'type' => 'string',
-                        'description' => 'Opcional: el papel del especialista (p. ej. «revisor de seguridad de plugins»).',
+                        'description' => 'Optional: the role of the specialist (e.g. «security reviewer of plugins»).',
                     ],
                     'produces' => [
                         'type' => 'string',
@@ -616,16 +616,16 @@ final class SubAgentSpawner implements ContractProducer
     {
         return new Operation(
             'agent_resume',
-            'Retoma un sub-agente que quedó pausado y cuya pregunta ya fue contestada. Corre con su '
-            . 'propio historial —retomar no es re-delegar— y devuelve su nuevo reporte. Usa el '
-            . 'sub_session que agent_spawn te devolvió.',
+            'Resume a sub-agent that was left paused and whose question has already been answered. It '
+            . 'runs with its own history — resuming is not re-delegating — and returns its new report. Use '
+            . 'the sub_session that agent_spawn gave you back.',
             fn (array $input): array => $this->resume($input),
             inputSchema: [
                 'type' => 'object',
                 'properties' => [
                     'sub_session' => [
                         'type' => 'string',
-                        'description' => 'El id de la sesión hija que devolvió agent_spawn.',
+                        'description' => 'The id of the child session that agent_spawn returned.',
                     ],
                 ],
                 'required' => ['sub_session'],

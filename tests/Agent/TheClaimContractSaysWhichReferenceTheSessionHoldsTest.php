@@ -47,6 +47,9 @@ use PHPUnit\Framework\TestCase;
  */
 final class TheClaimContractSaysWhichReferenceTheSessionHoldsTest extends TestCase
 {
+    /** The names this session used, for each placeholder the contract's examples show. */
+    private const NAMES = ['<Name>' => 'Blog', '<Plugin>' => 'Blog', '<path>' => 'blog'];
+
     private InMemoryEventStore $events;
 
     private SessionStore $store;
@@ -71,6 +74,11 @@ final class TheClaimContractSaysWhichReferenceTheSessionHoldsTest extends TestCa
         self::assertSame($kinds, array_keys(self::examples($contract)), 'and the contract says, for each in turn, which reference the session holds');
     }
 
+    /**
+     * An example shows the FORM of a reference, never a name of its own (greenhouse decisions/0594 §5): a
+     * contract is read by every session, whatever it is building. So the judge is given the example with this
+     * session's own names where its placeholders are — and that is a reference it accepts.
+     */
     public function testTheExampleOfEachKindIsAReferenceTheJudgeAccepts(): void
     {
         $examples = self::examples($this->contract('s1'));
@@ -78,8 +86,24 @@ final class TheClaimContractSaysWhichReferenceTheSessionHoldsTest extends TestCa
 
         foreach (array_values($examples) as $n => $example) {
             $kind = array_keys($examples)[$n];
-            $claimed = $this->claim('t' . ($n + 1), $kind, $example);
-            self::assertTrue($claimed['ok'], "the contract's own example for {$kind}, «{$example}», is refused: " . ($claimed['error'] ?? ''));
+            $held = strtr($example, self::NAMES);
+            self::assertStringNotContainsString('<', $held, "«{$example}» has a placeholder this session has no name for");
+            $claimed = $this->claim('t' . ($n + 1), $kind, $held);
+            self::assertTrue($claimed['ok'], "the contract's own example for {$kind}, «{$example}», written with this session's names («{$held}»), is refused: " . ($claimed['error'] ?? ''));
+        }
+    }
+
+    /** A form sent back as the contract shows it is no reference of this session, and the judge says so. */
+    public function testAnExampleCopiedWithItsPlaceholderIsRefused(): void
+    {
+        $examples = array_filter(self::examples($this->contract('s1')), static fn (string $example): bool => str_contains($example, '<'));
+        $this->theSessionDidTheWorkOfTheExamples();
+
+        self::assertCount(3, $examples, 'three kinds are shown by a form; the fourth by a tool of the house');
+        foreach ($examples as $kind => $example) {
+            $claimed = $this->claim('t1', $kind, $example);
+            self::assertFalse($claimed['ok'], "«{$example}» was accepted as written");
+            self::assertStringContainsString($example, (string) ($claimed['error'] ?? ''), 'the refusal names what it looked for');
         }
     }
 
@@ -91,7 +115,7 @@ final class TheClaimContractSaysWhichReferenceTheSessionHoldsTest extends TestCa
         self::assertStringContainsString('not a sentence', $contract->inputSchema['properties']['reference']['description']);
         foreach (array_values(self::examples($contract)) as $n => $example) {
             $kind = array_keys(self::examples($contract))[$n];
-            self::assertFalse($this->claim('t' . ($n + 1), $kind, $example . ' (done, verified in the house)')['ok'], "a sentence around «{$example}» was accepted");
+            self::assertFalse($this->claim('t' . ($n + 1), $kind, strtr($example, self::NAMES) . ' (done, verified in the house)')['ok'], "a sentence around «{$example}» was accepted");
         }
     }
 

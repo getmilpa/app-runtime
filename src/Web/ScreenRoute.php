@@ -35,7 +35,7 @@ final class ScreenRoute
     public static function parse(mixed $route): string
     {
         if (! \is_string($route) || ! str_starts_with($route = trim($route), '/')) {
-            throw new InvalidScreenTree('route', 'a route starts with /, as HTTP writes it: /blog');
+            throw new InvalidScreenTree('route', 'a route starts with /, as HTTP writes it: /<path>');
         }
         if (str_contains($route, '{') || str_contains($route, '}')) {
             throw new InvalidScreenTree('route', 'a screen is one page: its route takes no parameters');

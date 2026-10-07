@@ -185,7 +185,7 @@ final class TrialOperations implements CommandProvider
                 description: 'Request a path of THIS HOUSE the way a browser does — anonymously, through its own front '
                     . 'controller — and see what it answers: the status, an excerpt of the body and, on a 5xx or a request that '
                     . 'died, the cause the house logged (never shown to visitors). This is how you confirm a route serves; reading '
-                    . 'its code does not tell you. Give a concrete path (/blog, /blog/7?page=2), never a pattern like /blog/{id}. '
+                    . 'its code does not tell you. Give a concrete path (/<path>, /<path>/7?page=2), never a pattern like /<path>/{id}. '
                     . 'With `workspace`, it asks the house as that trial would leave it. A POST, PUT, PATCH or DELETE (with a '
                     . '`body`) is observed ONLY with `workspace`, in a confined copy that is thrown away, and `then` lists GET paths '
                     . 'to observe in that same copy afterwards — to see what the request wrote. Read-only for the house.',
@@ -193,7 +193,7 @@ final class TrialOperations implements CommandProvider
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
-                        'path' => ['type' => 'string', 'description' => 'The path to request, starting with / — e.g. /blog'],
+                        'path' => ['type' => 'string', 'description' => 'The path to request, starting with / — e.g. /<path>'],
                         'workspace' => ['type' => 'string', 'description' => 'A trial to ask instead of the house'],
                         'method' => ['type' => 'string', 'enum' => self::METHODS, 'description' => 'GET by default; any other only with workspace'],
                         'body' => ['type' => 'string', 'description' => 'What the request sends, at most ' . self::BODY_MAX . ' bytes; not on a GET'],
@@ -228,11 +228,20 @@ final class TrialOperations implements CommandProvider
         $path = $input['path'] ?? null;
         if (\is_string($path) && (str_contains($path, '{') || str_contains($path, '}'))) {
             return ['ok' => false, 'error' => "«{$path}» is a route's pattern, not a path of this house: give the value a visitor "
-                . 'would — e.g. /blog/1 for /blog/{id}'];
+                . 'would — e.g. /<path>/1 for /<path>/{id}'];
         }
         if (!self::isPath($path)) {
-            return ['ok' => false, 'error' => 'path must be a path of this house, starting with «/» — e.g. /blog — with no scheme, '
+            return ['ok' => false, 'error' => 'path must be a path of this house, starting with «/» — e.g. /<path> — with no scheme, '
                 . 'host, fragment or spaces'];
+        }
+        // A FORM IS NOT A PATH (greenhouse decisions/0594 §5). The contract shows a path by its form, and an example is
+        // copied letter for letter (evidence/1071, B11). Requested as written it answered a 404 that says nothing: the
+        // house has no such route because nobody could have one.
+        foreach ([$path, ...(\is_array($input['then'] ?? null) ? array_filter($input['then'], '\is_string') : [])] as $asked) {
+            if (preg_match('/<[^<>\s]+>/', $asked, $form) === 1) {
+                return ['ok' => false, 'error' => "«{$asked}» is the form the contract shows, not a path of this house: write the path "
+                    . "itself where «{$form[0]}» is"];
+            }
         }
         $asked = self::request($input);
         if (\is_string($asked)) {
@@ -328,7 +337,7 @@ final class TrialOperations implements CommandProvider
         }
         $then = $input['then'] ?? [];
         if (!\is_array($then) || !array_is_list($then) || \count($then) > self::THEN_MAX || array_filter($then, static fn (mixed $p): bool => !self::isPath($p)) !== []) {
-            return 'then must be a list of at most ' . self::THEN_MAX . ' GET paths of this house, e.g. ["/blog"]';
+            return 'then must be a list of at most ' . self::THEN_MAX . ' GET paths of this house, e.g. ["/<path>"]';
         }
 
         /** @var list<string> $then */

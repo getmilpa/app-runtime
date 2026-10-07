@@ -48,17 +48,17 @@ final class SeedOperations implements CommandProvider
     {
         return [new Operation(
             name: 'entity:seed',
-            description: 'Leave the rows a work is born with: declare rows of an entity (e.g. one published post and one draft) and the house seeds them once. Use this instead of writing rows in a plugin\'s boot(), a seeder class or a sequence. Each row is an object of the entity\'s fields, without id. The declaration is a file of the plugin (src/Plugins/<Plugin>/Seeds/<Entity>.json): in a trial the copy is seeded, and the house when it is promoted.',
+            description: 'Leave the rows a work is born with: declare rows of an entity (e.g. one row that is public and one that is not) and the house seeds them once. Use this instead of writing rows in a plugin\'s boot(), a seeder class or a sequence. Each row is an object of the entity\'s fields, without id. The declaration is a file of the plugin (src/Plugins/<Plugin>/Seeds/<Entity>.json): in a trial the copy is seeded, and the house when it is promoted.',
             handler: fn (array $input): array => $this->seed($input),
             inputSchema: [
                 'type' => 'object',
                 'required' => ['entity', 'rows'],
                 'properties' => [
-                    'entity' => ['type' => 'string', 'description' => 'The entity by its short name, e.g. Post — or Blog/Post when two plugins have one'],
+                    'entity' => ['type' => 'string', 'description' => 'The entity by its short name, e.g. <Entity> — or <Plugin>/<Entity> when two plugins have one'],
                     'rows' => [
                         'type' => 'array',
                         'items' => ['type' => 'object'],
-                        'description' => 'The rows to seed, each an object of the entity\'s fields without id, e.g. [{"title": "Hello", "body": "…", "published": true}]. A row already declared is not added twice',
+                        'description' => 'The rows to seed, each an object of the entity\'s fields without id, e.g. [{"<field>": <value>, …}]. A row already declared is not added twice',
                     ],
                 ],
             ],
