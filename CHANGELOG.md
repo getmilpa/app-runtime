@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.211.0](https://github.com/getmilpa/app-runtime/compare/v0.210.0...v0.211.0) (2026-10-07)
+
+
+### Features
+
+* a grant resumes the call it was given for ([#712](https://github.com/getmilpa/app-runtime/issues/712)) ([90b5452](https://github.com/getmilpa/app-runtime/commit/90b545299b2314e495ba9a67f626f92362716b00))
+
 ## [0.210.0](https://github.com/getmilpa/app-runtime/compare/v0.209.1...v0.210.0) (2026-10-06)
 
 
