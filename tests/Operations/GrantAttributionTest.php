@@ -54,7 +54,7 @@ final class GrantAttributionTest extends TestCase
         return [
             'reason' => 'permission',
             'answer' => 'sí',
-            'by' => new Principal('cli:rod@cm4070'),
+            'by' => new Principal('cli:operator@workstation'),
             'why' => (string) json_encode([
                 'operation' => 'config:set',
                 'arguments' => ['key' => 'agent.treeBudget', 'value' => 42],
@@ -70,7 +70,7 @@ final class GrantAttributionTest extends TestCase
 
         self::assertCount(1, $comoRod);
         self::assertCount(1, $comoOtro);
-        self::assertSame('cli:rod@cm4070', $comoRod[0]->principal);
+        self::assertSame('cli:operator@workstation', $comoRod[0]->principal);
         self::assertSame(
             $comoRod[0]->principal,
             $comoOtro[0]->principal,
