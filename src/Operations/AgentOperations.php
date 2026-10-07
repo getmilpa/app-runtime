@@ -379,6 +379,9 @@ class AgentOperations implements CommandProvider
                         'requiresConfirmation' => ['type' => 'boolean'],
                         'namedTarget' => ['type' => ['string', 'null']],
                         'surfaces' => ['type' => ['array', 'null'], 'items' => ['type' => 'string']],
+                        'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'The scopes it declares; any one admits a caller judged by the word. For a seat calling a verb a capability of this house declares, the word is not asked: a person\'s admission is (greenhouse decisions/0590)'],
+                        'permission' => ['type' => ['string', 'null'], 'description' => 'The permission it is typed by instead of scopes, or null'],
+                        'declared_by' => ['type' => ['string', 'null'], 'description' => 'The capability built in this house that declares it — a plugin under src/Plugins — or null for an operation of the house or of a package'],
                         'preconditions' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'Each {name, description}, enforced by the handler — empty when the operation declares none'],
                         'postconditions' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'Each {name, description}, proven by the producing package\'s verifier'],
                         'artifacts' => ['type' => 'array', 'items' => ['type' => 'string']],
@@ -1196,6 +1199,12 @@ class AgentOperations implements CommandProvider
                 'requiresConfirmation' => $operation->requiresConfirmation,
                 'namedTarget' => $operation->namedTarget,
                 'surfaces' => $operation->surfaces,
+                // WHAT IT ASKS OF ITS CALLER, AND WHO DECLARES IT (greenhouse decisions/0590): a person who admits a
+                // verb reads its contract here, and the contract did not say which scope it asks for nor whether
+                // the house itself built it. `declared_by` is the capability built in this house, or null.
+                'scopes' => $operation->scopes,
+                'permission' => $operation->permission,
+                'declared_by' => \Milpa\AppRuntime\Agent\BuiltCapabilities::of($kernel)->verb($operation->name)?->capability,
                 'preconditions' => array_map(static fn (DeclaredCondition $c): array => $c->toArray(), $operation->preconditions),
                 'postconditions' => array_map(static fn (DeclaredCondition $c): array => $c->toArray(), $operation->postconditions),
                 'artifacts' => $operation->artifacts,
@@ -3602,7 +3611,7 @@ class AgentOperations implements CommandProvider
             return [];
         }
         try {
-            $open = SeatFrontier::forRoot($kernel->root(), $store)->openRefusals($session);
+            $open = SeatFrontier::forRoot($kernel->root(), $store, \Milpa\AppRuntime\Agent\BuiltCapabilities::of($kernel))->openRefusals($session);
         } catch (\Throwable) {
             return [];
         }
@@ -3673,8 +3682,9 @@ class AgentOperations implements CommandProvider
         }
         $root = $kernel->root();
 
+        // What the house built is asked when a call is refused, not when the leg began: a verb landed during it.
         return static fn (string $tool, array $arguments): ?string
-            => SeatFrontier::forRoot($root, $store)->wouldOffer($session, $tool, $arguments)['permission'] ?? null;
+            => SeatFrontier::forRoot($root, $store, \Milpa\AppRuntime\Agent\BuiltCapabilities::of($kernel))->wouldOffer($session, $tool, $arguments)['permission'] ?? null;
     }
 
     /** The app root for redaction, or null when the app's location cannot be told (redaction then a no-op). */
@@ -5933,6 +5943,9 @@ class AgentOperations implements CommandProvider
             (new McpProjector())->projectAll($faltantes, $registry, $kernel->container());
         }
 
-        return $registry;
+        // A SEAT'S CALL TO A BUILT VERB IS JUDGED BY THE HOUSE'S POLICY, NOT BY THE WORD THE VERB DECLARES
+        // (greenhouse decisions/0590). The tool runtime asks for that word first; this wrapper is what hands the
+        // one call its own words so the policy's question — did a person admit it — is the one that decides.
+        return new \Milpa\AppRuntime\Agent\AdmissionAwareRegistry($registry);
     }
 }

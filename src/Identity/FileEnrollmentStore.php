@@ -57,16 +57,22 @@ final class FileEnrollmentStore implements EnrollmentStore
      * entry keeps once written — 0 on a first enrollment. The same write as {@see record()}, so the
      * report is what the write itself saw under the lock (greenhouse decisions/0207).
      *
-     * @return array{previously_revoked_by: ?string, history_entries: int}
+     * A RECOGNITION WRITTEN OVER A SEAT DROPS WHAT WAS ADMITTED TO IT (greenhouse decisions/0590, rule 13): whoever
+     * recognizes a key again with a list of scopes saw no capability's contract. The dropped admissions stay in the
+     * history with the state they belonged to, and the report counts them. `$keepAdmissions` is for the writers
+     * that change one thing about a standing seat and nothing else — a grant of one more scope, a scope the house
+     * grew — never for a list somebody typed.
+     *
+     * @return array{previously_revoked_by: ?string, history_entries: int, admissions_dropped?: int}
      *
      * @throws \RuntimeException when the ledger could not be written — the report is never returned
      *                           for a write that did not happen
      */
-    public function recordAndReport(IdentityEnrolled $enrolled): array
+    public function recordAndReport(IdentityEnrolled $enrolled, bool $keepAdmissions = false): array
     {
         $key = IdentityKey::normalize($enrolled->fingerprint);
         $report = ['previously_revoked_by' => null, 'history_entries' => 0];
-        $this->mutate(static function (array $map) use ($key, $enrolled, &$report): array {
+        $this->mutate(static function (array $map) use ($key, $enrolled, $keepAdmissions, &$report): array {
             $entry = ['scopes' => $enrolled->scopes, 'authorized_by' => $enrolled->authorizedBy];
             if ($enrolled->grownBy !== null) {
                 $entry['grown_by'] = $enrolled->grownBy;
@@ -75,6 +81,12 @@ final class FileEnrollmentStore implements EnrollmentStore
             if (\array_key_exists($key, $map)) {
                 $previous = $map[$key];
                 if (\is_array($previous)) {
+                    $admitted = ($previous['revoked_by'] ?? null) === null ? self::admissionsIn($previous) : [];
+                    if ($admitted !== [] && $keepAdmissions) {
+                        $entry['admissions'] = $admitted;
+                    } elseif ($admitted !== []) {
+                        $report['admissions_dropped'] = array_sum(array_map(\count(...), $admitted));
+                    }
                     // The state being replaced goes onto the history, flat: the states it carried move
                     // along with it rather than nesting. A `history` that is not a list is not lifted —
                     // it rides inside the pushed state, kept as it was found.
@@ -106,6 +118,98 @@ final class FileEnrollmentStore implements EnrollmentStore
         });
 
         return $report;
+    }
+
+    /**
+     * Write that a person admitted one scope of a built capability for a live seat: the verbs that scope opens,
+     * each pinned by the digest of its contract (greenhouse decisions/0590). False when the key has no live
+     * recognition — nothing is admitted to a key the house does not admit.
+     *
+     * The seat's scopes do not move: an admission never writes a word to them, so what it opens holds inside that
+     * capability and nowhere else. The state it replaces goes onto the history, as every other write here.
+     *
+     * @param array<string, string> $verbs each admitted verb's name → the digest of its contract
+     *
+     * @throws \RuntimeException when the ledger could not be written
+     */
+    public function admit(string $fingerprint, string $capability, string $scope, array $verbs, string $admittedBy, ?string $at = null): bool
+    {
+        $key = IdentityKey::normalize($fingerprint);
+        $at ??= gmdate('Y-m-d\TH:i:s\Z');
+        ksort($verbs);
+        $admitted = false;
+        $this->mutate(static function (array $map) use ($key, $capability, $scope, $verbs, $admittedBy, $at, &$admitted): array {
+            $entry = $map[$key] ?? null;
+            if (!\is_array($entry) || !\is_array($entry['scopes'] ?? null) || ($entry['revoked_by'] ?? null) !== null) {
+                return $map;
+            }
+            $previous = $entry;
+            $history = \is_array($previous['history'] ?? null) ? array_values($previous['history']) : [];
+            unset($previous['history']);
+            $history[] = $previous;
+
+            $admissions = self::admissionsIn($entry);
+            $admissions[$capability][$scope] = ['verbs' => $verbs, 'admitted_by' => $admittedBy, 'at' => $at];
+            $entry['admissions'] = $admissions;
+            $entry['history'] = $history;
+            $map[$key] = $entry;
+            $admitted = true;
+
+            return $map;
+        });
+
+        return $admitted;
+    }
+
+    /**
+     * What persons admitted to this seat and still stands in its entry: capability → scope → the verbs it opened,
+     * each with the digest it was admitted at. Empty for a key never enrolled, and empty once revoked.
+     *
+     * @return array<string, array<string, array{verbs: array<string, string>, admitted_by: string, at: string}>>
+     */
+    public function admissionsFor(string $fingerprint): array
+    {
+        $map = $this->read() ?? [];
+        $entry = $map[IdentityKey::normalize($fingerprint)] ?? null;
+        if (!\is_array($entry) || !\is_array($entry['scopes'] ?? null) || ($entry['revoked_by'] ?? null) !== null) {
+            return [];
+        }
+
+        return self::admissionsIn($entry);
+    }
+
+    /**
+     * The admissions an entry carries, read strictly: anything that is not the shape {@see admit()} writes is not
+     * an admission.
+     *
+     * @param array<mixed> $entry
+     *
+     * @return array<string, array<string, array{verbs: array<string, string>, admitted_by: string, at: string}>>
+     */
+    private static function admissionsIn(array $entry): array
+    {
+        $out = [];
+        foreach (\is_array($entry['admissions'] ?? null) ? $entry['admissions'] : [] as $capability => $scopes) {
+            foreach (\is_array($scopes) ? $scopes : [] as $scope => $admission) {
+                $verbs = \is_array($admission) && \is_array($admission['verbs'] ?? null) ? $admission['verbs'] : null;
+                if ($verbs === null) {
+                    continue;
+                }
+                $pinned = [];
+                foreach ($verbs as $verb => $digest) {
+                    if (\is_string($verb) && \is_string($digest)) {
+                        $pinned[$verb] = $digest;
+                    }
+                }
+                $out[(string) $capability][(string) $scope] = [
+                    'verbs' => $pinned,
+                    'admitted_by' => \is_string($admission['admitted_by'] ?? null) ? $admission['admitted_by'] : '',
+                    'at' => \is_string($admission['at'] ?? null) ? $admission['at'] : '',
+                ];
+            }
+        }
+
+        return $out;
     }
 
     /**

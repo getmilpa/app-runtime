@@ -239,6 +239,85 @@ final class FileEnrollmentStoreTest extends TestCase
         self::assertSame($garbage, (string) file_get_contents($this->path), 'byte for byte, nothing was erased');
     }
 
+    /** greenhouse decisions/0590: what a person admitted to a seat is written beside its scopes, never into them. */
+    public function testAnAdmissionIsWrittenBesideTheScopesAndKeepsWhatItReplaced(): void
+    {
+        $store = $this->store();
+        $store->record(new IdentityEnrolled(self::FP, ['agent:run'], 'key:FIRST'));
+
+        self::assertTrue($store->admit(self::FP, 'Prestamos', 'herramientas:write', ['herramientas.prestar' => 'sha256:b', 'herramientas.agregar' => 'sha256:a'], 'key:HUMAN', '2026-10-07T00:00:00Z'));
+
+        self::assertSame(['agent:run'], $store->scopesFor(self::FP), 'the scopes did not move');
+        self::assertSame(
+            ['Prestamos' => ['herramientas:write' => ['verbs' => ['herramientas.agregar' => 'sha256:a', 'herramientas.prestar' => 'sha256:b'], 'admitted_by' => 'key:HUMAN', 'at' => '2026-10-07T00:00:00Z']]],
+            $store->admissionsFor(self::FP),
+        );
+        $entry = $this->raw()[self::FP];
+        self::assertCount(1, $entry['history']);
+        self::assertArrayNotHasKey('admissions', $entry['history'][0], 'the state it replaced had none');
+
+        // A second scope of the same capability sits beside the first, and the history stays flat.
+        self::assertTrue($store->admit(self::FP, 'Prestamos', 'herramientas:read', ['herramientas.listar' => 'sha256:c'], 'key:HUMAN'));
+        self::assertSame(['herramientas:write', 'herramientas:read'], array_keys($store->admissionsFor(self::FP)['Prestamos']));
+        $entry = $this->raw()[self::FP];
+        self::assertCount(2, $entry['history']);
+        self::assertArrayNotHasKey('history', $entry['history'][1]);
+        self::assertArrayHasKey('herramientas:write', $entry['history'][1]['admissions']['Prestamos']);
+    }
+
+    public function testNothingIsAdmittedToAKeyTheHouseDoesNotAdmit(): void
+    {
+        $store = $this->store();
+        self::assertFalse($store->admit(self::FP, 'Prestamos', 'herramientas:write', ['v' => 'sha256:a'], 'key:HUMAN'), 'never enrolled');
+
+        $store->record(new IdentityEnrolled(self::FP, ['agent:run'], 'key:FIRST'));
+        self::assertTrue($store->admit(self::FP, 'Prestamos', 'herramientas:write', ['v' => 'sha256:a'], 'key:HUMAN'));
+        self::assertTrue($store->revoke(self::FP, 'key:REVOKER'));
+
+        self::assertSame([], $store->admissionsFor(self::FP), 'a revoked seat holds no admission');
+        self::assertFalse($store->admit(self::FP, 'Prestamos', 'herramientas:read', ['w' => 'sha256:b'], 'key:HUMAN'), 'revoked');
+        self::assertArrayNotHasKey('herramientas:read', $this->raw()[self::FP]['admissions']['Prestamos']);
+    }
+
+    /** A recognition laid over a seat drops what was admitted to it, and counts it; the writer that keeps says so. */
+    public function testARecognitionDropsWhatWasAdmittedUnlessItsWriterKeepsIt(): void
+    {
+        $store = $this->store();
+        $store->record(new IdentityEnrolled(self::FP, ['agent:run'], 'key:FIRST'));
+        $store->admit(self::FP, 'Prestamos', 'herramientas:write', ['v' => 'sha256:a'], 'key:HUMAN');
+        $store->admit(self::FP, 'Prestamos', 'herramientas:read', ['w' => 'sha256:b'], 'key:HUMAN');
+
+        $kept = $store->recordAndReport(new IdentityEnrolled(self::FP, ['agent:run', 'plugins.Blog:write'], 'key:HUMAN'), keepAdmissions: true);
+        self::assertArrayNotHasKey('admissions_dropped', $kept);
+        self::assertCount(2, $store->admissionsFor(self::FP)['Prestamos']);
+
+        $typed = $store->recordAndReport(new IdentityEnrolled(self::FP, ['agent:run', 'herramientas:write'], 'key:HUMAN'));
+        self::assertSame(2, $typed['admissions_dropped']);
+        self::assertSame([], $store->admissionsFor(self::FP));
+        $history = $this->raw()[self::FP]['history'];
+        self::assertArrayHasKey('admissions', end($history), 'what it had is in the history, with the state it belonged to');
+
+        // Over a revoked seat there was nothing standing to drop.
+        $store->admit(self::FP, 'Prestamos', 'herramientas:write', ['v' => 'sha256:a'], 'key:HUMAN');
+        $store->revoke(self::FP, 'key:REVOKER');
+        self::assertArrayNotHasKey('admissions_dropped', $store->recordAndReport(new IdentityEnrolled(self::FP, ['agent:run'], 'key:HUMAN')));
+    }
+
+    /** What is not the shape an admission is written in is not an admission. */
+    public function testAMalformedAdmissionAdmitsNothing(): void
+    {
+        file_put_contents($this->path, (string) json_encode([self::FP => [
+            'scopes' => ['agent:run'],
+            'authorized_by' => 'key:FIRST',
+            'admissions' => ['Prestamos' => ['herramientas:write' => 'yes', 'herramientas:read' => ['verbs' => ['v' => 7, 'w' => 'sha256:b']]], 'Otra' => 'all'],
+        ]]));
+
+        self::assertSame(
+            ['Prestamos' => ['herramientas:read' => ['verbs' => ['w' => 'sha256:b'], 'admitted_by' => '', 'at' => '']]],
+            $this->store()->admissionsFor(self::FP),
+        );
+    }
+
     private function store(): FileEnrollmentStore
     {
         return new FileEnrollmentStore($this->path);

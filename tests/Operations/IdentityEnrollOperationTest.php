@@ -109,6 +109,26 @@ final class IdentityEnrollOperationTest extends TestCase
         self::assertSame(['agent:read', 'agent:answer'], $store->scopesFor(self::ROOTED));
     }
 
+    /** greenhouse decisions/0590: a typed list saw no capability's contract, so the act says what it dropped. */
+    public function testRecognizingASeatAgainSaysHowManyAdmissionsItDropped(): void
+    {
+        [$c, $root] = $this->containerWithRoot(self::ROOTED);
+        $store = new FileEnrollmentStore($root . '/storage/identity/enrollments.json');
+        $store->record(new IdentityEnrolled(self::ROOTED, ['agent:run'], 'key:' . self::ROOTED));
+        self::assertTrue($store->admit(self::ROOTED, 'Prestamos', 'herramientas:write', ['herramientas.prestar' => 'sha256:a'], 'key:' . self::ROOTED));
+
+        $this->grant($c, self::ROOTED);
+        $r = $this->call($c, ['fingerprint' => self::ROOTED, 'scopes' => ['agent:run', 'herramientas:write']]);
+
+        self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
+        self::assertSame(1, $r['admissions_dropped']);
+        self::assertSame([], $store->admissionsFor(self::ROOTED));
+
+        // With nothing admitted, the act does not mention it.
+        $this->grant($c, self::ROOTED);
+        self::assertArrayNotHasKey('admissions_dropped', $this->call($c, ['fingerprint' => self::ROOTED, 'scopes' => ['agent:run']]));
+    }
+
     /** F3: the real handler over a revoked id says who revoked it and how many states the ledger keeps. */
     public function testReEnrollingARevokedKeySaysWhoRevokedItAndKeepsTheHistory(): void
     {

@@ -673,7 +673,7 @@ final class Application
             renderer: $renderer,
             verifier: $this->verificador,
             callerAuthority: $caller,
-            signerAuthority: fn (VerifiedSigner $signer): ?ToolContext => $this->autoridadDelFirmante($signer, $identity),
+            signerAuthority: fn (VerifiedSigner $signer): ?ToolContext => $this->autoridadDelFirmante($signer, $identity, $operacion),
             // El despachador del kernel viaja al runner: sin él, un listener que audita operaciones
             // las vería por MCP y no por la terminal — que es el hueco que el runner vino a cerrar.
             dispatcher: $this->kernel()->dispatcher(),
@@ -1676,7 +1676,7 @@ final class Application
      * judgment has to hold when the kernel does not boot ({@see recuperarSinKernel()}), and two copies
      * of it would disagree the day it matters.
      */
-    private function autoridadDelFirmante(VerifiedSigner $signer, ?\Milpa\Auth\AuthContext $identity): ?ToolContext
+    private function autoridadDelFirmante(VerifiedSigner $signer, ?\Milpa\Auth\AuthContext $identity, ?Operation $for = null): ?ToolContext
     {
         $signed = (new SignerAuthority(
             new FileEnrollmentStore($this->root . '/storage/identity/enrollments.json'),
@@ -1691,7 +1691,20 @@ final class Application
         $scopes = \in_array('*', $tokenScopes, true) ? $signedScopes
             : (\in_array('*', $signedScopes, true) ? $tokenScopes : array_values(array_intersect($tokenScopes, $signedScopes)));
 
-        return new ToolContext(principal: 'key:' . $signer->fingerprint, channel: 'cli', scopes: $scopes);
+        $context = new ToolContext(principal: 'key:' . $signer->fingerprint, channel: 'cli', scopes: $scopes);
+        if ($for === null) {
+            return $context;
+        }
+        // THIS PROCESS RUNS ONE OPERATION, and when a seat signs for a verb a capability of this house declares,
+        // what decides is whether a person admitted it — not the word the verb declares, which the runner asks for
+        // first (greenhouse decisions/0590). The house's own policy hands that call its words and then judges it;
+        // any other policy in its place hands nothing.
+        $policy = $this->kernel()->container()->has(\Milpa\ToolRuntime\Contracts\CallPolicy::class)
+            ? $this->kernel()->container()->get(\Milpa\ToolRuntime\Contracts\CallPolicy::class) : null;
+
+        return $policy instanceof \Milpa\AppRuntime\Agent\PluginAuthoringPolicy
+            ? $policy->contextFor($context, McpProjector::toolName($for->name))
+            : $context;
     }
 
     /** The shell's screen, as `coa shell` opens it: its catalogue behind the door ({@see operacionesDelShell()}). */
