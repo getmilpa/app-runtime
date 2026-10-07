@@ -48,6 +48,87 @@ final class TrialAwareRegistry extends ToolRegistry
     /** A staged multipart part whose native trial result still needs its explicit promotion. */
     private ?string $pendingMultipartPromotion = null;
 
+    /** What runs a work call confined in the house, when this house does ({@see runsWorkInTheHouse()}). */
+    private ?ConfinedWork $confinedWork = null;
+
+    /** @var array<string, array<string, mixed>> what the house saw of the work calls it just ran, until the receipt asks ({@see landedWork()}) */
+    private array $landed = [];
+
+    /**
+     * Say that work in the domain runs in the house, and hand over what runs it (greenhouse decisions/0588).
+     *
+     * A work call — its operation declares `subject: data`, `externality: none`, and a state the house can name —
+     * is no longer rehearsed in a copy that was born without that state. It runs once, against the house,
+     * confined to its state, after the same gates as any call.
+     */
+    public function runsWorkInTheHouse(HouseWork $work, ConfinedWork $confined): void
+    {
+        $this->router->runsWorkInTheHouse($work);
+        $this->confinedWork = $confined;
+    }
+
+    /**
+     * What THIS registry saw of the work call it just ran — where it ran, and what its state was and is — or null.
+     * Asked once: the answer is spent (greenhouse decisions/0588, rule 5).
+     *
+     * The receipt of an execution is written by another hand, after the call. What a tool answers is data, so that
+     * hand does not read the receipt's facts out of a result: it asks here, where the call was run and its state
+     * digested.
+     *
+     * @param array<string, mixed> $args
+     *
+     * @return array{environment: string, confined: bool, state: list<array{path: string, before: ?string, after: ?string}>, changed: bool, pre_image: ?string}|null
+     */
+    public function landedWork(string $tool, array $args): ?array
+    {
+        $key = $tool . '#' . EffectObservation::argumentsDigest($args);
+        $landed = $this->landed[$key] ?? null;
+        unset($this->landed[$key]);
+
+        /** @var array{environment: string, confined: bool, state: list<array{path: string, before: ?string, after: ?string}>, changed: bool, pre_image: ?string}|null */
+        return $landed;
+    }
+
+    /**
+     * Run one work call in the house and answer with the handler's output and the house's account of its state.
+     *
+     * @param array<string, mixed> $args
+     */
+    private function workInTheHouse(string $name, WorkPlan $plan, array $args): ToolResult
+    {
+        if ($this->confinedWork === null) {
+            return ToolResult::error("«{$plan->operation}» is work in the domain and this house has nothing to run it confined with; nothing ran");
+        }
+        try {
+            $outcome = $this->confinedWork->run($plan, $args);
+        } catch (\RuntimeException $refused) {
+            return ToolResult::error($refused->getMessage() . ' Nothing ran.');
+        }
+        $this->landed[$name . '#' . EffectObservation::argumentsDigest($args)] = [
+            'environment' => 'house',
+            'confined' => true,
+            'state' => $outcome->state,
+            'changed' => $outcome->changed,
+            'pre_image' => $outcome->preImage,
+        ];
+        $house = ['ran_in_house' => true, 'changed' => $outcome->changed, 'state' => $outcome->state, 'pre_image' => $outcome->preImage];
+        $meta = ['work' => ['exit' => $outcome->run->exit, 'bounds' => $outcome->run->bounds, 'state' => $outcome->state, 'pre_image' => $outcome->preImage]];
+        if (! $outcome->run->ok()) {
+            // A REFUSAL OF THE DOMAIN KEEPS ITS REASON, and the house says beside it what it saw of its state.
+            $output = \is_array($outcome->run->output) ? $outcome->run->output : ['error' => trim($outcome->run->stderr) !== '' ? trim($outcome->run->stderr) : 'the call did not succeed'];
+
+            return ToolResult::error((string) json_encode(
+                ['ok' => false, ...$house, ...array_diff_key($output, ['ok' => 1])],
+                \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE,
+            ), $outcome->run->output, $meta);
+        }
+        $data = [...$house, 'output' => $outcome->run->output, 'note' => $outcome->changed
+            ? 'This ran in the house, confined to its state, and the state changed: it is done. There is nothing to promote.'
+            : 'This ran in the house and its state did not change: whatever it answered, nothing of it is in the house.'];
+
+        return ToolResult::success($data, $outcome->changed ? 'ran in the house; its state changed' : 'ran in the house; its state did not change', $meta);
+    }
+
     /**
      * @param list<Operation>                  $operations
      * @param (\Closure(): ?ScreenDrafts)|null $screenDrafts
@@ -90,6 +171,18 @@ final class TrialAwareRegistry extends ToolRegistry
             } catch (\RuntimeException $error) {
                 return ToolResult::error($error->getMessage());
             }
+        }
+        // WORK IN THE DOMAIN RUNS IN THE HOUSE, NOT IN A COPY (greenhouse decisions/0588). The gates above and
+        // before this door are the same; what changes is where the admitted call runs. A state that is not a
+        // place for state never runs; a call the house cannot confine runs where it always did — a person was
+        // asked first.
+        $work = $operation === null || $prepared !== null ? null : $this->router->workFor($operation);
+        if ($work !== null) {
+            if ($work->refused !== null) {
+                return ToolResult::error($work->refused);
+            }
+
+            return $work->confined ? $this->workInTheHouse($name, $work, $args) : $this->inner->call($name, $args, $ctx);
         }
         $plan = $operation === null ? null : $this->router->planFor($operation, $args);
         if ($prepared !== null && $plan === null) {
