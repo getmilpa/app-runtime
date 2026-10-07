@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [0.212.0](https://github.com/getmilpa/app-runtime/compare/v0.211.3...v0.212.0) (2026-10-07)
+
+
+### Features
+
+* skills travel with the package that owns their tools ([#736](https://github.com/getmilpa/app-runtime/issues/736)) ([015eaee](https://github.com/getmilpa/app-runtime/commit/015eaee802f8882d493d11c18bf370e8d0643dc1))
+
+
+### Bug Fixes
+
+* a refusal the house knows by reading says the step that is missing ([#735](https://github.com/getmilpa/app-runtime/issues/735)) ([1049dec](https://github.com/getmilpa/app-runtime/commit/1049decd7bd1b0aa286c2ffb6e53e8af4e57cdd5))
+
 ## [0.211.3](https://github.com/getmilpa/app-runtime/compare/v0.211.2...v0.211.3) (2026-10-07)
 
 
