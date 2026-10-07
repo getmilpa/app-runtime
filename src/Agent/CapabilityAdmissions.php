@@ -34,6 +34,9 @@ use Milpa\AppRuntime\Identity\FileEnrollmentStore;
  */
 final readonly class CapabilityAdmissions
 {
+    /** The intent session a passkey touch for admitting without a refusal is bound to: there is no agent session. */
+    public const string INTENT_SESSION = 'identity:admit';
+
     public function __construct(private FileEnrollmentStore $ledger, private BuiltCapabilities $built)
     {
     }
@@ -139,7 +142,10 @@ final readonly class CapabilityAdmissions
      *
      * @param list<string> $scopes the seat's own scopes
      *
-     * @return array{admitted: list<array{capability: string, scope: string, admitted_by: string, at: string, verbs: array<string, 'admitted'|'changed'|'gone'>}>, unadmitted: list<array{capability: string, scope: string, verbs: list<string>, ran_before: bool}>}
+     * Each scope no admission covers carries what a person must read to admit it without waiting for a refusal
+     * (decisions/0597): the same card a refusal gets — `opens`, `not_admissible` — and `contract`, its digest.
+     *
+     * @return array{admitted: list<array{capability: string, scope: string, admitted_by: string, at: string, verbs: array<string, 'admitted'|'changed'|'gone'>}>, unadmitted: list<array{capability: string, scope: string, verbs: list<string>, ran_before: bool, contract: ?string, opens: list<Verb>, not_admissible: ?string}>}
      */
     public function holdingsOf(string $seat, array $scopes): array
     {
@@ -172,11 +178,46 @@ final readonly class CapabilityAdmissions
             ksort($groups);
             foreach ($groups as $scope => $group) {
                 sort($group['verbs']);
-                $unadmitted[] = ['capability' => $capability, 'scope' => MissingAdmission::spelled((string) $scope), 'verbs' => $group['verbs'], 'ran_before' => $group['ran']];
+                $card = $this->card($seat, $capability, (string) $scope);
+                $unadmitted[] = [
+                    'capability' => $capability,
+                    'scope' => MissingAdmission::spelled((string) $scope),
+                    'verbs' => $group['verbs'],
+                    'ran_before' => $group['ran'],
+                    'contract' => $card['contract'] ?? null,
+                    'opens' => $card['opens'] ?? [],
+                    'not_admissible' => $card['not_admissible'] ?? null,
+                ];
             }
         }
 
         return ['admitted' => $admitted, 'unadmitted' => $unadmitted];
+    }
+
+    /**
+     * The one scope of one capability this house has TODAY whose contract gives that digest — or null (greenhouse
+     * decisions/0597). The digest carries the capability's name, the scope's and each verb's own digest, so it
+     * names a group without anybody typing a capability or a scope; and a contract that moved since it was read
+     * gives another digest, so it names nothing.
+     *
+     * @return Group|null
+     */
+    public function groupByDigest(string $digest): ?array
+    {
+        foreach ($this->built->capabilities() as $capability) {
+            $scopes = [];
+            foreach ($this->built->verbsOf($capability) as $verb) {
+                $scopes = [...$scopes, ...$verb->scopes()];
+            }
+            foreach (array_unique($scopes) as $scope) {
+                $group = $this->group($capability, $scope);
+                if ($group !== null && hash_equals($group['contract'], $digest)) {
+                    return $group;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**

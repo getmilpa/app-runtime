@@ -59,10 +59,19 @@ final class TheSeatsAPersonAnswersForSayWhatTheyHoldTest extends TestCase
         $seats = array_column($this->seats($c)['seats'], null, 'fingerprint');
 
         self::assertSame([], $seats[self::SEAT]['admitted']);
+        $said = static fn (array $row): array => array_intersect_key($row, ['capability' => 1, 'scope' => 1, 'verbs' => 1, 'ran_before' => 1]);
         self::assertSame([
             ['capability' => 'Prestamos', 'scope' => 'herramientas:read', 'verbs' => ['herramientas.listar'], 'ran_before' => true],
             ['capability' => 'Prestamos', 'scope' => 'herramientas:write', 'verbs' => ['herramientas.agregar', 'herramientas.devolver', 'herramientas.prestar'], 'ran_before' => true],
-        ], $seats[self::SEAT]['unadmitted']);
+        ], array_map($said, $seats[self::SEAT]['unadmitted']));
+        // And what a person must read to admit it with no refusal in front (decisions/0597): the card, and its digest.
+        $write = $seats[self::SEAT]['unadmitted'][1];
+        self::assertStringStartsWith('sha256:', $write['contract']);
+        self::assertSame($write['verbs'], array_column($write['opens'], 'verb'));
+        self::assertSame(['paths' => ['var/herramientas.json'], 'source' => 'entities'], $write['opens'][0]['state']);
+        self::assertNull($write['not_admissible']);
+        self::assertNotSame($write['contract'], $seats[self::SEAT]['unadmitted'][0]['contract'], 'each scope has a digest of its own');
+        self::assertSame($write['contract'], $seats[self::OTHER_SEAT]['unadmitted'][1]['contract'], 'the digest is of the contract, not of the seat');
         // The other seat never held them: the same verbs wait for a person, and nothing was taken from it.
         self::assertSame([false, false], array_column($seats[self::OTHER_SEAT]['unadmitted'], 'ran_before'));
     }

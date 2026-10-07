@@ -871,6 +871,53 @@ final class SessionOperations implements CommandProvider
                 requiresConfirmation: true,
             ),
             new Operation(
+                name: 'identity:admit',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    // The ledger keeps the state it replaces (decisions/0207); taking an admission back is its own act.
+                    Reversibility::Irreversible,
+                    // Deciding what a seat may do is an institutional act, the same as recognizing it.
+                    Authority::Privileged,
+                    subject: Subject::Configuration,
+                ),
+                description: 'Admit to a seat one scope of a capability built in this house, without waiting for the seat to be refused — named by the digest of the contract `identity:seats` shows for it, and by nothing else (greenhouse decisions/0597)',
+                handler: fn (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array => $this->admitirSinNegativa($input, $authority),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'seat' => ['type' => 'string', 'description' => 'The fingerprint of a seat you answer for'],
+                        'admits' => ['type' => 'string', 'description' => 'The digest `identity:seats` shows as `contract` for the scope to admit. It names the capability, the scope and every verb as they are declared now — no capability and no scope is ever typed, and a contract that moved since it was read admits nothing'],
+                        'assertion' => [
+                            'type' => 'object',
+                            'description' => 'Over HTTP: the passkey assertion over the challenge /webauthn/intent/options bound to identity:admit {seat, admits}',
+                        ],
+                    ],
+                    'required' => ['seat', 'admits'],
+                ],
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'ok' => ['type' => 'boolean', 'description' => 'False when nothing was admitted — the error says why'],
+                        'fingerprint' => ['type' => 'string', 'description' => 'The seat it was admitted to'],
+                        'capability' => ['type' => 'string', 'description' => 'The capability the digest named'],
+                        'granted' => ['type' => 'string', 'description' => 'The scope of that capability the digest named'],
+                        'admitted' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'The verbs it opens to the seat, each pinned by the contract it has now'],
+                        'contract' => ['type' => 'string', 'description' => 'The digest that was approved'],
+                        'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'The seat\'s own scopes, which an admission never changes'],
+                        'authorized_by' => ['type' => 'string', 'description' => 'The verified principal that decided, as passkey:<id> or key:<fingerprint>'],
+                        'error' => ['type' => 'string', 'description' => 'Why nothing was admitted; absent when ok'],
+                    ],
+                    'required' => ['ok'],
+                ],
+                // The same scope as recognizing an identity, and as admitting from a refusal.
+                scopes: ['identity:enroll'],
+                // Never MCP: a seat does not admit itself.
+                surfaces: ['cli', 'http'],
+                mutating: true,
+                requiresConfirmation: true,
+            ),
+            new Operation(
                 name: 'identity:seats',
                 // It reads the ledger and what the house declares; it changes nothing and reaches nobody.
                 effects: EffectProfile::readOnly(),
@@ -2354,6 +2401,87 @@ final class SessionOperations implements CommandProvider
     }
 
     /**
+     * Admit to a seat one scope of a built capability with no refusal in front — or refuse (greenhouse
+     * decisions/0597).
+     *
+     * Three things must hold, as for a grant. WHO: a principal proven for THIS call — a gpg signature over
+     * identity:admit {seat, admits}, or the passkey session plus a live assertion bound to it. WHICH SEAT: a live
+     * key of the ledger that principal answers for — and never the principal's own key. WHAT: the one scope of one
+     * capability whose contract, as the house has it NOW, gives the digest `admits`. Nothing else is read from the
+     * caller: no capability, no scope. What it writes is what an admission from a refusal writes.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array{ok: bool, fingerprint?: string, capability?: string, granted?: string, admitted?: list<string>, contract?: string, scopes?: list<string>, authorized_by?: string, error?: string}
+     */
+    private function admitirSinNegativa(array $input, ?ToolContext $authority): array
+    {
+        $seat = \is_string($input['seat'] ?? null) ? trim($input['seat']) : '';
+        $admits = \is_string($input['admits'] ?? null) ? trim($input['admits']) : '';
+        if ($seat === '' || $admits === '') {
+            return ['ok' => false, 'error' => 'which seat, and the digest of which contract? `seat` and `admits` are required — `identity:seats` shows both; nothing was admitted'];
+        }
+        $decider = $this->decider('identity:admit', ['seat' => $seat, 'admits' => $admits], \Milpa\AppRuntime\Agent\CapabilityAdmissions::INTENT_SESSION, $input['assertion'] ?? null, $authority, 'admitted');
+        if (\is_array($decider)) {
+            return $decider;
+        }
+        $kernel = $this->container->has(\Milpa\Runtime\Kernel::class)
+            ? $this->container->get(\Milpa\Runtime\Kernel::class)
+            : null;
+        if (!$kernel instanceof \Milpa\Runtime\Kernel) {
+            return ['ok' => false, 'error' => 'this app has no ledger to admit anything in; nothing was admitted'];
+        }
+        $ledger = new FileEnrollmentStore($kernel->root() . '/storage/identity/enrollments.json');
+        try {
+            $scopes = \Milpa\AppRuntime\Identity\IdentityKey::isFingerprint($seat) ? $ledger->scopesFor($seat) : null;
+            if ($scopes === null) {
+                return ['ok' => false, 'error' => \sprintf('«%s» is no seat of this house — a live key its ledger enrolled; nothing was admitted', $seat)];
+            }
+            $own = \Milpa\AppRuntime\Identity\EnrollmentLine::keyOf($decider);
+            $itself = $own !== null && \Milpa\AppRuntime\Identity\IdentityKey::normalize($own) === \Milpa\AppRuntime\Identity\IdentityKey::normalize($seat);
+            if ($itself || !(new \Milpa\AppRuntime\Identity\EnrollmentLine($ledger))->answersFor($decider, $seat)) {
+                return ['ok' => false, 'error' => 'you do not answer for that seat — only the line that enrolled it admits to it, and a seat does not admit itself; nothing was admitted'];
+            }
+            $admissions = new \Milpa\AppRuntime\Agent\CapabilityAdmissions($ledger, \Milpa\AppRuntime\Agent\BuiltCapabilities::of($kernel));
+            $group = $admissions->groupByDigest($admits);
+            if ($group === null) {
+                return ['ok' => false, 'error' => \sprintf(
+                    '«%s» is the digest of no scope of a capability this house has now — its contract moved since it was read, or it was never one; read it again with identity:seats; nothing was admitted',
+                    $admits,
+                )];
+            }
+            $permission = \Milpa\AppRuntime\Agent\MissingAdmission::spelled($group['scope']);
+            $card = $admissions->card($seat, $group['capability'], $group['scope']);
+            $notAdmissible = $card === null ? null : $card['not_admissible'];
+            if ($notAdmissible !== null) {
+                return ['ok' => false, 'error' => \sprintf(
+                    '%s, and a scope of a capability is admitted whole: «%s» of «%s» cannot be admitted until it does; nothing was admitted',
+                    $notAdmissible,
+                    $permission,
+                    $group['capability'],
+                )];
+            }
+            if (!$ledger->admit($seat, $group['capability'], $group['scope'], $group['verbs'], $decider)) {
+                return ['ok' => false, 'error' => 'the seat has no live recognition to admit anything to; nothing was admitted'];
+            }
+        } catch (\RuntimeException $e) {
+            return ['ok' => false, 'error' => 'nothing was admitted: ' . $e->getMessage()];
+        }
+
+        return [
+            'ok' => true,
+            'fingerprint' => $seat,
+            'capability' => $group['capability'],
+            'granted' => $permission,
+            'admitted' => array_keys($group['verbs']),
+            'contract' => $group['contract'],
+            // Read before the admission was written, and not read again: an admission never changes them.
+            'scopes' => $scopes,
+            'authorized_by' => $decider,
+        ];
+    }
+
+    /**
      * The seats the caller answers for, with what each holds (greenhouse decisions/0590). The terminal's operator —
      * whoever holds every scope — reads them all; a person reads the line they enrolled.
      *
@@ -2500,13 +2628,17 @@ final class SessionOperations implements CommandProvider
      *
      * @param array<string, mixed> $call          the arguments the proof must cover, exactly
      * @param string               $intentSession the session the passkey challenge was bound to
-     * @param string               $done          what did not happen, for the refusal — «granted», «minting»
+     * @param string               $done          what did not happen, for the refusal — «granted», «admitted», «minting»
      *
      * @return string|array{ok: false, error: string}
      */
     private function decider(string $operation, array $call, string $intentSession, mixed $assertion, ?ToolContext $authority, string $done): string|array
     {
-        $nothing = $done === 'granted' ? 'nothing was granted' : 'nothing was minted';
+        $nothing = match ($done) {
+            'granted' => 'nothing was granted',
+            'admitted' => 'nothing was admitted',
+            default => 'nothing was minted',
+        };
         $granted = $this->container->has(GrantedAuthorization::class)
             ? $this->container->get(GrantedAuthorization::class)
             : null;
