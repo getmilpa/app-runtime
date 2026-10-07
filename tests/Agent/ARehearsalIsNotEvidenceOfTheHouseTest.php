@@ -178,6 +178,17 @@ final class ARehearsalIsNotEvidenceOfTheHouseTest extends TestCase
         self::assertTrue($this->claim('operation-ok', 'plugins_register')['ok']);
     }
 
+    /** A ledger that kept only part of a promotion's result does not show that it carried nothing. */
+    public function testAPromotionWhoseResultWasCutStillLandedTheTrialItWasAskedFor(): void
+    {
+        [, $workspace] = $this->rehearse('plugins_register', ['name' => 'Prestamos'], ['config/plugins.php' => 'modified'], ['ok' => true]);
+        $this->store->recordToolCall('s', 'source_read', ['workspace' => $workspace], '{"ok":true,"content":"<?php return [', true, false, null, false);
+        self::assertFalse($this->claim('operation-ok', 'plugins_register')['ok'], 'any other call that names the trial did not promote it');
+
+        $this->store->recordToolCall('s', 'sandbox_promote', ['workspace' => $workspace], '{"ok":true,"promoted":["config/plugins.php"],"evidence":{"predicate":"promo', true, true, null, false);
+        self::assertTrue($this->claim('operation-ok', 'plugins_register')['ok']);
+    }
+
     public function testARehearsalSaysNothingOfTheCallsBeforeIt(): void
     {
         [$landed, $workspace] = $this->rehearse('plugins_register', ['name' => 'Prestamos'], ['config/plugins.php' => 'modified'], ['ok' => true]);

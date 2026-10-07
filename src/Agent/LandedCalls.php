@@ -107,7 +107,7 @@ final class LandedCalls
                 'promotable' => ! $readable || \is_array($result['to_apply'] ?? null),
             ];
             if ($succeeded && ! $rehearsed) {
-                $carried = self::carriedBy($payload, $result);
+                $carried = self::carriedBy($payload, $readable ? $result : null);
                 if ($carried !== null) {
                     $self->promoted[$carried] = $event->seq;
                 }
@@ -253,18 +253,25 @@ final class LandedCalls
     /**
      * The trial a succeeded promotion carried into the house, or null when the call is no promotion or carried nothing.
      *
+     * A promotion whose recorded result cannot be read whole does not SHOW that it carried nothing: it is taken to
+     * have carried the trial it was asked for, so a ledger that kept only part of it never turns a landed call into
+     * a rehearsal.
+     *
      * @param array<string, mixed> $payload
-     * @param array<mixed>         $result
+     * @param array<mixed>|null    $result  null when the recorded result is not a readable object
      */
-    private static function carriedBy(array $payload, array $result): ?string
+    private static function carriedBy(array $payload, ?array $result): ?string
     {
-        $evidence = \is_array($result['evidence'] ?? null) ? $result['evidence'] : [];
-        if (($evidence['predicate'] ?? null) !== 'promoted' || ! \is_array($result['promoted'] ?? null) || $result['promoted'] === []) {
-            return null;
-        }
-        $from = \is_array($evidence['from'] ?? null) ? ($evidence['from']['workspace'] ?? null) : null;
         $asked = \is_array($payload['arguments'] ?? null) ? ($payload['arguments']['workspace'] ?? null) : null;
-        $workspace = $from ?? $asked;
+        if ($result === null) {
+            $workspace = $payload['tool'] === 'sandbox_promote' ? $asked : null;
+        } else {
+            $evidence = \is_array($result['evidence'] ?? null) ? $result['evidence'] : [];
+            if (($evidence['predicate'] ?? null) !== 'promoted' || ! \is_array($result['promoted'] ?? null) || $result['promoted'] === []) {
+                return null;
+            }
+            $workspace = (\is_array($evidence['from'] ?? null) ? ($evidence['from']['workspace'] ?? null) : null) ?? $asked;
+        }
 
         return \is_string($workspace) && $workspace !== '' ? $workspace : null;
     }
