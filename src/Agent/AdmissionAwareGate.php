@@ -45,19 +45,33 @@ final class AdmissionAwareGate extends PolicyGate
         return $policy instanceof PluginAuthoringPolicy ? $policy->contextFor($ctx, $tool) : $ctx;
     }
 
-    /** @param array<string, mixed> $arguments */
+    /**
+     * The wrapped gate's whole verdict for a call, asked with the caller as it is to be seen for this tool.
+     *
+     * @param array<string, mixed> $arguments
+     */
     public function authorize(ToolContext $ctx, ToolDefinition $tool, array $arguments = []): AuthorizationResult
     {
         return $this->inner->authorize($this->contextFor($ctx, $tool->name), $tool, $arguments);
     }
 
-    /** @param array<string> $scopes */
+    /**
+     * The wrapped gate's question about the declared word — which, for a seat's call to a built verb, is not the
+     * question that decides: the caller is seen holding that verb's own words.
+     *
+     * @param array<string> $scopes
+     */
     public function authorizeScopes(ToolContext $ctx, string $name, array $scopes): AuthorizationResult
     {
         return $this->inner->authorizeScopes($this->contextFor($ctx, $name), $name, $scopes);
     }
 
-    /** @param array<string, mixed> $arguments */
+    /**
+     * The wrapped gate's verdict before a call — the declared word, then the house's policy — asked the same way,
+     * so for a seat's call to a built verb the policy's answer is the one that stands.
+     *
+     * @param array<string, mixed> $arguments
+     */
     public function authorizeCall(ToolContext $ctx, ToolDefinition $tool, array $arguments): AuthorizationResult
     {
         return $this->inner->authorizeCall($this->contextFor($ctx, $tool->name), $tool, $arguments);

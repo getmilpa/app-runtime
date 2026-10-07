@@ -110,6 +110,7 @@ final class BuiltCapabilities
         return $names;
     }
 
+    /** Whether this house built no verb at all: then there is nothing here to admit, and nothing is judged. */
     public function isEmpty(): bool
     {
         return $this->verbs === [];
