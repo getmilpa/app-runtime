@@ -106,7 +106,7 @@ final class PublicSource
         $fields = self::fields($entity);
         $columns = $source['columns'] ?? null;
         if (! \is_array($columns) || $columns === [] || ! array_is_list($columns)) {
-            throw new InvalidScreenTree('source.columns', 'source.columns must list the fields to show, e.g. ["title"]');
+            throw new InvalidScreenTree('source.columns', 'source.columns must list the fields to show, e.g. ["<field>"]');
         }
         $named = [];
         foreach ($columns as $i => $column) {

@@ -187,6 +187,25 @@ final class Blog implements \Milpa\Interfaces\Plugin\PluginInterface, \Milpa\Run
         self::assertStringContainsString('give the value', (string) ($refused['error'] ?? ''));
     }
 
+    /**
+     * A FORM IS NOT A PATH (greenhouse decisions/0594 §5). The contract shows a path by its form — `/<path>` — and
+     * an example is copied letter for letter. Sent back as shown it is refused by name, before anything is
+     * requested: it used to be requested, and the 404 it got said nothing about why.
+     */
+    public function testAPathCopiedFromTheContractsFormIsAnsweredByNameAndNothingIsRequested(): void
+    {
+        touch($this->root . '/var/die');
+
+        foreach ([['path' => '/<path>'], ['path' => '/<path>/1'], ['path' => '/blog', 'workspace' => 'w8', 'method' => 'POST', 'then' => ['/<path>']]] as $input) {
+            $refused = $this->observe($input);
+
+            self::assertFalse($refused['ok'] ?? true, (string) json_encode($refused));
+            self::assertStringContainsString('is the form the contract shows, not a path of this house', (string) ($refused['error'] ?? ''));
+            self::assertStringContainsString('«<path>»', (string) ($refused['error'] ?? ''), 'it names what to replace');
+            self::assertArrayNotHasKey('observed', $refused);
+        }
+    }
+
     /** @return iterable<string, array{0: mixed}> */
     public static function notAPath(): iterable
     {
@@ -361,7 +380,7 @@ final class Blog implements \Milpa\Interfaces\Plugin\PluginInterface, \Milpa\Run
         $with = (string) $prompt->invoke($ops, ['route_observe', 'implement'], null);
         $without = (string) $prompt->invoke($ops, ['implement'], null);
 
-        self::assertStringContainsString('To confirm a route serves, call `route_observe`', $with);
+        self::assertStringContainsString('To confirm a route serves, call `route_observe` with its path (e.g. /<path>)', $with, 'the path is shown by its form');
         self::assertStringContainsString('Never conclude it from reading its code', $with);
         self::assertStringNotContainsString('route_observe', $without, 'a tool that does not travel is never named');
     }

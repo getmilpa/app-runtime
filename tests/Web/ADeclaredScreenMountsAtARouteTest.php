@@ -240,7 +240,7 @@ final class ADeclaredScreenMountsAtARouteTest extends TestCase
 
         $refused = $store->declare(['name' => 'blog', 'rows' => [], 'route' => 'blog']);
 
-        self::assertSame(['ok' => false, 'error' => 'invalid screen tree', 'path' => 'route', 'reason' => 'a route starts with /, as HTTP writes it: /blog'], $refused);
+        self::assertSame(['ok' => false, 'error' => 'invalid screen tree', 'path' => 'route', 'reason' => 'a route starts with /, as HTTP writes it: /<path>'], $refused);
         self::assertSame([], $store->names(), 'whoever writes the store directly — a trial, a test — meets the same rule');
         self::assertTrue($store->declare(['name' => 'blog', 'rows' => [], 'route' => ''])['ok'], 'an empty route is no route');
         self::assertSame([], $store->mounts());

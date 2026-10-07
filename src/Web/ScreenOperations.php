@@ -125,14 +125,14 @@ final class ScreenOperations implements CommandProvider
             )]),
             new Operation(
                 name: 'screen:declare',
-                description: 'Declare a live screen by name and component type (default data-table) with its props. It is served at /live/page?component=<name> with no code deploy, and also at the literal GET route it names (route: /blog) — the way to serve a page a visitor reads without writing its HTML. A data-table may pass columns/rows at the top level. A type whose contract has rows (data-table, content) may bind to a public entity with source instead of rows. Any type passes its props under "props".',
+                description: 'Declare a live screen by name and component type (default data-table) with its props. It is served at /live/page?component=<name> with no code deploy, and also at the literal GET route it names (route: /<path>) — the way to serve a page a visitor reads without writing its HTML. A data-table may pass columns/rows at the top level. A type whose contract has rows (data-table, content) may bind to a public entity with source instead of rows. Any type passes its props under "props".',
                 handler: fn (array $input): array => $this->declare($input),
                 inputSchema: [
                     'type' => 'object',
                     'required' => ['name'],
                     'properties' => [
                         'name' => ['type' => 'string', 'description' => 'a-z, 0-9, dash; starts with a letter'],
-                        'route' => ['type' => 'string', 'description' => 'mount the screen at this literal GET path, e.g. /blog: no parameters, no query; refused if the house already serves it. Omit it and the screen answers only at /live/page?component=<name>'],
+                        'route' => ['type' => 'string', 'description' => 'mount the screen at this literal GET path, e.g. /<path>: no parameters, no query; refused if the house already serves it. Omit it and the screen answers only at /live/page?component=<name>'],
                         'type' => $this->registry !== null
                             ? ['type' => 'string', 'description' => 'a currently registered HTML component; discover with screen:types', 'x-milpa-source' => ['tool' => 'screen:types', 'path' => 'types', 'key' => 'name']]
                             : ($this->types === []
@@ -147,7 +147,7 @@ final class ScreenOperations implements CommandProvider
                             'properties' => [
                                 'reading' => ['type' => 'string', 'description' => 'a reading this house lends; discover with screen:readings'],
                                 'arguments' => ['type' => 'object', 'description' => 'the reading\'s arguments, by name'],
-                                'entity' => ['type' => 'string', 'description' => 'the entity by its short name, e.g. Post — or Blog/Post when two plugins have one'],
+                                'entity' => ['type' => 'string', 'description' => 'the entity by its short name, e.g. <Entity> — or <Plugin>/<Entity> when two plugins have one'],
                                 'columns' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'the entity fields to show (rows)'],
                                 'count' => ['type' => 'boolean', 'description' => 'true: show how many public rows there are (value)'],
                                 'limit' => ['type' => 'integer', 'description' => 'rows served, 1 to 200; default 50'],

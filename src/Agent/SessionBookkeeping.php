@@ -245,13 +245,15 @@ final readonly class SessionBookkeeping implements ContractProducer
 
     /**
      * WHICH REFERENCE THE SESSION HOLDS, KIND BY KIND — the rule {@see coveringFact()} judges by, with one example of
-     * each that it accepts as written (a test claims with every example, so the two cannot drift apart).
+     * each. An example shows the FORM of the reference, never a name of its own (greenhouse decisions/0594 §5): with
+     * the session's own names where its placeholders are, the judge accepts it (a test claims with every example,
+     * so the two cannot drift apart).
      */
     private const HELD = [
-        'test-passed' => 'the filter or path a `test` run of this session declared, when its last run is green, e.g. `BlogTest`',
+        'test-passed' => 'the filter or path a `test` run of this session declared, when its last run is green, e.g. `<Name>Test`',
         'operation-ok' => 'the name of a tool this session called and that answered ok in the house — a call that ran in a trial counts once its trial is promoted —, as it was called, e.g. `plugins_register`',
-        'artifact-created' => 'one path a `sandbox_promote` of this session carried into the house, e.g. `src/Plugins/Blog/Blog.php`',
-        'screen-served' => 'the route the house observed served and that still is, as the house wrote it — or the name of the screen `screen_observe` answered for —, e.g. `/blog`',
+        'artifact-created' => 'one path a `sandbox_promote` of this session carried into the house, e.g. `src/Plugins/<Plugin>/<Plugin>.php`',
+        'screen-served' => 'the route the house observed served and that still is, as the house wrote it — or the name of the screen `screen_observe` answered for —, e.g. `/<path>`',
     ];
 
     /** What the contract says of `reference`: one identifier, and which one for each kind. */
