@@ -36,6 +36,13 @@ final readonly class Skill
         // Absolute directory of this skill's folder — where its bundled scripts/ and references/ live,
         // reported to the agent as <skill_resources> so it can reach them.
         public string $directory = '',
+        // Who contributed it (greenhouse decisions/0592): the house itself, or one of the packages allowed to
+        // carry skills — {@see SkillRegistry::PACKAGES}.
+        public string $origin = SkillRegistry::HOUSE,
+        // The tools it needs, by the name an agent sees them under: it is advertised only to a session that is
+        // offered every one of them. A skill that describes `make` says nothing to a house without it.
+        /** @var list<string> */
+        public array $requires = [],
     ) {
     }
 }

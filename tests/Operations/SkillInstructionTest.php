@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tests\Operations;
 
+use Milpa\AppRuntime\Agent\Skill\SkillRegistry;
 use Milpa\AppRuntime\Operations\AgentOperations;
 use Milpa\Container\DIContainer;
 use Milpa\Runtime\Kernel;
@@ -39,6 +40,9 @@ final class SkillInstructionTest extends TestCase
             'plugins' => [],
         ]);
         $container->registerService(Kernel::class, $kernel);
+        // THE HOUSE'S OWN SKILLS ONLY: what this class fixes is the slot of the announcement and who may be named in
+        // it. The skills a package carries are {@see AHouseIsToldOfTheSkillsItsPackagesCarryTest}'s.
+        $container->registerService(SkillRegistry::class, static fn (string $root): SkillRegistry => new SkillRegistry($root, static fn (): ?string => null));
         $this->operations = new AgentOperations($container);
     }
 

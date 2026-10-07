@@ -37,7 +37,8 @@ final class SkillRegistryTest extends TestCase
 
     public function testItReadsEverySkillWithItsBodyAndDirectory(): void
     {
-        $reg = new SkillRegistry($this->root);
+        // The house's own skills, with no package behind it: what a package carries is another test's.
+        $reg = new SkillRegistry($this->root, static fn (): ?string => null);
 
         self::assertCount(3, $reg->all());
         self::assertSame('alpha', $reg->get('alpha')?->name);
@@ -49,7 +50,8 @@ final class SkillRegistryTest extends TestCase
 
     public function testItHonoursTheInvocationFlags(): void
     {
-        $reg = new SkillRegistry($this->root);
+        // The house's own skills, with no package behind it: what a package carries is another test's.
+        $reg = new SkillRegistry($this->root, static fn (): ?string => null);
 
         self::assertTrue($reg->get('alpha')?->modelInvocable);
         self::assertTrue($reg->get('alpha')?->userInvocable);
