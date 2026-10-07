@@ -380,12 +380,10 @@ final class TrialAwareRegistry extends ToolRegistry
         foreach ($this->houseApplies ? array_keys($tools) : [] as $i) {
             if ($this->takesApply($tools[$i]['name'])) {
                 $schema = $tools[$i]['inputSchema'];
-                $schema['properties'] = (array) ($schema['properties'] ?? []) + ['apply' => [
-                    'type' => 'string',
-                    'enum' => [AppliedWhenVerified::KEYWORD],
-                    'description' => 'Pass "when_verified" to have the house apply this change itself once its trial verifies '
-                        . '(it then calls sandbox:promote for you). Omit it to decide after seeing the trial.',
-                ]];
+                // THE OFFER IS THE VALUE AND NOTHING ELSE (greenhouse evidence/1121): this schema travels on every
+                // producer, in every request. Described, it weighed 879 tokens per request; bare, 159. What it means
+                // the house says once, in the note of a trial ({@see AppliedWhenVerified::RULE}).
+                $schema['properties'] = (array) ($schema['properties'] ?? []) + ['apply' => ['enum' => [AppliedWhenVerified::KEYWORD]]];
                 $tools[$i]['inputSchema'] = $schema;
             }
         }

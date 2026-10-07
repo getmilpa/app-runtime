@@ -256,8 +256,10 @@ final class TheCallSaysWhetherTheHouseAppliesItTest extends TestCase
         $offered = static fn (TrialAwareRegistry $registry): array => array_column($registry->getToolSummaries(), 'inputSchema', 'name');
 
         $with = $offered($this->registry());
-        self::assertSame(['type' => 'string', 'enum' => ['when_verified']], array_diff_key($with['make']['properties']['apply'], ['description' => 1]));
-        self::assertStringContainsString('sandbox:promote', $with['make']['properties']['apply']['description']);
+        // THE OFFER IS THE VALUE AND NOTHING ELSE (greenhouse evidence/1121). Its schema travels on every producer a
+        // trial confines, in every request: with a description it weighed 879 tokens per request, bare it weighs
+        // 159. What it means is said once, by the note of a trial ({@see AppliedWhenVerified::RULE}).
+        self::assertSame(['enum' => ['when_verified']], $with['make']['properties']['apply']);
         self::assertArrayNotHasKey('apply', (array) ($with['source_read']['properties'] ?? []), 'a read is not applied');
         self::assertArrayNotHasKey('apply', (array) ($with['sandbox_promote']['properties'] ?? []), 'the promotion is the applying');
         self::assertArrayNotHasKey('required', $with['make'], 'it is never required');
