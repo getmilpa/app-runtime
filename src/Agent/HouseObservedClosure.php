@@ -155,7 +155,7 @@ final class HouseObservedClosure
             $evidence = $result['evidence'] ?? (\is_array($result['output'] ?? null) ? ($result['output']['evidence'] ?? null) : null);
             $evidence = \is_array($evidence) ? $evidence : [];
             $environment = \is_array($evidence['environment'] ?? null) ? ($evidence['environment']['kind'] ?? null) : null;
-            $rehearsed = ($result['ran_in_trial'] ?? false) === true && ($result['applied'] ?? false) !== true;
+            $rehearsed = LandedCalls::keptInATrial($result);
             $generated = null;
 
             if (($payload['mutating'] ?? false) === true && ($payload['awaitingConfirmation'] ?? null) !== true
@@ -336,7 +336,7 @@ final class HouseObservedClosure
      * @param array<mixed>|null                                    $result  null when the recorded result is not a readable object
      * @param (\Closure(string, array<string, mixed>): ?bool)|null $lasting
      */
-    private static function lasts(array $payload, ?array $result, ?\Closure $lasting): bool
+    public static function lasts(array $payload, ?array $result, ?\Closure $lasting): bool
     {
         if ($lasting === null || ! \is_string($payload['tool'] ?? null) || $result === null) {
             return true;

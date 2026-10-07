@@ -249,7 +249,7 @@ final readonly class SessionBookkeeping implements ContractProducer
      */
     private const HELD = [
         'test-passed' => 'the filter or path a `test` run of this session declared, when its last run is green, e.g. `BlogTest`',
-        'operation-ok' => 'the name of a tool this session called and that answered ok, as it was called, e.g. `plugins_register`',
+        'operation-ok' => 'the name of a tool this session called and that answered ok in the house — a call that ran in a trial counts once its trial is promoted —, as it was called, e.g. `plugins_register`',
         'artifact-created' => 'one path a `sandbox_promote` of this session carried into the house, e.g. `src/Plugins/Blog/Blog.php`',
         'screen-served' => 'the route the house observed served and that still is, as the house wrote it — or the name of the screen `screen_observe` answered for —, e.g. `/blog`',
     ];
@@ -583,18 +583,27 @@ final readonly class SessionBookkeeping implements ContractProducer
         }
 
         if ($kind === EvidenceKind::OperationOk) {
-            $answer = $facts->operationResult($reference);
-            $call = \is_array($answer['call'] ?? null) ? $answer['call'] : [];
-            if (($answer['ok'] ?? false) === true && ($call['succeeded'] ?? false) === true) {
-                return ['fact' => 'call', 'operation' => $reference, 'seq' => $call['seq'] ?? 0];
+            // A REHEARSAL IS NOT A FACT ABOUT THE HOUSE (greenhouse decisions/0587). A mutating call runs first in a
+            // disposable trial and is recorded `ok: true`; it reaches the house only when that trial is promoted
+            // (decisions/0463). Measured on published 0.211.1 (decisions/0585): a domain write ran in a trial that had
+            // «nothing to apply», this judge took its ok — and its execution receipt — for the house's, and the
+            // session closed verified with the house's store untouched. The judge asks the reading the house's own
+            // closure already keeps ({@see LandedCalls}, decisions/0494 §4): the tool's last call rehearsals aside.
+            $calls = LandedCalls::of($stream, $this->lasting);
+            $call = $calls->answeredOk($reference);
+            if ($call !== null) {
+                return ['fact' => 'call', 'operation' => $reference, 'seq' => $call['seq']];
             }
 
             // A governed execution receipt proves an operation ran even when no tool call names it.
-            $operational = $facts->operationalFacts(\PHP_INT_MAX);
-            foreach (\is_array($operational['executions'] ?? null) ? $operational['executions'] : [] as $execution) {
-                if (($execution['operation'] ?? null) === $reference) {
-                    return ['fact' => 'execution', 'operation' => $reference, 'seq' => $execution['seq'] ?? 0];
-                }
+            $receipt = $calls->executed($reference);
+            if ($receipt !== null) {
+                return ['fact' => 'execution', 'operation' => $reference, 'seq' => $receipt['seq']];
+            }
+
+            $rehearsal = $calls->rehearsalOf($reference);
+            if ($rehearsal !== null) {
+                $refusal = 'the claim is refused: ' . LandedCalls::refusal($reference, $rehearsal);
             }
 
             return null;
@@ -665,7 +674,14 @@ final readonly class SessionBookkeeping implements ContractProducer
         $state = $facts->workStateFor($reference);
         $reached = \is_string($state['workState']['state'] ?? null) ? $state['workState']['state'] : '';
         if (($state['ok'] ?? false) === true && \in_array($reached, ['materialized', 'superseded', 'verified'], true)) {
-            return ['fact' => 'work-state', 'state' => $reached, 'artifact' => $reference];
+            // MADE IN A COPY IS NOT MADE IN THE HOUSE (greenhouse decisions/0587): the same reading as above. When
+            // every call that materialised it stayed in a trial nothing promoted, the house does not have it.
+            $attempts = \is_array($state['workState']['attempts'] ?? null) ? $state['workState']['attempts'] : [];
+            $rehearsal = LandedCalls::of($stream, $this->lasting)->madeOnlyInATrial($attempts);
+            if ($rehearsal === null) {
+                return ['fact' => 'work-state', 'state' => $reached, 'artifact' => $reference];
+            }
+            $refusal = 'the claim is refused: ' . LandedCalls::refusal($reference, $rehearsal, 'was made');
         }
 
         // A PROMOTION MATERIALISES ITS PATHS (greenhouse decisions/0482, 0463): the promotion that carried a
