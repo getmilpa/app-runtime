@@ -454,11 +454,18 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
         return $this->table?->removed() ?? [];
     }
 
-    /** Preserve historical withdrawal and the current refusal's explicit recovery cause. */
+    /**
+     * Preserve historical withdrawal and the current refusal's explicit recovery cause.
+     *
+     * AND A REFUSAL THE HOUSE READ FROM ITSELF (greenhouse decisions/0591): this flag is how the loop is told to
+     * hand a reason back to the model instead of ending the leg on it. There is no gate to walk around there —
+     * nobody was going to be asked — and the reason names the one call that lifts it.
+     */
     protected function optionRemoved(string $tool): bool
     {
         return ($this->table?->wasRemoved($tool) ?? false)
-            || ($this->gate instanceof SessionToolGate && $this->gate->recoveryRefusalWasHidden($tool));
+            || ($this->gate instanceof SessionToolGate
+                && ($this->gate->recoveryRefusalWasHidden($tool) || $this->gate->refusalWasForeknown($tool)));
     }
 
     /**

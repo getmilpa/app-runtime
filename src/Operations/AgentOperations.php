@@ -5110,7 +5110,24 @@ class AgentOperations implements CommandProvider
     {
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
 
-        return new SkillRegistry($kernel instanceof Kernel ? $kernel->root() : '');
+        return $this->skillsOf($kernel instanceof Kernel ? $kernel->root() : '');
+    }
+
+    /**
+     * The skills of the house at this root: its own, and those of the packages allowed to carry one (greenhouse
+     * decisions/0592), read again each time — a skill the house just landed is there on the next call.
+     *
+     * A host that registered how its skills are found — a registry, or `fn (string $root): SkillRegistry` — is
+     * asked instead.
+     */
+    private function skillsOf(string $root): SkillRegistry
+    {
+        $own = $this->container->has(SkillRegistry::class) ? $this->container->get(SkillRegistry::class) : null;
+        if ($own instanceof \Closure) {
+            $own = $own($root);
+        }
+
+        return $own instanceof SkillRegistry ? $own : new SkillRegistry($root);
     }
 
     /** @return array{ok: bool, roles: list<array<string, mixed>>} */
@@ -5141,7 +5158,10 @@ class AgentOperations implements CommandProvider
             'modelInvocable' => $s->modelInvocable,
             'userInvocable' => $s->userInvocable,
             'bodyChars' => \strlen($s->body),
-        ], (new SkillRegistry($kernel->root()))->all());
+            // WHERE IT CAME FROM, and what it needs to be advertised (greenhouse decisions/0592).
+            'origin' => $s->origin,
+            'requires' => $s->requires,
+        ], $this->skillsOf($kernel->root())->all());
 
         return ['ok' => true, 'skills' => $skills];
     }
@@ -5202,7 +5222,7 @@ class AgentOperations implements CommandProvider
             return ['ok' => false, 'error' => 'no kernel: skills are read from the app root'];
         }
 
-        $skill = (new SkillRegistry($kernel->root()))->get($name);
+        $skill = $this->skillsOf($kernel->root())->get($name);
         if ($skill === null) {
             return ['ok' => false, 'error' => "unknown skill: {$name}"];
         }
@@ -5353,26 +5373,21 @@ class AgentOperations implements CommandProvider
         // Skills — non-deterministic guidance the agent reaches for by judgment, not tools it runs.
         // Only the model-invocable ones are advertised: a skill barred from the model
         // (`disable-model-invocation`) is withheld here so the agent never reaches for it.
-        // The executor's current offer also governs the instruction to load a skill.
+        // The executor's current offer governs the announcement TWICE (greenhouse decisions/0592): there is no
+        // instruction to load a skill without the loader, and a skill is named only when the tools it says it
+        // needs are on the offer — what a session cannot use, it does not read about.
         $kernelSkills = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
         $skillOffset = \strlen(implode("\n\n", $partes));
-        $skillSection = '';
+        $skillRegistry = $kernelSkills instanceof Kernel ? $this->skillsOf($kernelSkills->root()) : null;
         $initialSkillSection = '';
-        if ($kernelSkills instanceof Kernel) {
-            $skills = (new SkillRegistry($kernelSkills->root()))->modelInvocable();
-            if ($skills !== []) {
-                $lineas = array_map(static fn (Skill $s): string => "- {$s->name}: {$s->description}", $skills);
-                $skillSection = "<system-reminder> A skill is a reusable set of task-specific instructions. "
-                    . "The following skills are available in this session:\n<available_skills>\n"
-                    . implode("\n", $lineas)
-                    . "\n</available_skills>\n"
-                    . "When a skill matches the task, call `skill:load` with its name, read its instructions, "
-                    . "and follow them before you act. </system-reminder>";
-                if (\in_array('skill_load', $herramientas, true)) {
-                    $partes[] = $skillSection;
-                    $initialSkillSection = "\n\n" . $skillSection;
-                }
+        if ($skillRegistry !== null && $skillRegistry->modelInvocable() !== []) {
+            $announced = $skillRegistry->announcement(array_values(array_filter($herramientas, '\is_string')));
+            if ($announced !== '') {
+                $partes[] = $announced;
+                $initialSkillSection = "\n\n" . $announced;
             }
+        } else {
+            $skillRegistry = null;
         }
 
         $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
@@ -5418,15 +5433,16 @@ class AgentOperations implements CommandProvider
         }
 
         $basePrompt = implode("\n\n", $partes);
-        $this->skillInstructionProjection = $skillSection === '' ? null :
-            static function (string $system, array $tools) use ($basePrompt, $skillOffset, $skillSection, $initialSkillSection): string {
+        $this->skillInstructionProjection = $skillRegistry === null ? null :
+            static function (string $system, array $tools) use ($basePrompt, $skillOffset, $skillRegistry, $initialSkillSection): string {
                 // Only the section emitted by this builder is ours to project. A custom
                 // override that replaces the base prompt retains its own instructions.
                 if (!str_starts_with($system, $basePrompt)) {
                     return $system;
                 }
-                $section = \in_array('skill_load', array_column($tools, 'name'), true) ? "\n\n" . $skillSection : '';
-                return substr_replace($system, $section, $skillOffset, \strlen($initialSkillSection));
+                $announced = $skillRegistry->announcement(array_values(array_filter(array_column($tools, 'name'), '\is_string')));
+
+                return substr_replace($system, $announced === '' ? '' : "\n\n" . $announced, $skillOffset, \strlen($initialSkillSection));
             };
         return $basePrompt;
     }

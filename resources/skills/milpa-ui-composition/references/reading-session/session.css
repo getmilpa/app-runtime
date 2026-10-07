@@ -1,0 +1,15 @@
+/* Apache-2.0 · (c) Rodrigo Vicente - TeamX Agency */
+.reading-session { max-width: 36rem; margin: 2rem auto; padding: 1.25rem; overflow-wrap: anywhere; }
+.reading-session header, .reading-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.reading-session header { justify-content: space-between; }
+.reading-session h1 { font-size: 1.5rem; }
+.reading-session progress { width: 100%; accent-color: currentColor; }
+.reading-session .reading-total { font-size: 2rem; font-variant-numeric: tabular-nums; }
+.reading-session form { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; margin-block: 1.5rem; }
+.reading-session form > :first-child { flex: 1 1 12rem; min-width: 0; }
+.reading-session input { box-sizing: border-box; width: 100%; }
+.reading-session button { min-height: 2.75rem; padding: .6rem 1rem; font: inherit; cursor: pointer; }
+.reading-session button:disabled { cursor: wait; opacity: .6; }
+.reading-session :focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.reading-session .reading-note { font-size: .875rem; }
+@media (max-width: 30rem) { .reading-session { margin-block: .5rem; padding: .75rem; } }
