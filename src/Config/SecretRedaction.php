@@ -38,6 +38,14 @@ namespace Milpa\AppRuntime\Config;
  *
  * Only values of at least {@see MIN_LENGTH} characters are matched: a one- or two-character secret would
  * redact half of any file, and a secret that short is not one worth protecting this way.
+ *
+ * ── AND THE CREDENTIALS IT READS FROM THE ENVIRONMENT (greenhouse decisions/0589) ───────────────────
+ *
+ * A provider key handed to the house in a variable is a value the house keeps as a secret too: it sends it. It
+ * was not in the overlay, so nothing here knew it — measured (evidence/1130): once a test printed it, it went to
+ * the model in 5 of 8 requests. {@see ProviderCredentials} is the one reader of those variables, and every value
+ * it finds is matched like the overlay's. They need no house root: a caller that does not know it still keeps
+ * the environment out.
  */
 final class SecretRedaction
 {
@@ -50,7 +58,7 @@ final class SecretRedaction
      * Redact every secret value from a tool result, in place of structure: strings are masked, the shape
      * and every non-secret value are preserved so the resident still reads the rest.
      */
-    public static function inResult(mixed $result, string $root): mixed
+    public static function inResult(mixed $result, ?string $root): mixed
     {
         if (\is_string($result)) {
             return self::inText($result, $root);
@@ -71,9 +79,9 @@ final class SecretRedaction
      * Redact every secret value wherever it appears in a string. The rest of the text is untouched — the
      * control the slice measured: the resident keeps reading everything that is not a secret.
      */
-    public static function inText(string $text, string $root): string
+    public static function inText(string $text, ?string $root): string
     {
-        if (self::overlayUnreadable($root)) {
+        if ($root !== null && self::overlayUnreadable($root)) {
             // The house has secrets whose values we cannot read to match — withhold, do not pass.
             return self::REDACTED;
         }
@@ -90,10 +98,10 @@ final class SecretRedaction
      *
      * @return list<string>
      */
-    public static function values(string $root): array
+    public static function values(?string $root): array
     {
         $values = [];
-        $tree = SecretOverlay::sobre([], $root);
+        $tree = [$root === null ? [] : SecretOverlay::sobre([], $root), ProviderCredentials::ofTheEnvironment()];
         array_walk_recursive(
             $tree,
             static function (mixed $value) use (&$values): void {

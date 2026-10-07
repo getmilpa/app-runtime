@@ -435,10 +435,10 @@ final class AgentEndpoint
             // No model is named when nobody declared one: the old fallback named a model nobody chose (0542).
             return 'local · ' . ($modelo ?? '(model not declared)');
         }
-        if (getenv('ANTHROPIC_API_KEY')) {
+        if (ProviderCredentials::providerKey('anthropic') !== null) {
             return 'anthropic · ' . ($modelo ?? 'claude-sonnet-4-5');
         }
-        if (getenv('OPENAI_API_KEY')) {
+        if (ProviderCredentials::providerKey('openai') !== null) {
             return 'openai · ' . ($modelo ?? 'gpt-4o');
         }
 

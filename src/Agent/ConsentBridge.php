@@ -226,6 +226,15 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
             // covering this call (the measured TareasPlugin case, greenhouse evidence/0444).
             $this->signalIfConsentScopeWasFragile($rechazo, $name, $args);
 
+            // …EXCEPT A SECRET OF THE HOUSE (greenhouse decisions/0589). A failure's text is what a tool answered
+            // too, and it goes to the model like a result: a suite that dies printing its environment carried the
+            // endpoint's key there. Only a text that holds one is told again, without it; every other denial is
+            // the very object that was thrown.
+            $told = SecretRedaction::inText($rechazo->getMessage(), $this->root);
+            if ($told !== $rechazo->getMessage()) {
+                $rechazo = $rechazo instanceof ToolCallRefused ? new ToolCallRefused($told) : new \RuntimeException($told);
+            }
+
             // A REFUSAL ONLY A PERSON CAN LIFT ENDS THE LEG HERE (greenhouse evidence/1113). A missing scope went
             // back to the model like any error; the house then called the leg stalled, cut its catalogue and asked
             // the model once more, which could only say that it waits (evidence/1109: 21,557 tokens, 28 s). Nothing
@@ -342,12 +351,13 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
 
     /**
      * The house's own secret values, out of a tool result before it becomes a model-visible message
-     * (greenhouse decisions/0569). A no-op when the bridge does not know the house root — the governed
-     * executor always supplies it. {@see SecretRedaction} decides what a secret is, and fails closed.
+     * (greenhouse decisions/0569). Without the house root the overlay cannot be read — the governed executor
+     * always supplies it — and the credentials of the environment are kept out all the same (decisions/0589).
+     * {@see SecretRedaction} decides what a secret is, and fails closed.
      */
     private function redactForModel(mixed $result): mixed
     {
-        return $this->root === null ? $result : SecretRedaction::inResult($result, $this->root);
+        return SecretRedaction::inResult($result, $this->root);
     }
 
     /**

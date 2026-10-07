@@ -171,6 +171,7 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
                     'properties' => [
                         'key' => ['type' => 'string', 'description' => 'Dotted path the code already reads — e.g. agent.apiKey'],
                         'value' => ['type' => 'string', 'description' => 'The credential. It is written and never returned, printed or logged'],
+                        'file' => ['type' => 'string', 'description' => 'Instead of `value`: the absolute path of a file OUTSIDE this app whose first line is the credential — so it is in no command line, no shell history and nothing a signature covers'],
                         'forget' => ['type' => 'boolean', 'description' => 'Remove the declaration instead of writing one'],
                     ],
                     'required' => ['key'],
@@ -354,8 +355,19 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
 
         $forget = ($input['forget'] ?? false) === true;
         $value = $input['value'] ?? null;
+        // THE VALUE FROM A FILE (greenhouse decisions/0589): typed as `--value=…` a key is in the shell's history,
+        // in the process table and in the arguments a signature covers. A file the caller names is none of those.
+        if (!$forget && \is_string($input['file'] ?? null) && $input['file'] !== '') {
+            if (\is_string($value) && $value !== '') {
+                return ['ok' => false, 'error' => 'nothing was written: give one of `value` or `file`, not both'];
+            }
+            $value = self::firstLineOf($input['file'], $root);
+            if (\is_array($value)) {
+                return $value;
+            }
+        }
         if (!$forget && (!\is_string($value) || $value === '')) {
-            return ['ok' => false, 'error' => '`value` is required unless `forget` is true — a credential declared empty is a credential nobody can use'];
+            return ['ok' => false, 'error' => '`value` (or `file`) is required unless `forget` is true — a credential declared empty is a credential nobody can use'];
         }
 
         $file = $root . SecretOverlay::RUTA;
@@ -396,6 +408,32 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
      * refuse an app that was already safe. Without git available the answer is «missing», which
      * refuses: an app whose ignore rules cannot be verified is not an app to write a key into.
      */
+    /**
+     * The credential a key file holds — its first line, trimmed — or the refusal that says why it gives none.
+     *
+     * The file must be one this house can read as a file and that lives OUTSIDE the app: inside, a repository would
+     * commit it and every trial would copy it. A link is not followed: what it points at was not what was named.
+     *
+     * @return string|array{ok: false, error: string}
+     */
+    private static function firstLineOf(string $file, string $root): string|array
+    {
+        if (!str_starts_with($file, '/')) {
+            return ['ok' => false, 'error' => 'nothing was written: `file` must be an absolute path'];
+        }
+        if (is_link($file) || !is_file($file) || !is_readable($file)) {
+            return ['ok' => false, 'error' => 'nothing was written: `file` is not a file this house can read'];
+        }
+        $real = (string) realpath($file);
+        $house = rtrim((string) (realpath($root) ?: $root), '/') . '/';
+        if (str_starts_with($real, $house)) {
+            return ['ok' => false, 'error' => 'nothing was written: that file is inside this app — keep a key in a file outside the tree a repository commits and a trial copies'];
+        }
+        $line = trim(explode("\n", (string) file_get_contents($real), 2)[0]);
+
+        return $line !== '' ? $line : ['ok' => false, 'error' => 'nothing was written: that file holds no value on its first line'];
+    }
+
     private static function gitignoreMissing(string $root): ?string
     {
         $probe = ltrim(SecretOverlay::RUTA, '/');
