@@ -3377,15 +3377,19 @@ class AgentOperations implements CommandProvider
             $referenceStore = $referenceSession === null ? null : $this->sessions();
             $referenceEvents = $referenceStore?->stream($referenceSession) ?? [];
             $referenceStart = $referenceEvents === [] ? 0 : max(array_map(static fn ($event): int => $event->seq, $referenceEvents));
+            // AND WHAT THE SESSION LEFT HALF DONE RIDES THERE TOO (greenhouse decisions/0604, rule D): the operation
+            // scaffolds that landed and that nothing has written since, read from the record on every call — so the
+            // list is true inside the leg as at its start, and its shrinking does not move the system prompt.
+            $lasting = $this->lastingCalls();
             \Milpa\AppRuntime\Agent\RecordedResultProjection::attach(
                 $orquestador,
                 $this->skillInstructionProjection,
-                $referenceStore === null ? null : static fn (array $names): string => \Milpa\AppRuntime\Agent\RecordedResultReferences::section(
-                    $referenceStore->stream($referenceSession),
-                    $referenceSession,
-                    $referenceStart,
-                    $names,
-                ),
+                $referenceStore === null ? null : static function (array $names) use ($referenceStore, $referenceSession, $referenceStart, $lasting): string {
+                    $stream = $referenceStore->stream($referenceSession);
+
+                    return \Milpa\AppRuntime\Agent\RecordedResultReferences::section($stream, $referenceSession, $referenceStart, $names)
+                        . \Milpa\AppRuntime\Agent\WhatStandsHalfDone::said($stream, $referenceStore, $referenceSession, $lasting);
+                },
             );
             return $orquestador->run(
                 $prompt,
