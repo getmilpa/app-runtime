@@ -52,7 +52,9 @@ if (! \is_array($input)) {
 
 $app = new Milpa\AppRuntime\Console\Application($root);
 try {
-    $operation = (new ReflectionMethod($app, 'find'))->invoke($app, str_replace(['.', '_'], ':', $op));
+    // The terminal's lookup is asked with the terminal's own name for the operation: a copy of that rule here once
+    // drifted from it, and an admitted seat was told its verb did not exist (greenhouse evidence/1159).
+    $operation = (new ReflectionMethod($app, 'find'))->invoke($app, Milpa\AppRuntime\Console\CommandName::of($op));
     if ($operation === null) {
         echo json_encode(['ok' => false, 'error' => "no operation «{$op}» in this app"], \JSON_UNESCAPED_UNICODE), "\n";
         exit(1);
