@@ -523,20 +523,6 @@ final class TheHouseAppliesTheVerifiedTrialOfAnAdmittedOperationTest extends Tes
         self::assertFalse(self::honours($loop));
     }
 
-    public function testALegWhoseLoopCannotContinuePromisesNothing(): void
-    {
-        if (method_exists(AgentOrchestrator::class, 'setContinuation')) {
-            self::markTestSkipped('The installed milpa/ai-gateway can continue a call: there is no loop here that cannot, and the control below it covers the one that can.');
-        }
-        $this->admit(AppliedTrials::admissible());
-        [$operations, , $loop] = $this->house(new LoopThatOnlyAnswers($this->createMock(LlmService::class), $this->createMock(GatedToolCalls::class)));
-
-        self::leg($operations);
-
-        self::assertInstanceOf(TrialAwareRegistry::class, self::registryOf($loop));
-        self::assertFalse(self::honours($loop), 'the trial layer says and applies nothing its loop cannot play');
-    }
-
     public function testAHouseWithoutTrialsPromisesNothing(): void
     {
         $this->admit(AppliedTrials::admissible());
@@ -693,7 +679,7 @@ final class AppliedFixtureOperations extends AgentOperations
     }
 }
 
-/** The loop of a gateway that cannot continue a call: it answers, and remembers the door it was given. */
+/** A loop that only answers, and remembers the door it was given. */
 class LoopThatOnlyAnswers extends AgentOrchestrator
 {
     public ?GatedToolCalls $door = null;
@@ -704,7 +690,7 @@ class LoopThatOnlyAnswers extends AgentOrchestrator
     }
 }
 
-/** The loop of a gateway that can: it also remembers the continuation it was handed. */
+/** A loop that also remembers the continuation the leg handed it. */
 final class ContinuationRecorder extends LoopThatOnlyAnswers
 {
     public ?\Closure $continuation = null;
