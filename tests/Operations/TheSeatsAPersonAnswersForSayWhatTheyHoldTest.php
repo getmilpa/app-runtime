@@ -115,6 +115,8 @@ final class TheSeatsAPersonAnswersForSayWhatTheyHoldTest extends TestCase
             'admitted_by' => 'key:' . self::HUMAN,
             'at' => '2026-10-07T00:00:00Z',
             'verbs' => ['herramientas.agregar' => 'admitted', 'herramientas.devolver' => 'admitted', 'herramientas.prestar' => 'admitted'],
+            // Who holds the capability's building permit, suspending this (decisions/0590, rule 10): nobody.
+            'suspended' => [],
         ]], $seat['admitted']);
         self::assertSame(['herramientas:read'], array_column($seat['unadmitted'], 'scope'));
 

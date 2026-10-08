@@ -290,6 +290,8 @@ final class IdentityGrantOperationTest extends TestCase
             'target' => 'new',
             'named' => true,
             'consent' => 'touch',
+            // What granting it would suspend (decisions/0590, rule 10): nothing — nobody was admitted anything of it.
+            'suspends' => [],
         ]], $seen[0]['refusals'], 'one row for the scope, not one per retry — the latest retry, the call the seat still asks for (decisions/0510)');
     }
 

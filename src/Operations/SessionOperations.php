@@ -685,6 +685,8 @@ final class SessionOperations implements CommandProvider
                         'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'What the seat may do now'],
                         'authorized_by' => ['type' => 'string', 'description' => 'The verified principal that decided, as passkey:<id> or key:<fingerprint>'],
                         'session_told' => ['type' => 'boolean', 'description' => 'The seat\'s session recorded the grant as a turn it reads (decisions/0495)'],
+                        'closed' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'For an admission: the seats whose building permit of that capability it closed — in works or admitted, never both (decisions/0590, rule 10)'],
+                        'suspended' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'For the building permit of a capability persons admitted: who was admitted what — suspended while that permit stands, until a person admits it again'],
                         'error' => ['type' => 'string', 'description' => 'Why nothing was granted; absent when ok'],
                     ],
                     'required' => ['ok'],
@@ -903,6 +905,7 @@ final class SessionOperations implements CommandProvider
                         'capability' => ['type' => 'string', 'description' => 'The capability the digest named'],
                         'granted' => ['type' => 'string', 'description' => 'The scope of that capability the digest named'],
                         'admitted' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'The verbs it opens to the seat, each pinned by the contract it has now'],
+                        'closed' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'The seats whose building permit of that capability this admission closed (decisions/0590, rule 10)'],
                         'contract' => ['type' => 'string', 'description' => 'The digest that was approved'],
                         'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'The seat\'s own scopes, which an admission never changes'],
                         'authorized_by' => ['type' => 'string', 'description' => 'The verified principal that decided, as passkey:<id> or key:<fingerprint>'],
@@ -2392,14 +2395,22 @@ final class SessionOperations implements CommandProvider
         }
         // Write over work the house already has is an informed act, never one touch (decisions/0510): the decider
         // repeats the plugin's name, and that name travelled inside what the passkey or the signature approved.
+        // And what else it does (decisions/0590, rule 10): over a capability persons admitted, it reopens the works.
+        $suspends = $refusal['suspends'] ?? [];
         if ($refusal['consent'] === 'informed' && $existing !== $refusal['plugin']) {
             return ['ok' => false, 'error' => \sprintf(
-                'granting «%s» opens write over the existing plugin «%s» — all of its work, not only call #%d (%s)%s; approve it knowingly with existing=%s; nothing was granted',
+                'granting «%s» opens write over the existing plugin «%s» — all of its work, not only call #%d (%s)%s%s; approve it knowingly with existing=%s; nothing was granted',
                 $refusal['permission'],
                 (string) $refusal['plugin'],
                 $refusal['seq'],
                 $refusal['tool'],
                 $refusal['named'] ? '' : ', and the task does not name it',
+                $suspends === [] ? '' : \sprintf(
+                    '. «%s» is admitted to %d %s: what was admitted is suspended while that permit stands, and the next admission closes it',
+                    (string) $refusal['plugin'],
+                    \count($suspends),
+                    \count($suspends) === 1 ? 'seat' : 'seats',
+                ),
                 (string) $refusal['plugin'],
             )];
         }
@@ -2444,6 +2455,7 @@ final class SessionOperations implements CommandProvider
             'scopes' => $enrolled->scopes,
             'authorized_by' => $enrolled->authorizedBy,
             'session_told' => true,
+            'suspended' => $suspends,
         ];
     }
 
@@ -2508,9 +2520,15 @@ final class SessionOperations implements CommandProvider
                     $group['capability'],
                 )];
             }
+            // In works or admitted, never both (rule 10): who holds the building permit now loses it in that write.
+            $closed = $ledger->permitHolders($group['capability']);
             if (!$ledger->admit($seat, $group['capability'], $group['scope'], $group['verbs'], $decider)) {
                 return ['ok' => false, 'error' => 'the seat has no live recognition to admit anything to; nothing was admitted'];
             }
+            // Read again, after the write: the ledger is another fact now, whatever was read of it above.
+            /** @var list<string>|null $after */
+            $after = $ledger->scopesFor($seat);
+            $scopes = $after ?? [];
         } catch (\RuntimeException $e) {
             return ['ok' => false, 'error' => 'nothing was admitted: ' . $e->getMessage()];
         }
@@ -2522,9 +2540,10 @@ final class SessionOperations implements CommandProvider
             'granted' => $permission,
             'admitted' => array_keys($group['verbs']),
             'contract' => $group['contract'],
-            // Read before the admission was written, and not read again: an admission never changes them.
+            // Read after the write: an admission gives the seat no word, and takes one — its building permit.
             'scopes' => $scopes,
             'authorized_by' => $decider,
+            'closed' => $closed,
         ];
     }
 
@@ -2671,6 +2690,8 @@ final class SessionOperations implements CommandProvider
         $seat = (string) $refusal['seat'];
         $ledger = new FileEnrollmentStore($root . '/storage/identity/enrollments.json');
         try {
+            // In works or admitted, never both (rule 10): who holds the building permit now loses it in that write.
+            $closed = $ledger->permitHolders($capability);
             if (!$ledger->admit($seat, $capability, (string) $refusal['scope'], $verbs, $decider)) {
                 return ['ok' => false, 'error' => 'the seat has no live recognition to admit anything to; nothing was admitted'];
             }
@@ -2688,13 +2709,18 @@ final class SessionOperations implements CommandProvider
             }
         }
         $store->recordTurn($session, 'user', \sprintf(
-            \Milpa\AppRuntime\Agent\SeatFrontier::NOTICE_PREFIX . '%s admitted «%s» of the capability «%s» for this seat: its verbs %s, with the contract each has now. Your call #%d (%s) was refused for lacking that; make that same call again. Nothing else changed: a verb of «%s» that is added or whose contract changes is not admitted until a person admits it.',
+            \Milpa\AppRuntime\Agent\SeatFrontier::NOTICE_PREFIX . '%s admitted «%s» of the capability «%s» for this seat: its verbs %s, with the contract each has now. Your call #%d (%s) was refused for lacking that; make that same call again.%s A verb of «%s» that is added or whose contract changes is not admitted until a person admits it.',
             $decider,
             $permission,
             $capability,
             $names,
             $refusal['seq'],
             (string) $refusal['tool'],
+            // The seat is told what the admission took from it (decisions/0590, rule 10): unsaid, it would find
+            // out at its next authoring call and read a refusal where it had a permit.
+            \in_array($seat, $closed, true)
+                ? \sprintf(' It also closed this seat\'s building permit of «%s»: the capability is admitted now, and changing it takes a person\'s grant over the existing plugin.', $capability)
+                : '',
             $capability,
         ));
 
@@ -2708,6 +2734,7 @@ final class SessionOperations implements CommandProvider
             'scopes' => $ledger->scopesFor($seat) ?? [],
             'authorized_by' => $decider,
             'session_told' => true,
+            'closed' => $closed,
         ];
     }
 
