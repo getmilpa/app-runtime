@@ -35,13 +35,13 @@ use Milpa\Runtime\Kernel;
 trait BuiltHouse
 {
     /** The human's own key: it enrolled the seats. */
-    private const HUMAN = 'C1FEA43BAC5F22E7A5F21152B46AB0F97CAFB831';
+    private const HUMAN = 'BBBB2222CCCC3333DDDD4444EEEE5555FFFF6666';
 
     /** The resident's seat. */
-    private const SEAT = '95A3AC7B96F8BC6AA7044F2C09082971DEBAAA50';
+    private const SEAT = 'CCCC3333DDDD4444EEEE5555FFFF6666AAAA7777';
 
     /** A second resident, enrolled by the same human. */
-    private const OTHER_SEAT = '68D64FAD056630690259B28EC743C1C08E3EB909';
+    private const OTHER_SEAT = 'DDDD4444EEEE5555FFFF6666AAAA7777BBBB8888';
 
     /** What a seat is seated with (decisions/0499): none of it is a word of the domain. */
     private const SEAT_SCOPES = ['agent:run', 'agent:read', 'plugins:read', 'plugins:write', 'plugins.config:write'];

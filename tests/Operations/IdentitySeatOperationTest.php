@@ -49,11 +49,11 @@ use PHPUnit\Framework\TestCase;
 final class IdentitySeatOperationTest extends TestCase
 {
     /** The key that opened the panel at station 2: it enrolled the human's passkey (decisions/0498). */
-    private const HUMAN = 'C1FEA43BAC5F22E7A5F21152B46AB0F97CAFB831';
+    private const HUMAN = 'BBBB2222CCCC3333DDDD4444EEEE5555FFFF6666';
     /** Another person's key, which enrolled another passkey. */
     private const STRANGER = 'D00D0000111122223333444455556666777788889';
     /** The resident's own key, which the house has never seen. */
-    private const RESIDENT = '95A3AC7B96F8BC6AA7044F2C09082971DEBAAA50';
+    private const RESIDENT = 'CCCC3333DDDD4444EEEE5555FFFF6666AAAA7777';
     /** A key on the resident's machine that is not the one the human meant. */
     private const OTHER = 'ABCDEF0123456789ABCDEF0123456789ABCDEF01';
     private const PASSKEY = 'QM1LEWEfsoWiMm';
