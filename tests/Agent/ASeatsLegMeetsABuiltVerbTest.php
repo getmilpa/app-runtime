@@ -170,6 +170,17 @@ final class ASeatsLegMeetsABuiltVerbTest extends TestCase
         }
     }
 
+    public function testTheDoorSaysWhyAToolIsNotOnTheOfferOfWhoeverAsks(): void
+    {
+        [$door] = $this->leg();
+        self::assertNull($door->whyNotOffered('herramientas_prestar'), 'a seat is offered it: there is nothing to say');
+        self::assertSame('unknown', $door->whyNotOffered('herramienta_inventada'));
+
+        // The same scopes, held by a key this house never enrolled.
+        [$other] = $this->leg('key:' . str_repeat('E', 40));
+        self::assertSame('scope', $other->whyNotOffered('herramientas_prestar'));
+    }
+
     public function testTheRegistryALegIsHandedJudgesTheHousesWay(): void
     {
         [, , , $registry] = $this->leg();

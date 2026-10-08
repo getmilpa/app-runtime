@@ -1152,6 +1152,35 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
     }
 
     /**
+     * A CALL TO SOMETHING THE SESSION WAS NOT OFFERED IS KEPT (greenhouse decisions/0601; decided by Rod on
+     * 2026-10-08). The loop answered it by itself and nothing reached this gate: no question was asked and nothing
+     * ran. What is written is a refused call — the name that was called, its arguments, and why it was not on the
+     * offer — so the session's log says the session tried.
+     *
+     * It is NOT counted as a call that was made: the loop guard is not told (an attempt that was turned away is no
+     * failure of that call, and must not be held against it the day it is offered), nothing is asked of the trial
+     * layer, and it is no mutation. The house's secrets are taken out of what is kept, as from any call.
+     *
+     * @param array<string, mixed> $arguments
+     * @param string               $because   why it was not on the offer: `scope`, `withdrawn` or `unknown`
+     */
+    public function notOffered(string $tool, array $arguments, string $because, string $reason): void
+    {
+        $said = (string) json_encode(['ok' => false, 'not_offered' => true, 'because' => $because, 'error' => $reason], \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE);
+        $kept = \Milpa\AppRuntime\Config\SecretRedaction::inText($said, $this->houseRoot);
+        $keptArguments = \Milpa\AppRuntime\Config\SecretRedaction::inResult($arguments, $this->houseRoot);
+        $this->sessions->recordToolCall(
+            $this->session->id,
+            $tool,
+            \is_array($keptArguments) ? $keptArguments : $arguments,
+            $kept,
+            false,
+            false,
+            mb_strlen($kept),
+        );
+    }
+
+    /**
      * Apunta en la sesión que esta herramienta corrió y qué contestó.
      *
      * La compuerta ve la intención y esto ve el desenlace; hacen falta las dos. Sin el desenlace,

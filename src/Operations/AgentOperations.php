@@ -3331,6 +3331,7 @@ class AgentOperations implements CommandProvider
 
         $orquestador = $this->orchestrator($modeloRemoto, $cliente, $pasos, $tablero, $lazyTools, $sonda);
         $this->playTheGrantedCall($orquestador);
+        $this->keepWhatWasNotOffered($orquestador, $cliente);
 
         // Only the base ask/run/getter chain proves what this return actually observed.
         // An override may return after another base run, or never run the producer at all.
@@ -4276,6 +4277,19 @@ class AgentOperations implements CommandProvider
         }
         if (GrantedCall::open($orquestador, $call)) {
             GrantedCall::resumed($events, $session, $call, $by->id);
+        }
+    }
+
+    /**
+     * A CALL TO WHAT THE SESSION WAS NOT OFFERED IS KEPT IN ITS LOG (greenhouse decisions/0601; decided by Rod on
+     * 2026-10-08). The loop answers such a call by itself and never asks the door, so it is the loop that tells the
+     * door ({@see ConsentBridge::turnedAway()}). With a gateway whose loop cannot tell, the leg is the leg it was and
+     * the attempt leaves no trace, as before.
+     */
+    private function keepWhatWasNotOffered(object $orquestador, ConsentBridge $cliente): void
+    {
+        if (method_exists($orquestador, 'setUnofferedCall')) {
+            $orquestador->setUnofferedCall($cliente->turnedAway(...));
         }
     }
 

@@ -490,6 +490,52 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
     }
 
     /**
+     * WHAT THE LOOP TURNED AWAY BECAUSE IT WAS NOT ON THE OFFER IS WRITTEN IN THE SESSION'S LOG (greenhouse
+     * decisions/0601; decided by Rod on 2026-10-08).
+     *
+     * A model can name a tool this door did not offer in that step. The loop answers it by itself and never asks
+     * this door, so the log kept no trace that the session had tried — measured: in a real run it could not be known
+     * whether a resident had called a verb it built (evidence/1163 §10). The loop now tells whoever asked to be told
+     * (`AgentOrchestrator::setUnofferedCall()` of milpa/ai-gateway); this is what the house does with it. THE OFFER
+     * DOES NOT CHANGE AND NOTHING RUNS: the call is kept as refused, with why it was not on the offer.
+     *
+     * Without a session there is no log, and nothing is written.
+     *
+     * @param array<string, mixed> $arguments
+     * @param string               $answer    what the loop told the model; the door keeps its own reason, which says more
+     */
+    public function turnedAway(string $tool, array $arguments, string $answer): void
+    {
+        $because = $this->whyNotOffered($tool);
+        if ($because === null || !$this->gate instanceof SessionToolGate) {
+            return;
+        }
+        $this->gate->notOffered($tool, $arguments, $because, \sprintf('«%s» was not offered to this session in this step: %s. Nothing ran, and the offer is the same.', $tool, match ($because) {
+            'unknown' => 'this house has no tool by that name',
+            'withdrawn' => 'it was withdrawn from this session',
+            default => 'whoever runs it holds no scope it declares',
+        }));
+    }
+
+    /**
+     * Why a tool is not on this caller's offer now — or null: it is. `unknown`: this house has no tool by that name.
+     * `withdrawn`: it was taken off this session's table. `scope`: whoever runs the session holds no scope it
+     * declares, asked the way {@see notOfferedToThisCaller()} asks — as the caller.
+     */
+    public function whyNotOffered(string $tool): ?string
+    {
+        $definition = $this->catalogue->getDefinition($tool);
+        if ($definition === null) {
+            return 'unknown';
+        }
+        if (\in_array($definition->name, $this->withdrawn(), true)) {
+            return 'withdrawn';
+        }
+
+        return \in_array($definition->name, $this->notOfferedToThisCaller(), true) ? 'scope' : null;
+    }
+
+    /**
      * The one line a leg's prompt says of what its offer left out — or nothing, when it left nothing out. Named
      * without a contract: the session knows they exist and whose they are.
      *
