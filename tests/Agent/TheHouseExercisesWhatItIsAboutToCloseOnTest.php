@@ -374,6 +374,22 @@ final class TheHouseExercisesWhatItIsAboutToCloseOnTest extends TestCase
         self::assertSame(["the house changed at seq {$elsewhere} after its last observation (seq {$seq})"], $this->seen($stale));
     }
 
+    /**
+     * Measured blind on the house a build run left closed with three operations that throw (greenhouse evidence/1171):
+     * the verdict carried ten reasons, and the one a resident can act on was the ninth — after eight lines of classes
+     * no call verified. What the house saw is said FIRST.
+     */
+    public function testWhatTheHouseSawIsTheFirstThingSaid(): void
+    {
+        $this->built();
+
+        $closure = $this->atTheEnd($this->threw([['operation' => 'ledger:open', 'class' => 'Error', 'kind' => 'engine', 'line' => self::UNDEFINED, 'pass' => 1]]));
+
+        self::assertGreaterThan(1, \count($closure['reasons']), 'the control: the session\'s own record has something to say too');
+        self::assertStringStartsWith('the house ran «Ledger» in a trial before closing on it', $closure['reasons'][0]);
+        self::assertSame([0], array_keys($this->among($closure)), 'and it is said once');
+    }
+
     public function testALongFirstLineIsCutAndManyThrowsAreCounted(): void
     {
         $this->built();
@@ -545,6 +561,18 @@ final class TheHouseExercisesWhatItIsAboutToCloseOnTest extends TestCase
     private function seen(array $closure): array
     {
         return array_values(array_filter($closure['reasons'], static fn (string $why): bool => str_starts_with($why, 'the house ')));
+    }
+
+    /**
+     * The reasons the house gives of what it saw, at the places they hold among all of them.
+     *
+     * @param array<string, mixed> $closure
+     *
+     * @return array<int, string>
+     */
+    private function among(array $closure): array
+    {
+        return array_filter($closure['reasons'], static fn (string $why): bool => str_starts_with($why, 'the house '));
     }
 
     /** @return array<string, mixed> */
