@@ -125,6 +125,131 @@ final class APersonAdmitsWhatTheHouseAppliesTest extends TestCase
         yield 'withdraw, a signature for an admission' => ['sandbox:withdraw', ['operation' => 'plugins.register'], ['operation' => 'plugins.register'], 'sandbox:admit'];
     }
 
+    /**
+     * WHOEVER FOUNDS A HOUSE ADMITS WHAT IT APPLIES, WITH ONE SIGNED ACT (greenhouse decisions/0586, amended on
+     * 2026-10-08). A house is still born with none. Six signed commands were the only way to admit the six; one act
+     * fits without stretching anyone's authority because it admits only what the person SAW: the list says what each
+     * operation does and carries a digest of itself, and the signature has to cover that digest.
+     */
+    public function testTheListSaysWhatEachOperationDoesAndCarriesTheDigestOfAdmittingThemAll(): void
+    {
+        $listed = $this->call('sandbox:admitted', []);
+
+        self::assertSame(AppliedTrials::admissible(), array_column($listed['what_each_does'], 'operation'), 'the six, in the list\'s order');
+        foreach ($listed['what_each_does'] as $row) {
+            self::assertNotSame('', trim($row['does']), $row['operation'] . ' says what it does');
+        }
+        self::assertSame(AppliedTrials::digestOfEverything(), $listed['everything']);
+        self::assertMatchesRegularExpression('/^sha256:[0-9a-f]{64}$/', $listed['everything']);
+        self::assertStringContainsString('--everything=' . $listed['everything'], $listed['to_admit_everything']);
+        self::assertStringContainsString('--sign', $listed['to_admit_everything']);
+    }
+
+    public function testOneSignedActAdmitsEverythingThePersonSaw(): void
+    {
+        $seen = $this->call('sandbox:admitted', [])['everything'];
+
+        $result = $this->call('sandbox:admit', ['everything' => $seen], signed: true);
+
+        self::assertTrue($result['ok']);
+        self::assertSame(AppliedTrials::admissible(), $result['admitted_now']);
+        self::assertSame('key:' . self::PERSON, $result['admitted_by']);
+        $list = AppliedTrials::forRoot($this->root);
+        foreach (AppliedTrials::admissible() as $key) {
+            self::assertTrue($list->admits($key), $key);
+            self::assertSame('key:' . self::PERSON, $list->admitted()[$key]['admitted_by'], 'each one keeps who admitted it, as if admitted by itself');
+        }
+        self::assertTrue($this->call('sandbox:withdraw', ['operation' => 'entity:seed'], signed: true)['ok'], 'and each is taken back by itself');
+        self::assertFalse(AppliedTrials::forRoot($this->root)->admits('entity:seed'));
+        self::assertTrue(AppliedTrials::forRoot($this->root)->admits('plugins.register'));
+    }
+
+    /** @param array<string, mixed> $input */
+    #[DataProvider('everythingNotSeen')]
+    public function testWithoutTheDigestOfWhatWasSeenThePersonIsShownItAndNothingIsWritten(array $input): void
+    {
+        $result = $this->call('sandbox:admit', $input, signed: true);
+
+        self::assertFalse($result['ok']);
+        self::assertStringContainsString('nothing was written', $result['error']);
+        self::assertSame(AppliedTrials::admissible(), array_column($result['would_admit'], 'operation'), 'it is shown what the act would admit');
+        self::assertSame(AppliedTrials::digestOfEverything(), $result['everything'], 'and what to sign');
+        self::assertFileDoesNotExist($this->root . '/' . AppliedTrials::PATH);
+    }
+
+    /** @return iterable<string, array{0: array<string, mixed>}> */
+    public static function everythingNotSeen(): iterable
+    {
+        yield 'no digest' => [['everything' => '']];
+        yield 'a flag with no value' => [['everything' => true]];
+        yield 'the digest of another list' => [['everything' => 'sha256:' . str_repeat('0', 64)]];
+        yield 'a word' => [['everything' => 'yes']];
+    }
+
+    public function testTheSignatureHasToCoverThatDigestAndNothingElse(): void
+    {
+        $seen = AppliedTrials::digestOfEverything();
+
+        $unsigned = $this->call('sandbox:admit', ['everything' => $seen]);
+        self::assertFalse($unsigned['ok']);
+        self::assertStringContainsString('--sign', $unsigned['error']);
+        $other = $this->call('sandbox:admit', ['everything' => $seen], signed: true, signedCall: ['operation' => 'plugins.register']);
+        self::assertFalse($other['ok']);
+        self::assertStringContainsString('does not cover', $other['error']);
+        $withdraw = $this->call('sandbox:admit', ['everything' => $seen], signed: true, signedOperation: 'sandbox:withdraw');
+        self::assertFalse($withdraw['ok']);
+        self::assertFileDoesNotExist($this->root . '/' . AppliedTrials::PATH);
+    }
+
+    public function testEverythingAndOneOperationAreNotOneAct(): void
+    {
+        $both = $this->call('sandbox:admit', ['everything' => AppliedTrials::digestOfEverything(), 'operation' => 'plugins.register'], signed: true);
+
+        self::assertFalse($both['ok']);
+        self::assertStringContainsString('not both', $both['error']);
+        self::assertStringContainsString('nothing was written', $both['error']);
+        self::assertFileDoesNotExist($this->root . '/' . AppliedTrials::PATH);
+    }
+
+    public function testWhatWasAlreadyAdmittedKeepsWhoAdmittedItAndAdmittingEverythingTwiceWritesOnce(): void
+    {
+        self::assertTrue($this->call('sandbox:admit', ['operation' => 'entity:seed'], signed: true, signer: 'AAAA1111BBBB2222CCCC3333DDDD4444EEEE5555')['ok']);
+        $seen = AppliedTrials::digestOfEverything();
+
+        $result = $this->call('sandbox:admit', ['everything' => $seen], signed: true);
+
+        self::assertTrue($result['ok']);
+        self::assertSame(array_values(array_diff(AppliedTrials::admissible(), ['entity:seed'])), $result['admitted_now'], 'only what was not admitted yet');
+        $admitted = AppliedTrials::forRoot($this->root)->admitted();
+        self::assertSame('key:AAAA1111BBBB2222CCCC3333DDDD4444EEEE5555', $admitted['entity:seed']['admitted_by'], 'who admitted it first is who admitted it');
+        self::assertSame('key:' . self::PERSON, $admitted['make what=operation']['admitted_by']);
+        $before = file_get_contents($this->root . '/' . AppliedTrials::PATH);
+
+        $again = $this->call('sandbox:admit', ['everything' => $seen], signed: true);
+        self::assertFalse($again['ok']);
+        self::assertStringContainsString('already admitted', $again['error']);
+        self::assertSame($before, file_get_contents($this->root . '/' . AppliedTrials::PATH));
+    }
+
+    public function testAnAdmissionIsTakenBackOneAtATime(): void
+    {
+        $seen = AppliedTrials::digestOfEverything();
+        self::assertTrue($this->call('sandbox:admit', ['everything' => $seen], signed: true)['ok']);
+
+        $result = $this->call('sandbox:withdraw', ['everything' => $seen], signed: true);
+
+        self::assertFalse($result['ok'], 'taking back is one operation at a time: what the house applied meanwhile is not one thing');
+        self::assertStringContainsString('one operation at a time', $result['error']);
+        self::assertCount(\count(AppliedTrials::admissible()), AppliedTrials::forRoot($this->root)->admitted());
+    }
+
+    public function testTheDigestIsOfTheListAndOfWhatEachDoes(): void
+    {
+        self::assertSame(AppliedTrials::digestOfEverything(), AppliedTrials::digestOfEverything());
+        self::assertSame('sha256:' . hash('sha256', (string) json_encode(AppliedTrials::whatEachDoes())), AppliedTrials::digestOfEverything(), 'of exactly what the person is shown');
+        self::assertSame(AppliedTrials::admissible(), array_column(AppliedTrials::whatEachDoes(), 'operation'));
+    }
+
     public function testScaffoldingAnOperationAndAnEntityAreAdmittedEachByItsOwnAct(): void
     {
         self::assertTrue($this->call('sandbox:admit', ['operation' => 'make', 'what' => 'operation'], signed: true)['ok']);

@@ -68,6 +68,22 @@ final class AppliedTrials
         'make' => ['page', 'plugin', 'operation', 'entity'],
     ];
 
+    /**
+     * What each admissible operation does, as a person reads it before admitting it. Whoever admits everything at
+     * once is shown exactly this, and signs its digest ({@see digestOfEverything()}): an entry with no sentence here
+     * is an entry nobody was told about.
+     *
+     * @var array<string, string>
+     */
+    private const DOES = [
+        'plugins.register' => 'registers a plugin of this house, so that it boots with it',
+        'entity:seed' => 'writes the rows an entity declares',
+        'make what=page' => 'scaffolds a page',
+        'make what=plugin' => 'scaffolds a plugin',
+        'make what=operation' => 'scaffolds an operation, its body still to be written',
+        'make what=entity' => 'scaffolds an entity',
+    ];
+
     public function __construct(private readonly string $path)
     {
     }
@@ -172,6 +188,50 @@ final class AppliedTrials
     public function admits(string $key): bool
     {
         return isset($this->admitted()[$key]);
+    }
+
+    /**
+     * The admissible operations with what each does, in the list's order: what a person is shown before admitting
+     * them all.
+     *
+     * @return list<array{operation: string, does: string}>
+     */
+    public static function whatEachDoes(): array
+    {
+        return array_map(static fn (string $key): array => ['operation' => $key, 'does' => self::DOES[$key] ?? ''], self::admissible());
+    }
+
+    /**
+     * The digest of exactly what {@see whatEachDoes()} shows. One signed act admits everything only over this digest
+     * (greenhouse decisions/0586, amended on 2026-10-08): if the list, or what an entry of it does, is no longer what
+     * the person saw, the digest is another and the act admits nothing.
+     */
+    public static function digestOfEverything(): string
+    {
+        return 'sha256:' . hash('sha256', (string) json_encode(self::whatEachDoes()));
+    }
+
+    /**
+     * Admit, in one write, every admissible operation that is not admitted yet — each with its own entry, as if
+     * admitted by itself: who admitted one before keeps being who admitted it, and each is withdrawn by itself.
+     *
+     * @return list<string> the operations admitted now
+     *
+     * @throws \RuntimeException when the list cannot be written
+     */
+    public function admitEverything(string $by, string $at): array
+    {
+        $now = [];
+        foreach (self::admissible() as $key) {
+            if (!$this->admits($key)) {
+                $now[$key] = ['admitted_by' => $by, 'admitted_at' => $at];
+            }
+        }
+        if ($now !== []) {
+            $this->write($now + $this->read());
+        }
+
+        return array_keys($now);
     }
 
     /**

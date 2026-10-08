@@ -178,9 +178,9 @@ final class TrialOperations implements CommandProvider
             // through: a seat does not decide what the house does on its own. A house is born with none.
             new Operation(
                 name: 'sandbox:admit',
-                description: 'Admit an operation whose verified trial the house applies on its own, one at a time — a person\'s signed act (greenhouse decisions/0586)',
+                description: 'Admit an operation whose verified trial the house applies on its own — one at a time, or everything the house knows how to apply, over the digest of the list `sandbox:admitted` shows. A person\'s signed act (greenhouse decisions/0586)',
                 handler: fn (array $input): array => $this->decideWhatTheHouseApplies($root, $input, admit: true),
-                inputSchema: self::ADMISSION_INPUT,
+                inputSchema: self::ADMIT_INPUT,
                 scopes: ['identity:enroll'],
                 surfaces: ['cli'],
                 mutating: true,
@@ -860,11 +860,20 @@ final class TrialOperations implements CommandProvider
     }
 
     /** Where this app lives, from its kernel — the trials directory hangs under its var/. */
+    private const ADMIT_INPUT = [
+        'type' => 'object',
+        'properties' => [
+            'operation' => ['type' => 'string', 'description' => 'The operation, by its name: plugins.register, entity:seed or make'],
+            'what' => ['type' => 'string', 'description' => 'For make, the one thing it makes: page, plugin, operation or entity'],
+            'everything' => ['type' => 'string', 'description' => 'Instead of one operation: the digest `sandbox:admitted` shows as `everything`, to admit all the house knows how to apply — exactly the list that digest was taken of'],
+        ],
+    ];
+
     private const ADMISSION_INPUT = [
         'type' => 'object',
         'properties' => [
             'operation' => ['type' => 'string', 'description' => 'The operation, by its name: plugins.register, entity:seed or make'],
-            'what' => ['type' => 'string', 'description' => 'For make, the one thing it makes: page or plugin'],
+            'what' => ['type' => 'string', 'description' => 'For make, the one thing it makes: page, plugin, operation or entity'],
         ],
         'required' => ['operation'],
     ];
@@ -878,6 +887,11 @@ final class TrialOperations implements CommandProvider
      */
     private function decideWhatTheHouseApplies(string $root, array $input, bool $admit): array
     {
+        if (\array_key_exists('everything', $input)) {
+            return $admit
+                ? $this->admitEverythingThePersonSaw($root, $input)
+                : ['ok' => false, 'error' => 'sandbox:withdraw takes back one operation at a time: what the house applied meanwhile is not one thing — nothing was written'];
+        }
         $operation = \is_string($input['operation'] ?? null) ? trim($input['operation']) : '';
         $what = $input['what'] ?? null;
         $key = AppliedTrials::key($operation, $what === null ? [] : ['what' => $what]);
@@ -924,7 +938,63 @@ final class TrialOperations implements CommandProvider
     }
 
     /**
-     * What this house applies on its own, what it once did, and what can be admitted at all.
+     * ONE SIGNED ACT ADMITS EVERYTHING THE PERSON SAW (greenhouse decisions/0586, amended on 2026-10-08: whoever
+     * founds a house admits what it applies, with an explicit signed act — the house is still born with none).
+     *
+     * It stretches nobody's authority because it is the same act, the same scope and the same signature, over a
+     * digest instead of a name: the digest of the list `sandbox:admitted` shows, with what each operation does.
+     * Without that digest —none, a word, or the digest of a list that is no longer the one this house would admit—
+     * nothing is written and the person is shown what the act would admit and what to sign. Each operation gets its
+     * own entry, as if admitted by itself, and is withdrawn by itself.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function admitEverythingThePersonSaw(string $root, array $input): array
+    {
+        $shown = ['would_admit' => AppliedTrials::whatEachDoes(), 'everything' => AppliedTrials::digestOfEverything()];
+        if (isset($input['operation']) || isset($input['what'])) {
+            return ['ok' => false, 'error' => 'sandbox:admit admits one operation, or everything the house knows how to apply: not both in one act — nothing was written'] + $shown;
+        }
+        $seen = \is_string($input['everything']) ? trim($input['everything']) : '';
+        if ($seen !== $shown['everything']) {
+            return ['ok' => false, 'error' => \sprintf(
+                'sandbox:admit --everything admits exactly the list a person saw, by its digest%s. This is what it would admit; sign that: sandbox:admit --everything=%s --sign — nothing was written',
+                $seen === '' ? '' : ', and that digest is not of the list this house would admit now',
+                $shown['everything'],
+            )] + $shown;
+        }
+        $granted = $this->container->has(GrantedAuthorization::class) ? $this->container->get(GrantedAuthorization::class) : null;
+        if (!$granted instanceof GrantedAuthorization) {
+            return ['ok' => false, 'error' => 'sandbox:admit requires the signature that names WHO decides; re-run with --sign — nothing was written'];
+        }
+        if ($granted->authorization->operation !== 'sandbox:admit' || $granted->authorization->arguments != ['everything' => $seen]) {
+            return ['ok' => false, 'error' => 'the granted signature does not cover THIS sandbox:admit — nothing was written'];
+        }
+        $who = 'key:' . $granted->signer->fingerprint;
+        $list = AppliedTrials::forRoot($root);
+        try {
+            $now = $list->admitEverything($who, (new \DateTimeImmutable())->format(\DATE_ATOM));
+        } catch (\RuntimeException $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+        if ($now === []) {
+            return ['ok' => false, 'error' => 'everything the house knows how to apply is already admitted in this house; nothing was written'];
+        }
+
+        return [
+            'ok' => true,
+            'admitted_now' => $now,
+            'admitted_by' => $who,
+            'admitted' => array_keys($list->admitted()),
+            'note' => 'From the next leg, in a session in auto, the house applies the verified trial of each of these on its own: it plays sandbox:promote for it through the governed door, as whoever runs the leg. Each is withdrawn by itself with sandbox:withdraw.',
+        ];
+    }
+
+    /**
+     * What this house applies on its own, what it once did, and what can be admitted at all — with what each
+     * of those does, and the digest one signed act admits them all over.
      *
      * @return array<string, mixed>
      */
@@ -936,6 +1006,9 @@ final class TrialOperations implements CommandProvider
         return [
             'ok' => true,
             'admissible' => AppliedTrials::admissible(),
+            'what_each_does' => AppliedTrials::whatEachDoes(),
+            'everything' => AppliedTrials::digestOfEverything(),
+            'to_admit_everything' => 'sandbox:admit --everything=' . AppliedTrials::digestOfEverything() . ' --sign',
             'admitted' => $admitted,
             'withdrawn' => array_filter($list->record(), static fn (array $entry): bool => isset($entry['withdrawn_by'])),
         ];
