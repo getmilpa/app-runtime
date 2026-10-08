@@ -1,6 +1,29 @@
 # Changelog
 
 
+## [0.213.0](https://github.com/getmilpa/app-runtime/compare/v0.212.1...v0.213.0) (2026-10-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* for a seat — a key the house enrolled — a verb of a capability built in the house (a plugin under its own `src/Plugins/`) runs only if a person admitted it with the contract it has today. A seat that ran such verbs by a word typed into its scopes, by a word every seat holds, or by none, is refused until then; nothing is migrated. The refusal says so, `identity:seats` lists what waits before a seat trips on it, and a person admits from Agent → Decisions (milpa/agent-workspace 0.90 or later) or with `identity:admit`. The terminal's operator, passkeys, tokens and the operations of packages are judged as before.
+
+### Features
+
+* a person admits a scope of a built capability without waiting for a refusal, by the digest of what was read (greenhouse decisions/0597) ([#740](https://github.com/getmilpa/app-runtime/issues/740)) ([a359982](https://github.com/getmilpa/app-runtime/commit/a359982b342acc644be39adaa4bbada339a4a2f2))
+* a person takes back one admission, and the ledger keeps who did (greenhouse decisions/0590) ([#744](https://github.com/getmilpa/app-runtime/issues/744)) ([a793183](https://github.com/getmilpa/app-runtime/commit/a793183b8e7f31e3c545c723459117123b88c1d2))
+* a verb of a capability built in the house runs for a seat only if a person admitted it (greenhouse decisions/0590) ([e209335](https://github.com/getmilpa/app-runtime/commit/e2093357ea51d84f97f65f00eb2def260a9b65ba))
+* an agent's work in the domain runs in the house, confined to the state it declares ([#737](https://github.com/getmilpa/app-runtime/issues/737)) ([9eb598b](https://github.com/getmilpa/app-runtime/commit/9eb598bf7102e41a2309836ccb1f44fae9b9aa86))
+* an edit on what the session itself brought into the house is not asked about (greenhouse decisions/0596) ([#745](https://github.com/getmilpa/app-runtime/issues/745)) ([f6ecc5e](https://github.com/getmilpa/app-runtime/commit/f6ecc5e35045367eff599673a47ea6cd87233696))
+* the house closes on a capability it saw declared whole (greenhouse decisions/0595) ([#741](https://github.com/getmilpa/app-runtime/issues/741)) ([e3079d1](https://github.com/getmilpa/app-runtime/commit/e3079d1ff3cda0338abe697e85290a0710552b1b))
+
+
+### Bug Fixes
+
+* an example in what a session reads shows the form of the value, never a name ([#749](https://github.com/getmilpa/app-runtime/issues/749)) ([9196811](https://github.com/getmilpa/app-runtime/commit/919681142dfcffba2817498c39bda2af13e14a6b))
+* the admission card says how this house runs a call, not how a house with confinement on would ([#747](https://github.com/getmilpa/app-runtime/issues/747)) ([9fd59e3](https://github.com/getmilpa/app-runtime/commit/9fd59e3961a944d94f85b3022957e9ad711cda1a))
+* the house asks for the agent runtime that records where work ran, and the panel that admits and withdraws ([#748](https://github.com/getmilpa/app-runtime/issues/748)) ([1de2107](https://github.com/getmilpa/app-runtime/commit/1de21077d13a4a0aa36653d045e80936e9b12771))
+
 ## [0.212.1](https://github.com/getmilpa/app-runtime/compare/v0.212.0...v0.212.1) (2026-10-07)
 
 
