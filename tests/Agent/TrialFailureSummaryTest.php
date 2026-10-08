@@ -95,4 +95,73 @@ final class TrialFailureSummaryTest extends TestCase
         self::assertStringContainsString($elsewhere, $recorded);
         self::assertStringNotContainsString($elsewhere, TrialFailureSummary::from('implement', ['diagnostic' => ['phase' => 'behavior']], '', [])['next']);
     }
+
+    /**
+     * WHEN THE CURE IS NOT IN THE FILE, THE HINT DOES NOT SEND THE AGENT BACK TO THE FILE (greenhouse
+     * evidence/1156). The landing gate refuses an operation whose `run()` the house cannot hand what it takes, and
+     * writes out the edit of the plugin's entry that cures it. Beside that refusal this summary said «Resubmit the
+     * complete corrected file… edit with source would be refused»: two instructions, and the house's own came first.
+     */
+    public function testAnOperationTheHouseCannotHandWhatItTakesIsSentToItsPluginsEntry(): void
+    {
+        $output = ['error' => 'refused: the house cannot hand «GuardarCaja» what its run() works through',
+            'diagnostic' => ['phase' => 'collaborators', 'submitted_sha256' => str_repeat('d', 64)]];
+
+        foreach ([false, true] as $recorded) {
+            $next = TrialFailureSummary::from('implement', $output, '', [], $recorded)['next'];
+
+            self::assertStringStartsWith('This file can be right as it is', $next);
+            self::assertStringContainsString('what run() takes is handed by the entry that lists the operation in its plugin', $next);
+            self::assertStringContainsString('Make the edit this refusal writes out on the plugin class', $next);
+            self::assertStringContainsString('with find and replace, and no source', $next);
+            self::assertStringContainsString('promote it, and send this same implement again', $next);
+            self::assertStringNotContainsString('Resubmit the complete corrected file', $next);
+            self::assertStringNotContainsString('Repair the recorded proposal', $next);
+            self::assertStringNotContainsString('would be refused', $next);
+        }
+    }
+
+    /** A judge red over operations that are still scaffolds is not cured in the body it judged. */
+    public function testAJudgeRedOverScaffoldsIsSentToFillThemFirst(): void
+    {
+        $output = ['error' => 'refused: the class\'s own test judges this behavior red',
+            'diagnostic' => ['phase' => 'behavior', 'submitted_sha256' => str_repeat('e', 64), 'scaffolds' => ['GuardarCaja']]];
+
+        foreach ([false, true] as $recorded) {
+            $next = TrialFailureSummary::from('implement', $output, '', [], $recorded)['next'];
+
+            self::assertStringStartsWith('This file can be right as it is', $next);
+            self::assertStringContainsString('its judge names operations that are still scaffolds', $next);
+            self::assertStringContainsString('Fill and promote those first, in the order this refusal gives', $next);
+            self::assertStringContainsString('send this same implement again', $next);
+            self::assertStringNotContainsString('Repair the recorded proposal', $next);
+            self::assertStringNotContainsString('Resubmit the complete corrected file', $next);
+        }
+    }
+
+    /** A judge red over no scaffold is about the body: the hint is the one it always was. */
+    public function testAJudgeRedOverNoScaffoldKeepsItsHint(): void
+    {
+        $was = TrialFailureSummary::from('implement', ['diagnostic' => ['phase' => 'behavior', 'submitted_sha256' => str_repeat('f', 64)]], '', [], recorded: true)['next'];
+        self::assertStringStartsWith('Repair the recorded proposal with edit', $was);
+
+        foreach ([[], 'GuardarCaja', [''], [7], ['GuardarCaja', null], ['class' => 'GuardarCaja'], null] as $scaffolds) {
+            $output = ['diagnostic' => ['phase' => 'behavior', 'submitted_sha256' => str_repeat('f', 64), 'scaffolds' => $scaffolds]];
+
+            self::assertSame($was, TrialFailureSummary::from('implement', $output, '', [], recorded: true)['next'], json_encode($scaffolds) ?: '');
+        }
+        // And scaffolds named in another phase change nothing: only a judge runs over them.
+        $syntax = ['diagnostic' => ['phase' => 'syntax', 'scaffolds' => ['GuardarCaja']]];
+        self::assertStringStartsWith('Resubmit the complete corrected file', TrialFailureSummary::from('implement', $syntax, '', [])['next']);
+    }
+
+    /** The parts door keeps its own hint: a staged file is amended, whatever phase refused it. */
+    public function testAFinishRefusedForTheSameReasonsKeepsTheAmendHint(): void
+    {
+        foreach ([['phase' => 'collaborators'], ['phase' => 'behavior', 'scaffolds' => ['GuardarCaja']]] as $diagnostic) {
+            $next = TrialFailureSummary::from('implement', ['diagnostic' => $diagnostic], '', ['mode' => 'finish'])['next'];
+
+            self::assertStringStartsWith('Repair the staged file with implement mode=amend', $next);
+        }
+    }
 }
