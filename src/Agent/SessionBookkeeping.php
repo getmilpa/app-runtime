@@ -114,12 +114,12 @@ final readonly class SessionBookkeeping implements ContractProducer
             new Operation(
                 name: 'plan',
                 scopes: ['agent:run'],
-                description: 'Escribe o reemplaza el plan de trabajo de esta sesión. Hazlo ANTES de empezar algo largo',
+                description: 'Write or replace the work plan of this session. Do it BEFORE starting anything long',
                 handler: fn (array $input): array => $this->escribirPlan($input),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
-                        'plan' => ['type' => 'string', 'description' => 'El plan, en pasos'],
+                        'plan' => ['type' => 'string', 'description' => 'The plan, in steps'],
                     ],
                     'required' => ['plan'],
                 ],
@@ -164,7 +164,7 @@ final readonly class SessionBookkeeping implements ContractProducer
                     'type' => 'object',
                     'properties' => [
                         'text' => ['type' => 'string', 'description' => 'What needs doing'],
-                        'id' => ['type' => 'string', 'description' => 'El de uno que ya existe, para moverlo'],
+                        'id' => ['type' => 'string', 'description' => 'The id of one that already exists, to move it'],
                         'replaces' => ['type' => 'string', 'description' => 'The id of the item this one supersedes, when you reword one that already existed'],
                         'status' => [
                             'type' => 'string',
