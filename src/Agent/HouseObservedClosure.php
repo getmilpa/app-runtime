@@ -157,6 +157,11 @@ final class HouseObservedClosure
         $bodies = [];
         // file => whether the scaffold `make what=operation` landed there still stands (decisions/0595 §3).
         $unfilled = [];
+        // WORK IN THE DOMAIN IS NOT A CHANGE OF WHAT THE HOUSE DECLARES (greenhouse decisions/0599, question 3). A call
+        // the house ran as work changes the state a verb keeps: data, not code. It does not make the observation of a
+        // capability stale — and it does make that of a page, which lists that data.
+        $work = HouseExecutedWork::calls($stream);
+        $lastWork = null;
         foreach ($stream as $event) {
             if ($event->type !== SessionEvent::ToolCalled->value) {
                 continue;
@@ -174,7 +179,9 @@ final class HouseObservedClosure
             $rehearsed = LandedCalls::keptInATrial($result);
             $generated = null;
 
-            if (($payload['mutating'] ?? false) === true && ($payload['awaitingConfirmation'] ?? null) !== true
+            if (isset($work[$event->seq])) {
+                $lastWork = $event->seq;
+            } elseif (($payload['mutating'] ?? false) === true && ($payload['awaitingConfirmation'] ?? null) !== true
                 && $environment !== 'trial' && !$rehearsed && self::lasts($payload, $readable ? $result : null, $lasting)) {
                 $lastChange = $event->seq;
                 $landed[] = $event->seq;
@@ -334,6 +341,8 @@ final class HouseObservedClosure
             $reason = implode('; ', $stale);
         } elseif ($lastChange !== null && $lastChange > $observation['seq']) {
             $reason = "the house changed at seq {$lastChange} after its last observation (seq {$observation['seq']})";
+        } elseif ($lastWork !== null && $lastWork > $observation['seq'] && ! isset($observation['capability'])) {
+            $reason = "the state of the house changed at seq {$lastWork} after it observed «{$observation['subject']}» (seq {$observation['seq']})";
         } elseif (! isset($routes[$observation['subject']]) && ! isset($observation['capability'])
             && ($facts->evidenceByPredicate('served', $observation['subject'])['evidence']['fresh'] ?? false) !== true) {
             $reason = "the house observation of «{$observation['subject']}» went stale";
