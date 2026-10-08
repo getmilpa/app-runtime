@@ -98,6 +98,20 @@ use Milpa\EventStore\Event;
  * a scaffold's is a scaffold's wherever it is served, for the rest of the session: an observation of those bytes on
  * another route does not close either, and the reason says «the body of a scaffold». Bytes the house never learned from a
  * scaffold count as before, and so does a receipt without a digest on a route with no scaffold of its own.
+ *
+ * ── A CAPABILITY THE HOUSE SAW DECLARED WHOLE CLOSES, AND THE VERDICT SAYS IT WAS NOT SEEN WORKING (decisions/0595) ──
+ *
+ * A served route was the only observation there was, so work that is a CAPABILITY — operations in the catalogue —
+ * could never close. Measured with a real resident (greenhouse evidence/1137 §5): three runs left four operations that
+ * work, and the verdict was «artifact … has no current verification», seven times, with nothing left they could call.
+ * A promotion now carries what the capabilities built where it landed declare (`capabilities`,
+ * {@see HouseRouteObserver::capabilitiesOf()}), and one the goal names counts as an observation of the work when it is
+ * WHOLE: it declares at least one operation, none of them is still the scaffold `make what=operation` landed, every one
+ * says what it does, and every one that mutates says the scope it spends. One that is not whole is said in the reason
+ * and stops the closure, whatever else answers — the last thing the house saw of it decides. A scaffold is known the
+ * way a routed one is: by who wrote what each promotion landed, read from the receipts alone. When the goal writes a
+ * route, only that route closes it. And the observation says what the house did NOT do: `exercised: "unjudged"` — it
+ * read the declarations and called nothing.
  */
 final class HouseObservedClosure
 {
@@ -115,7 +129,7 @@ final class HouseObservedClosure
      *                                                                      ({@see StandingAsk::explicitRoutes()}): for the reason, and
      *                                                                      so a receipt served elsewhere is not taken for one of them
      *
-     * @return array{derived: bool, reason: ?string, observation: ?array{subject: string, seq: int, content?: array<string, mixed>|string, surface?: array<string, mixed>}, lastChangeSeq: ?int, landed: list<int>, unlisted: list<string>}
+     * @return array{derived: bool, reason: ?string, observation: ?array{subject: string, seq: int, content?: array<string, mixed>|string, surface?: array<string, mixed>, capability?: array{operations: int, exercised: string}}, lastChangeSeq: ?int, landed: list<int>, unlisted: list<string>}
      */
     public static function of(array $stream, SessionFacts $facts, ?\Closure $named = null, ?\Closure $lasting = null, array $written = []): array
     {
@@ -141,6 +155,8 @@ final class HouseObservedClosure
         // sha256 => true for every body the house learned as a scaffold's: those bytes are a scaffold's on any route
         // (decisions/0556).
         $bodies = [];
+        // file => whether the scaffold `make what=operation` landed there still stands (decisions/0595 §3).
+        $unfilled = [];
         foreach ($stream as $event) {
             if ($event->type !== SessionEvent::ToolCalled->value) {
                 continue;
@@ -164,6 +180,7 @@ final class HouseObservedClosure
                 $landed[] = $event->seq;
                 $writers = self::writersOf($payload, $result, $evidence, $trials);
                 $scaffolds = self::afterLanding($scaffolds, $writers);
+                $unfilled = self::operationScaffoldsAfter($unfilled, $writers);
                 $generated = self::generatedBy($writers);
             }
             if ($rehearsed && \is_string($result['workspace'] ?? null)) {
@@ -255,7 +272,27 @@ final class HouseObservedClosure
                     $served ??= $isServed ? ['subject' => $entry['subject'], 'seq' => $event->seq] + $read + ($surface === null ? [] : ['surface' => $surface]) : null;
                 }
             }
-            $observation = $served ?? $observation;
+            // WHAT A BUILT CAPABILITY DECLARES (greenhouse decisions/0595). The last thing the house saw of each one
+            // decides; one the goal names counts when it is whole, and is said — and stops the closure — when it is not.
+            $declared = null;
+            foreach (\is_array($result['capabilities'] ?? null) ? $result['capabilities'] : [] as $entry) {
+                if (!\is_array($entry) || ($entry['predicate'] ?? null) !== 'declared' || !\is_string($entry['subject'] ?? null)
+                    || (\is_array($entry['environment'] ?? null) ? ($entry['environment']['kind'] ?? null) : null) !== 'house') {
+                    continue;
+                }
+                // A goal that writes a route is closed by that route alone (decisions/0555): a capability never is one.
+                if ($written !== [] || ! $counts($entry['subject'])) {
+                    $unnamed = ['subject' => $entry['subject'], 'seq' => $event->seq, 'declared' => true];
+                    continue;
+                }
+                $why = self::notWhole($entry, $unfilled, $event->seq);
+                $unlisted['capability:' . $entry['subject']] = $why;
+                if ($why === null) {
+                    $declared = ['subject' => $entry['subject'], 'seq' => $event->seq,
+                        'capability' => ['operations' => \count(\is_array($entry['operations'] ?? null) ? $entry['operations'] : []), 'exercised' => 'unjudged']];
+                }
+            }
+            $observation = $served ?? $declared ?? $observation;
         }
 
         // A route the house answered with a server error, or with nothing, is not served — and one it served
@@ -284,10 +321,12 @@ final class HouseObservedClosure
                 $stale !== [] => implode('; ', $stale),
                 $scaffolded !== null => "the house observed «{$scaffolded['subject']}» serving the body of {$scaffolded['whose']} scaffold (seq {$scaffolded['seq']}):"
                     . ' what «make» generated is not the work',
-                $written !== [] => "the house observed «{$unnamed['subject']}» served" . (isset($unnamed['at']) ? " at «{$unnamed['at']}»" : '')
+                $written !== [] => "the house observed «{$unnamed['subject']}» " . (isset($unnamed['declared']) ? 'declared' : 'served')
+                    . (isset($unnamed['at']) ? " at «{$unnamed['at']}»" : '')
                     . " (seq {$unnamed['seq']}), and the goal writes «"
                     . implode('», «', $written) . '»: only a route the goal writes closes it',
-                default => "the house observed «{$unnamed['subject']}» served (seq {$unnamed['seq']}), a subject the goal does not name",
+                default => "the house observed «{$unnamed['subject']}» " . (isset($unnamed['declared']) ? 'declared' : 'served')
+                    . " (seq {$unnamed['seq']}), a subject the goal does not name",
             };
         } elseif ($observation === null) {
             $reason = 'nothing observed served in the house';
@@ -295,7 +334,7 @@ final class HouseObservedClosure
             $reason = implode('; ', $stale);
         } elseif ($lastChange !== null && $lastChange > $observation['seq']) {
             $reason = "the house changed at seq {$lastChange} after its last observation (seq {$observation['seq']})";
-        } elseif (! isset($routes[$observation['subject']])
+        } elseif (! isset($routes[$observation['subject']]) && ! isset($observation['capability'])
             && ($facts->evidenceByPredicate('served', $observation['subject'])['evidence']['fresh'] ?? false) !== true) {
             $reason = "the house observation of «{$observation['subject']}» went stale";
         }
@@ -325,6 +364,69 @@ final class HouseObservedClosure
             $leaked > 0 => "{$saw} showing {$leaked} row" . ($leaked === 1 ? '' : 's') . " of {$entity} that is not public (seq {$seq})",
             default => null,
         };
+    }
+
+    /**
+     * Why a capability the house saw declared is not whole, or null when it is (decisions/0595 §2): at least one
+     * operation, none still the scaffold `make` landed, every one saying what it does, every one that mutates saying
+     * the scope it spends. What an entry does not say is not assumed: an operation with no `effects` or no `scoped` in
+     * its receipt is not whole.
+     *
+     * @param array<string, mixed> $entry    one `capabilities` entry of a promotion's receipt
+     * @param array<string, bool>  $unfilled file => whether the scaffold `make what=operation` landed there stands
+     */
+    private static function notWhole(array $entry, array $unfilled, int $seq): ?string
+    {
+        $operations = array_values(array_filter(\is_array($entry['operations'] ?? null) ? $entry['operations'] : [], 'is_array'));
+        $saw = "the house observed «{$entry['subject']}» declaring ";
+        if ($operations === []) {
+            return "{$saw}no operation (seq {$seq})";
+        }
+        $names = static fn (array $some): string => implode(', ', array_map(static fn (array $one): string => \is_string($one['name'] ?? null) ? $one['name'] : '?', $some));
+        $of = \count($operations) . ' operation' . (\count($operations) === 1 ? '' : 's');
+        $scaffolds = array_values(array_filter($operations, static fn (array $one): bool => \is_string($one['file'] ?? null) && ($unfilled[$one['file']] ?? false)));
+        $silent = array_values(array_filter($operations, static fn (array $one): bool => ($one['effects'] ?? null) !== true));
+        $open = array_values(array_filter($operations, static fn (array $one): bool => ($one['scoped'] ?? null) !== true));
+
+        return match (true) {
+            $scaffolds !== [] => "{$saw}{$of}, " . \count($scaffolds) . " of them still the scaffold «make» landed (seq {$seq}): " . $names($scaffolds)
+                . ' — fill ' . (\count($scaffolds) === 1 ? 'it' : 'them') . ' with implement',
+            $silent !== [] => "{$saw}{$of}, " . \count($silent) . " of them declaring no effects (seq {$seq}): " . $names($silent),
+            $open !== [] => "{$saw}{$of}, " . \count($open) . " of them mutating with no scope (seq {$seq}): " . $names($open),
+            default => null,
+        };
+    }
+
+    /**
+     * The operation scaffolds standing after a change landed (greenhouse decisions/0595 §3): `make what=operation`
+     * stands one at the file it wrote for its class, and any other writer that lands that file takes it down — the
+     * rule of a routed scaffold ({@see afterLanding()}), for a file. Another `make` never takes one down.
+     *
+     * @param array<string, bool>                                                         $unfilled
+     * @param list<array{tool: ?string, arguments: array<mixed>, changed: ?list<string>}> $writers
+     *
+     * @return array<string, bool>
+     */
+    private static function operationScaffoldsAfter(array $unfilled, array $writers): array
+    {
+        foreach ($writers as $writer) {
+            if ($writer['tool'] === 'make') {
+                $name = \is_string($writer['arguments']['name'] ?? null) ? $writer['arguments']['name'] : '';
+                foreach (($writer['arguments']['what'] ?? null) === 'operation' && $name !== '' ? $writer['changed'] ?? [] : [] as $path) {
+                    if (str_ends_with($path, "/{$name}.php")) {
+                        $unfilled[$path] = true;
+                    }
+                }
+                continue;
+            }
+            foreach ($writer['changed'] ?? [] as $path) {
+                if (isset($unfilled[$path])) {
+                    $unfilled[$path] = false;
+                }
+            }
+        }
+
+        return $unfilled;
     }
 
     /**

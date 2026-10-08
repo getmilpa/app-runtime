@@ -555,6 +555,9 @@ final class TrialOperations implements CommandProvider
             ...($sown['seeded'] !== [] ? ['seeded' => $sown['seeded']] : []),
             ...(isset($sown['error']) ? ['seed_error' => $sown['error']] : []),
             ...($observation['observed'] !== [] ? ['observed' => $observation['observed']] : []),
+            // WHAT THE BUILT CAPABILITIES NOW DECLARE (greenhouse decisions/0595) — under a key of its own: a reader that
+            // does not know it keeps reading `observed` as routes, and a capability is never taken for one.
+            ...(($observation['capabilities'] ?? []) !== [] ? ['capabilities' => $observation['capabilities']] : []),
             // Routes that answered 5xx in the copy WITH the promotion and WITHOUT it too: not its doing, so not refused (0540).
             ...($routes['unjudged'] !== [] ? ['unjudged' => $routes['unjudged']] : []),
             ...(isset($observation['error']) ? ['observation_error' => $observation['error']] : []),
@@ -644,15 +647,16 @@ final class TrialOperations implements CommandProvider
     /**
      * The house's own observation of what landed, in one sentence for the note — empty when it asked nothing.
      *
-     * @param array{observed: list<array<string, mixed>>, error?: string, unobserved?: int} $observation
+     * @param array{observed: list<array<string, mixed>>, capabilities?: list<array<string, mixed>>, error?: string, unobserved?: int} $observation
      */
     private static function whatTheHouseSaw(array $observation): string
     {
         if (isset($observation['error'])) {
             return ' The house could not be observed: ' . $observation['error'] . '.';
         }
+        $declared = self::whatTheHouseSawDeclared($observation['capabilities'] ?? []);
         if ($observation['observed'] === []) {
-            return '';
+            return $declared;
         }
         $answers = array_map(
             static fn (array $entry): string => $entry['route'] . ' answered ' . ($entry['status'] === null ? 'nothing' : 'HTTP ' . $entry['status'])
@@ -663,7 +667,24 @@ final class TrialOperations implements CommandProvider
         );
 
         return ' The house requested the routes this promotion declares, the way a browser does: ' . implode('; ', $answers)
-            . (isset($observation['unobserved']) ? "; {$observation['unobserved']} more were not requested" : '') . '.';
+            . (isset($observation['unobserved']) ? "; {$observation['unobserved']} more were not requested" : '') . '.' . $declared;
+    }
+
+    /**
+     * What the house read of the capabilities built where this landed, in one sentence — it read their declarations
+     * and called nothing (greenhouse decisions/0595).
+     *
+     * @param list<array<string, mixed>> $capabilities
+     */
+    private static function whatTheHouseSawDeclared(array $capabilities): string
+    {
+        $said = [];
+        foreach ($capabilities as $capability) {
+            $operations = \is_array($capability['operations'] ?? null) ? $capability['operations'] : [];
+            $said[] = sprintf('«%s» declares %d operation%s', (string) ($capability['subject'] ?? '?'), \count($operations), \count($operations) === 1 ? '' : 's');
+        }
+
+        return $said === [] ? '' : ' The house read what the capabilities built here declare, and called none of it: ' . implode('; ', $said) . '.';
     }
 
     /**

@@ -18,6 +18,7 @@ use Milpa\AppRuntime\Entity\SeedDeclarations;
 use Milpa\AppRuntime\Support\ChildProcess;
 use Milpa\AppRuntime\Support\PhpBinary;
 use Milpa\Attributes\PluginMetadata;
+use Milpa\Command\CommandProvider;
 use Milpa\Http\HttpMethod;
 use Milpa\Runtime\Http\RouteProviderInterface;
 use Milpa\AppRuntime\Web\ScreenRoute;
@@ -60,6 +61,15 @@ use Milpa\Runtime\Kernel;
  * promotes to land code — read `BlogController.php` and concluded «GET /blog → 200». {@see observeRoute()} asks
  * the house one concrete path whenever `route:observe` is called, the same way, as the same anonymous visitor,
  * and also hands back the first bytes of what that visitor was served.
+ *
+ * ── AND WHAT A BUILT CAPABILITY DECLARES (greenhouse decisions/0595) ────────────────────────────
+ *
+ * A route was the only thing the house could see of what landed. Measured with a real resident (greenhouse
+ * evidence/1137 §5): three runs left four operations that work, and the house answered «artifact … has no current
+ * verification» for every class — no operation of the house verifies an operation, and nothing of a capability was
+ * ever observed. So the process that lists the routes of the touched plugins also says what each capability BUILT
+ * in the house declares ({@see capabilitiesOf()}): the operations, where each one's class lives, and whether it says
+ * what it does and the scope it spends. It calls none of them — a declaration is read, never run.
  */
 final class HouseRouteObserver
 {
@@ -162,6 +172,87 @@ final class HouseRouteObserver
     }
 
     /**
+     * What the capabilities BUILT in a booted house declare, among the touched plugins (greenhouse decisions/0595).
+     *
+     * Built is where the plugin's class lives — under the house's own `src/Plugins/<dir>/`, never in a package it
+     * installed (decisions/0590) — and the capability is named by that directory. Only plugins whose `boot()` ran
+     * count, and only those that declare at least one operation. `file` is where the operation's own class lives,
+     * read from its `#[Operation(name: …)]` declaration; null for one the plugin class declares by hand. `effects`
+     * is whether the operation says what it does at worst; `scoped`, whether one that mutates says the scope it
+     * spends. Nothing is called: {@see CommandProvider::operations()} is what the catalogue itself reads.
+     *
+     * @param list<string> $dirs
+     *
+     * @return list<array{predicate: 'declared', subject: string, environment: array{kind: 'house'}, operations: list<array{name: string, file: ?string, mutating: bool, effects: bool, scoped: bool}>}>
+     */
+    public static function capabilitiesOf(Kernel $kernel, string $root, array $dirs): array
+    {
+        $root = rtrim((string) (realpath($root) ?: $root), '/') . '/';
+        $booted = $kernel->bootedPluginNames();
+        $rows = [];
+        foreach ($kernel->plugins() as $plugin) {
+            if (!$plugin instanceof CommandProvider) {
+                continue;
+            }
+            $class = new \ReflectionClass($plugin);
+            $attributes = $class->getAttributes(PluginMetadata::class);
+            if ($attributes === [] || !\in_array($attributes[0]->newInstance()->name, $booted, true)) {
+                continue;
+            }
+            $file = (string) (realpath((string) $class->getFileName()) ?: '');
+            if (!str_starts_with($file, $root)
+                || preg_match('~^src/Plugins/([A-Za-z_][A-Za-z0-9_]*)/~', substr($file, \strlen($root)), $match) !== 1
+                || ($dirs !== ['*'] && !\in_array($match[1], $dirs, true))) {
+                continue;
+            }
+            $declared = self::declaredIn($root, 'src/Plugins/' . $match[1]);
+            foreach ($plugin->operations() as $operation) {
+                $rows[$match[1]][$operation->name] = [
+                    'name' => $operation->name,
+                    'file' => $declared[$operation->name] ?? null,
+                    'mutating' => $operation->mutating,
+                    'effects' => $operation->effects !== null,
+                    'scoped' => !$operation->mutating || $operation->scopes !== [] || $operation->permission !== null,
+                ];
+            }
+        }
+        ksort($rows);
+        $capabilities = [];
+        foreach ($rows as $name => $operations) {
+            ksort($operations);
+            $capabilities[] = ['predicate' => 'declared', 'subject' => (string) $name, 'environment' => ['kind' => 'house'], 'operations' => array_values($operations)];
+        }
+
+        return $capabilities;
+    }
+
+    /**
+     * Operation name => the file, relative to the root, of the class that declares it with `#[Operation(name: …)]`
+     * inside one plugin's tree. Read from the source as it is on disk: no class is loaded to answer this.
+     *
+     * @return array<string, string>
+     */
+    private static function declaredIn(string $root, string $tree): array
+    {
+        $files = [];
+        if (!is_dir($root . $tree)) {
+            return $files;
+        }
+        $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root . $tree, \FilesystemIterator::SKIP_DOTS));
+        foreach ($iterator as $entry) {
+            if (!$entry instanceof \SplFileInfo || $entry->getExtension() !== 'php') {
+                continue;
+            }
+            $source = (string) @file_get_contents($entry->getPathname());
+            if (preg_match('/#\[Operation\(\s*(?:name:\s*)?([\'"])([^\'"]+)\1/', $source, $match) === 1) {
+                $files[$match[2]] ??= substr($entry->getPathname(), \strlen($root));
+            }
+        }
+
+        return $files;
+    }
+
+    /**
      * The routes of the screens mounted in a house whose declarations just landed (greenhouse decisions/0567 §3).
      *
      * A declared screen is not a plugin's source, so {@see touchedPlugins()} never sees it; a mount is a route that
@@ -254,9 +345,12 @@ final class HouseRouteObserver
      * process that died carries the `cause` the house logged, when it logged one. `error` is set when the
      * house could not be asked at all — it did not boot, or it has no front controller.
      *
+     * `capabilities` is what the capabilities built in the touched plugins declare ({@see capabilitiesOf()},
+     * decisions/0595) — said by the same process that lists the routes, and also by a house with no front controller.
+     *
      * @param list<string> $paths paths relative to the house root, as a promotion names them
      *
-     * @return array{observed: list<array<string, mixed>>, error?: string, unobserved?: int}
+     * @return array{observed: list<array<string, mixed>>, capabilities?: list<array<string, mixed>>, error?: string, unobserved?: int}
      */
     public function observe(string $root, array $paths): array
     {
@@ -265,7 +359,8 @@ final class HouseRouteObserver
         if ($dirs === [] && $mounted === []) {
             return ['observed' => []];
         }
-        if (!is_file($root . '/public/index.php') || !is_file($root . '/vendor/autoload.php')) {
+        $front = is_file($root . '/public/index.php');
+        if (!is_file($root . '/vendor/autoload.php') || (!$front && $dirs === [])) {
             return ['observed' => []];
         }
 
@@ -273,10 +368,18 @@ final class HouseRouteObserver
         if ($dirs !== []) {
             [$exit, $listed] = $this->run(['routes', $root, (string) json_encode($dirs)]);
             if ($exit !== 0 || !\is_array($listed['routes'] ?? null)) {
+                if (!$front) {
+                    return ['observed' => []];
+                }
                 $why = \is_string($listed['error'] ?? null) ? $listed['error'] : 'exit ' . $exit;
 
                 return ['observed' => [], 'error' => "the house did not boot to list its routes after the change ({$why})"];
             }
+        }
+        $capabilities = array_values(array_filter(\is_array($listed['capabilities'] ?? null) ? $listed['capabilities'] : [], 'is_array'));
+        $declares = $capabilities === [] ? [] : ['capabilities' => $capabilities];
+        if (!$front) {
+            return ['observed' => []] + $declares;
         }
 
         $routes = [];
@@ -291,7 +394,7 @@ final class HouseRouteObserver
             $observed[] = $this->request($root, $route['path'], 0, 'GET', null, null, false)['entry'];
         }
 
-        return ['observed' => $observed] + (\count($routes) > self::MAX_ROUTES ? ['unobserved' => \count($routes) - self::MAX_ROUTES] : []);
+        return ['observed' => $observed] + $declares + (\count($routes) > self::MAX_ROUTES ? ['unobserved' => \count($routes) - self::MAX_ROUTES] : []);
     }
 
     /**
