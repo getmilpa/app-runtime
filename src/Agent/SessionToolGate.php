@@ -1227,13 +1227,21 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // observers above saw the call as it was; what is WRITTEN is the redacted answer, and its length.
         $kept = \Milpa\AppRuntime\Config\SecretRedaction::inText($result, $this->houseRoot);
         $keptArguments = \Milpa\AppRuntime\Config\SecretRedaction::inResult($arguments, $this->houseRoot);
+        // A PROMOTION ASKED FOR AGAIN CHANGED NOTHING (greenhouse decisions/0586). The house answers «already
+        // promoted» — ok, and nothing written — to a promotion of a trial it has already applied. The operation
+        // mutates; THIS call did not. Kept as a mutation it read as a change of the house to everyone who counts
+        // them from the stream: measured in a house that applies its trials, the closure said «the house changed»
+        // after its last observation and the session never closed verified. The call is still kept — the session
+        // did ask — as one that changed nothing.
+        $said = $operacion instanceof Operation && $operacion->name === 'sandbox:promote' ? json_decode($result, true) : null;
+        $nadaCambio = \is_array($said) && ($said[\Milpa\AppRuntime\Operations\TrialOperations::ALREADY_PROMOTED] ?? null) === true;
         $seqDeLaLlamada = $this->sessions->recordToolCall(
             $this->session->id,
             $tool,
             \is_array($keptArguments) ? $keptArguments : $arguments,
             $kept,
             $ok,
-            $operacion instanceof Operation && $operacion->mutating,
+            $operacion instanceof Operation && $operacion->mutating && !$nadaCambio,
             mb_strlen($kept),
             // PEDIR NO ES HABER HECHO, y esta compuerta tiene la respuesta delante.
             //

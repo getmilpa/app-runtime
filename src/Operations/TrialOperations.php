@@ -456,7 +456,7 @@ final class TrialOperations implements CommandProvider
             if ($already !== null) {
                 return [
                     'ok' => true,
-                    'already_promoted' => true,
+                    self::ALREADY_PROMOTED => true,
                     'workspace' => $id,
                     'paths' => $already,
                     'note' => 'This trial was already promoted into the house; nothing was written again.',
@@ -860,6 +860,12 @@ final class TrialOperations implements CommandProvider
     }
 
     /** Where this app lives, from its kernel — the trials directory hangs under its var/. */
+    /**
+     * The word a promotion answers with when its trial was already promoted: ok, and nothing written. Whoever keeps
+     * that call reads it here — it is no change of the house ({@see \Milpa\AppRuntime\Agent\SessionToolGate::recorded()}).
+     */
+    public const ALREADY_PROMOTED = 'already_promoted';
+
     private const ADMIT_INPUT = [
         'type' => 'object',
         'properties' => [
