@@ -2700,8 +2700,9 @@ final class SessionOperations implements CommandProvider
         }
 
         // The session is told, as after a grant (decisions/0495), and the house keeps which call it was given for
-        // (decisions/0577) — with what was admitted. That fact resumes nothing here: the house replays only a
-        // producer a trial confines, and a verb of the domain is not one. The model makes the call again.
+        // (decisions/0577) — with what was admitted. That fact resumes the call (decisions/0600): the verb of a
+        // built capability does not land by itself, it runs confined to the state it declares, so the seat's next
+        // leg opens with it and the model is not asked to make it again.
         $log = (new AgentOperations($this->container))->sessionLog();
         foreach ($log === null ? [] : $store->stream($session) as $recorded) {
             if ($recorded->seq === $refusal['seq']) {
@@ -2709,7 +2710,7 @@ final class SessionOperations implements CommandProvider
             }
         }
         $store->recordTurn($session, 'user', \sprintf(
-            \Milpa\AppRuntime\Agent\SeatFrontier::NOTICE_PREFIX . '%s admitted «%s» of the capability «%s» for this seat: its verbs %s, with the contract each has now. Your call #%d (%s) was refused for lacking that; make that same call again.%s A verb of «%s» that is added or whose contract changes is not admitted until a person admits it.',
+            \Milpa\AppRuntime\Agent\SeatFrontier::NOTICE_PREFIX . '%s admitted «%s» of the capability «%s» for this seat: its verbs %s, with the contract each has now. Your call #%d (%s) was refused for lacking that; that same call can run now.%s A verb of «%s» that is added or whose contract changes is not admitted until a person admits it.',
             $decider,
             $permission,
             $capability,

@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Tests\Agent;
 
 use Milpa\AppRuntime\Agent\TrialWorkspace;
 use Milpa\Command\Effect\Subject;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -25,6 +26,9 @@ use PHPUnit\Framework\TestCase;
  */
 final class TrialWorkspaceTest extends TestCase
 {
+    /** The files of a house that hold secrets, by their path from its root. */
+    private const SECRETS = ['.env', '.env.local', '.env.production', '.milpa/secrets.json', 'auth.json'];
+
     /** @var list<string> */
     private array $roots = [];
 
@@ -51,6 +55,72 @@ final class TrialWorkspaceTest extends TestCase
         self::assertFileExists($ws->runnerPath());
         self::assertSame($ws->copy . '/trial-run.php', $ws->runnerPath());
         self::assertStringStartsWith($root . '/var/trials/w1', $ws->copy);
+    }
+
+    /** @return iterable<string, array{bool}> */
+    public static function waysToCopy(): iterable
+    {
+        yield 'with rsync' => [true];
+        yield 'without rsync, by the plain walk' => [false];
+    }
+
+    /**
+     * A SECRET DOES NOT GET A SECOND FILE (greenhouse evidence/1161).
+     *
+     * A house knows which of its files hold secrets: its environment file, the envelope `provider:declare`
+     * writes, and Composer's credentials. A trial is a throwaway copy of the house, kept on disk until someone
+     * decides it. The copy left out the first and carried the second, so while a trial lived the house held its
+     * secret twice — and went on holding, in that copy, a secret it had since replaced.
+     *
+     * By execution: each of those files is given a value made up for this test, a trial is opened, and no file
+     * of the trial holds that value — whichever way the copy is made.
+     */
+    #[DataProvider('waysToCopy')]
+    public function testNoFileThatHoldsASecretTravelsIntoATrial(bool $withRsync): void
+    {
+        $root = $this->root();
+        $canary = 'canary-' . bin2hex(random_bytes(8));
+        mkdir($root . '/.milpa');
+        foreach (self::SECRETS as $secret) {
+            file_put_contents($root . '/' . $secret, "{\"held\": \"{$canary}\"}\n");
+        }
+        file_put_contents($root . '/.milpa/foundation.json', "{}\n");
+
+        $path = (string) getenv('PATH');
+        if (! $withRsync) {
+            putenv('PATH=' . $this->aPathWithoutRsync());
+        }
+        try {
+            $ws = TrialWorkspace::materialize($root, 'w-secret', $this->runner());
+        } finally {
+            putenv('PATH=' . $path);
+        }
+
+        self::assertSame([], self::filesHolding($root . '/var/trials/w-secret', $canary), 'a file of the trial holds a secret of the house');
+        foreach (self::SECRETS as $secret) {
+            self::assertFileDoesNotExist($ws->copy . '/' . $secret);
+            self::assertStringContainsString($canary, (string) file_get_contents($root . '/' . $secret), 'the house keeps its own');
+        }
+        self::assertFileExists($ws->copy . '/.milpa/foundation.json', 'the control: what is not a secret still travels, from the same directory');
+        self::assertFileExists($ws->copy . '/src/A.php');
+        file_put_contents($root . '/.env.example', "KEY=\n");
+        $template = TrialWorkspace::materialize($root, 'w-template', $this->runner());
+        self::assertFileExists($template->copy . '/.env.example', 'a template is not a secret: it still travels');
+        self::assertSame([], $ws->diff(), 'a file the copy never had is not a change the trial proposes');
+        self::assertSame([], $ws->stale());
+    }
+
+    /** The house says what a secret file is in ONE place, and it is the predicate every copy and read reads. */
+    public function testWhatASecretFileIsIsSaidOnce(): void
+    {
+        self::assertTrue(\Milpa\AppRuntime\Config\SecretFiles::isSecret('.milpa/secrets.json'));
+        self::assertTrue(\Milpa\AppRuntime\Config\SecretFiles::isSecret('auth.json'));
+        self::assertTrue(\Milpa\AppRuntime\Config\SecretFiles::isSecret('.env'));
+        self::assertTrue(\Milpa\AppRuntime\Config\SecretFiles::isSecret('.env.local'));
+        self::assertTrue(\Milpa\AppRuntime\Config\SecretFiles::isSecret('.ENV'), 'case-insensitive, for a case-insensitive filesystem');
+        self::assertTrue(\Milpa\AppRuntime\Config\SecretFiles::isSecret('var/trials/w/copy/.milpa/secrets.json'), 'a copy below is the same secret');
+        self::assertFalse(\Milpa\AppRuntime\Config\SecretFiles::isSecret('.env.example'), 'a template is not a secret');
+        self::assertFalse(\Milpa\AppRuntime\Config\SecretFiles::isSecret('src/A.php'));
     }
 
     public function testTheDiffIsComputedByTheHostAndSeesAddedModifiedAndDeleted(): void
@@ -280,6 +350,35 @@ final class TrialWorkspaceTest extends TestCase
     private function runner(): string
     {
         return \dirname(__DIR__) . '/Fixtures/trial-stub-runner.php';
+    }
+
+    /** A PATH that still finds a shell and nothing else, so the copy falls back to the plain walk. */
+    private function aPathWithoutRsync(): string
+    {
+        $bin = sys_get_temp_dir() . '/milpa-trial-bin-' . bin2hex(random_bytes(4));
+        mkdir($bin);
+        symlink('/bin/sh', $bin . '/sh');
+        $this->roots[] = $bin;
+
+        return $bin;
+    }
+
+    /**
+     * The files under a directory that hold a value, relative to it — hidden ones too.
+     *
+     * @return list<string>
+     */
+    private static function filesHolding(string $dir, string $value): array
+    {
+        $holding = [];
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS)) as $file) {
+            if ($file instanceof \SplFileInfo && $file->isFile() && str_contains((string) file_get_contents($file->getPathname()), $value)) {
+                $holding[] = substr($file->getPathname(), \strlen($dir) + 1);
+            }
+        }
+        sort($holding);
+
+        return $holding;
     }
 
     private static function rmrf(string $path): void
