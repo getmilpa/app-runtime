@@ -209,12 +209,8 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
         // presentó un token acuñado, sus scopes son los del token; si no presentó nada, se queda el
         // comodín del default — que es la decisión de Rod (2026-09-11) y lo único que impide repetir la
         // regresión de v0.29.0 (greenhouse decisions/0311).
-        $base = ToolContext::cli();
-        $actor = $this->identity?->actor;
         $this->setContext(new ToolContext(
-            principal: $this->authority !== null
-                ? $this->authority->principal
-                : ($actor->id ?? $this->grants[0]->principal ?? $base->principal),
+            principal: $this->principalOfTheCaller(),
             channel: $this->channel,
             scopes: $this->scopesOfTheCaller(),
             extra: [
@@ -465,16 +461,22 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
      * decisions/0601, rule A).
      *
      * A session received the whole contract of operations its seat could never call, on every call to its model,
-     * and the door refused them when they were called. THE OFFER ASKS THE DOOR'S OWN FIRST QUESTION — the registry's
-     * gate, about the same scopes {@see callTool()} hands it — so the two can never disagree. A tool that declares
-     * no scope is offered to everyone, and a caller that holds the wildcard, or presented nothing, is offered
-     * everything. Nothing is opened or closed here: what is left out was already refused, and still is.
+     * and the door refused them when they were called. THE OFFER ASKS THE DOOR'S OWN FIRST QUESTION, AS THE CALLER —
+     * the registry's gate, about the same principal and the same scopes {@see callTool()} hands it — so the two can
+     * never disagree. A tool that declares no scope is offered to everyone, and a caller that holds the wildcard, or
+     * presented nothing, is offered everything.
+     *
+     * WHO ASKS IS PART OF THE QUESTION. A house's gate sees a seat calling a verb of a built capability with that
+     * verb's own words in hand, because what decides that call is a person's admission, not the word (greenhouse
+     * decisions/0590). The first cut of this asked as nobody, so no seat was ever offered a built verb — admitted or
+     * not — and a call to one never reached the door, where the refusal a person admits from is recorded. A built
+     * verb is offered to a seat whether or not a person admitted it yet: its refusal IS how a person is asked.
      *
      * @return list<string>
      */
     public function notOfferedToThisCaller(): array
     {
-        $caller = new ToolContext(principal: 'the-offer', channel: $this->channel, scopes: $this->scopesOfTheCaller());
+        $caller = new ToolContext(principal: $this->principalOfTheCaller(), channel: $this->channel, scopes: $this->scopesOfTheCaller());
         $gate = $this->catalogue->getPolicyGate();
         $names = [];
         foreach (array_column($this->catalogue->getToolSummaries(), 'name') as $name) {
@@ -497,6 +499,17 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
     {
         return $names === [] ? '' : self::NOT_OFFERED . implode(', ', $names)
             . '. A person runs these, or grants the scope one of them asks for; a call to one of them is refused.';
+    }
+
+    /**
+     * Whoever this bridge calls for: the request's explicit authority, or the actor it identified, or who granted, or
+     * the default of a caller that presented nothing. One rule, for the call and for the offer.
+     */
+    private function principalOfTheCaller(): ?string
+    {
+        return $this->authority !== null
+            ? $this->authority->principal
+            : ($this->identity?->actor->id ?? $this->grants[0]->principal ?? ToolContext::cli()->principal);
     }
 
     /**
