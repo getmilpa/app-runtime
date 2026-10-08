@@ -431,7 +431,8 @@ final class HouseRouteObserver
         string $method = 'GET',
         ?string $body = null,
         ?string $contentType = null,
-        bool $confined = false
+        bool $confined = false,
+        ?string $secretsRoot = null
     ): array {
         $excerpt = max(0, min($excerpt, self::EXCERPT_MAX));
         $sent = null;
@@ -441,7 +442,7 @@ final class HouseRouteObserver
             file_put_contents($sent, $body);
         }
         // The body file stays where it was written: `route:observe` only ever sends one inside a copy it throws away.
-        ['entry' => $entry, 'answer' => $answer] = $this->request($root, $path, $excerpt, $method, $sent, $contentType, $confined);
+        ['entry' => $entry, 'answer' => $answer] = $this->request($root, $path, $excerpt, $method, $sent, $contentType, $confined, $secretsRoot);
         $bytes = \is_int($answer['bytes'] ?? null) ? $answer['bytes'] : null;
         if ($bytes !== null) {
             $entry += ['bytes' => $bytes, 'sha256' => \is_string($answer['sha256'] ?? null) ? $answer['sha256'] : null];
@@ -459,14 +460,14 @@ final class HouseRouteObserver
      *
      * @return array{entry: array<string, mixed>, answer: array<string, mixed>}
      */
-    private function request(string $root, string $path, int $excerpt, string $method, ?string $bodyFile, ?string $contentType, bool $confined): array
+    private function request(string $root, string $path, int $excerpt, string $method, ?string $bodyFile, ?string $contentType, bool $confined, ?string $secretsRoot = null): array
     {
         $subject = explode('?', $path, 2)[0];
         // A mounted screen is judged on the whole page it served (greenhouse decisions/0576), so the whole page is asked.
         $screen = self::screenAt($root, $subject);
         $judged = $method === 'GET' && ! $confined && $screen !== null;
         $arguments = ['request', $root, $method, $path, (string) ($judged ? max($excerpt, self::JUDGED_MAX) : $excerpt), ...($bodyFile !== null ? [$bodyFile, (string) $contentType] : [])];
-        [$exit, $answer, $stderr] = $this->run($arguments, $confined ? $root : null);
+        [$exit, $answer, $stderr] = $this->run($arguments, $confined ? $root : null, $secretsRoot);
         $page = $judged && \is_string($answer['head'] ?? null) ? (string) base64_decode($answer['head'], true) : null;
         if ($judged) {
             // Whoever asked for an excerpt gets the excerpt it asked for, not the page the house read to judge it.
@@ -542,10 +543,9 @@ final class HouseRouteObserver
      *
      * @return array{0: int, 1: array<string, mixed>, 2: string}
      */
-    private function run(array $arguments, ?string $writable = null): array
+    private function run(array $arguments, ?string $writable = null, ?string $secretsRoot = null): array
     {
-        $confine = $writable === null ? [] : [$this->bwrap, ...$this->trialRunner()->namespaces() ?? ['--unshare-net', '--unshare-pid', '--die-with-parent'],
-            '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null', '--bind', $writable, $writable];
+        $confine = $this->confineWith($writable, $secretsRoot);
         $command = ['timeout', '-k', '2', (string) $this->timeoutSeconds, ...$confine, $this->php,
             '-d', 'display_errors=stderr', '-d', 'html_errors=0', '-d', 'error_log=', $this->script, ...$arguments];
         // No `/dev/null` for the child: inside a rehearsal's trial it cannot be opened (evidence/1060).
@@ -564,5 +564,26 @@ final class HouseRouteObserver
         }
 
         return [$exit, $answer, $stderr];
+    }
+
+    /**
+     * The bubblewrap prefix for a confined request, or `[]` when nothing is confined. A confined request runs the
+     * copy's own controllers — code a session may have written — under `--ro-bind / /`, so the trial runner's mask
+     * goes on here too, built in ONE place ({@see TrialRunner::maskArgs()}) and placed AFTER the writable bind, so
+     * a `--bind` cannot re-expose a real secret the copy carries: a controller reads no secret file of the house
+     * (greenhouse evidence/1161). `$secretsRoot` is the real house root whose files are masked; without it the
+     * writable tree is its own root (an unconfined caller passes no writable and gets `[]`).
+     *
+     * @return list<string>
+     */
+    protected function confineWith(?string $writable, ?string $secretsRoot): array
+    {
+        if ($writable === null) {
+            return [];
+        }
+
+        return [$this->bwrap, ...$this->trialRunner()->namespaces() ?? ['--unshare-net', '--unshare-pid', '--die-with-parent'],
+            '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null', '--bind', $writable, $writable,
+            ...$this->trialRunner()->maskArgs($secretsRoot ?? $writable)];
     }
 }

@@ -116,6 +116,39 @@ final class TheDoctorSaysWhetherTheHouseBootsTest extends TestCase
         self::assertStringNotContainsString('passkey.origins', $out, 'without the plugin declared, the rpId is inert');
     }
 
+    /**
+     * A SECRET HAS ONE PLACE TO LIVE (greenhouse evidence/1161): a trial opened before the update keeps its copy
+     * of a file the house keeps a secret in. The doctor names it, with the step that erases it. A trial that
+     * holds no secret file, and one already decided, are not named.
+     */
+    public function testTheDoctorNamesATrialThatStillHoldsASecretWithTheStepToEraseIt(): void
+    {
+        $this->app(['passkey' => ['rpId' => 'localhost', 'origins' => ['http://localhost:8000']]]);
+        @mkdir($this->root . '/var/trials/wkeeps/copy/.milpa', 0o777, true);
+        file_put_contents($this->root . '/var/trials/wkeeps/copy/.milpa/secrets.json', '{"ai":{"key":"x"}}');
+        @mkdir($this->root . '/var/trials/wenv/copy', 0o777, true);
+        file_put_contents($this->root . '/var/trials/wenv/copy/.env.local', "KEY=x\n");
+        @mkdir($this->root . '/var/trials/wclean/copy/src', 0o777, true);
+        file_put_contents($this->root . '/var/trials/wclean/copy/src/A.php', "<?php\n");
+
+        [$exit, $out] = $this->doctor(['ok' => true]);
+
+        self::assertSame(0, $exit, 'a leftover copy is a notice, not a failure');
+        self::assertStringContainsString('trial «wkeeps» still holds a copy', $out);
+        self::assertStringContainsString('trial «wenv» still holds a copy', $out, 'a trial holding an env-local is named too');
+        self::assertStringContainsString('coa sandbox:discard --workspace=wkeeps --sign', $out);
+        self::assertStringNotContainsString('wclean', $out, 'a trial that holds no secret file is not named');
+    }
+
+    public function testADoctorOfAHouseWithNoLeftoverTrialSaysNothingOfThem(): void
+    {
+        $this->app(['passkey' => ['rpId' => 'localhost', 'origins' => ['http://localhost:8000']]]);
+
+        [, $out] = $this->doctor(['ok' => true]);
+
+        self::assertStringNotContainsString('still holds a copy', $out);
+    }
+
     /** @param array<string, mixed> $config */
     private function app(array $config): void
     {
