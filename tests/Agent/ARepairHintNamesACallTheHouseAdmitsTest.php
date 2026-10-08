@@ -107,7 +107,7 @@ final class ARepairHintNamesACallTheHouseAdmitsTest extends TestCase
         $rejection = $this->reject($house, $phase, $subject, $door);
         if ($rejection === null) {
             // Not every judge sees every subject: a test class is a judge, so nothing builds or runs it.
-            self::assertContains([$phase, $subject], [['container', 'test'], ['behavior', 'test']], "{$phase} did not reject a {$subject}");
+            self::assertContains([$phase, $subject], [['container', 'test'], ['collaborators', 'test'], ['behavior', 'test']], "{$phase} did not reject a {$subject}");
 
             return;
         }
@@ -124,6 +124,11 @@ final class ARepairHintNamesACallTheHouseAdmitsTest extends TestCase
             $followed = $house['door']->call('edit', ['plugin' => 'Blog', 'class' => $class,
                 'source' => ['session' => self::SESSION, 'seq' => $rejection['seq'], 'sha256' => $named[1]],
                 'edits' => $repair], $house['caller']);
+        } elseif (str_contains($hint, 'Make the edit this refusal writes out on the plugin class — a plain edit with find and replace, and no source')) {
+            // THE CURE IS NOT IN THE FILE (greenhouse evidence/1156): the hint names an edit of the PLUGIN class, a call
+            // of its own that lands first. That edit is the call the house has to run.
+            $followed = $house['door']->call('edit', ['plugin' => 'Blog', 'class' => 'Blog',
+                'edits' => [['find' => self::BOOT, 'replace' => self::BOOT . ' the clock is registered here']]], $house['caller']);
         } elseif (preg_match('/complete corrected file with implement\b/', $hint) === 1) {
             $followed = $house['door']->call('implement', ['plugin' => 'Blog', 'class' => $class,
                 'content' => str_replace(self::defect($phase), self::REPAIRS[$phase], self::proposal($phase, $subject))], $house['caller']);
@@ -162,10 +167,14 @@ final class ARepairHintNamesACallTheHouseAdmitsTest extends TestCase
             'edits' => [['find' => self::defect('container'), 'replace' => self::REPAIRS['container']]]], $terminal['caller']);
     }
 
+    /** The line of the plugin class a cure that is not in the file edits. */
+    private const BOOT = '// boot:';
+
     private const REPAIRS = [
         'syntax' => 'public function index(): void {}',
         'static-analysis' => '// conforms',
         'container' => '// asks for nothing',
+        'collaborators' => '// is handed what it works through',
         'behavior' => '// does it',
     ];
 
@@ -240,6 +249,8 @@ final class ARepairHintNamesACallTheHouseAdmitsTest extends TestCase
             mkdir(\dirname($root . '/' . $path), 0o700, true);
             file_put_contents($root . '/' . $path, "<?php\n\ndeclare(strict_types=1);\n\nnamespace {$namespace};\n\nfinal class {$class}\n{\n}\n");
         }
+        // The plugin's own class: where the cure of a refusal lands when it is not in the file that was refused.
+        file_put_contents($root . '/src/Plugins/Blog/Blog.php', "<?php\n\ndeclare(strict_types=1);\n\nnamespace App\\Plugins\\Blog;\n\nfinal class Blog\n{\n    " . self::BOOT . "\n}\n");
         $judges = $root . '-judges';
         $this->temporary[] = $judges;
         mkdir($judges, 0o700);
@@ -265,9 +276,14 @@ final class ARepairHintNamesACallTheHouseAdmitsTest extends TestCase
             [, , $root, $class] = $argv;
             $file = $root . '/src/Plugins/Blog/Controllers/' . substr((string) strrchr($class, '\\'), 1) . '.php';
             $red = is_file($file) && str_contains((string) file_get_contents($file), '// RED:container');
+            // What the probe says of an operation whose run() the house cannot hand what it works through (DevTools
+            // 0.44.2, greenhouse evidence/1154): the class is built, and the entry that lists it resolves nothing.
+            $unhanded = is_file($file) && str_contains((string) file_get_contents($file), '// RED:collaborators');
             echo json_encode(['booted' => true, 'routes' => is_file($file) ? ['GET /blog'] : [], 'built' => !$red,
                 'error' => 'ContainerResolutionException: Cannot resolve parameter $container',
-                'unresolvable' => [['parameter' => '$container', 'type' => 'Milpa\\Interfaces\\Di\\DIContainerInterface']]]), "\n";
+                'unresolvable' => [['parameter' => '$container', 'type' => 'Milpa\\Interfaces\\Di\\DIContainerInterface']]]
+                + ($unhanded ? ['operation' => ['name' => 'blog:posts', 'handed' => false, 'unhanded' => [
+                    ['type' => 'App\\Services\\Clock', 'error' => 'Service "App\\Services\\Clock" is not registered in the container.']]]] : [])), "\n";
             PHP);
         chmod($judges . '/probe', 0o700);
         $runner = $judges . '/trial-run.php';
