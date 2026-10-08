@@ -89,6 +89,21 @@ final class TrialFailureSummary
                 . '; promote the accepted amendment, then call finish again. Do not repeat finish unchanged.';
         }
         if ($operation === 'implement') {
+            // WHEN THE CURE IS NOT IN THE FILE, THE HINT DOES NOT SEND THE AGENT BACK TO THE FILE (greenhouse
+            // evidence/1156). Two refusals of the landing gate say themselves what cures them, and neither cure is
+            // a corrected body: beside them «resubmit the corrected file» is a second instruction, and it came first.
+            $phase = $diagnostic['phase'] ?? null;
+            if ($phase === 'collaborators') {
+                return 'This file can be right as it is: what run() takes is handed by the entry that lists the '
+                    . 'operation in its plugin, not by this class. Make the edit this refusal writes out on the plugin '
+                    . 'class — a plain edit with find and replace, and no source —, promote it, and send this same '
+                    . 'implement again.';
+            }
+            if ($phase === 'behavior' && self::names($diagnostic['scaffolds'] ?? null)) {
+                return 'This file can be right as it is: its judge names operations that are still scaffolds, and no '
+                    . 'judge goes green over a scaffold. Fill and promote those first, in the order this refusal gives, '
+                    . 'and send this same implement again.';
+            }
             // The construction judge can be right about the class and the cure still be elsewhere: what the
             // constructor asks for is registered in the plugin, and that lands on its own, first.
             $elsewhere = ($diagnostic['phase'] ?? null) === 'container'
@@ -106,5 +121,20 @@ final class TrialFailureSummary
         }
 
         return 'Repair the named failure before running this test again.';
+    }
+
+    /** Whether the gate named at least one thing, and nothing that is not a name. */
+    private static function names(mixed $named): bool
+    {
+        if (!\is_array($named) || $named === [] || !array_is_list($named)) {
+            return false;
+        }
+        foreach ($named as $name) {
+            if (!\is_string($name) || $name === '') {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
