@@ -1623,7 +1623,7 @@ final class Application
 
     private function commandName(Operation $operacion): string
     {
-        return str_replace(['_', '.'], ':', $operacion->name);
+        return CommandName::of($operacion->name);
     }
 
     /**
@@ -1910,7 +1910,7 @@ final class Application
         $container->registerService(\Milpa\Console\OperationBoundary::class, $policy);
         $operacion = null;
         foreach ($this->operacionesDeRecuperacion($container) as $op) {
-            if (str_replace(['_', '.'], ':', $op->name) === $comando) {
+            if ($this->commandName($op) === $comando) {
                 $operacion = $op;
             }
         }
