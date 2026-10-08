@@ -30,7 +30,7 @@ use Milpa\AppRuntime\Identity\FileEnrollmentStore;
  *
  * @phpstan-type Group array{capability: string, scope: string, verbs: array<string, string>, contract: string}
  * @phpstan-type Verb array{verb: string, tool: string, description: string, mutating: bool, requiresConfirmation: bool, namedTarget: ?string, surfaces: ?list<string>, scopes: list<string>, effects: array<string, mixed>, state: array{paths: list<string>, source: string, refused?: string}|null, runs: array{how: string, why?: string, pre_image?: bool}, digest: string, standing: 'admitted'|'never'|'changed'|'added'|'withdrawn', not_admissible: ?string}
- * @phpstan-type Card array{capability: string, scope: string, permission: string, opens: list<Verb>, contract: string, not_admissible: ?string, withdrawn: array{by: string, at: string}|null}
+ * @phpstan-type Card array{capability: string, scope: string, permission: string, opens: list<Verb>, contract: string, not_admissible: ?string, withdrawn: array{by: string, at: string}|null, works: array{holders: list<string>}|null, suspended: bool}
  */
 final readonly class CapabilityAdmissions
 {
@@ -79,8 +79,72 @@ final readonly class CapabilityAdmissions
         return $verb === null || $seat === null ? null : $this->missingFor($seat, $verb);
     }
 
-    /** The same judgement for a seat's key and a verb already in hand. */
+    /**
+     * The same judgement for a seat's key and a verb already in hand.
+     *
+     * IN WORKS OR ADMITTED, NEVER BOTH (decisions/0590, rule 10). While a seat holds the capability's building
+     * permit, no seat uses its verbs: an admission that covers the verb as it stands is kept and SUSPENDED, and the
+     * refusal says so. The next admission of that capability closes the permit, and what did not change stands
+     * again with no further act.
+     */
     public function missingFor(string $seat, BuiltVerb $verb): ?MissingAdmission
+    {
+        $works = $this->inWorks($verb->capability) !== [];
+        $lacks = $this->lacks($seat, $verb);
+        if ($lacks !== null) {
+            return $works ? new MissingAdmission($lacks->verb, $lacks->scope, $lacks->why, true) : $lacks;
+        }
+
+        return $works ? new MissingAdmission($verb, $this->admittedUnder($seat, $verb) ?? $verb->scopes()[0], MissingAdmission::IN_WORKS, true) : null;
+    }
+
+    /**
+     * The live seats that hold a capability's building permit: it is in works while there is one.
+     *
+     * @return list<string>
+     */
+    public function inWorks(string $capability): array
+    {
+        return $this->ledger->permitHolders($capability);
+    }
+
+    /**
+     * What each seat has admitted of a capability, as it is read — what a grant of its building permit would
+     * suspend. Empty when nobody was admitted anything of it.
+     *
+     * @return list<array{seat: string, scopes: list<string>}>
+     */
+    public function admittedOf(string $capability): array
+    {
+        $out = [];
+        foreach ($this->ledger->liveKeys() as $seat) {
+            $scopes = array_keys($this->ledger->admissionsFor($seat)[$capability] ?? []);
+            if ($scopes !== []) {
+                $out[] = ['seat' => $seat, 'scopes' => array_map(MissingAdmission::spelled(...), $scopes)];
+            }
+        }
+
+        return $out;
+    }
+
+    /** The scope a standing admission covers this verb under, as it is now — or null. */
+    private function admittedUnder(string $seat, BuiltVerb $verb): ?string
+    {
+        $held = $this->ledger->admissionsFor($seat)[$verb->capability] ?? [];
+        foreach ($verb->scopes() as $scope) {
+            if (($held[$scope]['verbs'][$verb->operation->name] ?? null) === $verb->digest()) {
+                return $scope;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Why this seat's own admissions do not cover the verb as its contract stands — or null: one does. This is
+     * the contract's question alone; whether the capability is in works is {@see missingFor()}'s.
+     */
+    public function lacks(string $seat, BuiltVerb $verb): ?MissingAdmission
     {
         $held = $this->ledger->admissionsFor($seat)[$verb->capability] ?? [];
         $name = $verb->operation->name;
@@ -195,7 +259,7 @@ final readonly class CapabilityAdmissions
                     $verbs[$name] = $verb === null || $verb->capability !== $capability ? 'gone' : ($verb->digest() === $digest ? 'admitted' : 'changed');
                 }
                 // `key` is the scope as the ledger keeps it: what a withdrawal names.
-                $admitted[] = ['capability' => $capability, 'scope' => MissingAdmission::spelled($scope), 'key' => $scope, 'admitted_by' => $admission['admitted_by'], 'at' => $admission['at'], 'verbs' => $verbs];
+                $admitted[] = ['capability' => $capability, 'scope' => MissingAdmission::spelled($scope), 'key' => $scope, 'admitted_by' => $admission['admitted_by'], 'at' => $admission['at'], 'verbs' => $verbs, 'suspended' => $this->inWorks($capability)];
             }
         }
 
@@ -226,6 +290,8 @@ final readonly class CapabilityAdmissions
                     'opens' => $card['opens'] ?? [],
                     'not_admissible' => $card['not_admissible'] ?? null,
                     'withdrawn' => $card['withdrawn'] ?? null,
+                    'works' => $card['works'] ?? null,
+                    'suspended' => $card['suspended'] ?? false,
                 ];
             }
         }
@@ -237,7 +303,13 @@ final readonly class CapabilityAdmissions
             return $line;
         }, $this->ledger->withdrawalsFor($seat));
 
-        return ['admitted' => $admitted, 'unadmitted' => $unadmitted, 'withdrawn' => $withdrawn];
+        // The building permits it holds of what this house built — each one keeps that capability in works.
+        $permits = array_values(array_filter(
+            $this->built->capabilities(),
+            static fn (string $capability): bool => \in_array(FileEnrollmentStore::permitOf($capability), $scopes, true),
+        ));
+
+        return ['admitted' => $admitted, 'unadmitted' => $unadmitted, 'withdrawn' => $withdrawn, 'permits' => $permits, 'closures' => $this->ledger->closuresFor($seat)];
     }
 
     /**
@@ -283,9 +355,11 @@ final readonly class CapabilityAdmissions
         }
         $opens = [];
         $notAdmissible = null;
+        $whole = true;
         foreach ($this->verbsUnder($capability, $scope) as $verb) {
             $operation = $verb->operation;
             $notAdmissible ??= $verb->notAdmissible();
+            $whole = $whole && $this->lacks($seat, $verb) === null;
             $opens[] = [
                 'verb' => $operation->name,
                 'tool' => $verb->tool(),
@@ -299,7 +373,8 @@ final readonly class CapabilityAdmissions
                 'state' => $verb->state(),
                 'runs' => $this->built->runs($verb),
                 'digest' => $verb->digest(),
-                'standing' => $this->missingFor($seat, $verb)->why ?? 'admitted',
+                // The contract's standing, whatever the works: what changed stays in view while it is suspended.
+                'standing' => $this->lacks($seat, $verb)->why ?? 'admitted',
                 'not_admissible' => $verb->notAdmissible(),
             ];
         }
@@ -314,6 +389,11 @@ final readonly class CapabilityAdmissions
             'not_admissible' => $notAdmissible,
             // Not part of what is approved: a fact about this seat, for the person who reads the card.
             'withdrawn' => $this->withdrawalOf($seat, $capability, $scope),
+            // Nor is this: who holds the capability's building permit now — admitting takes it from them (rule 10).
+            'works' => ($holders = $this->inWorks($capability)) === [] ? null : ['holders' => $holders],
+            // Whether this seat's admission of the scope is whole and only SUSPENDED by the works — so the card is
+            // not headed as if nobody had admitted it.
+            'suspended' => $holders !== [] && $opens !== [] && $whole,
         ];
     }
 

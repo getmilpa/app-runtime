@@ -35,11 +35,15 @@ final readonly class MissingAdmission
     /** A person took its admission back (greenhouse decisions/0590, rule 12). */
     public const string WITHDRAWN = 'withdrawn';
 
+    /** A person admitted it as it stands, and the capability is in works: that admission is suspended (rule 10). */
+    public const string IN_WORKS = 'in_works';
+
     /**
-     * @param string                                                $scope the scope an admission would be given under
-     * @param self::NEVER|self::CHANGED|self::ADDED|self::WITHDRAWN $why
+     * @param string                                                               $scope   the scope an admission would be given under
+     * @param self::NEVER|self::CHANGED|self::ADDED|self::WITHDRAWN|self::IN_WORKS $why
+     * @param bool                                                                 $inWorks whether a seat holds the capability's building permit
      */
-    public function __construct(public BuiltVerb $verb, public string $scope, public string $why)
+    public function __construct(public BuiltVerb $verb, public string $scope, public string $why, public bool $inWorks = false)
     {
     }
 
@@ -67,6 +71,20 @@ final readonly class MissingAdmission
         $verb = \sprintf('«%s» is a verb of the capability «%s», built in this house', $this->verb->operation->name, $this->verb->capability);
         $under = \sprintf("'%s' of «%s»", $this->permission(), $this->verb->capability);
 
+        // IN WORKS OR ADMITTED, NEVER BOTH (decisions/0590, rule 10): while a seat holds the capability's building
+        // permit no seat uses its verbs, and an admission is what closes that permit. A seat whose admission is
+        // whole reads that as the reason; one that lacks it for a reason of its own reads its own, and this too.
+        $works = \sprintf('«%s» is in works: a seat holds its building permit, and while it does no seat uses its verbs', $this->verb->capability);
+        if ($this->why === self::IN_WORKS) {
+            return \sprintf('%s, and %s. What a person admitted for this seat is kept and suspended: a person admits it again under %s, seeing its contract, and that closes the permit.', $verb, $works, $under);
+        }
+
+        return $this->reason($verb, $under) . ($this->inWorks ? \sprintf(' And %s — admitting closes that permit.', $works) : '');
+    }
+
+    /** Why this seat's own admissions do not cover the verb. */
+    private function reason(string $verb, string $under): string
+    {
         return match ($this->why) {
             self::CHANGED => \sprintf('%s, and its contract changed since a person admitted it for this seat: that admission, under %s, no longer covers it.', $verb, $under),
             self::ADDED => \sprintf('%s, added after %s was admitted for this seat: no person has admitted this verb.', $verb, $under),

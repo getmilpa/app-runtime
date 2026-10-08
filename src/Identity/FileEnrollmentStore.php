@@ -93,6 +93,12 @@ final class FileEnrollmentStore implements EnrollmentStore
                     if ($withdrawn !== [] && $keepAdmissions) {
                         $entry['withdrawals'] = $withdrawn;
                     }
+                    // And so does what an admission closed for it (rule 10): a grant of the permit again is the
+                    // act that reopens the works, and the seat still reads who had closed them.
+                    $closed = ($previous['revoked_by'] ?? null) === null ? self::closuresIn($previous) : [];
+                    if ($closed !== [] && $keepAdmissions) {
+                        $entry['closures'] = $closed;
+                    }
                     // The state being replaced goes onto the history, flat: the states it carried move
                     // along with it rather than nesting. A `history` that is not a list is not lifted —
                     // it rides inside the pushed state, kept as it was found.
@@ -131,8 +137,15 @@ final class FileEnrollmentStore implements EnrollmentStore
      * each pinned by the digest of its contract (greenhouse decisions/0590). False when the key has no live
      * recognition — nothing is admitted to a key the house does not admit.
      *
-     * The seat's scopes do not move: an admission never writes a word to them, so what it opens holds inside that
+     * The seat's scopes gain nothing: an admission never writes a word to them, so what it opens holds inside that
      * capability and nowhere else. The state it replaces goes onto the history, as every other write here.
+     *
+     * AND IT CLOSES THE CAPABILITY'S BUILDING PERMIT, IN THE SAME WRITE (decisions/0590, rule 10). A built
+     * capability is in works — a seat holds `plugins.<capability>:write` — or admitted, never both: measured, the
+     * seat that built one and had it admitted extended it with no new act of authority (evidence/1145). So the
+     * admission takes that one word from EVERY live seat, whoever enrolled it, and each seat it is taken from
+     * keeps who closed it, when, and for which admission ({@see closuresFor()}). It only removes authority, and
+     * only that word. One write, so the house is never «admitted, and still open to be rewritten».
      *
      * @param array<string, string> $verbs each admitted verb's name → the digest of its contract
      *
@@ -161,10 +174,106 @@ final class FileEnrollmentStore implements EnrollmentStore
             $map[$key] = $entry;
             $admitted = true;
 
+            $permit = self::permitOf($capability);
+            $closure = ['permit' => $permit, 'capability' => $capability, 'closed_by' => $admittedBy, 'at' => $at, 'admitted' => ['seat' => $key, 'scope' => $scope]];
+            foreach ($map as $seat => $held) {
+                if (!self::holdsPermit((string) $seat, $held, $permit)) {
+                    continue;
+                }
+                if ((string) $seat !== $key) {
+                    // Another seat: the state it had goes onto its own history. The admitted seat's already did.
+                    $before = $held;
+                    $past = \is_array($before['history'] ?? null) ? array_values($before['history']) : [];
+                    unset($before['history']);
+                    $held['history'] = [...$past, $before];
+                }
+                $held['scopes'] = array_values(array_filter($held['scopes'], static fn (mixed $word): bool => $word !== $permit));
+                $held['closures'] = [...self::closuresIn($held), $closure];
+                $map[$seat] = $held;
+            }
+
             return $map;
         });
 
         return $admitted;
+    }
+
+    /** The word that lets a seat write one plugin's tree: the building permit of the capability built there. */
+    public static function permitOf(string $capability): string
+    {
+        return 'plugins.' . $capability . ':write';
+    }
+
+    /**
+     * The live seats that hold a capability's building permit, as the ledger keeps their keys — the capability is
+     * in works while there is one (decisions/0590, rule 10). A seat is an enrolled key: a passkey that carries the
+     * word is a person, and is not counted.
+     *
+     * @return list<string>
+     */
+    public function permitHolders(string $capability): array
+    {
+        $permit = self::permitOf($capability);
+        $holders = [];
+        foreach ($this->read() ?? [] as $seat => $entry) {
+            if (self::holdsPermit((string) $seat, $entry, $permit)) {
+                $holders[] = (string) $seat;
+            }
+        }
+
+        return $holders;
+    }
+
+    /**
+     * The building permits an admission closed for this seat, oldest first — which word, of which capability, who
+     * admitted, when, and the admission it was closed for. Empty for a key never enrolled, and once revoked.
+     *
+     * @return list<array{permit: string, capability: string, closed_by: string, at: string, admitted: array{seat: string, scope: string}}>
+     */
+    public function closuresFor(string $fingerprint): array
+    {
+        $map = $this->read() ?? [];
+        $entry = $map[IdentityKey::normalize($fingerprint)] ?? null;
+        if (!\is_array($entry) || !\is_array($entry['scopes'] ?? null) || ($entry['revoked_by'] ?? null) !== null) {
+            return [];
+        }
+
+        return self::closuresIn($entry);
+    }
+
+    /** Whether that entry is a live seat — an enrolled key, not a passkey — whose scopes carry the permit. */
+    private static function holdsPermit(string $key, mixed $entry, string $permit): bool
+    {
+        return IdentityKey::isFingerprint($key)
+            && \is_array($entry) && \is_array($entry['scopes'] ?? null) && ($entry['revoked_by'] ?? null) === null
+            && \in_array($permit, $entry['scopes'], true);
+    }
+
+    /**
+     * The closures an entry carries, read strictly: anything that is not the shape {@see admit()} writes is not one.
+     *
+     * @param array<mixed> $entry
+     *
+     * @return list<array{permit: string, capability: string, closed_by: string, at: string, admitted: array{seat: string, scope: string}}>
+     */
+    private static function closuresIn(array $entry): array
+    {
+        $out = [];
+        foreach (\is_array($entry['closures'] ?? null) ? $entry['closures'] : [] as $line) {
+            $for = \is_array($line) && \is_array($line['admitted'] ?? null) ? $line['admitted'] : null;
+            if ($for === null || !\is_string($line['permit'] ?? null) || !\is_string($line['capability'] ?? null) || !\is_string($line['closed_by'] ?? null)) {
+                continue;
+            }
+            $out[] = [
+                'permit' => $line['permit'],
+                'capability' => $line['capability'],
+                'closed_by' => $line['closed_by'],
+                'at' => \is_string($line['at'] ?? null) ? $line['at'] : '',
+                'admitted' => ['seat' => \is_string($for['seat'] ?? null) ? $for['seat'] : '', 'scope' => \is_string($for['scope'] ?? null) ? $for['scope'] : ''],
+            ];
+        }
+
+        return $out;
     }
 
     /**

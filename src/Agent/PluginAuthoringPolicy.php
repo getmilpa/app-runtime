@@ -588,8 +588,21 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             throw new \RuntimeException('Scoped authoring requires one canonical plugin name.');
         }
         $permission = 'plugins.' . $plugin . ':write';
-        if (!$context->hasScope($permission)) {
+        // THE BUILDING PERMIT OF A SEAT IS WHAT THE LEDGER SAYS NOW (greenhouse decisions/0590, rule 10). An
+        // admission closes it for every seat, and a leg that started before carries the word until it ends: read
+        // from that context, a seat could go on writing a capability a person had just admitted by its contract.
+        $closed = $this->closedFor($context, $permission);
+        if (!$context->hasScope($permission) || $closed !== null) {
             $message = "Missing required permission '{$permission}' for plugin '{$plugin}'.";
+            if ($closed !== null) {
+                $message .= \sprintf(
+                    ' Its building permit was closed when «%s» was admitted — by %s, %s: a capability is in works or admitted, never both.'
+                    . ' A person reopens the works by granting it again over the existing plugin; while it stands, no seat uses the verbs of «%1$s».',
+                    $plugin,
+                    $closed['closed_by'],
+                    $closed['at'],
+                );
+            }
             $matching = [];
             foreach (array_filter($context->scopes, 'is_string') as $scope) {
                 if (preg_match('/^plugins\.([A-Za-z_][A-Za-z0-9_]*):write$/D', $scope, $parts) !== 1) {
@@ -613,6 +626,41 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             throw new MissingPermission($permission, $message, $plugin);
         }
         return $plugin;
+    }
+
+    /**
+     * The closure that took this permit from the caller's seat and that no grant has undone — or null: the caller
+     * is no seat of this ledger, its ledger entry holds the permit now, or no admission ever closed it.
+     *
+     * Only a key this ledger enrolled is asked: whoever carries the word from elsewhere — the terminal's operator,
+     * a passkey, a key recognized by static policy — is judged by what its context holds, as before.
+     *
+     * @return array{permit: string, capability: string, closed_by: string, at: string, admitted: array{seat: string, scope: string}}|null
+     */
+    private function closedFor(ToolContext $context, string $permission): ?array
+    {
+        $principal = $context->principal;
+        if (!\is_string($principal) || !str_starts_with($principal, 'key:')) {
+            return null;
+        }
+        $seat = substr($principal, 4);
+        $ledger = new \Milpa\AppRuntime\Identity\FileEnrollmentStore($this->root . '/storage/identity/enrollments.json');
+        try {
+            $scopes = \Milpa\AppRuntime\Identity\IdentityKey::isFingerprint($seat) ? $ledger->scopesFor($seat) : null;
+            if ($scopes === null || \in_array($permission, $scopes, true)) {
+                return null;
+            }
+            $last = null;
+            foreach ($ledger->closuresFor($seat) as $closure) {
+                if ($closure['permit'] === $permission) {
+                    $last = $closure;
+                }
+            }
+
+            return $last;
+        } catch (\Throwable) {
+            return null; // a ledger that cannot be read closes nothing: the context's own word is still asked
+        }
     }
 
     /**
