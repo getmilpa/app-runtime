@@ -39,6 +39,8 @@ final class ScaffoldsNotWritten
     private const WRITES = ['implement', 'edit'];
 
     /**
+     * The operations this session scaffolded and has no later accepted authoring call for.
+     *
      * @param list<Event> $events any events; only this session's recorded calls are read
      *
      * @return list<array{plugin: string, class: string, scaffolded_at: int}> in the order they were scaffolded
