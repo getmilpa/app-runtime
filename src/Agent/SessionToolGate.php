@@ -646,7 +646,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
 
         return new \Milpa\Agent\PendingQuestion(
             id: 'intent-' . substr(sha1($operacion->name . '|' . $valor), 0, 12),
-            question: "The request does not name «{$valor}». Confirm {$operacion->name} on «{$valor}»?",
+            question: "The request does not name «{$valor}». Confirm {$operacion->name} on «{$valor}»?" . $this->whatAYesDoes(),
             options: AffirmativeAnswer::OPTIONS,
             why: json_encode(
                 ['operation' => $operacion->name, 'arguments' => $arguments],
@@ -865,6 +865,24 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
 
         return RecordedEdit::usesSource($operacion, $arguments)
             && (new RecordedEdit($root, $this->sessions))->repairsItsOwnProposal($arguments, $this->session->id);
+    }
+
+    /**
+     * What a yes does, said in the question itself — where it is true (greenhouse decisions/0600).
+     *
+     * The house takes up the call a person said yes to ({@see AnsweredCall}): «the agent will run it» stopped being
+     * what happens, so the question says who will. It is true of a session a SEAT runs — the one whose next leg the
+     * house opens with the call. A session a person drives with their own key is not taken up, and neither is one
+     * of a house this gate cannot read: there the question stays as it was. What asks for a signature never passes
+     * here: it is not answered, it is signed.
+     */
+    private function whatAYesDoes(): string
+    {
+        if ($this->houseRoot === null) {
+            return '';
+        }
+
+        return SeatFrontier::forRoot($this->houseRoot, $this->sessions)->seatOf($this->session->id) === null ? '' : ' If you say yes, the house runs it.';
     }
 
     /** Cuándo vence la pregunta que se está por hacer, o `null` si el host no puso plazo. */
@@ -1386,7 +1404,8 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
 
         return new \Milpa\Agent\PendingQuestion(
             id: $pregunta->id,
-            question: $pregunta->question,
+            // …AND WHAT A YES DOES (greenhouse decisions/0600): the house runs the call, so the question says so.
+            question: $pregunta->question . $this->whatAYesDoes(),
             // THIS GATE READS THE ANSWER, SO THIS GATE SAYS WHICH ONES IT OFFERS (greenhouse decisions/0518):
             // a permission question offers `yes`/`no` whatever milpa/agent release drafted it — agent ≤0.51.1
             // still drafts «sí» — so the wire does not depend on the order two packages are released in.

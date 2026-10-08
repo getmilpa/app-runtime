@@ -74,6 +74,7 @@ use Milpa\Plugin\Runtime\MetadataGraphResolver;
 use Milpa\Resolver\Report\ResolutionReport;
 use Milpa\AiGateway\LlmService;
 use Milpa\AppRuntime\Agent\AgentTable;
+use Milpa\AppRuntime\Agent\AnsweredCall;
 use Milpa\AppRuntime\Agent\AppliedTrials;
 use Milpa\AppRuntime\Agent\ConfinedWork;
 use Milpa\AppRuntime\Agent\EffectClasses;
@@ -3331,7 +3332,7 @@ class AgentOperations implements CommandProvider
         $sonda = $this->progressProbe();
 
         $orquestador = $this->orchestrator($modeloRemoto, $cliente, $pasos, $tablero, $lazyTools, $sonda);
-        $this->playTheGrantedCall($orquestador);
+        $this->playTheCallAPersonDecidedAbout($orquestador);
         $this->applyWhatTheHouseAdmitted($orquestador, $registry);
 
         // Only the base ask/run/getter chain proves what this return actually observed.
@@ -4240,20 +4241,24 @@ class AgentOperations implements CommandProvider
     }
 
     /**
-     * THE GRANT RESUMES THE CALL IT WAS GIVEN FOR (greenhouse decisions/0577). When a person granted the scope this
-     * session's last call was refused for, and nothing has happened since, this leg opens with that recorded call
-     * instead of asking the model to retype it. {@see GrantedCall} decides which call, from the stream alone. The
-     * leg adds what only it can know:
+     * WHAT A PERSON DECIDED ABOUT A CALL, THE HOUSE RUNS (greenhouse decisions/0577, 0600). When a person's last act
+     * in this session was about ONE call of it — the grant or the admission its last call was refused for, or the
+     * yes to a question the house had asked about a call — and nothing has happened since, this leg opens with that
+     * call instead of asking the model to type it again. {@see GrantedCall} and {@see AnsweredCall} decide which
+     * call, each from the stream alone. The leg adds what only it can know:
      *
-     *  - THE SEAT RUNS THE LEG. The call was the seat's; a leg run by anybody else — the person who granted
-     *    included — plays nothing, and neither does an unproven claim to be the seat.
-     *  - THE HOUSE HAS TRIALS. Outside one the call would land; then the model asks for it, as before.
+     *  - THE SEAT RUNS THE LEG. The call was the seat's; a leg run by anybody else — the person who granted or
+     *    answered included — plays nothing, and neither does an unproven claim to be the seat.
+     *  - AFTER A GRANT OR AN ADMISSION, THE HOUSE HAS TRIALS. Those name a scope, so they resume only what does not
+     *    land by itself; outside a trial the call would land, and then the model asks for it, as before. A YES
+     *    named the call itself, landing or not, and asks for no trial.
+     *  - ONE MOVE. When a grant and a yes both stand, the later act is the one taken up.
      *
      * The move is not an authority: it goes through the governed door like any call the model makes — the gate,
      * the mode's question, the scopes the seat holds NOW, the trial — and it spends a step. What the house adds
      * is one fact, so the ledger never reads this call as the model's.
      */
-    private function playTheGrantedCall(object $orquestador): void
+    private function playTheCallAPersonDecidedAbout(object $orquestador): void
     {
         $session = $this->sesionDeLosPermisos;
         $store = $this->sessionStore();
@@ -4262,28 +4267,44 @@ class AgentOperations implements CommandProvider
         if ($session === null || $store === null || $events === null || !$kernel instanceof Kernel) {
             return;
         }
-        $call = GrantedCall::toResume($store->stream($session), new \DateTimeImmutable());
-        if ($call === null || $this->trialRouter($kernel) === null) {
+        $stream = $store->stream($session);
+        $now = new \DateTimeImmutable();
+        $granted = $this->trialRouter($kernel) === null ? null : GrantedCall::toResume($stream, $now);
+        $answered = AnsweredCall::toResume($stream, $now);
+        if ($granted === null && $answered === null) {
             return;
+        }
+        if ($granted !== null && $answered !== null) {
+            // TWO ACTS STAND AND A LEG OPENS WITH ONE MOVE: the later act is the last thing a person decided. The
+            // earlier one no longer is — once the house plays, that is what follows it — and its call goes back to
+            // the model, as before.
+            if ($granted['granted'] > $answered['answered']) {
+                $answered = null;
+            } else {
+                $granted = null;
+            }
         }
         $by = ObservedExecutor::fromContext($this->contextoDeLaVuelta)->principal;
         $seat = SeatFrontier::forRoot($kernel->root(), $store)->seatOf($session);
         if ($seat === null || $by === null || !$by->verified || $by->id !== 'key:' . $seat) {
             return;
         }
-        if (GrantedCall::open($orquestador, $call)) {
-            GrantedCall::resumed($events, $session, $call, $by->id);
+        if ($granted !== null && GrantedCall::open($orquestador, $granted)) {
+            GrantedCall::resumed($events, $session, $granted, $by->id);
+        }
+        if ($answered !== null && AnsweredCall::open($orquestador, $answered)) {
+            AnsweredCall::resumed($events, $session, $answered, $by->id);
         }
     }
 
     /**
      * THE HOUSE APPLIES THE VERIFIED TRIAL OF AN OPERATION A PERSON ADMITTED (greenhouse decisions/0586). Where the
-     * installed gateway lets the leg play the call that follows from a tool call, the house runs producers in
-     * trials, and a person of this house admitted at least one operation, a call to an admitted operation whose
-     * trial verified is continued with its promotion: {@see AppliedTrials} reads which call, and the leg's own trial
-     * layer confirms it is the trial it just ran and said it applies. The promotion is a step of its own through
-     * the governed door, as whoever runs the leg; the house records that it continued, after which call, and by
-     * which operation's contract.
+     * house runs producers in trials and a person of this house admitted at least one operation, the leg hands its
+     * loop the call that follows from a tool call — every gateway this runtime installs beside can play it:
+     * milpa/ai-gateway 0.42 is the floor. A call to an admitted operation whose trial verified is continued with its
+     * promotion: {@see AppliedTrials} reads which call, and the leg's own trial layer confirms it is the trial it
+     * just ran and said it applies. The promotion is a step of its own through the governed door, as whoever runs
+     * the leg; the house records that it continued, after which call, and by which operation's contract.
      *
      * In a house where nobody admitted anything the leg is handed nothing: it is the leg it was.
      *
@@ -4293,10 +4314,10 @@ class AgentOperations implements CommandProvider
      * model asks for the promotion and the person is asked about it. And a move the house cannot record is a move it
      * does not make: without a session and its log there is no contract either.
      */
-    private function applyWhatTheHouseAdmitted(object $orquestador, ToolRegistry $registry): void
+    private function applyWhatTheHouseAdmitted(AgentOrchestrator $orquestador, ToolRegistry $registry): void
     {
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
-        if (!method_exists($orquestador, 'setContinuation') || !$registry instanceof TrialAwareRegistry || !$kernel instanceof Kernel) {
+        if (!$registry instanceof TrialAwareRegistry || !$kernel instanceof Kernel) {
             return;
         }
         $session = $this->sesionDeLosPermisos;

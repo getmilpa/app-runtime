@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Agent;
 
+use Milpa\AppRuntime\Config\SecretFiles;
 use Milpa\AppRuntime\Support\ChildProcess;
 use Milpa\Command\Effect\Subject;
 use Milpa\Plugin\Contracts\BootWitnessInterface;
@@ -25,7 +26,8 @@ use Milpa\Plugin\Contracts\BootWitnessInterface;
  *
  * greenhouse decisions/0068: the trial must not create a second house. A copy under
  * `var/trials/<id>/` is the app minus its state — no `var/` (the session stream lives there, and a
- * second stream would be a second truth) and no `.env` (a secret does not travel into a throwaway).
+ * second stream would be a second truth) and no file that holds a secret ({@see SecretFiles}: a secret
+ * does not travel into a throwaway, and the house says which files those are in one place).
  * The copy carries its own empty `var/` so the trial process boots, and the runner
  * (`trial-run.php`) so it can execute one operation the way the TUI does.
  *
@@ -408,11 +410,16 @@ final class TrialWorkspace
 
     private static function copyTree(string $root, string $copy): void
     {
-        // rsync is the measured mechanism (0272); the contract is «the copy, minus var/ and .env»,
-        // and a host without rsync still gets it through the plain-PHP walk below.
+        // rsync is the measured mechanism (0272); the contract is «the copy, minus var/ and every file that
+        // holds a secret», and a host without rsync still gets it through the plain-PHP walk below.
+        //
+        // IT WAS «MINUS .env» (greenhouse evidence/1161): the envelope `provider:declare` writes and Composer's
+        // credentials came later and travelled with the rest. The list is the house's now, not this method's.
         if (self::hasRsync()) {
+            $secrets = implode(' ', array_map(static fn (string $rel): string => escapeshellarg('--exclude=/' . $rel), SecretFiles::under($root)));
             $cmd = sprintf(
-                'rsync -a --exclude=/var/ --exclude=/vendor/ --exclude=/.env %s %s',
+                'rsync -a --exclude=/var/ --exclude=/vendor/ %s %s %s',
+                $secrets,
                 escapeshellarg(rtrim($root, '/') . '/'),
                 escapeshellarg(rtrim($copy, '/') . '/'),
             );
@@ -424,7 +431,7 @@ final class TrialWorkspace
 
         foreach (self::relFiles($root) as $rel) {
             $top = explode('/', $rel)[0];
-            if ($top === 'var' || $rel === '.env') {
+            if ($top === 'var' || SecretFiles::isSecret($rel)) {
                 continue;
             }
             $dest = $copy . '/' . $rel;

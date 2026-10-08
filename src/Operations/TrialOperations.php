@@ -339,9 +339,9 @@ final class TrialOperations implements CommandProvider
         }
         $candidate = BootCandidate::of($root, $writes, $deletes);
         try {
-            $seen = [$observer->observeRoute($candidate->path, $path, $excerpt, $method, $body, $type, $confined)];
+            $seen = [$observer->observeRoute($candidate->path, $path, $excerpt, $method, $body, $type, $confined, $root)];
             foreach ($then as $next) {
-                $seen[] = $observer->observeRoute($candidate->path, $next, $excerpt, 'GET', null, null, true);
+                $seen[] = $observer->observeRoute($candidate->path, $next, $excerpt, 'GET', null, null, true, $root);
             }
         } finally {
             $candidate->remove();

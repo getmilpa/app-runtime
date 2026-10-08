@@ -61,8 +61,8 @@ use Psr\Log\NullLogger;
  */
 final class AGrantResumesTheCallItWasGivenForTest extends TestCase
 {
-    private const HUMAN = 'C1FEA43BAC5F22E7A5F21152B46AB0F97CAFB831';
-    private const SEAT = '95A3AC7B96F8BC6AA7044F2C09082971DEBAAA50';
+    private const HUMAN = 'BBBB2222CCCC3333DDDD4444EEEE5555FFFF6666';
+    private const SEAT = 'CCCC3333DDDD4444EEEE5555FFFF6666AAAA7777';
     private const STREAM = 'agent-session:bv';
     private const MAKE = ['what' => 'page', 'plugin' => 'Blog', 'name' => 'blog', 'fields' => 'title:string, body:text, published:bool'];
     private const REFUSED = "Missing required permission 'plugins.Blog:write' for plugin 'Blog'.";

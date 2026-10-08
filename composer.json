@@ -29,7 +29,7 @@
         "milpa/agent-workspace": "<0.91",
         "milpa/auth": "<0.11",
         "milpa/command": "<0.25",
-        "milpa/devtools": "<0.44",
+        "milpa/devtools": "<0.44.1",
         "milpa/event-store": "<0.4",
         "milpa/ai-gateway": "<0.42.0"
     },
@@ -39,7 +39,7 @@
         "milpa/ai-gateway": ">=0.42 <1.0",
         "milpa/auth": ">=0.11 <1.0",
         "milpa/data": ">=0.2.2 <1.0",
-        "milpa/devtools": ">=0.44 <1.0",
+        "milpa/devtools": ">=0.44.1 <1.0",
         "milpa/event-store": ">=0.4 <1.0",
         "milpa/events": ">=0.4 <1.0",
         "milpa/mcp-server": ">=0.7 <1.0",
