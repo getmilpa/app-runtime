@@ -178,7 +178,9 @@ final class AdmittingClosesTheBuildingPermitTest extends TestCase
     {
         [$root, $kernel, $plugin] = $this->house();
         $this->admit($root, $kernel, self::SEAT, 'herramientas:write');
-        self::assertNull(CapabilityAdmissions::forRoot($root, BuiltCapabilities::of($kernel))->card(self::SEAT, 'Prestamos', 'herramientas:write')['works'] ?? null);
+        $closed = CapabilityAdmissions::forRoot($root, BuiltCapabilities::of($kernel))->card(self::SEAT, 'Prestamos', 'herramientas:write');
+        self::assertNull($closed['works'] ?? null);
+        self::assertFalse($closed['suspended'] ?? null, 'admitted, and nobody holds the permit: nothing is suspended');
         $this->grant($root, self::OTHER_SEAT, [self::PERMIT]);
         $this->declare($plugin, [
             $this->verb('herramientas.listar', ['herramientas:read']),
@@ -198,6 +200,16 @@ final class AdmittingClosesTheBuildingPermitTest extends TestCase
             ['herramientas.agregar' => 'admitted', 'herramientas.baja' => 'added', 'herramientas.devolver' => 'admitted', 'herramientas.prestar' => 'changed'],
             array_column($card['opens'], 'standing', 'verb'),
         );
+        // And whether the admission of that scope is whole and only suspended, or lacks something of its own:
+        // measured in the lab house, a card for a suspended admission was headed «No admission covers…».
+        self::assertFalse($card['suspended'], 'a verb changed and another was added: this one lacks something of its own');
+        self::assertTrue($admissions->card(self::SEAT, 'Prestamos', 'herramientas:write')['works'] !== null);
+        $this->admit($root, $this->kernel($root, [$plugin]), self::SEAT, 'herramientas:write');
+        $this->grant($root, self::OTHER_SEAT, [self::PERMIT]);
+        $whole = $admissions->card(self::SEAT, 'Prestamos', 'herramientas:write');
+        self::assertTrue($whole['suspended'] ?? null, 'admitted as it stands, and in works: suspended');
+        self::assertFalse($admissions->card(self::OTHER_SEAT, 'Prestamos', 'herramientas:write')['suspended'] ?? null, 'never admitted to this seat: nothing of its is suspended');
+        self::assertTrue(array_column($admissions->holdingsOf(self::SEAT, self::SEAT_SCOPES)['unadmitted'], 'suspended', 'scope')['herramientas:write']);
         // The list a person reads says it too: what is admitted is suspended, and who holds the permit.
         $held = $admissions->holdingsOf(self::SEAT, self::SEAT_SCOPES);
         self::assertSame([self::OTHER_SEAT], $held['admitted'][0]['suspended']);

@@ -51,8 +51,8 @@ use Milpa\ToolRuntime\Contracts\ToolContext;
  * It is offered only by a frontier that was told what the house built; one that was not offers what it always did.
  *
  * @phpstan-type Verb array{verb: string, tool: string, description: string, mutating: bool, requiresConfirmation: bool, namedTarget: ?string, surfaces: ?list<string>, scopes: list<string>, effects: array<string, mixed>, state: array{paths: list<string>, source: string, refused?: string}|null, runs: array{how: string, why?: string, pre_image?: bool}, digest: string, standing: 'admitted'|'never'|'changed'|'added'|'withdrawn', not_admissible: ?string}
- * @phpstan-type Refusal array{seq: int, tool: string, plugin: ?string, permission: string, call: array<string, string|int|float|bool|null>, target: 'new'|'existing'|null, named: bool, consent: 'touch'|'informed', kind?: 'capability', capability?: string, scope?: string, why?: 'never'|'changed'|'added'|'withdrawn'|'in_works', opens?: list<Verb>, contract?: string, not_admissible?: ?string, withdrawn?: array{by: string, at: string}|null, works?: array{holders: list<string>}|null, suspends?: list<array{seat: string, scopes: list<string>}>}
- * @phpstan-type SeatRefusal array{seq: int, tool: string, plugin: ?string, permission: string, call: array<string, string|int|float|bool|null>, target: 'new'|'existing'|null, named: bool, consent: 'touch'|'informed', seat: string, kind?: 'capability', capability?: string, scope?: string, why?: 'never'|'changed'|'added'|'withdrawn'|'in_works', opens?: list<Verb>, contract?: string, not_admissible?: ?string, withdrawn?: array{by: string, at: string}|null, works?: array{holders: list<string>}|null, suspends?: list<array{seat: string, scopes: list<string>}>}
+ * @phpstan-type Refusal array{seq: int, tool: string, plugin: ?string, permission: string, call: array<string, string|int|float|bool|null>, target: 'new'|'existing'|null, named: bool, consent: 'touch'|'informed', kind?: 'capability', capability?: string, scope?: string, why?: 'never'|'changed'|'added'|'withdrawn'|'in_works', opens?: list<Verb>, contract?: string, not_admissible?: ?string, withdrawn?: array{by: string, at: string}|null, works?: array{holders: list<string>}|null, suspended?: bool, suspends?: list<array{seat: string, scopes: list<string>}>}
+ * @phpstan-type SeatRefusal array{seq: int, tool: string, plugin: ?string, permission: string, call: array<string, string|int|float|bool|null>, target: 'new'|'existing'|null, named: bool, consent: 'touch'|'informed', seat: string, kind?: 'capability', capability?: string, scope?: string, why?: 'never'|'changed'|'added'|'withdrawn'|'in_works', opens?: list<Verb>, contract?: string, not_admissible?: ?string, withdrawn?: array{by: string, at: string}|null, works?: array{holders: list<string>}|null, suspended?: bool, suspends?: list<array{seat: string, scopes: list<string>}>}
  */
 final class SeatFrontier
 {
@@ -384,6 +384,7 @@ final class SeatFrontier
             'withdrawn' => $card['withdrawn'],
             // Who holds the capability's building permit now: admitting takes it from them (rule 10).
             'works' => $card['works'],
+            'suspended' => $card['suspended'],
         ];
     }
 

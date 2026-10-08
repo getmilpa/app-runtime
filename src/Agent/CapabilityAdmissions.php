@@ -30,7 +30,7 @@ use Milpa\AppRuntime\Identity\FileEnrollmentStore;
  *
  * @phpstan-type Group array{capability: string, scope: string, verbs: array<string, string>, contract: string}
  * @phpstan-type Verb array{verb: string, tool: string, description: string, mutating: bool, requiresConfirmation: bool, namedTarget: ?string, surfaces: ?list<string>, scopes: list<string>, effects: array<string, mixed>, state: array{paths: list<string>, source: string, refused?: string}|null, runs: array{how: string, why?: string, pre_image?: bool}, digest: string, standing: 'admitted'|'never'|'changed'|'added'|'withdrawn', not_admissible: ?string}
- * @phpstan-type Card array{capability: string, scope: string, permission: string, opens: list<Verb>, contract: string, not_admissible: ?string, withdrawn: array{by: string, at: string}|null, works: array{holders: list<string>}|null}
+ * @phpstan-type Card array{capability: string, scope: string, permission: string, opens: list<Verb>, contract: string, not_admissible: ?string, withdrawn: array{by: string, at: string}|null, works: array{holders: list<string>}|null, suspended: bool}
  */
 final readonly class CapabilityAdmissions
 {
@@ -291,6 +291,7 @@ final readonly class CapabilityAdmissions
                     'not_admissible' => $card['not_admissible'] ?? null,
                     'withdrawn' => $card['withdrawn'] ?? null,
                     'works' => $card['works'] ?? null,
+                    'suspended' => $card['suspended'] ?? false,
                 ];
             }
         }
@@ -354,9 +355,11 @@ final readonly class CapabilityAdmissions
         }
         $opens = [];
         $notAdmissible = null;
+        $whole = true;
         foreach ($this->verbsUnder($capability, $scope) as $verb) {
             $operation = $verb->operation;
             $notAdmissible ??= $verb->notAdmissible();
+            $whole = $whole && $this->lacks($seat, $verb) === null;
             $opens[] = [
                 'verb' => $operation->name,
                 'tool' => $verb->tool(),
@@ -388,6 +391,9 @@ final readonly class CapabilityAdmissions
             'withdrawn' => $this->withdrawalOf($seat, $capability, $scope),
             // Nor is this: who holds the capability's building permit now — admitting takes it from them (rule 10).
             'works' => ($holders = $this->inWorks($capability)) === [] ? null : ['holders' => $holders],
+            // Whether this seat's admission of the scope is whole and only SUSPENDED by the works — so the card is
+            // not headed as if nobody had admitted it.
+            'suspended' => $holders !== [] && $opens !== [] && $whole,
         ];
     }
 
