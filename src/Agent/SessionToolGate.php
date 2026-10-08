@@ -618,7 +618,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
 
         // WHAT A PERSON OPENED KNOWINGLY, BY ITS NAME AND FOR THIS SESSION, IS NAMED FOR THIS SESSION.
         //
-        // HELD — greenhouse decisions/0602 is NOT decided. Built for the candidate train only.
+        // Decided by Rod, 2026-10-08 (greenhouse decisions/0602).
         //
         // Extending a capability that exists is bracketed by two acts of a person: the grant that reopens its works
         // —informed, the plugin's name repeated (decisions/0510)— and the admission that closes them (decisions/0590,
@@ -887,7 +887,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
 
     /**
      * Whether a person opened, for this session, the works of the plugin this call writes in (greenhouse
-     * decisions/0602 — HELD, not decided).
+     * decisions/0602).
      *
      * Only an authoring operation — one the authoring policy bounds by a plugin's building permit — and only by the
      * plugin it names: what such a call can touch is that plugin's own trees and nothing else, which is the boundary

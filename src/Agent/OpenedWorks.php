@@ -18,7 +18,7 @@ use Milpa\AppRuntime\Identity\FileEnrollmentStore;
 use Milpa\EventStore\Event;
 
 /**
- * HELD — greenhouse decisions/0602 is NOT decided. Built for the candidate train only.
+ * Decided by Rod, 2026-10-08 (greenhouse decisions/0602).
  *
  * The works a person opened for a session: what the grant over an existing plugin leaves on its fact, and whether
  * those works still stand.

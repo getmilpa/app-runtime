@@ -37,7 +37,7 @@ use Milpa\EventStore\InMemoryEventStore;
 use PHPUnit\Framework\TestCase;
 
 /**
- * HELD — greenhouse decisions/0602 is NOT decided. Built for the candidate train only.
+ * Decided by Rod, 2026-10-08 (greenhouse decisions/0602).
  *
  * Opening the works of a capability names, for that session, what is inside.
  *

@@ -154,7 +154,7 @@ final class ReopeningTheWorksOfAnAdmittedCapabilityTest extends TestCase
     }
 
     /**
-     * HELD — greenhouse decisions/0602 is NOT decided. Built for the candidate train only.
+     * Decided by Rod, 2026-10-08 (greenhouse decisions/0602).
      *
      * The grant that opens the works leaves, on the fact the session keeps, what it opened: which plugin, for which
      * seat, and how many times that seat's permit had been closed. That is all {@see OpenedWorks} reads later.
@@ -204,6 +204,63 @@ final class ReopeningTheWorksOfAnAdmittedCapabilityTest extends TestCase
             'In this session the house will then write inside «Prestamos» without asking you again about each piece; approve it knowingly with existing=Prestamos; nothing was granted',
             (string) $plain['error'],
         );
+    }
+
+    /**
+     * AND EVERY SURFACE CAN SAY IT (the condition Rod set when he decided 0602): the card a person is shown carries,
+     * as a fact, how far this grant reaches — so a panel that draws its own card says the sentence before the touch,
+     * as the terminal does. Over an existing plugin the policy names one permission, its building permit: the card
+     * that asks for informed consent is the card of the grant that stands.
+     */
+    public function testTheCardCarriesThatTheGrantStandsForTheSession(): void
+    {
+        [$c, , , $write] = $this->house();
+        $this->admitFrom($c, $write);
+        $sessions = $c->get(SessionStore::class);
+        \assert($sessions instanceof SessionStore);
+        $edit = $sessions->recordToolCall(self::SESSION, 'edit', self::EDIT, "Missing required permission 'plugins.Prestamos:write' for plugin 'Prestamos'.", false, false);
+
+        $row = $this->card($c, $edit);
+
+        self::assertSame('informed', $row['consent']);
+        self::assertSame('session', $row['stands_for']);
+    }
+
+    /** One touch over a plugin the house does not have opens no existing work, and stands for nothing after it. */
+    public function testACardOfOneTouchStandsForNothing(): void
+    {
+        [$c] = $this->house();
+        $sessions = $c->get(SessionStore::class);
+        \assert($sessions instanceof SessionStore);
+        $make = $sessions->recordToolCall(self::SESSION, 'make', ['what' => 'plugin', 'plugin' => 'Taller', 'name' => 'Taller'], "Missing required permission 'plugins.Taller:write' for plugin 'Taller'.", false, false);
+
+        $row = $this->card($c, $make);
+
+        self::assertSame('touch', $row['consent']);
+        self::assertArrayHasKey('stands_for', $row);
+        self::assertNull($row['stands_for']);
+    }
+
+    /** The card of an admission asks for another act: it carries nothing of a grant's reach. */
+    public function testAnAdmissionCardSaysNothingOfAGrantsReach(): void
+    {
+        [$c, , , $write] = $this->house();
+
+        self::assertArrayNotHasKey('stands_for', $this->card($c, $write));
+    }
+
+    /**
+     * And the runtime that carries the rule is not installed beside a panel that does not say it: the floor is the
+     * release of the panel whose cards say what a grant suspends (rule 10) and how far it reaches (0602).
+     */
+    public function testTheRuntimeRefusesAPanelOlderThanTheOneThatSaysIt(): void
+    {
+        $composer = json_decode((string) file_get_contents(\dirname(__DIR__, 2) . '/composer.json'), true);
+        $floor = $composer['conflict']['milpa/agent-workspace'] ?? null;
+
+        self::assertIsString($floor);
+        self::assertMatchesRegularExpression('/^<\d+\.\d+(\.\d+)?$/D', $floor, 'a floor: everything below one version');
+        self::assertTrue(version_compare(substr($floor, 1), '0.92', '>='), "the panel must be 0.92 or later; composer.json says {$floor}");
     }
 
     /** A grant over a plugin that does not exist yet is one touch, and opens no existing work: its fact says none. */
