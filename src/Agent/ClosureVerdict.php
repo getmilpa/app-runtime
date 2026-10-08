@@ -72,12 +72,20 @@ final class ClosureVerdict
      * A call is a change to the house only when its operation's own declaration says it lasts (`$lasting`,
      * {@see LastingCalls}, decisions/0523): a green test run after the observation does not take it back.
      *
-     * @param list<Event>|null                                     $stream  the session's stream, or `null` to judge the recorded work alone
-     * @param (\Closure(string, array<string, mixed>): ?bool)|null $lasting the house's reading of which calls last; null reads the recorded flag
+     * WORK IN THE DOMAIN closes on the receipts of what the house itself executed ({@see HouseExecutedWork}, greenhouse
+     * decisions/0599): every act a person's admission covers, run in the house and changing its state, with nothing left
+     * halfway. The scope says so — `house_execution`, or `recorded_work_and_house_execution` beside todos — and the work
+     * carries `asked: "unjudged"`: the house saw what was done, not whether that was what was asked. It needs the
+     * house's reading of what was admitted (`$admitted`); without it nothing is derived from work, as before.
+     *
+     * @param list<Event>|null                                     $stream   the session's stream, or `null` to judge the recorded work alone
+     * @param (\Closure(string, array<string, mixed>): ?bool)|null $lasting  the house's reading of which calls last; null reads the recorded flag
+     * @param (\Closure(string, ?string): ?bool)|null              $admitted whether a person's admission covers an operation for a principal; null
+     *                                                                       when it is no verb of a built capability; no closure, no work is read
      *
      * @return array{verified: bool, reasons: list<string>, scope: string, derivedFrom?: array<string, mixed>}
      */
-    public static function derive(Session $session, SessionFacts $facts, ?array $stream = null, ?\Closure $lasting = null): array
+    public static function derive(Session $session, SessionFacts $facts, ?array $stream = null, ?\Closure $lasting = null, ?\Closure $admitted = null): array
     {
         $reasons = [];
         $hasEvidence = false;
@@ -212,6 +220,14 @@ final class ClosureVerdict
             }
         }
         $reasons = [...$reasons, ...$notListing];
+        // THE WORK THE HOUSE EXECUTED (greenhouse decisions/0599): its own receipts are evidence, and what they leave
+        // halfway is said.
+        $worked = $stream !== null && $admitted !== null ? HouseExecutedWork::of($stream, $admitted) : null;
+        if ($worked !== null && $worked['derived']) {
+            $hasEvidence = true;
+        } elseif ($worked !== null) {
+            $reasons = [...$reasons, ...$worked['reasons']];
+        }
         if (!$hasEvidence) {
             $reasons[] = 'no positive verification evidence recorded';
         }
@@ -222,10 +238,16 @@ final class ClosureVerdict
             $reasons[] = "… and {$overflow} more recorded facts";
         }
 
+        $work = $worked !== null && $worked['derived'] ? ['work' => $worked['work']] : [];
         if ($house !== null && $house['derived']) {
             return ['verified' => $reasons === [], 'reasons' => $reasons,
                 'scope' => $session->todos === [] ? 'house_observation' : 'recorded_work_and_house_observation',
-                'derivedFrom' => ['observation' => $house['observation'], 'lastChangeSeq' => $house['lastChangeSeq']]];
+                'derivedFrom' => ['observation' => $house['observation'], 'lastChangeSeq' => $house['lastChangeSeq']] + $work];
+        }
+        if ($work !== []) {
+            return ['verified' => $reasons === [], 'reasons' => $reasons,
+                'scope' => $session->todos === [] ? 'house_execution' : 'recorded_work_and_house_execution',
+                'derivedFrom' => $work];
         }
 
         return ['verified' => $reasons === [], 'reasons' => $reasons, 'scope' => 'recorded_work'];
