@@ -1,7 +1,8 @@
 <?php
 
 /**
- * Recovery offers follow the live gate without granting authority (greenhouse 0340/0657).
+ * A recovering session keeps its offer, and the live gate is what refuses the read (greenhouse 0340/0657; the
+ * offer stopped moving inside a leg with decisions/0601, rule D).
  * (c) Rodrigo Vicente - TeamX Agency — https://teamx.agency <hola@teamx.agency>
  *
  * @license Apache-2.0
@@ -46,6 +47,9 @@ final class RecoveryOfferTest extends TestCase
     private SessionOptionTable $table;
     private int $executions = 0;
     private bool $stallOnRead = false;
+
+    /** @var list<array<int, array<string, mixed>>> the tools of each request of a loop */
+    private array $sent = [];
 
     protected function setUp(): void
     {
@@ -124,20 +128,21 @@ final class RecoveryOfferTest extends TestCase
         );
     }
 
-    public function testOfferWithdrawsReadsAndRestoresThemWithoutRecordingOrExecuting(): void
+    /** The offer does not move inside a leg, a stall included (greenhouse decisions/0601, rule D). */
+    public function testAStallLeavesTheOfferAsItWasAndRecordsNothing(): void
     {
         $before = $this->bridge->getToolSummaries();
         self::assertCount(3, $before);
         $this->stall();
         $stream = $this->store->stream('offer');
-        self::assertSame(['materialize', 'notebook'], $this->names());
+        self::assertSame($before, $this->bridge->getToolSummaries(), 'a stalled session is offered what it was offered');
         self::assertSame($stream, $this->store->stream('offer'));
         self::assertSame(0, $this->executions);
         $this->bridge->callTool('materialize', []);
-        self::assertSame($before, $this->bridge->getToolSummaries(), 'Complete schemas return after real progress');
+        self::assertSame($before, $this->bridge->getToolSummaries(), 'and so is one that progressed');
         self::assertSame(1, $this->executions);
         $this->stall();
-        self::assertSame(['materialize', 'notebook'], $this->names());
+        self::assertSame($before, $this->bridge->getToolSummaries());
     }
 
     /** @return iterable<string, array{string, array<string, mixed>, bool}> */
@@ -153,12 +158,12 @@ final class RecoveryOfferTest extends TestCase
 
     /** @param array<string, mixed> $payload */
     #[DataProvider('progressEvents')]
-    public function testOfferUsesTheSameSemanticProgressAsAdmission(string $type, array $payload, bool $restored): void
+    public function testTheGateFollowsProgressAndTheOfferDoesNot(string $type, array $payload, bool $restored): void
     {
         $this->stall();
         $this->events->append(new Event(SessionStore::PREFIX . 'offer', $type, $payload, $this->events->nextSeq()));
-        self::assertSame($restored, in_array('inspect', $this->names(), true));
-        self::assertSame($restored, $this->gate->refuse('inspect', []) === null);
+        self::assertContains('inspect', $this->names(), 'offered whatever the recovery says');
+        self::assertSame($restored, $this->gate->refuse('inspect', []) === null, 'admitted only once the session progressed');
     }
 
     public function testRecoveryCannotRestoreAnOptionRemovedForAnotherReason(): void
@@ -183,7 +188,7 @@ final class RecoveryOfferTest extends TestCase
         self::assertSame(0, $this->executions);
     }
 
-    public function testOfferedMutationStillRequiresItsScope(): void
+    public function testAMutationIsNotOfferedToACallerWithoutItsScopeAndIsStillRefused(): void
     {
         $this->stall();
         $door = new ConsentBridge(
@@ -191,7 +196,7 @@ final class RecoveryOfferTest extends TestCase
             gate: $this->gate,
             authority: new ToolContext(principal: 'restricted', scopes: [])
         );
-        self::assertContains('materialize', array_column($door->getToolSummaries(), 'name'));
+        self::assertSame([], $door->getToolSummaries(), 'a recovery offers nothing this caller cannot call');
         $this->expectExceptionMessage('Missing required scope');
         try {
             $door->callTool('materialize', []);
@@ -214,16 +219,17 @@ final class RecoveryOfferTest extends TestCase
         }
     }
 
-    public function testAReadIntroducedDuringRecoveryIsAlsoWithdrawn(): void
+    public function testAReadIntroducedDuringRecoveryIsOfferedAndRefused(): void
     {
         $this->stall();
         $op = new Operation('late_read', 'Read newly available data', static fn (): array => [], effects: EffectProfile::readOnly());
         $this->gate->sees([$op]);
         $this->registry->register('late_read', 'Read', ['type' => 'object'], static fn (): array => []);
-        self::assertNotContains('late_read', $this->names());
+        self::assertContains('late_read', $this->names(), 'what the house grew is offered');
+        self::assertNotNull($this->gate->refuse('late_read', []), 'and the gate is what says no more reading');
     }
 
-    public function testLazyDiscoveryDoesNotLeakAWithdrawnSchemaAndRestoresTheUnlockedTool(): void
+    public function testLazyDiscoveryKeepsWhatItUnlockedThroughAStall(): void
     {
         $llm = $this->createMock(LlmService::class);
         $step = 0;
@@ -240,14 +246,12 @@ final class RecoveryOfferTest extends TestCase
                     return $this->call('describe_tool', ['name' => 'materialize']);
                 }
                 if ($step === 3) {
-                    self::assertNotContains('inspect', $names);
-                    self::assertStringNotContainsString('inspect: ', $tools[array_search('describe_tool', $names, true)]['description']);
+                    self::assertContains('inspect', $names, 'a stall does not take back a schema the session unlocked');
                     return $this->call('describe_tool', ['name' => 'inspect']);
                 }
                 if ($step === 4) {
                     $last = json_decode($messages[array_key_last($messages)]['content'], true);
-                    self::assertArrayHasKey('error', $last);
-                    self::assertArrayNotHasKey('inputSchema', $last);
+                    self::assertArrayNotHasKey('error', $last);
                     return $this->call('materialize', []);
                 }
                 self::assertContains('inspect', $names);
@@ -259,7 +263,7 @@ final class RecoveryOfferTest extends TestCase
         self::assertSame(1, $this->executions);
     }
 
-    public function testFullLoopReprojectsBeforeTheNextModelCall(): void
+    public function testAStallInsideALoopLeavesTheToolsOfEveryRequestTheSame(): void
     {
         $this->stallOnRead = true;
         $llm = $this->createMock(LlmService::class);
@@ -268,22 +272,23 @@ final class RecoveryOfferTest extends TestCase
             function (string $prompt, array $tools) use (&$step): array {
                 ++$step;
                 $names = array_column($tools, 'name');
+                $this->sent[] = $tools;
                 if ($step === 1) {
                     self::assertContains('inspect', $names);
                     return $this->call('inspect', []);
                 }
                 if ($step === 2) {
-                    self::assertNotContains('inspect', $names);
+                    self::assertContains('inspect', $names, 'the request after the stall carries the tools the one before carried');
                     return $this->call('materialize', []);
                 }
-                self::assertContains('inspect', $names);
+                self::assertSame([$this->sent[0], $this->sent[0], $this->sent[0]], $this->sent, 'byte for byte, before the stall, in it and after it');
                 return ['role' => 'assistant', 'content' => 'Finished the controlled full cycle.'];
             },
         );
         (new AgentOrchestrator($llm, $this->bridge, maxSteps: 4))->run('Exercise recovery');
     }
 
-    public function testTheRefusalReturnsToTheModelWithoutExecutingOrRestoringTheRead(): void
+    public function testTheGatesRefusalReturnsToTheModelWithoutExecutingTheRead(): void
     {
         $this->stall();
         $llm = $this->createMock(LlmService::class);
@@ -292,13 +297,13 @@ final class RecoveryOfferTest extends TestCase
             function (string $prompt, array $tools, array $messages) use (&$step): array {
                 ++$step;
                 if ($step === 1) {
-                    self::assertNotContains('inspect', array_column($tools, 'name'));
+                    self::assertContains('inspect', array_column($tools, 'name'));
                     return $this->call('inspect', []);
                 }
                 if ($step === 2) {
                     self::assertSame(0, $this->executions);
-                    self::assertNotContains('inspect', array_column($tools, 'name'));
-                    self::assertStringStartsWith("Tool 'inspect' was not offered in this step.", $messages[array_key_last($messages)]['content']);
+                    self::assertContains('inspect', array_column($tools, 'name'));
+                    self::assertStringContainsString('Progress recovery', $messages[array_key_last($messages)]['content'], 'the gate said why, to the model');
                     return $this->call('materialize', []);
                 }
                 self::assertContains('inspect', array_column($tools, 'name'));
@@ -311,10 +316,79 @@ final class RecoveryOfferTest extends TestCase
             $this->store->stream('offer'),
             static fn ($event) => $event->type === 'session.tool_called' && $event->payload['tool'] === 'inspect'
         ));
-        self::assertSame([], $reads, 'the exact-offer guard refuses before the app executor and its recorder');
+        self::assertCount(1, $reads, 'the read reached the gate, which refused it and kept the refusal');
+        self::assertFalse($reads[0]->payload['ok']);
     }
 
-    public function testRepeatedRefusalsKeepTheSterileFailureLimit(): void
+    /**
+     * A read refused because the session was stalled is told «not now», not «never»: once the session progresses,
+     * that same read is admitted. Since the offer stopped moving (decisions/0601), a stalled session can ask for a
+     * read and the gate keeps the refusal; without this the loop guard would hold two such refusals against the
+     * call for the rest of the leg, and the read that followed real progress ended it.
+     */
+    public function testAReadRefusedWhileStalledIsNotHeldAgainstItOnceTheSessionProgresses(): void
+    {
+        $read = new Operation('inspect', 'Read', static fn () => [], effects: EffectProfile::readOnly());
+        $gate = new SessionToolGate($this->store, $this->store->load('offer'), [$read], vigiaDeBucle: new \Milpa\AppRuntime\Agent\SterileLoopGuard());
+        $this->stall();
+
+        self::assertStringContainsString('Progress recovery', (string) $gate->refuse('inspect', []));
+        self::assertStringContainsString('Progress recovery', (string) $gate->refuse('inspect', []));
+        $this->events->append(new Event(SessionStore::PREFIX . 'offer', 'session.evidence_recorded', ['predicate' => 'verified', 'subject' => 'artifact'], $this->events->nextSeq()));
+
+        self::assertNull($gate->refuse('inspect', []), 'the session progressed: the read it was told to wait for is admitted');
+        // And from here on the guard counts again: what fails on its own is its own.
+        $gate->recorded('inspect', [], '{"error":"No such artifact"}', false);
+        $gate->recorded('inspect', [], '{"error":"No such artifact"}', false);
+        self::assertStringContainsString('No such artifact', (string) $gate->refuse('inspect', []));
+    }
+
+    /** The control: a read that failed twice for a reason of its own is still not repeated after progress. */
+    public function testAReadThatFailedOnItsOwnStaysRefusedThroughARecovery(): void
+    {
+        $read = new Operation('inspect', 'Read', static fn () => [], effects: EffectProfile::readOnly());
+        $gate = new SessionToolGate($this->store, $this->store->load('offer'), [$read], vigiaDeBucle: new \Milpa\AppRuntime\Agent\SterileLoopGuard());
+        $gate->recorded('inspect', ['value' => 'gone'], '{"error":"No such artifact"}', false);
+        $gate->recorded('inspect', ['value' => 'gone'], '{"error":"No such artifact"}', false);
+        $this->stall();
+        self::assertStringContainsString('Progress recovery', (string) $gate->refuse('inspect', []), 'another read, refused for the stall');
+        $this->events->append(new Event(SessionStore::PREFIX . 'offer', 'session.evidence_recorded', ['predicate' => 'verified', 'subject' => 'artifact'], $this->events->nextSeq()));
+
+        self::assertStringContainsString('No such artifact', (string) $gate->refuse('inspect', ['value' => 'gone']), 'its own failure is its own');
+        self::assertNull($gate->refuse('inspect', []));
+    }
+
+    /**
+     * While a session is stalled, the stall is what answers a read — also a read the loop guard would not repeat.
+     * The guard's refusal ends the leg; the stall's goes back to the model. Before the offer stopped moving
+     * (decisions/0601) a stalled session was not offered the read at all and was told so; with the read in view, the
+     * guard answered first and cut a leg that had only been told to act (a real resident, evidence/1163).
+     */
+    public function testWhileStalledTheStallAnswersAReadTheLoopGuardWouldEnd(): void
+    {
+        $read = new Operation('inspect', 'Read', static fn () => [], effects: EffectProfile::readOnly());
+        $gate = new SessionToolGate($this->store, $this->store->load('offer'), [$read], vigiaDeBucle: new \Milpa\AppRuntime\Agent\SterileLoopGuard());
+        $gate->recorded('inspect', ['value' => 'gone'], '{"error":"No such artifact"}', false);
+        $gate->recorded('inspect', ['value' => 'gone'], '{"error":"No such artifact"}', false);
+        self::assertStringContainsString('No such artifact', (string) $gate->refuse('inspect', ['value' => 'gone']), 'not stalled: the guard does not repeat it');
+        $this->stall();
+        $door = new ConsentBridge($this->registry, gate: $gate, recorder: $gate, authority: new ToolContext(principal: 'fixture', scopes: ['work:write']));
+
+        try {
+            $door->callTool('inspect', ['value' => 'gone']);
+            self::fail('A read ran while the session was stalled');
+        } catch (ToolCallRefused $refusal) {
+            self::assertStringStartsWith('Progress recovery', $refusal->getMessage(), 'the stall answers');
+            self::assertTrue($refusal->optionRemoved, 'and its refusal goes back to the model: the leg goes on');
+        }
+        $this->events->append(new Event(SessionStore::PREFIX . 'offer', 'session.evidence_recorded', ['predicate' => 'verified', 'subject' => 'artifact'], $this->events->nextSeq()));
+
+        self::assertStringContainsString('No such artifact', (string) $gate->refuse('inspect', ['value' => 'gone']), 'its own failure is still its own, with its own reason');
+        self::assertSame(0, $this->executions);
+    }
+
+    /** What bounds a stalled session that keeps reading is the progress probe, not the loop guard. */
+    public function testRepeatedReadsWhileStalledAllGoBackToTheModel(): void
     {
         $this->stall();
         $read = new Operation('inspect', 'Read', static fn () => [], effects: EffectProfile::readOnly());
@@ -330,19 +404,22 @@ final class RecoveryOfferTest extends TestCase
             recorder: $gate,
             authority: new ToolContext(principal: 'fixture', scopes: ['work:write'])
         );
-        for ($i = 0; $i < 3; ++$i) {
+        for ($i = 0; $i < 4; ++$i) {
             try {
                 $door->callTool('inspect', []);
-                self::fail('A repeated hidden read executed');
+                self::fail('A repeated read executed while the session was stalled');
             } catch (ToolCallRefused $error) {
-                self::assertSame($i < 2, $error->optionRemoved);
+                self::assertStringStartsWith('Progress recovery', $error->getMessage());
+                self::assertTrue($error->optionRemoved, 'told to wait, every time: none of them is a failure of the call');
             }
         }
-        self::assertFalse($gate->recoveryRefusalWasHidden('inspect'));
+        self::assertTrue($gate->recoveryRefusalWasHidden('inspect'));
         self::assertSame(0, $this->executions);
+        $refused = array_filter($this->store->stream('offer'), static fn ($event) => $event->type === 'session.tool_called' && $event->payload['tool'] === 'inspect');
+        self::assertCount(4, $refused, 'the session keeps each refusal: that record is what the progress probe counts');
     }
 
-    public function testAnEarlierOrderRefusalDoesNotBecomeRecoverableBecauseTheReadIsHidden(): void
+    public function testAnEarlierOrderRefusalDoesNotBecomeRecoverableBecauseTheSessionIsRecovering(): void
     {
         $this->stall();
         $read = new Operation('inspect', 'Read', static fn () => [], effects: EffectProfile::readOnly());
@@ -358,7 +435,7 @@ final class RecoveryOfferTest extends TestCase
             recorder: $gate,
             authority: new ToolContext(principal: 'fixture', scopes: ['work:write'])
         );
-        self::assertNotContains('inspect', array_column($door->getToolSummaries(), 'name'));
+        self::assertContains('inspect', array_column($door->getToolSummaries(), 'name'));
         try {
             $door->callTool('inspect', []);
             self::fail('The prerequisite was bypassed');

@@ -3344,6 +3344,14 @@ class AgentOperations implements CommandProvider
             $available = array_values(array_filter(array_column($cliente->getToolSummaries(), 'name'), 'is_string'));
             $this->skillInstructionProjection = null;
             $system = $this->systemPrompt($available, $this->promptSession);
+            // WHAT THE OFFER LEFT OUT IS NAMED, ONCE PER LEG (greenhouse decisions/0601): the operations whose scopes
+            // whoever runs this leg does not hold are not sent with their contracts — and are not hidden either. One
+            // line, computed here and not per step: a value that moved would move the beginning of every request.
+            $notOffered = ConsentBridge::namesNotOffered($cliente->notOfferedToThisCaller());
+            $system .= $notOffered === '' ? '' : "\n\n" . $notOffered;
+            // AND A CALL TO ONE OF THEM IS KEPT IN THE SESSION'S LOG (decided by Rod on 2026-10-08): the loop answers
+            // such a call by itself and never asks the door, so the door asks the loop to tell it.
+            $cliente->hearOfWhatIsTurnedAway($orquestador);
             if ($this->promptSession !== null && ($store = $this->sessions()) !== null) {
                 $system .= "\n\n" . RunContext::section(
                     $store->stream($this->promptSession->id),
