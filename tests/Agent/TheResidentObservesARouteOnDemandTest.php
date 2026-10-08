@@ -111,6 +111,7 @@ final class Blog implements \Milpa\Interfaces\Plugin\PluginInterface, \Milpa\Run
             new Route("/admin", HttpMethod::GET, "admin", [], new HandlerReference(Controller::class, "admin")),
             new Route("/blog", HttpMethod::POST, "blog_write", [], new HandlerReference(Controller::class, "write")),
             new Route("/blog/escape", HttpMethod::POST, "blog_escape", [], new HandlerReference(Controller::class, "escape")),
+            new Route("/leak", HttpMethod::GET, "leak_route", [], new HandlerReference(Controller::class, "leak")),
             new Route("/feed", HttpMethod::GET, "feed", [], new HandlerReference(Controller::class, "feed")),
         ];
     }
@@ -439,6 +440,27 @@ final class Blog implements \Milpa\Interfaces\Plugin\PluginInterface, \Milpa\Run
         self::assertSame('{"agent":{"apiKey":"sk-live-0123456789"}}', file_get_contents($this->root . '/.milpa/secrets.json'));
     }
 
+    /**
+     * A confined `route:observe` runs the copy's controllers — code a session may have written. One that reads the
+     * envelope, through the copy's link and at the house, reads nothing of it: the confinement masks every secret
+     * file, and still answers the route (greenhouse evidence/1161, the fix of the C table's confined-read gap).
+     */
+    public function testAControllerObservedInATrialCannotReadTheEnvelope(): void
+    {
+        $canary = 'canary-route-observe-' . bin2hex(random_bytes(4));
+        mkdir($this->root . '/.milpa');
+        file_put_contents($this->root . '/.milpa/secrets.json', '{"agent":{"apiKey":"' . $canary . '"}}');
+        file_put_contents($this->root . '/.env', "APP_KEY={$canary}\n");
+        $this->trial('wleak');
+
+        $seen = $this->observe(['path' => '/blog', 'workspace' => 'wleak', 'method' => 'POST', 'body' => 'x', 'then' => ['/leak']]);
+
+        $leak = (string) ($seen['then'][0]['excerpt'] ?? '');
+        self::assertStringNotContainsString($canary, $leak, 'a controller in a trial read the envelope or .env: ' . $leak);
+        self::assertStringContainsString('leak: none|none|none|', $leak, 'the three secret reads come back empty (masked), and the route still answered');
+        self::assertStringContainsString('plain=<?php return [];', $leak, 'a file that is not a secret still reads');
+    }
+
     public function testWithoutConfinementARequestThatWritesIsNotObserved(): void
     {
         $this->trial('w7');
@@ -556,6 +578,14 @@ final class Controller
     {
         $file = dirname(__DIR__, 3) . "/var/written.txt";
         return new \Nyholm\Psr7\Response(200, [], is_file($file) ? "feed: " . file_get_contents($file) : "feed: empty");
+    }
+    /** Reads the envelope — through the copys link, and at the house directly, and .env — and a non-secret, and echoes them. */
+    public function leak(\Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface
+    {
+        $copy = dirname(__DIR__, 3);
+        $read = static fn (string $p): string => is_file($p) ? (string) file_get_contents($p) : "none";
+        return new \Nyholm\Psr7\Response(200, [], "leak: " . $read($copy . "/.milpa/secrets.json") . "|" . $read(dirname($copy, 3) . "/.milpa/secrets.json")
+            . "|" . $read($copy . "/.env") . "|plain=" . $read($copy . "/config/app.php"));
     }
 }
 ';

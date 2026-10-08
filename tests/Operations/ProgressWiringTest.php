@@ -198,11 +198,11 @@ final class ProgressWiringTest extends TestCase
     #[\PHPUnit\Framework\Attributes\DataProvider('endsThatWaitOnAGrant')]
     public function testAHouseDebtOverAScopeThePanelGrantsIsNotRecordedAsADebt(string $answer): void
     {
-        $seat = '95A3AC7B96F8BC6AA7044F2C09082971DEBAAA50';
+        $seat = 'CCCC3333DDDD4444EEEE5555FFFF6666AAAA7777';
         $root = sys_get_temp_dir() . '/milpa-grantable-debt-' . bin2hex(random_bytes(4));
         mkdir($root . '/storage/identity', 0o777, true);
         (new \Milpa\AppRuntime\Identity\FileEnrollmentStore($root . '/storage/identity/enrollments.json'))
-            ->record(new \Milpa\AppRuntime\Identity\IdentityEnrolled($seat, \Milpa\AppRuntime\Identity\ResidentSeat::SCOPES, 'key:C1FEA43BAC5F22E7A5F21152B46AB0F97CAFB831'));
+            ->record(new \Milpa\AppRuntime\Identity\IdentityEnrolled($seat, \Milpa\AppRuntime\Identity\ResidentSeat::SCOPES, 'key:BBBB2222CCCC3333DDDD4444EEEE5555FFFF6666'));
         try {
             $declaration = $answer;
             $operations = $this->operationsAnswering($declaration, $root, new \Milpa\Agent\Principal('key:' . $seat, true), 'Build a plugin named Blog that serves GET /blog.');

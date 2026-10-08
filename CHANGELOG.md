@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.213.1](https://github.com/getmilpa/app-runtime/compare/v0.213.0...v0.213.1) (2026-10-08)
+
+
+### Bug Fixes
+
+* a trial does not copy, and a confined call cannot read, the files that hold a secret ([#763](https://github.com/getmilpa/app-runtime/issues/763)) ([d3ece50](https://github.com/getmilpa/app-runtime/commit/d3ece5087177d71364b732ba966dd438a4dc3b9e))
+* the contracts of plan, todo and token:revoke are in English ([#751](https://github.com/getmilpa/app-runtime/issues/751)) ([235e12b](https://github.com/getmilpa/app-runtime/commit/235e12b0864d3a6c9601de97a15744fbf4a025f0))
+
 ## [0.213.0](https://github.com/getmilpa/app-runtime/compare/v0.212.1...v0.213.0) (2026-10-08)
 
 

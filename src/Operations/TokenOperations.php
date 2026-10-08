@@ -129,7 +129,7 @@ final readonly class TokenOperations implements CommandProvider
                 handler: fn (array $input): array => $this->revoke($input),
                 inputSchema: [
                     'type' => 'object',
-                    'properties' => ['id' => ['type' => 'string', 'description' => 'El id que `token:list` muestra']],
+                    'properties' => ['id' => ['type' => 'string', 'description' => 'The id that `token:list` shows']],
                     'required' => ['id'],
                 ],
                 mutating: true,
