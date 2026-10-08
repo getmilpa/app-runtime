@@ -2399,7 +2399,7 @@ final class SessionOperations implements CommandProvider
         $suspends = $refusal['suspends'] ?? [];
         if ($refusal['consent'] === 'informed' && $existing !== $refusal['plugin']) {
             return ['ok' => false, 'error' => \sprintf(
-                'granting «%s» opens write over the existing plugin «%s» — all of its work, not only call #%d (%s)%s%s; approve it knowingly with existing=%s; nothing was granted',
+                'granting «%s» opens write over the existing plugin «%s» — all of its work, not only call #%d (%s)%s%s. In this session the house will then write inside «%s» without asking you again about each piece; approve it knowingly with existing=%s; nothing was granted',
                 $refusal['permission'],
                 (string) $refusal['plugin'],
                 $refusal['seq'],
@@ -2411,6 +2411,9 @@ final class SessionOperations implements CommandProvider
                     \count($suspends),
                     \count($suspends) === 1 ? 'seat' : 'seats',
                 ),
+                // WHAT WILL NO LONGER BE ASKED IS SAID BEFORE THE ACT (greenhouse decisions/0602 — HELD, not decided):
+                // a consent that covers more than the person read is not a consent.
+                (string) $refusal['plugin'],
                 (string) $refusal['plugin'],
             )];
         }
@@ -2443,7 +2446,11 @@ final class SessionOperations implements CommandProvider
         $log = (new AgentOperations($this->container))->sessionLog();
         foreach ($log === null ? [] : $store->stream($session) as $recorded) {
             if ($recorded->seq === $refusal['seq']) {
-                \Milpa\AppRuntime\Agent\GrantedCall::granted($log, $session, $recorded, $refusal['permission'], $enrolled->authorizedBy);
+                // AND, OVER EXISTING WORK, WHAT IT OPENED (greenhouse decisions/0602 — HELD, not decided): the plugin, the
+                // seat, and how many times that seat's permit had been closed — all the intent contract reads later.
+                \Milpa\AppRuntime\Agent\GrantedCall::granted($log, $session, $recorded, $refusal['permission'], $enrolled->authorizedBy, $refusal['consent'] === 'informed' && \is_string($refusal['plugin'])
+                    ? \Milpa\AppRuntime\Agent\OpenedWorks::fact($ledger, $refusal['seat'], $refusal['plugin'])
+                    : []);
             }
         }
         $store->recordTurn($session, 'user', self::grantNotice($refusal, $enrolled->authorizedBy));

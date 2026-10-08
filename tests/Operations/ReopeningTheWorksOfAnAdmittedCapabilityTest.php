@@ -17,6 +17,8 @@ namespace Milpa\AppRuntime\Tests\Operations;
 use Milpa\Agent\Principal;
 use Milpa\Agent\SessionStore;
 use Milpa\AppRuntime\Agent\BuiltCapabilities;
+use Milpa\AppRuntime\Agent\OpenedWorks;
+use Milpa\AppRuntime\Agent\GrantedCall;
 use Milpa\AppRuntime\Agent\CapabilityAdmissions;
 use Milpa\AppRuntime\Agent\SeatFrontier;
 use Milpa\AppRuntime\Identity\IdentityEnrolled;
@@ -149,6 +151,82 @@ final class ReopeningTheWorksOfAnAdmittedCapabilityTest extends TestCase
 
         self::assertSame([], $this->ledger($root)->permitHolders('Prestamos'));
         self::assertCount(2, $this->ledger($root)->closuresFor(self::SEAT), 'closed twice, and both are said');
+    }
+
+    /**
+     * HELD — greenhouse decisions/0602 is NOT decided. Built for the candidate train only.
+     *
+     * The grant that opens the works leaves, on the fact the session keeps, what it opened: which plugin, for which
+     * seat, and how many times that seat's permit had been closed. That is all {@see OpenedWorks} reads later.
+     */
+    public function testTheGrantThatOpensTheWorksLeavesOnItsFactWhatItOpened(): void
+    {
+        [$c, $root, $read, $write] = $this->house();
+        $this->admitFrom($c, $write);
+        $sessions = $c->get(SessionStore::class);
+        \assert($sessions instanceof SessionStore);
+        $edit = $sessions->recordToolCall(self::SESSION, 'edit', self::EDIT, "Missing required permission 'plugins.Prestamos:write' for plugin 'Prestamos'.", false, false);
+        self::assertFalse(OpenedWorks::standFor($sessions->stream(self::SESSION), 'Prestamos', $root), 'nobody opened anything yet');
+        $grant = ['session' => self::SESSION, 'seq' => $edit, 'existing' => 'Prestamos'];
+        $this->signed($c, 'identity:grant', $grant);
+
+        self::assertTrue($this->call($c, 'identity:grant', $grant)['ok']);
+
+        $fact = null;
+        foreach ($sessions->stream(self::SESSION) as $event) {
+            $fact = $event->type === GrantedCall::GRANTED && ($event->payload['seq'] ?? null) === $edit ? $event->payload : $fact;
+        }
+        self::assertNotNull($fact);
+        self::assertSame('Prestamos', $fact['existing'] ?? null);
+        self::assertSame(self::SEAT, $fact['seat'] ?? null);
+        self::assertSame(1, $fact['closures'] ?? null, 'the admission before it had closed this seat\'s permit once');
+        self::assertTrue(OpenedWorks::standFor($sessions->stream(self::SESSION), 'Prestamos', $root));
+
+        // The second act closes them: what the grant opened no longer stands.
+        $this->admitFrom($c, $read);
+        self::assertFalse(OpenedWorks::standFor($sessions->stream(self::SESSION), 'Prestamos', $root));
+    }
+
+    /** Part of the rule, not a detail of it (decisions/0602): what will no longer be asked is said BEFORE the act. */
+    public function testThePersonIsToldBeforeGrantingWhatWillNoLongerBeAsked(): void
+    {
+        [$c, , , $write] = $this->house();
+        $this->admitFrom($c, $write);
+        $sessions = $c->get(SessionStore::class);
+        \assert($sessions instanceof SessionStore);
+        $edit = $sessions->recordToolCall(self::SESSION, 'edit', self::EDIT, "Missing required permission 'plugins.Prestamos:write' for plugin 'Prestamos'.", false, false);
+        $this->signed($c, 'identity:grant', ['session' => self::SESSION, 'seq' => $edit]);
+
+        $plain = $this->call($c, 'identity:grant', ['session' => self::SESSION, 'seq' => $edit]);
+
+        self::assertFalse($plain['ok']);
+        self::assertStringContainsString(
+            'In this session the house will then write inside «Prestamos» without asking you again about each piece; approve it knowingly with existing=Prestamos; nothing was granted',
+            (string) $plain['error'],
+        );
+    }
+
+    /** A grant over a plugin that does not exist yet is one touch, and opens no existing work: its fact says none. */
+    public function testAOneTouchGrantLeavesNoWorksOnItsFact(): void
+    {
+        [$c, $root] = $this->house();
+        $sessions = $c->get(SessionStore::class);
+        \assert($sessions instanceof SessionStore);
+        // The session's errand names the workshop: a new plugin the task names is offered as one touch (decisions/0510).
+        $make = $sessions->recordToolCall(self::SESSION, 'make', ['what' => 'plugin', 'plugin' => 'Taller', 'name' => 'Taller'], "Missing required permission 'plugins.Taller:write' for plugin 'Taller'.", false, false);
+        self::assertSame('touch', $this->card($c, $make)['consent']);
+        $this->signed($c, 'identity:grant', ['session' => self::SESSION, 'seq' => $make]);
+
+        self::assertTrue($this->call($c, 'identity:grant', ['session' => self::SESSION, 'seq' => $make])['ok']);
+
+        foreach ($sessions->stream(self::SESSION) as $event) {
+            if ($event->type === GrantedCall::GRANTED) {
+                self::assertArrayNotHasKey('existing', $event->payload);
+                self::assertArrayNotHasKey('closures', $event->payload);
+            }
+        }
+        self::assertContains('plugins.Taller:write', $this->ledger($root)->scopesFor(self::SEAT) ?? [], 'the permit was granted');
+        self::assertFalse(OpenedWorks::standFor($sessions->stream(self::SESSION), 'Taller', $root));
     }
 
     /** An authoring grant over a plugin nobody was admitted anything of suspends nothing, and says nothing of it. */
