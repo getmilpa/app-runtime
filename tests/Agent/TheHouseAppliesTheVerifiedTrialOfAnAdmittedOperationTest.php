@@ -126,17 +126,21 @@ final class TheHouseAppliesTheVerifiedTrialOfAnAdmittedOperationTest extends Tes
         yield 'entity:seed' => ['entity:seed', 'entity_seed', ['entity' => 'Post']];
         yield 'make what=page' => ['make what=page', 'make', ['what' => 'page', 'plugin' => 'Blog', 'name' => 'Home']];
         yield 'make what=plugin' => ['make what=plugin', 'make', ['what' => 'plugin', 'plugin' => 'Blog', 'name' => 'Blog']];
+        yield 'make what=operation' => ['make what=operation', 'make', ['what' => 'operation', 'plugin' => 'Blog', 'name' => 'PublishPost', 'entity' => 'Post']];
+        yield 'make what=entity' => ['make what=entity', 'make', ['what' => 'entity', 'plugin' => 'Blog', 'name' => 'Post']];
     }
 
-    public function testTheFourAndNoOther(): void
+    public function testTheSixAndNoOther(): void
     {
-        self::assertSame(['plugins.register', 'entity:seed', 'make what=page', 'make what=plugin'], AppliedTrials::admissible());
+        self::assertSame(['plugins.register', 'entity:seed', 'make what=page', 'make what=plugin', 'make what=operation', 'make what=entity'], AppliedTrials::admissible());
+        self::assertSame('make what=operation', AppliedTrials::key('make', ['what' => 'operation', 'plugin' => 'Blog', 'name' => 'PublishPost']));
+        self::assertSame('make what=entity', AppliedTrials::key('make', ['what' => 'entity', 'plugin' => 'Blog', 'name' => 'Post']));
         self::assertSame('make what=page', AppliedTrials::key('make', ['what' => 'page', 'plugin' => 'Blog']));
         self::assertSame('plugins.register', AppliedTrials::key('plugins.register', []));
-        foreach ([['make', ['what' => 'test']], ['make', []], ['make', ['what' => ['page']]], ['screen:declare', []], ['implement', []], ['edit', []], ['component:define', []], ['plugins.enable', []]] as [$operation, $arguments]) {
+        foreach ([['make', ['what' => 'test']], ['make', ['what' => 'controller']], ['make', ['what' => 'crud']], ['make', ['what' => 'service']], ['make', []], ['make', ['what' => ['page']]], ['screen:declare', []], ['implement', []], ['edit', []], ['component:define', []], ['plugins.enable', []]] as [$operation, $arguments]) {
             self::assertNull(AppliedTrials::key($operation, $arguments), $operation . ' ' . json_encode($arguments));
         }
-        foreach (['screen:declare', 'make', 'make what=test', 'implement'] as $never) {
+        foreach (['screen:declare', 'make', 'make what=test', 'make what=controller', 'implement'] as $never) {
             self::assertFalse(AppliedTrials::forRoot($this->root)->admit($never, self::PERSON, '2026-10-07T00:00:00+00:00'), $never);
         }
         self::assertFileDoesNotExist($this->root . '/' . AppliedTrials::PATH, 'what cannot be admitted is never written');
@@ -164,10 +168,12 @@ final class TheHouseAppliesTheVerifiedTrialOfAnAdmittedOperationTest extends Tes
     /** @return iterable<string, array{0: list<string>, 1: string, 2: array<string, mixed>}> */
     public static function leftAsItWas(): iterable
     {
-        $all = ['plugins.register', 'entity:seed', 'make what=page', 'make what=plugin'];
+        $all = ['plugins.register', 'entity:seed', 'make what=page', 'make what=plugin', 'make what=operation', 'make what=entity'];
         yield 'an operation nobody admitted' => [['entity:seed'], 'plugins_register', ['name' => 'Blog']];
         yield 'a house where nobody admitted anything' => [[], 'plugins_register', ['name' => 'Blog']];
         yield 'make of something that cannot be admitted' => [$all, 'make', ['what' => 'test', 'plugin' => 'Blog', 'name' => 'PostTest']];
+        yield 'make of an operation when only the entity is admitted' => [['make what=entity'], 'make', ['what' => 'operation', 'plugin' => 'Blog', 'name' => 'PublishPost', 'entity' => 'Post']];
+        yield 'make of an entity when only the operation is admitted' => [['make what=operation'], 'make', ['what' => 'entity', 'plugin' => 'Blog', 'name' => 'Post']];
         yield 'make of a page when only the plugin is admitted' => [['make what=plugin'], 'make', ['what' => 'page', 'plugin' => 'Blog', 'name' => 'Home']];
         yield 'an operation that cannot be admitted' => [$all, 'screen_declare', ['name' => 'blog']];
         yield 'a trial that failed' => [$all, 'plugins_register', ['name' => 'Blog', 'fixture' => 'failed']];
@@ -269,7 +275,9 @@ final class TheHouseAppliesTheVerifiedTrialOfAnAdmittedOperationTest extends Tes
         self::assertSame('Promote', $some['sandbox_promote']);
 
         $all = $described($this->registry(AppliedTrials::admissible()));
-        self::assertSame('Scaffold The house applies its verified trial when what is page or plugin.', $all['make']);
+        self::assertSame('Scaffold The house applies its verified trial when what is page, plugin, operation or entity.', $all['make']);
+        self::assertSame('The house applies its verified trial when what is page or entity.', AppliedTrials::says('make', ['make what=page', 'make what=entity']), 'in the list\'s order, whatever order they were admitted in');
+        self::assertSame('The house applies its verified trial when what is operation.', AppliedTrials::says('make', ['make what=operation']));
         self::assertSame('Seed The house applies its verified trial.', $all['entity_seed']);
     }
 

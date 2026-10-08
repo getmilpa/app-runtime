@@ -29,6 +29,12 @@ use Milpa\EventStore\EventStoreInterface;
  * discarded one. Of the others it is not — `screen:declare`, `implement`, `edit`, `make what=test` have discards
  * and retries on record — and they are left as they are.
  *
+ * Scaffolding an operation and scaffolding an entity were added to the list by Rod on 2026-10-07 (the amendment of
+ * decisions/0586): «the house knows how to do it; whether it does it "automatically" depends completely on the
+ * context». THE LIST SAYS WHAT THE HOUSE KNOWS HOW TO APPLY, not what it applies: their record is not the four's —
+ * of 41 verified trials of `make what=operation` the resident applied 34, and discarded or replaced the rest — so
+ * being on the list decides nothing by itself. What decides is the context a leg reads, below.
+ *
  * Two things are kept apart, each with its owner:
  *
  *  - WHAT CAN BE ADMITTED is {@see ADMISSIBLE}: decided operation by operation, with its record beside. A fifth is a
@@ -59,7 +65,7 @@ final class AppliedTrials
     private const ADMISSIBLE = [
         'plugins.register' => null,
         'entity:seed' => null,
-        'make' => ['page', 'plugin'],
+        'make' => ['page', 'plugin', 'operation', 'entity'],
     ];
 
     public function __construct(private readonly string $path)
@@ -126,7 +132,12 @@ final class AppliedTrials
         }
         $named = array_values(array_filter($whats, static fn (string $what): bool => \in_array("{$operation} what={$what}", $admitted, true)));
 
-        return $named === [] ? null : 'The house applies its verified trial when what is ' . implode(' or ', $named) . '.';
+        if ($named === []) {
+            return null;
+        }
+        $last = array_pop($named);
+
+        return 'The house applies its verified trial when what is ' . ($named === [] ? '' : implode(', ', $named) . ' or ') . $last . '.';
     }
 
     /**

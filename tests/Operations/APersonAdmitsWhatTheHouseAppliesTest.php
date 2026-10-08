@@ -67,7 +67,7 @@ final class APersonAdmitsWhatTheHouseAppliesTest extends TestCase
 
         self::assertTrue($listed['ok']);
         self::assertSame([], $listed['admitted']);
-        self::assertSame(['plugins.register', 'entity:seed', 'make what=page', 'make what=plugin'], $listed['admissible']);
+        self::assertSame(['plugins.register', 'entity:seed', 'make what=page', 'make what=plugin', 'make what=operation', 'make what=entity'], $listed['admissible']);
         self::assertFileDoesNotExist($this->root . '/' . AppliedTrials::PATH, 'reading the list writes nothing');
     }
 
@@ -125,27 +125,40 @@ final class APersonAdmitsWhatTheHouseAppliesTest extends TestCase
         yield 'withdraw, a signature for an admission' => ['sandbox:withdraw', ['operation' => 'plugins.register'], ['operation' => 'plugins.register'], 'sandbox:admit'];
     }
 
+    public function testScaffoldingAnOperationAndAnEntityAreAdmittedEachByItsOwnAct(): void
+    {
+        self::assertTrue($this->call('sandbox:admit', ['operation' => 'make', 'what' => 'operation'], signed: true)['ok']);
+
+        $list = AppliedTrials::forRoot($this->root);
+        self::assertTrue($list->admits('make what=operation'));
+        self::assertFalse($list->admits('make what=entity'), 'the house knows how to apply it; whether it does is this house\'s to say');
+        self::assertTrue($this->call('sandbox:admit', ['operation' => 'make', 'what' => 'entity'], signed: true)['ok']);
+        self::assertTrue(AppliedTrials::forRoot($this->root)->admits('make what=entity'));
+    }
+
     /** @param array<string, mixed> $input */
-    #[DataProvider('notOneOfTheFour')]
-    public function testOnlyTheFourCanBeAdmitted(array $input): void
+    #[DataProvider('notOneOfTheSix')]
+    public function testOnlyTheSixCanBeAdmitted(array $input): void
     {
         $result = $this->call('sandbox:admit', $input, signed: true);
 
         self::assertFalse($result['ok']);
         self::assertStringContainsString('cannot be admitted', $result['error']);
-        self::assertStringContainsString('plugins.register, entity:seed, make what=page, make what=plugin', $result['error'], 'it says which can');
+        self::assertStringContainsString('plugins.register, entity:seed, make what=page, make what=plugin, make what=operation, make what=entity', $result['error'], 'it says which can');
         self::assertStringContainsString('nothing was written', $result['error']);
         self::assertFileDoesNotExist($this->root . '/' . AppliedTrials::PATH);
     }
 
     /** @return iterable<string, array{0: array<string, mixed>}> */
-    public static function notOneOfTheFour(): iterable
+    public static function notOneOfTheSix(): iterable
     {
         yield 'a screen a visitor sees' => [['operation' => 'screen:declare']];
         yield 'authoring' => [['operation' => 'implement']];
         yield 'an edit' => [['operation' => 'edit']];
         yield 'a component' => [['operation' => 'component:define']];
         yield 'make of a test' => [['operation' => 'make', 'what' => 'test']];
+        yield 'make of a controller' => [['operation' => 'make', 'what' => 'controller']];
+        yield 'make of a crud' => [['operation' => 'make', 'what' => 'crud']];
         yield 'all of make' => [['operation' => 'make']];
         yield 'a what on an operation that makes one thing' => [['operation' => 'plugins.register', 'what' => 'page']];
         yield 'the name the tool has, not the operation' => [['operation' => 'plugins_register']];
