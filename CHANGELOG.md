@@ -1,6 +1,31 @@
 # Changelog
 
 
+## [0.214.0](https://github.com/getmilpa/app-runtime/compare/v0.213.1...v0.214.0) (2026-10-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* a capability built in the house is in works — a seat holds `plugins.<X>:write`, and no seat uses its verbs — or admitted, never both. An admission now takes that permit from every seat. A house that admitted a capability while a seat still held its permit — every house that built and admitted on 0.213.0 — finds that capability in works after updating: its verbs are refused to every seat, the refusal and `identity:seats` say why, and one admission of any of its scopes closes the permit and puts them back. Changing an admitted capability afterwards takes a person's grant over the existing plugin, which suspends what was admitted until it is admitted again. Nothing is migrated.
+* a session is offered only the tools whoever runs it can call: the ones none of whose declared scopes its caller holds are named in one line at the end of the system prompt instead of being sent with their contracts. A seat is still offered the verbs of a capability built in the house, admitted or not. A stalled session keeps its offer — the gate refuses a read instead of the read leaving the offer. And with milpa/ai-gateway 0.42.0 or later, whose loop tells its caller, a call to something that was not offered is kept in the session's log as a refused `session.tool_called` whose result says `not_offered`; with an older gateway nothing is kept. Whatever counted the tools of a `session.model_called`, expected a stalled offer to shrink, or read every refused call as one the door judged, has to follow.
+* after a person says yes to a question the house asked about a call, the seat's next leg runs that call — also when the call lands — and the session no longer makes it again. In a seat's session the two questions about a call end with «If you say yes, the house runs it.», the notice after an admission says «that same call can run now», and the fact `session.call_resumed` can carry {question, asked, answered} instead of {seq, granted}: whatever matches a question's whole text, or reads `seq`/`granted` from that fact without checking, has to follow.
+
+### Features
+
+* a session is offered what its seat can call, and its offer does not move inside a leg (greenhouse decisions/0601) ([e1b48f6](https://github.com/getmilpa/app-runtime/commit/e1b48f669073e0e678e7df2aa5d183311068ac75))
+* admitting a built capability closes its building permit — in works or admitted, never both (greenhouse decisions/0590) ([e844e22](https://github.com/getmilpa/app-runtime/commit/e844e229f4054997a7ee8074d4f7d220dfa66231))
+* opening the works of a capability names, for that session, what is inside (greenhouse decisions/0602) ([#759](https://github.com/getmilpa/app-runtime/issues/759)) ([d8c0aa7](https://github.com/getmilpa/app-runtime/commit/d8c0aa7a335c21b3d0ab6601f6a0eb64611fdea2))
+* the house applies the verified trial of an operation a person admitted ([#731](https://github.com/getmilpa/app-runtime/issues/731)) ([f7d5452](https://github.com/getmilpa/app-runtime/commit/f7d545258000086d2797d851c0e088305cb23cd5))
+* the house closes a session of work on the receipts of what it executed itself (greenhouse decisions/0599) ([#755](https://github.com/getmilpa/app-runtime/issues/755)) ([87a32d2](https://github.com/getmilpa/app-runtime/commit/87a32d2893f7aa71542db78a40e580786630309e))
+* what a person decided about a call, the house runs (greenhouse decisions/0600) ([7cd99a6](https://github.com/getmilpa/app-runtime/commit/7cd99a6e66180f6e3f6579fd9396bb53cb678eb5))
+
+
+### Bug Fixes
+
+* a verb is called on the terminal by the name it declares — an underscore separates only where nothing else does ([#760](https://github.com/getmilpa/app-runtime/issues/760)) ([6e762d3](https://github.com/getmilpa/app-runtime/commit/6e762d395fd81e4b2e328658e33110ff1ad9e143))
+* the hint beside a refusal says where the cure is, when it is not in the file ([#758](https://github.com/getmilpa/app-runtime/issues/758)) ([4430bd9](https://github.com/getmilpa/app-runtime/commit/4430bd9c75d3efd4f712fced5e96931656eef724))
+* the house asks for the panel that says what admitting closes and what a grant suspends ([#757](https://github.com/getmilpa/app-runtime/issues/757)) ([d3e1457](https://github.com/getmilpa/app-runtime/commit/d3e145798aa6223bd3d6d9749c190f1e56668b56))
+
 ## [0.213.1](https://github.com/getmilpa/app-runtime/compare/v0.213.0...v0.213.1) (2026-10-08)
 
 
