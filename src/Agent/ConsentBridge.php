@@ -518,6 +518,18 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
     }
 
     /**
+     * Ask a loop to tell this door of every call it turns away because it was not offered — when the loop can. With
+     * a gateway whose loop cannot tell, the leg is the leg it was and such a call leaves no trace, as before. Which
+     * gateway is installed is not known until here, so the loop is asked as a plain object, like its other seams.
+     */
+    public function hearOfWhatIsTurnedAway(object $loop): void
+    {
+        if (method_exists($loop, 'setUnofferedCall')) {
+            $loop->setUnofferedCall($this->turnedAway(...));
+        }
+    }
+
+    /**
      * Why a tool is not on this caller's offer now — or null: it is. `unknown`: this house has no tool by that name.
      * `withdrawn`: it was taken off this session's table. `scope`: whoever runs the session holds no scope it
      * declares, asked the way {@see notOfferedToThisCaller()} asks — as the caller.
