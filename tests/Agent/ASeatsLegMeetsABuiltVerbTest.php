@@ -26,6 +26,7 @@ use Milpa\EventStore\EventStoreInterface;
 use Milpa\EventStore\InMemoryEventStore;
 use Milpa\Runtime\Kernel;
 use Milpa\ToolRuntime\Contracts\ToolContext;
+use Milpa\ValueObjects\Tooling\ToolOptions;
 use Milpa\ToolRuntime\Gate\ToolCallRecorder;
 use Milpa\ToolRuntime\Gate\ToolCallRefused;
 use Milpa\ToolRuntime\ToolRegistry;
@@ -83,6 +84,103 @@ final class ASeatsLegMeetsABuiltVerbTest extends TestCase
         }
     }
 
+    /**
+     * WHAT A PERSON CAN ADMIT FOR A SEAT, THE SEAT IS OFFERED (greenhouse decisions/0601, rule A, with
+     * decisions/0590). The offer asks the door's first question AS THE CALLER: the seat, by its own principal.
+     *
+     * Measured by another thread walking a work station dry: the offer asked it as nobody, and the door hands a built
+     * verb's own words only to a seat — so no seat was ever offered a built verb. Not one a person had admitted for
+     * it; and not one a person could, because a call the loop answers «not offered» never reaches the door, and the
+     * refusal a person admits from was never recorded.
+     */
+    public function testASeatIsOfferedAVerbNobodyAdmittedBecauseItsRefusalIsWhatAPersonAdmitsFrom(): void
+    {
+        [$door] = $this->leg();
+
+        $offered = array_column($door->getToolSummaries(), 'name');
+        foreach (['herramientas_listar', 'herramientas_agregar', 'herramientas_prestar', 'herramientas_devolver'] as $verb) {
+            self::assertContains($verb, $offered);
+            self::assertNotContains($verb, $door->notOfferedToThisCaller());
+        }
+        // And the call reaches the door, which is where the refusal a person admits from is recorded.
+        try {
+            $door->callTool('herramientas_prestar', ['id' => 1]);
+            self::fail('nobody admitted it');
+        } catch (ToolCallRefused $refused) {
+            self::assertStringContainsString('no person has admitted it for this seat', $refused->getMessage());
+        }
+        self::assertCount(1, $this->recorded);
+    }
+
+    public function testASeatIsOfferedAVerbAPersonAdmittedForIt(): void
+    {
+        [$door, $root, $kernel] = $this->leg();
+        $group = CapabilityAdmissions::forRoot($root, BuiltCapabilities::of($kernel))->group('Prestamos', 'herramientas:write');
+        self::assertNotNull($group);
+        self::assertTrue($this->ledger($root)->admit(self::SEAT, 'Prestamos', 'herramientas:write', $group['verbs'], 'key:' . self::HUMAN));
+
+        self::assertContains('herramientas_prestar', array_column($door->getToolSummaries(), 'name'));
+        self::assertNotContains('herramientas_prestar', $door->notOfferedToThisCaller());
+        self::assertSame(['ok' => true, 'ran' => 'herramientas.prestar'], $door->callTool('herramientas_prestar', ['id' => 1]));
+    }
+
+    public function testACallerThatIsNoSeatIsNotOfferedAVerbWhoseWordItDoesNotHoldAndTheDoorAgrees(): void
+    {
+        // The same scopes, held by a key this house never enrolled: nobody can admit anything for it.
+        [$door] = $this->leg('key:' . str_repeat('E', 40));
+
+        self::assertContains('herramientas_prestar', $door->notOfferedToThisCaller());
+        self::assertNotContains('herramientas_prestar', array_column($door->getToolSummaries(), 'name'));
+        try {
+            $door->callTool('herramientas_prestar', ['id' => 1]);
+            self::fail('it holds no word the verb declares, and it is no seat');
+        } catch (ToolCallRefused $refused) {
+            self::assertStringNotContainsString('no person has admitted it for this seat', $refused->getMessage());
+        } catch (\Throwable $refused) {
+            self::assertStringContainsString('scope', strtolower($refused->getMessage()));
+        }
+    }
+
+    public function testWhatASeatsOfferLeavesOutTheDoorRefusesForTheWordItDeclares(): void
+    {
+        [$door, , , $registry] = $this->leg();
+        // An operation of the house that is no built verb and asks for a word the seat does not hold: nobody admits
+        // it for a seat, so it is what the offer still leaves out.
+        $registry->register('house_secret', 'A tool of the house', ['type' => 'object', 'properties' => []], static fn (): array => ['ok' => true], new ToolOptions(scopes: ['config:write']));
+        $left = $door->notOfferedToThisCaller();
+        self::assertSame(['house_secret'], $left);
+        self::assertNotContains('house_secret', array_column($door->getToolSummaries(), 'name'));
+        try {
+            $door->callTool('house_secret', []);
+            self::fail('the seat holds no word it declares');
+        } catch (\Throwable $refused) {
+            self::assertStringContainsString('scope', strtolower($refused->getMessage()));
+            self::assertStringNotContainsString('no person has admitted it for this seat', $refused->getMessage());
+        }
+
+        $seat = new ToolContext('key:' . self::SEAT, 'cli', self::SEAT_SCOPES);
+        foreach (array_column($registry->getToolSummaries(), 'name') as $name) {
+            $definition = $registry->getDefinition($name);
+            self::assertNotNull($definition);
+            self::assertSame(
+                !\in_array($name, $left, true),
+                $registry->getPolicyGate()->authorizeScopes($seat, $name, $definition->scopes)->allowed,
+                $name . ': the offer and the door, asked as the seat, say the same',
+            );
+        }
+    }
+
+    public function testTheDoorSaysWhyAToolIsNotOnTheOfferOfWhoeverAsks(): void
+    {
+        [$door] = $this->leg();
+        self::assertNull($door->whyNotOffered('herramientas_prestar'), 'a seat is offered it: there is nothing to say');
+        self::assertSame('unknown', $door->whyNotOffered('herramienta_inventada'));
+
+        // The same scopes, held by a key this house never enrolled.
+        [$other] = $this->leg('key:' . str_repeat('E', 40));
+        self::assertSame('scope', $other->whyNotOffered('herramientas_prestar'));
+    }
+
     public function testTheRegistryALegIsHandedJudgesTheHousesWay(): void
     {
         [, , , $registry] = $this->leg();
@@ -95,7 +193,7 @@ final class ASeatsLegMeetsABuiltVerbTest extends TestCase
      *
      * @return array{0: ConsentBridge, 1: string, 2: Kernel, 3: ToolRegistry}
      */
-    private function leg(): array
+    private function leg(string $principal = 'key:' . self::SEAT): array
     {
         $root = $this->root();
         $container = new DIContainer();
@@ -111,7 +209,7 @@ final class ASeatsLegMeetsABuiltVerbTest extends TestCase
         $operations = new AgentOperations($container);
         (new \ReflectionProperty(AgentOperations::class, 'sesionDeLosPermisos'))->setValue($operations, self::SESSION);
         (new \ReflectionProperty(AgentOperations::class, 'sessionEvents'))->setValue($operations, $events);
-        (new \ReflectionProperty(AgentOperations::class, 'toolAuthority'))->setValue($operations, new ToolContext('key:' . self::SEAT, 'cli', self::SEAT_SCOPES));
+        (new \ReflectionProperty(AgentOperations::class, 'toolAuthority'))->setValue($operations, new ToolContext($principal, 'cli', self::SEAT_SCOPES));
 
         $registry = (new \ReflectionMethod(AgentOperations::class, 'toolsOfThisApp'))->invoke($operations);
         self::assertInstanceOf(ToolRegistry::class, $registry);

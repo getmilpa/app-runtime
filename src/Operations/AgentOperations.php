@@ -14,8 +14,11 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Operations;
 
+use Milpa\AppRuntime\Agent\BuiltCapabilities;
+use Milpa\AppRuntime\Agent\CapabilityAdmissions;
 use Milpa\AppRuntime\Agent\FatalTermination;
 use Milpa\AppRuntime\Agent\GrantedCall;
+use Milpa\AppRuntime\Agent\HouseExecutedWork;
 use Milpa\AppRuntime\Agent\OfferedTools;
 use Milpa\AppRuntime\Agent\LegMemory;
 use Milpa\AppRuntime\Agent\LegWindow;
@@ -218,6 +221,9 @@ class AgentOperations implements CommandProvider
      * @var (\Closure(string, array<string, mixed>): ?bool)|false|null
      */
     private \Closure|false|null $lastingCalls = false;
+
+    /** The house's reading of what a person admitted ({@see self::admittedWork()}), once read — `false` until then. */
+    private \Closure|false|null $admittedWork = false;
 
     /**
      * What {@see LegMemory::declare()} answered when this run started.
@@ -3346,6 +3352,14 @@ class AgentOperations implements CommandProvider
             $available = array_values(array_filter(array_column($cliente->getToolSummaries(), 'name'), 'is_string'));
             $this->skillInstructionProjection = null;
             $system = $this->systemPrompt($available, $this->promptSession);
+            // WHAT THE OFFER LEFT OUT IS NAMED, ONCE PER LEG (greenhouse decisions/0601): the operations whose scopes
+            // whoever runs this leg does not hold are not sent with their contracts — and are not hidden either. One
+            // line, computed here and not per step: a value that moved would move the beginning of every request.
+            $notOffered = ConsentBridge::namesNotOffered($cliente->notOfferedToThisCaller());
+            $system .= $notOffered === '' ? '' : "\n\n" . $notOffered;
+            // AND A CALL TO ONE OF THEM IS KEPT IN THE SESSION'S LOG (decided by Rod on 2026-10-08): the loop answers
+            // such a call by itself and never asks the door, so the door asks the loop to tell it.
+            $cliente->hearOfWhatIsTurnedAway($orquestador);
             if ($this->promptSession !== null && ($store = $this->sessions()) !== null) {
                 $system .= "\n\n" . RunContext::section(
                     $store->stream($this->promptSession->id),
@@ -3890,7 +3904,32 @@ class AgentOperations implements CommandProvider
      */
     private function deliveryClosure(SessionStore $store, Session $session): array
     {
-        return LegClosure::atTheEnd($session, $store->stream($session->id), fn (array $contract): array => $this->acceptanceEvidence($contract), $this->lastingCalls());
+        return LegClosure::atTheEnd($session, $store->stream($session->id), fn (array $contract): array => $this->acceptanceEvidence($contract), $this->lastingCalls(), $this->admittedWork());
+    }
+
+    /**
+     * The house's reading of WHAT A PERSON ADMITTED, for closing work (greenhouse decisions/0599): whether an
+     * admission covers an operation for a principal — true or false — and null when the operation is no verb of a
+     * capability built in this house. Asked with no principal it only says whether it is such a verb. It is the same
+     * judge the gate asks ({@see CapabilityAdmissions}), read once per leg. Null when the app has no kernel: then
+     * nothing is derived from work, and the closure is the one it always was.
+     *
+     * @return (\Closure(string, ?string): ?bool)|null
+     */
+    private function admittedWork(): ?\Closure
+    {
+        if ($this->admittedWork !== false) {
+            return $this->admittedWork;
+        }
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return $this->admittedWork = null;
+        }
+        try {
+            return $this->admittedWork = HouseExecutedWork::admittedBy(CapabilityAdmissions::forRoot($kernel->root(), BuiltCapabilities::of($kernel)));
+        } catch (\Throwable) {
+            return $this->admittedWork = null;
+        }
     }
 
     /**

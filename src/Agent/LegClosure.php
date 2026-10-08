@@ -39,20 +39,27 @@ final class LegClosure
     /**
      * The verdict the final answer records, reading the declared delivery's evidence now.
      *
-     * @param list<Event>                                          $stream  the session's stream, as $session was folded from
-     * @param \Closure(array<string, mixed>): array<string, mixed> $observe reads the declared delivery's acceptance evidence
-     * @param (\Closure(string, array<string, mixed>): ?bool)|null $lasting which calls last, by their own declaration ({@see LastingCalls})
+     * @param list<Event>                                          $stream   the session's stream, as $session was folded from
+     * @param \Closure(array<string, mixed>): array<string, mixed> $observe  reads the declared delivery's acceptance evidence
+     * @param (\Closure(string, array<string, mixed>): ?bool)|null $lasting  which calls last, by their own declaration ({@see LastingCalls})
+     * @param (\Closure(string, ?string): ?bool)|null              $admitted whether a person's admission covers an operation for a principal ({@see HouseExecutedWork})
      *
      * @return array<string, mixed>
      */
-    public static function atTheEnd(Session $session, array $stream, \Closure $observe, ?\Closure $lasting = null): array
+    public static function atTheEnd(Session $session, array $stream, \Closure $observe, ?\Closure $lasting = null, ?\Closure $admitted = null): array
     {
-        return self::verdict($session, $stream, $observe, $lasting)
+        return self::verdict($session, $stream, $observe, $lasting, $admitted)
             ?? DeliveryClosure::derive($session, SessionFacts::fromEvents($session->id, $stream), [], null);
     }
 
     /**
      * The same verdict between steps — `null` while it depends on evidence only the natural end reads.
+     *
+     * WORK IS NOT READ HERE (greenhouse decisions/0599, measured in evidence/1150). Between steps this verdict opens the
+     * epilogue: for a route or a capability the house knows what done is — the goal names it and the house saw it. For
+     * work it does not: the request is in the words of the domain, and the house cannot tell the first act from the last.
+     * Read here, the receipts of work closed a session after its first act, with five more asked for. So the work a
+     * session did closes it only at its natural end ({@see atTheEnd()}), when the session itself says it is done.
      *
      * @param list<Event>                                          $stream  the session's stream, as $session was folded from
      * @param (\Closure(string, array<string, mixed>): ?bool)|null $lasting which calls last, by their own declaration ({@see LastingCalls})
@@ -71,7 +78,7 @@ final class LegClosure
      *
      * @return array<string, mixed>|null
      */
-    private static function verdict(Session $session, array $stream, ?\Closure $observe, ?\Closure $lasting): ?array
+    private static function verdict(Session $session, array $stream, ?\Closure $observe, ?\Closure $lasting, ?\Closure $admitted = null): ?array
     {
         $facts = SessionFacts::fromEvents($session->id, $stream);
         try {
@@ -84,7 +91,7 @@ final class LegClosure
                             'bindingState' => 'awaiting_candidate'];
                 }
 
-                return ClosureVerdict::derive($session, $facts, $stream, $lasting);
+                return ClosureVerdict::derive($session, $facts, $stream, $lasting, $admitted);
             }
             if ($observe === null) {
                 return null;
