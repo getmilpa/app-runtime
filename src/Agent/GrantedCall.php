@@ -24,7 +24,9 @@ use Milpa\EventStore\EventStoreInterface;
  *  - the call recorded at the seq the grant was given for, with the arguments recorded there — the grant's own fact
  *    carries their digest, and a call that does not match it is not that call;
  *  - a producer the authoring policy confines in a trial ({@see PluginAuthoringPolicy::BUILD}), never a promotion or
- *    anything else that lands: what the trial shows is read by the model, and landing it stays a judged act;
+ *    anything else that lands: what the trial shows is read by the model, and landing it stays a judged act. And,
+ *    since greenhouse decisions/0600, the verb of a capability built in the house when the grant is the ADMISSION
+ *    of that verb: it does not land by itself either — it runs confined to the state it declares;
  *  - once, as the first move of the first leg after the grant: any model call, any other tool call, or a resume
  *    already played, and the grant resumes nothing;
  *  - while the grant is fresh ({@see FRESH_SECONDS}).
@@ -94,8 +96,7 @@ final class GrantedCall
         }
         $tool = $refused?->payload['tool'] ?? null;
         $arguments = $refused?->payload['arguments'] ?? null;
-        if ($refused === null || ($refused->payload['ok'] ?? null) !== false
-            || !\is_string($tool) || !\in_array($tool, PluginAuthoringPolicy::BUILD, true) || !\is_array($arguments)) {
+        if ($refused === null || ($refused->payload['ok'] ?? null) !== false || !\is_string($tool) || !\is_array($arguments)) {
             return null;
         }
 
@@ -113,6 +114,14 @@ final class GrantedCall
         }
         if ($grant === null || ($grant->payload['tool'] ?? null) !== $tool
             || ($grant->payload['arguments_sha256'] ?? null) !== ConsentBridge::digest($arguments)) {
+            return null;
+        }
+        // WHAT A SCOPE MAY RESUME IS WHAT DOES NOT LAND BY ITSELF. A grant names a scope, not a call: whoever gave it
+        // may not have looked at the arguments. So it resumes a producer a trial confines (decisions/0577) — or the
+        // verb of a capability built in the house, when the grant is the ADMISSION of that verb (decisions/0600): a
+        // built verb is work in the domain, and runs confined to the state it declares (decisions/0588).
+        $admits = $grant->payload['capability'] ?? null;
+        if (!\in_array($tool, PluginAuthoringPolicy::BUILD, true) && (!\is_string($admits) || $admits === '')) {
             return null;
         }
         $age = $grant->recordedAt === null ? null : $now->getTimestamp() - $grant->recordedAt->getTimestamp();

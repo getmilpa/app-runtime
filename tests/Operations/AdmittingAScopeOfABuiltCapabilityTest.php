@@ -231,6 +231,15 @@ final class AdmittingAScopeOfABuiltCapabilityTest extends TestCase
         self::assertSame($write, $facts[0]->payload['seq']);
         self::assertSame('Prestamos', $facts[0]->payload['capability']);
         self::assertSame($card['contract'], $facts[0]->payload['contract']);
+
+        // And that fact is what the seat's next leg opens with (greenhouse decisions/0600): the session is told the
+        // call can run, not to make it again — the house holds it, argument for argument.
+        self::assertStringContainsString('that same call can run now', $told);
+        self::assertStringNotContainsString('make that same call again', $told);
+        $resumes = GrantedCall::toResume($sessions->stream(self::SESSION), new \DateTimeImmutable());
+        self::assertSame($write, $resumes['seq'] ?? null);
+        self::assertSame('herramientas_agregar', $resumes['tool']);
+        self::assertSame(['nombre' => 'Taladro'], $resumes['arguments']);
     }
 
     /** The control decisions/0590 asks by name: the contract moves between seeing the card and signing. */

@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Console;
 
 use Milpa\AppRuntime\Config\MachineOverlay;
+use Milpa\AppRuntime\Config\SecretFiles;
 use Milpa\AppRuntime\Config\SecretOverlay;
 use Milpa\AppRuntime\Auth\PresentedToken;
 use Milpa\AppRuntime\Identity\FileEnrollmentStore;
@@ -1406,6 +1407,14 @@ final class Application
         $this->line('');
         $this->line($reporte->ok() ? '✓ el grafo cierra' : '✗ esta app no va a arrancar así');
 
+        // A SECRET HAS ONE PLACE TO LIVE (greenhouse evidence/1161). Stopping a trial from copying the envelope
+        // does not remove a copy a house already made: a trial opened before the update keeps it until it is
+        // decided. Name each one, with the step that erases it, so no secret lingers unseen.
+        foreach (SecretFiles::trialsHoldingASecret($this->root) as $ensayo) {
+            $this->line("  ! trial «{$ensayo}» still holds a copy of a file this house keeps a secret in — "
+                . 'discard it: ' . Capabilities::cli() . "sandbox:discard --workspace={$ensayo} --sign");
+        }
+
         // A GRAPH THAT CLOSES IS NOT A HOUSE THAT BOOTS (greenhouse evidence/1067): a 0.200.3 house moved to
         // 0.201.0 died in a plugin's boot() while this said «✓ el grafo cierra», exit 0 — and `coa update` reads
         // this exit as its boot check, so it printed `boots: 1`. The same fresh process the recovery path asks.
@@ -1623,7 +1632,7 @@ final class Application
 
     private function commandName(Operation $operacion): string
     {
-        return str_replace(['_', '.'], ':', $operacion->name);
+        return CommandName::of($operacion->name);
     }
 
     /**
@@ -1910,7 +1919,7 @@ final class Application
         $container->registerService(\Milpa\Console\OperationBoundary::class, $policy);
         $operacion = null;
         foreach ($this->operacionesDeRecuperacion($container) as $op) {
-            if (str_replace(['_', '.'], ':', $op->name) === $comando) {
+            if ($this->commandName($op) === $comando) {
                 $operacion = $op;
             }
         }

@@ -79,6 +79,9 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
     /** Cause of the last synchronous refusal, cleared before every new judgment. */
     private ?string $recoveryRefusedTool = null;
 
+    /** True only while this gate records a read it refused because the session is stalled: a «not now», not a failure. */
+    private bool $refusingForAStall = false;
+
     /** The tool this gate just refused by READING the house: a fact the model lifts, not a frontier (decisions/0591). */
     private ?string $foreknownRefusedTool = null;
 
@@ -314,8 +317,12 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // deba decidir, y detener la vuelta por esto sería cobrarle al humano un descuido del modelo.
         // El bucle del agente sigue —`optionRemoved` en la excepción que arma quien nos llama— y el
         // modelo recibe el hecho con el error adentro, que es con lo que puede corregir.
+        // WHILE THE SESSION IS STALLED, THE STALL ANSWERS A READ FIRST (greenhouse decisions/0601). The offer no longer
+        // changes when a session stalls, so a stalled session can ask for a read. This guard's refusal ends the leg;
+        // the stall's goes back to the model, as «not offered» used to. A read the stall is about to refuse is left
+        // to it, further down — and what it refuses is never counted here as a failure of the call.
         $bucle = $this->vigiaDeBucle?->motivoParaNoRepetir($tool, $arguments);
-        if ($bucle !== null) {
+        if ($bucle !== null && !\in_array($tool, $this->recoveryHiddenTools([$tool]), true)) {
             return $bucle;
         }
 
@@ -371,7 +378,12 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             // intent and sterile-loop refusals retain their classification even for a hidden read.
             // The failed call consumes its allowance without executing or creating progress.
             if (in_array($tool, $this->recoveryHiddenTools([$tool]), true)) {
-                $this->recorded($tool, $arguments, $error, false);
+                $this->refusingForAStall = true;
+                try {
+                    $this->recorded($tool, $arguments, $error, false);
+                } finally {
+                    $this->refusingForAStall = false;
+                }
                 $this->recoveryRefusedTool = $tool;
             }
 
@@ -664,7 +676,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
 
         return new \Milpa\Agent\PendingQuestion(
             id: 'intent-' . substr(sha1($operacion->name . '|' . $valor), 0, 12),
-            question: "The request does not name «{$valor}». Confirm {$operacion->name} on «{$valor}»?",
+            question: "The request does not name «{$valor}». Confirm {$operacion->name} on «{$valor}»?" . $this->whatAYesDoes(),
             options: AffirmativeAnswer::OPTIONS,
             why: json_encode(
                 ['operation' => $operacion->name, 'arguments' => $arguments],
@@ -883,6 +895,24 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
 
         return RecordedEdit::usesSource($operacion, $arguments)
             && (new RecordedEdit($root, $this->sessions))->repairsItsOwnProposal($arguments, $this->session->id);
+    }
+
+    /**
+     * What a yes does, said in the question itself — where it is true (greenhouse decisions/0600).
+     *
+     * The house takes up the call a person said yes to ({@see AnsweredCall}): «the agent will run it» stopped being
+     * what happens, so the question says who will. It is true of a session a SEAT runs — the one whose next leg the
+     * house opens with the call. A session a person drives with their own key is not taken up, and neither is one
+     * of a house this gate cannot read: there the question stays as it was. What asks for a signature never passes
+     * here: it is not answered, it is signed.
+     */
+    private function whatAYesDoes(): string
+    {
+        if ($this->houseRoot === null) {
+            return '';
+        }
+
+        return SeatFrontier::forRoot($this->houseRoot, $this->sessions)->seatOf($this->session->id) === null ? '' : ' If you say yes, the house runs it.';
     }
 
     /**
@@ -1179,6 +1209,35 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
     }
 
     /**
+     * A CALL TO SOMETHING THE SESSION WAS NOT OFFERED IS KEPT (greenhouse decisions/0601; decided by Rod on
+     * 2026-10-08). The loop answered it by itself and nothing reached this gate: no question was asked and nothing
+     * ran. What is written is a refused call — the name that was called, its arguments, and why it was not on the
+     * offer — so the session's log says the session tried.
+     *
+     * It is NOT counted as a call that was made: the loop guard is not told (an attempt that was turned away is no
+     * failure of that call, and must not be held against it the day it is offered), nothing is asked of the trial
+     * layer, and it is no mutation. The house's secrets are taken out of what is kept, as from any call.
+     *
+     * @param array<string, mixed> $arguments
+     * @param string               $because   why it was not on the offer: `scope`, `withdrawn` or `unknown`
+     */
+    public function notOffered(string $tool, array $arguments, string $because, string $reason): void
+    {
+        $said = (string) json_encode(['ok' => false, 'not_offered' => true, 'because' => $because, 'error' => $reason], \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE);
+        $kept = \Milpa\AppRuntime\Config\SecretRedaction::inText($said, $this->houseRoot);
+        $keptArguments = \Milpa\AppRuntime\Config\SecretRedaction::inResult($arguments, $this->houseRoot);
+        $this->sessions->recordToolCall(
+            $this->session->id,
+            $tool,
+            \is_array($keptArguments) ? $keptArguments : $arguments,
+            $kept,
+            false,
+            false,
+            mb_strlen($kept),
+        );
+    }
+
+    /**
      * Apunta en la sesión que esta herramienta corrió y qué contestó.
      *
      * La compuerta ve la intención y esto ve el desenlace; hacen falta las dos. Sin el desenlace,
@@ -1212,7 +1271,11 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // El vigía ve TODO lo que se ejecutó, incluidas las llamadas de operaciones que esta app no
         // declara: un bucle estéril sobre una herramienta externa gasta el mismo presupuesto.
         $inputWitness = $this->trialRouter?->takeInputCall($this->session->id, $tool, $arguments);
-        $this->vigiaDeBucle?->anota($tool, $arguments, $result, $ok, $inputWitness);
+        // A read refused because the session is stalled was told «not now»: the session keeps the refusal, and the
+        // loop guard does not hold it against the call (greenhouse decisions/0601).
+        if (!$this->refusingForAStall) {
+            $this->vigiaDeBucle?->anota($tool, $arguments, $result, $ok, $inputWitness);
+        }
 
         // SI LA LLAMADA MUTABA, lo sabe esta compuerta: tiene la operación delante. El stream no lo
         // guardaba, así que no distinguía mirar de mover — y sin esa distinción no se puede verificar
@@ -1417,7 +1480,8 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
 
         return new \Milpa\Agent\PendingQuestion(
             id: $pregunta->id,
-            question: $pregunta->question,
+            // …AND WHAT A YES DOES (greenhouse decisions/0600): the house runs the call, so the question says so.
+            question: $pregunta->question . $this->whatAYesDoes(),
             // THIS GATE READS THE ANSWER, SO THIS GATE SAYS WHICH ONES IT OFFERS (greenhouse decisions/0518):
             // a permission question offers `yes`/`no` whatever milpa/agent release drafted it — agent ≤0.51.1
             // still drafts «sí» — so the wire does not depend on the order two packages are released in.

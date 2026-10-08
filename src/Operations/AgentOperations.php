@@ -14,8 +14,11 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Operations;
 
+use Milpa\AppRuntime\Agent\BuiltCapabilities;
+use Milpa\AppRuntime\Agent\CapabilityAdmissions;
 use Milpa\AppRuntime\Agent\FatalTermination;
 use Milpa\AppRuntime\Agent\GrantedCall;
+use Milpa\AppRuntime\Agent\HouseExecutedWork;
 use Milpa\AppRuntime\Agent\OfferedTools;
 use Milpa\AppRuntime\Agent\LegMemory;
 use Milpa\AppRuntime\Agent\LegWindow;
@@ -74,6 +77,7 @@ use Milpa\Plugin\Runtime\MetadataGraphResolver;
 use Milpa\Resolver\Report\ResolutionReport;
 use Milpa\AiGateway\LlmService;
 use Milpa\AppRuntime\Agent\AgentTable;
+use Milpa\AppRuntime\Agent\AnsweredCall;
 use Milpa\AppRuntime\Agent\ConfinedWork;
 use Milpa\AppRuntime\Agent\EffectClasses;
 use Milpa\AppRuntime\Agent\ExecutionRecorder;
@@ -216,6 +220,9 @@ class AgentOperations implements CommandProvider
      * @var (\Closure(string, array<string, mixed>): ?bool)|false|null
      */
     private \Closure|false|null $lastingCalls = false;
+
+    /** The house's reading of what a person admitted ({@see self::admittedWork()}), once read — `false` until then. */
+    private \Closure|false|null $admittedWork = false;
 
     /**
      * What {@see LegMemory::declare()} answered when this run started.
@@ -3330,7 +3337,7 @@ class AgentOperations implements CommandProvider
         $sonda = $this->progressProbe();
 
         $orquestador = $this->orchestrator($modeloRemoto, $cliente, $pasos, $tablero, $lazyTools, $sonda);
-        $this->playTheGrantedCall($orquestador);
+        $this->playTheCallAPersonDecidedAbout($orquestador);
 
         // Only the base ask/run/getter chain proves what this return actually observed.
         // An override may return after another base run, or never run the producer at all.
@@ -3343,6 +3350,14 @@ class AgentOperations implements CommandProvider
             $available = array_values(array_filter(array_column($cliente->getToolSummaries(), 'name'), 'is_string'));
             $this->skillInstructionProjection = null;
             $system = $this->systemPrompt($available, $this->promptSession);
+            // WHAT THE OFFER LEFT OUT IS NAMED, ONCE PER LEG (greenhouse decisions/0601): the operations whose scopes
+            // whoever runs this leg does not hold are not sent with their contracts — and are not hidden either. One
+            // line, computed here and not per step: a value that moved would move the beginning of every request.
+            $notOffered = ConsentBridge::namesNotOffered($cliente->notOfferedToThisCaller());
+            $system .= $notOffered === '' ? '' : "\n\n" . $notOffered;
+            // AND A CALL TO ONE OF THEM IS KEPT IN THE SESSION'S LOG (decided by Rod on 2026-10-08): the loop answers
+            // such a call by itself and never asks the door, so the door asks the loop to tell it.
+            $cliente->hearOfWhatIsTurnedAway($orquestador);
             if ($this->promptSession !== null && ($store = $this->sessions()) !== null) {
                 $system .= "\n\n" . RunContext::section(
                     $store->stream($this->promptSession->id),
@@ -3887,7 +3902,32 @@ class AgentOperations implements CommandProvider
      */
     private function deliveryClosure(SessionStore $store, Session $session): array
     {
-        return LegClosure::atTheEnd($session, $store->stream($session->id), fn (array $contract): array => $this->acceptanceEvidence($contract), $this->lastingCalls());
+        return LegClosure::atTheEnd($session, $store->stream($session->id), fn (array $contract): array => $this->acceptanceEvidence($contract), $this->lastingCalls(), $this->admittedWork());
+    }
+
+    /**
+     * The house's reading of WHAT A PERSON ADMITTED, for closing work (greenhouse decisions/0599): whether an
+     * admission covers an operation for a principal — true or false — and null when the operation is no verb of a
+     * capability built in this house. Asked with no principal it only says whether it is such a verb. It is the same
+     * judge the gate asks ({@see CapabilityAdmissions}), read once per leg. Null when the app has no kernel: then
+     * nothing is derived from work, and the closure is the one it always was.
+     *
+     * @return (\Closure(string, ?string): ?bool)|null
+     */
+    private function admittedWork(): ?\Closure
+    {
+        if ($this->admittedWork !== false) {
+            return $this->admittedWork;
+        }
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return $this->admittedWork = null;
+        }
+        try {
+            return $this->admittedWork = HouseExecutedWork::admittedBy(CapabilityAdmissions::forRoot($kernel->root(), BuiltCapabilities::of($kernel)));
+        } catch (\Throwable) {
+            return $this->admittedWork = null;
+        }
     }
 
     /**
@@ -4238,20 +4278,24 @@ class AgentOperations implements CommandProvider
     }
 
     /**
-     * THE GRANT RESUMES THE CALL IT WAS GIVEN FOR (greenhouse decisions/0577). When a person granted the scope this
-     * session's last call was refused for, and nothing has happened since, this leg opens with that recorded call
-     * instead of asking the model to retype it. {@see GrantedCall} decides which call, from the stream alone. The
-     * leg adds what only it can know:
+     * WHAT A PERSON DECIDED ABOUT A CALL, THE HOUSE RUNS (greenhouse decisions/0577, 0600). When a person's last act
+     * in this session was about ONE call of it — the grant or the admission its last call was refused for, or the
+     * yes to a question the house had asked about a call — and nothing has happened since, this leg opens with that
+     * call instead of asking the model to type it again. {@see GrantedCall} and {@see AnsweredCall} decide which
+     * call, each from the stream alone. The leg adds what only it can know:
      *
-     *  - THE SEAT RUNS THE LEG. The call was the seat's; a leg run by anybody else — the person who granted
-     *    included — plays nothing, and neither does an unproven claim to be the seat.
-     *  - THE HOUSE HAS TRIALS. Outside one the call would land; then the model asks for it, as before.
+     *  - THE SEAT RUNS THE LEG. The call was the seat's; a leg run by anybody else — the person who granted or
+     *    answered included — plays nothing, and neither does an unproven claim to be the seat.
+     *  - AFTER A GRANT OR AN ADMISSION, THE HOUSE HAS TRIALS. Those name a scope, so they resume only what does not
+     *    land by itself; outside a trial the call would land, and then the model asks for it, as before. A YES
+     *    named the call itself, landing or not, and asks for no trial.
+     *  - ONE MOVE. When a grant and a yes both stand, the later act is the one taken up.
      *
      * The move is not an authority: it goes through the governed door like any call the model makes — the gate,
      * the mode's question, the scopes the seat holds NOW, the trial — and it spends a step. What the house adds
      * is one fact, so the ledger never reads this call as the model's.
      */
-    private function playTheGrantedCall(object $orquestador): void
+    private function playTheCallAPersonDecidedAbout(object $orquestador): void
     {
         $session = $this->sesionDeLosPermisos;
         $store = $this->sessionStore();
@@ -4260,17 +4304,33 @@ class AgentOperations implements CommandProvider
         if ($session === null || $store === null || $events === null || !$kernel instanceof Kernel) {
             return;
         }
-        $call = GrantedCall::toResume($store->stream($session), new \DateTimeImmutable());
-        if ($call === null || $this->trialRouter($kernel) === null) {
+        $stream = $store->stream($session);
+        $now = new \DateTimeImmutable();
+        $granted = $this->trialRouter($kernel) === null ? null : GrantedCall::toResume($stream, $now);
+        $answered = AnsweredCall::toResume($stream, $now);
+        if ($granted === null && $answered === null) {
             return;
+        }
+        if ($granted !== null && $answered !== null) {
+            // TWO ACTS STAND AND A LEG OPENS WITH ONE MOVE: the later act is the last thing a person decided. The
+            // earlier one no longer is — once the house plays, that is what follows it — and its call goes back to
+            // the model, as before.
+            if ($granted['granted'] > $answered['answered']) {
+                $answered = null;
+            } else {
+                $granted = null;
+            }
         }
         $by = ObservedExecutor::fromContext($this->contextoDeLaVuelta)->principal;
         $seat = SeatFrontier::forRoot($kernel->root(), $store)->seatOf($session);
         if ($seat === null || $by === null || !$by->verified || $by->id !== 'key:' . $seat) {
             return;
         }
-        if (GrantedCall::open($orquestador, $call)) {
-            GrantedCall::resumed($events, $session, $call, $by->id);
+        if ($granted !== null && GrantedCall::open($orquestador, $granted)) {
+            GrantedCall::resumed($events, $session, $granted, $by->id);
+        }
+        if ($answered !== null && AnsweredCall::open($orquestador, $answered)) {
+            AnsweredCall::resumed($events, $session, $answered, $by->id);
         }
     }
 
