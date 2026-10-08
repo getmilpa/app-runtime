@@ -26,7 +26,7 @@
     },
     "conflict": {
         "milpa/agent": "<0.53",
-        "milpa/agent-workspace": "<0.91",
+        "milpa/agent-workspace": "<0.92",
         "milpa/auth": "<0.11",
         "milpa/command": "<0.25",
         "milpa/devtools": "<0.44",
