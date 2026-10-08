@@ -92,6 +92,23 @@ final class TrialWorkspace
         return new self($root, $id, $copy);
     }
 
+    /**
+     * The paths a trial's promotion wrote, when this id is a trial that was already promoted — or null.
+     *
+     * A promoted trial has collapsed (no `copy/`), so {@see open()} no longer knows it; what remains is the record
+     * {@see undo()} reads. A promotion that was undone left no record either, and is not «already promoted».
+     *
+     * @return list<string>|null
+     */
+    public static function promotedPaths(string $root, string $id): ?array
+    {
+        self::guardId($id);
+        $record = @file_get_contents(self::baseDir($root, $id) . '/promoted.json');
+        $promoted = \is_string($record) ? json_decode($record, true) : null;
+
+        return \is_array($promoted) && $promoted !== [] ? array_map('strval', array_keys($promoted)) : null;
+    }
+
     /** Reopen an existing trial, or `null` if there is none by that id. */
     public static function open(string $root, string $id): ?self
     {

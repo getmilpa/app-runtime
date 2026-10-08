@@ -70,6 +70,56 @@ final class GateRecordsPromotionTest extends TestCase
         self::assertSame([], $this->promotions($eventos));
     }
 
+    /**
+     * A PROMOTION ASKED FOR AGAIN CHANGED NOTHING, AND IS NOT KEPT AS A CHANGE (greenhouse decisions/0586).
+     *
+     * The house answers «already promoted» to a promotion of a trial it has already applied: ok, and nothing written.
+     * The gate still kept that call as a mutation, because the operation mutates. Measured by another thread walking a
+     * house founded with the six admitted: the house applied each trial, the walk asked for the same promotion out of
+     * habit, and the closure read «the house changed» after its last observation — the session never closed verified.
+     * One promotion more than needed was enough, admissions or not.
+     */
+    public function testAPromotionAlreadyMadeIsKeptAsACallThatChangedNothing(): void
+    {
+        $eventos = new InMemoryEventStore();
+        $gate = $this->gate($eventos);
+
+        $gate->recorded('sandbox_promote', ['workspace' => 'w1'], '{"ok":true,"promoted":["src/Plugins/Blog/Blog.php"]}', true);
+        $gate->recorded('sandbox_promote', ['workspace' => 'w1'], '{"ok":true,"already_promoted":true,"workspace":"w1","paths":["src/Plugins/Blog/Blog.php"],"note":"This trial was already promoted into the house; nothing was written again."}', true);
+
+        $calls = $this->facts($eventos, 'session.tool_called');
+        self::assertCount(2, $calls, 'the second call is kept: the session did ask');
+        self::assertTrue($calls[0]->payload['mutating'], 'the promotion that landed is a change');
+        self::assertTrue($calls[1]->payload['ok']);
+        self::assertFalse($calls[1]->payload['mutating'], 'asking again for it changed nothing');
+        self::assertCount(1, $this->promotions($eventos), 'one promotion landed');
+
+        $store = new SessionStore($eventos);
+        $house = \Milpa\AppRuntime\Agent\HouseObservedClosure::of($store->stream('s-1'), $store->facts('s-1'));
+        self::assertSame($calls[0]->seq, $house['lastChangeSeq'], 'the house last changed when the promotion landed, not when it was asked for again');
+    }
+
+    public function testOnlyThePromotionsOwnAnswerSaysNothingChanged(): void
+    {
+        $eventos = new InMemoryEventStore();
+        $gate = $this->gate($eventos);
+
+        // Another operation of the trial that mutates, whose result happens to carry the same words.
+        $gate->recorded('sandbox_undo', ['workspace' => 'w1'], '{"ok":true,"already_promoted":true,"restored":["src/Plugins/Blog/Blog.php"]}', true);
+        // And a promotion whose answer says it is NOT so.
+        $gate->recorded('sandbox_promote', ['workspace' => 'w2'], '{"ok":true,"already_promoted":false,"promoted":["a"]}', true);
+
+        $calls = $this->facts($eventos, 'session.tool_called');
+        self::assertTrue($calls[0]->payload['mutating'], 'an undo is a change, whatever its result carries');
+        self::assertTrue($calls[1]->payload['mutating']);
+    }
+
+    /** @return list<Event> */
+    private function facts(InMemoryEventStore $eventos, string $type): array
+    {
+        return array_values(array_filter($eventos->replay('agent-session:s-1'), static fn (Event $e): bool => $e->type === $type));
+    }
+
     private function gate(InMemoryEventStore $eventos): SessionToolGate
     {
         $store = new SessionStore($eventos);

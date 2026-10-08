@@ -479,16 +479,24 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
      */
     private function checkExport(ToolContext $context, string $name, array $arguments): void
     {
-        if ($name === 'sandbox_promote') {
-            $workspace = $this->workspace($arguments);
-            $this->authorizePaths($context, array_keys($workspace->diff()), $workspace->copy);
-            return;
-        }
         $id = $arguments['workspace'] ?? null;
         if (!is_string($id) || !preg_match('/^[A-Za-z0-9_-]+$/D', $id)) {
             throw new \RuntimeException('A workspace must name one trial directory.');
         }
         $base = $this->root . '/var/trials/' . $id;
+        if ($name === 'sandbox_promote') {
+            // ALREADY PROMOTED IS AN ANSWER, AND THE DOOR LETS IT BE GIVEN (greenhouse decisions/0586). A trial the
+            // house applied has collapsed; asking for its promotion again is answered by the handler, which writes
+            // nothing — to whoever holds the write set those same paths ask for, exactly as undoing it would.
+            $already = TrialWorkspace::open($this->root, $id) === null ? TrialWorkspace::promotedPaths($this->root, $id) : null;
+            if ($already !== null) {
+                $this->authorizePaths($context, $already, $base . '/pre');
+                return;
+            }
+            $workspace = $this->workspace($arguments);
+            $this->authorizePaths($context, array_keys($workspace->diff()), $workspace->copy);
+            return;
+        }
         $record = json_decode((string) @file_get_contents($base . '/promoted.json'), true);
         if (!is_array($record) || $record === []) {
             throw new \RuntimeException('No recorded promotion to undo.');
