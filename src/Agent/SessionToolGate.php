@@ -595,6 +595,27 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             return null;
         }
 
+        // WHAT THE SESSION ITSELF BROUGHT INTO THE HOUSE IS NOT A TARGET SOMEONE SELECTED (greenhouse decisions/0596).
+        //
+        // D-05 drew the line by the verb: `implement` creates and is not asked, `edit` selects what exists and is.
+        // The record of the lab's houses drew it elsewhere — of 34 times a house asked a person to confirm an
+        // `edit`, 28 were about a class that same session had brought into the house a moment before, and not one
+        // about a class the record shows in the house from before the session. Each ended a leg (evidence/1137:
+        // two runs of three; evidence/1128: both long runs). Correcting what one has just materialised is still
+        // the model's interpretive domain; touching what was already there is selection, and keeps being asked.
+        //
+        // So for an operation that DECLARES it amends its named target, the target is named when THIS session's
+        // record says where it came from. Read from facts the house wrote, with no model in the circuit, and
+        // fail-closed like everything above: an operation that does not declare it, a grave one whatever it
+        // declares, or a record that does not say, falls through to the question.
+        if (
+            IntentAdmissibility::tier($operacion->effectCeiling()) !== IntentAdmissibility::NEVER
+            && $this->amendsItsNamedTarget($operacion)
+            && $this->theSessionsRecordSaysWhereItCameFrom($operacion, $arguments, trim($valor))
+        ) {
+            return null;
+        }
+
         // ── EL CICLO SE CIERRA: Pregunta → Nueva intención ──────────────────────────────────────
         //
         // Si el humano YA confirmó esta operación sobre este objetivo —contestó «sí» a la pregunta
@@ -803,6 +824,47 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
     private function createsItsNamedTarget(object $operacion): bool
     {
         return property_exists($operacion, 'createsNamedTarget') && $operacion->createsNamedTarget === true;
+    }
+
+    /**
+     * Whether the operation declares it AMENDS its named target (greenhouse decisions/0596).
+     *
+     * Read defensively, as {@see createsItsNamedTarget()} is: an absent property is `false`, and `false` keeps asking.
+     */
+    private function amendsItsNamedTarget(object $operacion): bool
+    {
+        return property_exists($operacion, 'amendsNamedTarget') && $operacion->amendsNamedTarget === true;
+    }
+
+    /**
+     * Whether this session's own record says where the class a call names came from (greenhouse decisions/0596).
+     *
+     * Two ways, and either is enough: the session BROUGHT the class into the house and the house still holds what
+     * the session left ({@see SessionBornFiles}); or the call REPAIRS a proposal of this session that the recorded
+     * door binds ({@see RecordedEdit::repairsItsOwnProposal()}). With no house to read, or a DevTools that keeps its
+     * lookup private, the record says nothing.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function theSessionsRecordSaysWhereItCameFrom(Operation $operacion, array $arguments, string $class): bool
+    {
+        $root = $this->trialRouter?->root();
+        $scaffold = self::installed(ImplementHandler::class, 'scaffold');
+        $plugin = $arguments['plugin'] ?? null;
+        if ($root === null || $scaffold === null || !\is_string($plugin)) {
+            return false;
+        }
+        $root = rtrim($root, '/');
+        // The file is DERIVED, never received: the same lookup the landing gate uses, inside the plugin's own trees.
+        // A name that is not a class of that plugin finds nothing, and what finds nothing was not brought.
+        $file = $scaffold($root, $plugin, $class);
+        if (\is_string($file)
+            && SessionBornFiles::of($this->sessions->stream($this->session->id))->broughtAndLeftAsItIs(substr($file, \strlen($root) + 1), $file)) {
+            return true;
+        }
+
+        return RecordedEdit::usesSource($operacion, $arguments)
+            && (new RecordedEdit($root, $this->sessions))->repairsItsOwnProposal($arguments, $this->session->id);
     }
 
     /** Cuándo vence la pregunta que se está por hacer, o `null` si el host no puso plazo. */
