@@ -115,6 +115,66 @@ final class AVerbIsCalledOnTheTerminalByTheNameItDeclaresTest extends TestCase
         self::assertStringNotContainsString('dar:baja', $line);
     }
 
+    /**
+     * THE HOUSE'S OWN RUNNERS FIND IT BY THAT NAME TOO. A seat's work runs in a child process of the house, and so does
+     * a trial: each resolves the operation it is given through the terminal's own lookup. They wrote the name the old
+     * way before asking — so once the terminal called a verb by the name it declares, a seat a person had admitted
+     * was answered «no operation «herramienta:dar_baja» in this app» (found with a real resident; greenhouse
+     * evidence/1159, the addendum). I had changed the lookup and not who calls it.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function declared(): iterable
+    {
+        yield 'a colon, and an underscore inside the verb' => ['herramientas:dar_baja'];
+        yield 'a dot, and an underscore inside the verb' => ['herramientas.dar_alta'];
+        yield 'a dot alone' => ['herramientas.listar'];
+        yield 'underscores alone' => ['taller_inventario'];
+    }
+
+    #[DataProvider('declared')]
+    public function testTheRunnerOfASeatsWorkFindsAVerbByTheNameItDeclares(string $declared): void
+    {
+        [$exit, $said] = $this->child([\dirname(__DIR__, 2) . '/resources/work-run.php', $this->root, $declared, '{}']);
+
+        self::assertSame(0, $exit, $said);
+        self::assertSame(['ok' => true, 'ran' => $declared], json_decode($said, true));
+    }
+
+    #[DataProvider('declared')]
+    public function testTheRunnerOfATrialFindsItToo(string $declared): void
+    {
+        // A trial's runner is copied into the copy of the house it runs in, and reads that copy as its root.
+        copy(\dirname(__DIR__, 2) . '/resources/trial-run.php', $this->root . '/trial-run.php');
+
+        [$exit, $said] = $this->child([$this->root . '/trial-run.php', $declared, '{}']);
+
+        self::assertSame(0, $exit, $said);
+        self::assertSame(['ok' => true, 'ran' => $declared], json_decode($said, true));
+    }
+
+    /** One place names a command. A copy of that rule anywhere else in the package is how the two drifted apart. */
+    public function testNothingElseInThePackageWritesACommandsNameItsOwnWay(): void
+    {
+        $package = \dirname(__DIR__, 2);
+        $copies = [];
+        foreach (['src', 'resources', 'bin'] as $tree) {
+            if (!is_dir("{$package}/{$tree}")) {
+                continue;
+            }
+            foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator("{$package}/{$tree}", \FilesystemIterator::SKIP_DOTS)) as $file) {
+                if (!$file instanceof \SplFileInfo || $file->getExtension() !== 'php' || $file->getFilename() === 'CommandName.php') {
+                    continue;
+                }
+                if (preg_match('/str_replace\(\s*(\[[^\]]*[\'"][._][\'"][^\]]*\]|[\'"][._][\'"])\s*,\s*[\'"]:[\'"]/', (string) file_get_contents($file->getPathname())) === 1) {
+                    $copies[] = substr($file->getPathname(), \strlen($package) + 1);
+                }
+            }
+        }
+
+        self::assertSame([], $copies);
+    }
+
     /** @return iterable<string, array{string, string}> */
     public static function names(): iterable
     {
@@ -187,8 +247,30 @@ final class AVerbIsCalledOnTheTerminalByTheNameItDeclaresTest extends TestCase
             }
             PHP);
         require_once $dir . '/Taller.php';
+        // What a child process of the house loads: the package's own autoloader, and the capability.
+        mkdir($this->root . '/vendor', 0o777, true);
+        file_put_contents($this->root . '/vendor/autoload.php', '<?php require ' . var_export(\dirname(__DIR__, 2) . '/vendor/autoload.php', true)
+            . '; require_once ' . var_export(__FILE__, true) . '; require_once ' . var_export(\dirname(__FILE__) . '/ASeatSignsForABuiltVerbOnTheTerminalTest.php', true)
+            . '; require_once ' . var_export($dir . '/Taller.php', true) . ';');
         file_put_contents($this->root . '/config/app.php', '<?php return [];');
         file_put_contents($this->root . '/config/boot.php', '<?php return ["container" => \\' . ASeatSignsForABuiltVerbOnTheTerminalTest::class . '::container(' . var_export($this->root, true) . '), "plugins" => [\\MilpaTest\\Named\\' . $class . '::class]];');
+    }
+
+    /**
+     * Run a script of the package as the house does: a PHP process of its own.
+     *
+     * @param list<string> $arguments
+     *
+     * @return array{0: int, 1: string}
+     */
+    private function child(array $arguments): array
+    {
+        $process = proc_open([\PHP_BINARY, ...$arguments], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        self::assertIsResource($process);
+        $out = (string) stream_get_contents($pipes[1]);
+        $err = (string) stream_get_contents($pipes[2]);
+
+        return [proc_close($process), trim($out) . ($err === '' ? '' : "\n" . trim($err))];
     }
 
     /**
