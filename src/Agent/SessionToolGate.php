@@ -628,6 +628,24 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             return null;
         }
 
+        // WHAT A PERSON OPENED KNOWINGLY, BY ITS NAME AND FOR THIS SESSION, IS NAMED FOR THIS SESSION.
+        //
+        // Decided by Rod, 2026-10-08 (greenhouse decisions/0602).
+        //
+        // Extending a capability that exists is bracketed by two acts of a person: the grant that reopens its works
+        // —informed, the plugin's name repeated (decisions/0510)— and the admission that closes them (decisions/0590,
+        // rule 10). Measured (evidence/1158): after that grant this contract asked whether to edit the class of the
+        // very call just granted, and whether to `make` on the plugin whose name the person had just typed; one
+        // extension took a grant, four answers and an admission, and the same changes sent with `implement` took one
+        // answer. So for an authoring operation the target is named when THIS session's record says a person opened
+        // the works of the plugin the call writes in, and they still stand. Fail-closed like everything above.
+        if (
+            IntentAdmissibility::tier($operacion->effectCeiling()) !== IntentAdmissibility::NEVER
+            && $this->aPersonOpenedTheWorksThisCallWritesIn($operacion, $arguments)
+        ) {
+            return null;
+        }
+
         // ── EL CICLO SE CIERRA: Pregunta → Nueva intención ──────────────────────────────────────
         //
         // Si el humano YA confirmó esta operación sobre este objetivo —contestó «sí» a la pregunta
@@ -895,6 +913,27 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         }
 
         return SeatFrontier::forRoot($this->houseRoot, $this->sessions)->seatOf($this->session->id) === null ? '' : ' If you say yes, the house runs it.';
+    }
+
+    /**
+     * Whether a person opened, for this session, the works of the plugin this call writes in (greenhouse
+     * decisions/0602).
+     *
+     * Only an authoring operation — one the authoring policy bounds by a plugin's building permit — and only by the
+     * plugin it names: what such a call can touch is that plugin's own trees and nothing else, which is the boundary
+     * the grant opened. Whether the works were opened and still stand is {@see OpenedWorks}'s to read.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function aPersonOpenedTheWorksThisCallWritesIn(Operation $operacion, array $arguments): bool
+    {
+        $root = $this->trialRouter?->root();
+        $plugin = $arguments['plugin'] ?? null;
+        if ($root === null || !\is_string($plugin) || !\in_array($operacion->name, PluginAuthoringPolicy::BUILD, true)) {
+            return false;
+        }
+
+        return OpenedWorks::standFor($this->sessions->stream($this->session->id), $plugin, rtrim($root, '/'));
     }
 
     /** Cuándo vence la pregunta que se está por hacer, o `null` si el host no puso plazo. */

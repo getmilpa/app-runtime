@@ -292,6 +292,8 @@ final class IdentityGrantOperationTest extends TestCase
             'consent' => 'touch',
             // What granting it would suspend (decisions/0590, rule 10): nothing — nobody was admitted anything of it.
             'suspends' => [],
+            // How far it would reach (decisions/0602): one touch over a plugin the house does not have stands for nothing.
+            'stands_for' => null,
         ]], $seen[0]['refusals'], 'one row for the scope, not one per retry — the latest retry, the call the seat still asks for (decisions/0510)');
     }
 

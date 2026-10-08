@@ -52,8 +52,10 @@ final class GrantedCall
      * Written by the grant, after it succeeded. A refusal that is not a recorded tool call with arguments leaves
      * nothing: there would be no call to name.
      *
-     * @param array<string, string> $admitted for the admission of a built verb (greenhouse decisions/0590): the
-     *                                        capability and the digest of the contract a person approved
+     * @param array<string, string|int> $admitted what else the fact says. For the admission of a built verb
+     *                                            (greenhouse decisions/0590): the capability and the digest of the
+     *                                            contract a person approved. For a grant over existing work: what it
+     *                                            opened ({@see OpenedWorks::fact()})
      */
     public static function granted(EventStoreInterface $events, string $session, Event $refused, string $permission, string $authorizedBy, array $admitted = []): void
     {
