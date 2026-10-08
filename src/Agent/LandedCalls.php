@@ -107,8 +107,10 @@ final class LandedCalls
                 'succeeded' => $succeeded,
                 'rehearsed' => $rehearsed,
                 'workspace' => $rehearsed && $workspace !== '' ? $workspace : null,
-                // The house says so itself: a trial with something to apply answers with the call that applies it.
-                'promotable' => ! $readable || \is_array($result['to_apply'] ?? null),
+                // The house says so itself: a trial with something to apply answers with the call that applies it —
+                // handed to the model (`to_apply`), or played by the house for an admitted operation (`applies`,
+                // greenhouse decisions/0586). Either way it is a rehearsal until that promotion lands.
+                'promotable' => ! $readable || \is_array($result['to_apply'] ?? null) || \is_array($result['applies'] ?? null),
                 'unchanged' => false,
             ];
             if ($succeeded && ! $rehearsed) {
