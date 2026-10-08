@@ -361,6 +361,17 @@ final class TheHouseExercisesWhatItIsAboutToCloseOnTest extends TestCase
         self::assertStringStartsWith('… and ', (string) end($closure['reasons']));
         self::assertCount(1, $this->seen($closure), implode("\n", $closure['reasons']));
         self::assertStringContainsString('«ledger:open» threw Error: ' . self::UNDEFINED, $this->seen($closure)[0]);
+
+        // And so is anything else the house says of itself: here, that it changed after it was last seen.
+        $this->setUp();
+        foreach (range(1, 18) as $i) {
+            $this->fill("Extra{$i}", "src/Plugins/Ledger/Support/Extra{$i}.php", $this->both());
+        }
+        $seq = $this->built();
+        $elsewhere = $this->landElsewhere();
+        $stale = $this->verdict();
+        self::assertCount(16, $stale['reasons']);
+        self::assertSame(["the house changed at seq {$elsewhere} after its last observation (seq {$seq})"], $this->seen($stale));
     }
 
     public function testALongFirstLineIsCutAndManyThrowsAreCounted(): void
