@@ -79,6 +79,9 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
     /** Cause of the last synchronous refusal, cleared before every new judgment. */
     private ?string $recoveryRefusedTool = null;
 
+    /** True only while this gate records a read it refused because the session is stalled: a «not now», not a failure. */
+    private bool $refusingForAStall = false;
+
     /** The tool this gate just refused by READING the house: a fact the model lifts, not a frontier (decisions/0591). */
     private ?string $foreknownRefusedTool = null;
 
@@ -314,8 +317,12 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // deba decidir, y detener la vuelta por esto sería cobrarle al humano un descuido del modelo.
         // El bucle del agente sigue —`optionRemoved` en la excepción que arma quien nos llama— y el
         // modelo recibe el hecho con el error adentro, que es con lo que puede corregir.
+        // WHILE THE SESSION IS STALLED, THE STALL ANSWERS A READ FIRST (greenhouse decisions/0601). The offer no longer
+        // changes when a session stalls, so a stalled session can ask for a read. This guard's refusal ends the leg;
+        // the stall's goes back to the model, as «not offered» used to. A read the stall is about to refuse is left
+        // to it, further down — and what it refuses is never counted here as a failure of the call.
         $bucle = $this->vigiaDeBucle?->motivoParaNoRepetir($tool, $arguments);
-        if ($bucle !== null) {
+        if ($bucle !== null && !\in_array($tool, $this->recoveryHiddenTools([$tool]), true)) {
             return $bucle;
         }
 
@@ -371,7 +378,12 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             // intent and sterile-loop refusals retain their classification even for a hidden read.
             // The failed call consumes its allowance without executing or creating progress.
             if (in_array($tool, $this->recoveryHiddenTools([$tool]), true)) {
-                $this->recorded($tool, $arguments, $error, false);
+                $this->refusingForAStall = true;
+                try {
+                    $this->recorded($tool, $arguments, $error, false);
+                } finally {
+                    $this->refusingForAStall = false;
+                }
                 $this->recoveryRefusedTool = $tool;
             }
 
@@ -1173,7 +1185,11 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         // El vigía ve TODO lo que se ejecutó, incluidas las llamadas de operaciones que esta app no
         // declara: un bucle estéril sobre una herramienta externa gasta el mismo presupuesto.
         $inputWitness = $this->trialRouter?->takeInputCall($this->session->id, $tool, $arguments);
-        $this->vigiaDeBucle?->anota($tool, $arguments, $result, $ok, $inputWitness);
+        // A read refused because the session is stalled was told «not now»: the session keeps the refusal, and the
+        // loop guard does not hold it against the call (greenhouse decisions/0601).
+        if (!$this->refusingForAStall) {
+            $this->vigiaDeBucle?->anota($tool, $arguments, $result, $ok, $inputWitness);
+        }
 
         // SI LA LLAMADA MUTABA, lo sabe esta compuerta: tiene la operación delante. El stream no lo
         // guardaba, así que no distinguía mirar de mover — y sin esa distinción no se puede verificar

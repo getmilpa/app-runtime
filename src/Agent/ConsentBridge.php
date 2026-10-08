@@ -74,6 +74,9 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
     /** @var list<array{principal: ?string, operation: string, tool: string, arguments: array<string, mixed>, confirm_token: string, provenance: string, session: ?string}> */
     private array $chain = [];
 
+    /** How the one line begins that a leg's prompt says of what it is not offered (greenhouse decisions/0601). */
+    public const NOT_OFFERED = 'Not offered to this session, because whoever runs it holds no scope they declare: ';
+
     private ToolRegistry $catalogue;
 
     private ?ExecutionRecorder $executions;
@@ -213,7 +216,7 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
                 ? $this->authority->principal
                 : ($actor->id ?? $this->grants[0]->principal ?? $base->principal),
             channel: $this->channel,
-            scopes: $this->authority->scopes ?? PresentedToken::scopes($this->identity, $base->scopes),
+            scopes: $this->scopesOfTheCaller(),
             extra: [
                 'consent.grants' => $this->grants,
                 'consent.arguments' => $args,
@@ -441,19 +444,70 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
     }
 
     /**
-     * Combine durable option removals with the session gate's current recovery projection.
-     * Recovery is derived on every read, never persisted as an irreversible option removal.
+     * What is left out of the offer: what was withdrawn, and what this caller's scopes can never call.
+     *
+     * THE OFFER DOES NOT MOVE INSIDE A LEG (greenhouse decisions/0601, rule D). A stalled session used to be handed
+     * a different list — the tools that mutate — until it progressed, and the list it had before when it did: every
+     * entry and every exit changed the beginning of the request, and the model read the whole of it again
+     * (evidence/1153). Both things this method combines are fixed while a leg runs: an option an operator or the
+     * house withdrew, and the scopes of whoever runs the leg. What the house has to tell a stalled session it says,
+     * and the gate still refuses the read ({@see SessionToolGate::refuse()}); it no longer changes the tools.
      *
      * @return list<string>
      */
     protected function hidden(): array
     {
-        $removed = $this->withdrawn();
-        $recovering = $this->gate instanceof SessionToolGate
-            ? $this->gate->recoveryHiddenTools(array_column($this->catalogue->getToolSummaries(), 'name'))
-            : [];
+        return array_values(array_unique([...$this->withdrawn(), ...$this->notOfferedToThisCaller()]));
+    }
 
-        return array_values(array_unique([...$removed, ...$recovering]));
+    /**
+     * The tools none of whose declared scopes this caller holds, in the catalogue's order (greenhouse
+     * decisions/0601, rule A).
+     *
+     * A session received the whole contract of operations its seat could never call, on every call to its model,
+     * and the door refused them when they were called. THE OFFER ASKS THE DOOR'S OWN FIRST QUESTION — the registry's
+     * gate, about the same scopes {@see callTool()} hands it — so the two can never disagree. A tool that declares
+     * no scope is offered to everyone, and a caller that holds the wildcard, or presented nothing, is offered
+     * everything. Nothing is opened or closed here: what is left out was already refused, and still is.
+     *
+     * @return list<string>
+     */
+    public function notOfferedToThisCaller(): array
+    {
+        $caller = new ToolContext(principal: 'the-offer', channel: $this->channel, scopes: $this->scopesOfTheCaller());
+        $gate = $this->catalogue->getPolicyGate();
+        $names = [];
+        foreach (array_column($this->catalogue->getToolSummaries(), 'name') as $name) {
+            $definition = $this->catalogue->getDefinition($name);
+            if ($definition !== null && !$gate->authorizeScopes($caller, $definition->name, $definition->scopes)->allowed) {
+                $names[] = $definition->name;
+            }
+        }
+
+        return $names;
+    }
+
+    /**
+     * The one line a leg's prompt says of what its offer left out — or nothing, when it left nothing out. Named
+     * without a contract: the session knows they exist and whose they are.
+     *
+     * @param list<string> $names
+     */
+    public static function namesNotOffered(array $names): string
+    {
+        return $names === [] ? '' : self::NOT_OFFERED . implode(', ', $names)
+            . '. A person runs these, or grants the scope one of them asks for; a call to one of them is refused.';
+    }
+
+    /**
+     * The scopes of whoever this bridge calls for: the request's explicit authority, or the token it presented, or
+     * the default of a caller that presented nothing. One rule, for the call and for the offer.
+     *
+     * @return list<string>
+     */
+    private function scopesOfTheCaller(): array
+    {
+        return $this->authority->scopes ?? PresentedToken::scopes($this->identity, ToolContext::cli()->scopes);
     }
 
     /**
