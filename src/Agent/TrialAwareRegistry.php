@@ -129,6 +129,61 @@ final class TrialAwareRegistry extends ToolRegistry
         return ToolResult::success($data, $outcome->changed ? 'ran in the house; its state changed' : 'ran in the house; its state did not change', $meta);
     }
 
+    /** The house's list, when this leg's loop plays the promotion of an admitted operation's trial ({@see houseApplies()}). */
+    private ?AppliedTrials $applied = null;
+
+    /** @var list<string> what the house had admitted when the leg began: what its catalogue says, for the whole leg */
+    private array $admittedAtStart = [];
+
+    /** @var array<string, string> the trials this registry said the house applies, each with its admitted operation, until the leg asks ({@see saidItApplies()}) */
+    private array $applies = [];
+
+    /**
+     * Say that the leg this registry serves continues the verified trial of an admitted operation with its
+     * promotion, and hand it the house's list (greenhouse decisions/0586).
+     *
+     * Only then does the catalogue say it and a trial's result promise it: a registry never promises what its loop
+     * cannot do. What the catalogue says is the list as it stood when the leg began, so what a leg sends does not
+     * change under the model; whether a trial is applied is asked of the list again when that trial verifies. An
+     * admission holds from the next leg, a withdrawal from the next call.
+     */
+    public function houseApplies(AppliedTrials $admitted): void
+    {
+        $this->applied = $admitted;
+        $this->admittedAtStart = array_keys($admitted->admitted());
+    }
+
+    /**
+     * The admitted operation whose trial THIS registry just ran, saw verify and said the house applies — or null.
+     * Asked once: the answer is spent (greenhouse decisions/0586).
+     *
+     * What a tool answers is data. A result shaped like a verified trial — from a tool no trial confines, naming a
+     * trial of another session or of an operation nobody admitted — must not make the house promote anything, so
+     * the leg asks here, where the trial was run, and not the result.
+     */
+    public function saidItApplies(string $workspace): ?string
+    {
+        $key = $this->applies[$workspace] ?? null;
+        unset($this->applies[$workspace]);
+
+        return $key;
+    }
+
+    /**
+     * The admitted operation this call is — admitted when the leg began, and still — or null.
+     *
+     * @param array<string, mixed> $args
+     */
+    private function admittedCall(string $operation, array $args): ?string
+    {
+        if ($this->applied === null) {
+            return null;
+        }
+        $key = AppliedTrials::key($operation, $args);
+
+        return $key !== null && \in_array($key, $this->admittedAtStart, true) && $this->applied->admits($key) ? $key : null;
+    }
+
     /**
      * @param list<Operation>                  $operations
      * @param (\Closure(): ?ScreenDrafts)|null $screenDrafts
@@ -350,6 +405,24 @@ final class TrialAwareRegistry extends ToolRegistry
         );
 
         $partial = self::partialTrialNote($executionName, $executionInput, $run->output, $run->report);
+        // THE HOUSE APPLIES THE VERIFIED TRIAL OF AN OPERATION A PERSON ADMITTED (greenhouse decisions/0586). It says
+        // so here and the leg's loop plays the promotion next, through the governed door. The call is no longer the
+        // model's to make, so it is not handed one to copy; the trial is still named. A trial that did not verify is
+        // never applied — and neither is a part of a file being authored: authoring cannot be admitted.
+        $contract = AppliedTrials::verified($data) ? $this->admittedCall($operation->name, $args) : null;
+        if ($contract !== null) {
+            $data['applies'] = $data['to_apply'];
+            unset($data['to_apply'], $data['to_discard']);
+            $this->applies[$ws] = $contract;
+            $data['note'] = \sprintf(
+                'This ran in a disposable TRIAL and verified. The house applies the verified trial of %s — a person of '
+                . 'this house admitted it: it calls sandbox:promote for it next, under the same checks as if you had, '
+                . 'and its result follows. Do not call it yourself.',
+                $contract,
+            );
+
+            return ToolResult::success($data, 'ran in a trial and verified — the house applies it next', $meta);
+        }
         if ($partial !== null) {
             // Preserve the producer output. Its directions describe the trial's filesystem;
             // the next agent invocation starts from the app and needs explicit promotion first.
@@ -403,6 +476,16 @@ final class TrialAwareRegistry extends ToolRegistry
     public function getToolSummaries(): array
     {
         $tools = $this->inner->getToolSummaries();
+        // THE CATALOGUE SAYS IT WHERE THE HOUSE WILL HONOUR IT (greenhouse decisions/0586): one sentence on the
+        // operations a person admitted, as the list stood when the leg began. No parameter, and nothing in a house
+        // where nobody admitted anything.
+        foreach ($this->admittedAtStart === [] ? [] : array_keys($tools) as $i) {
+            $operation = $this->operationFor($tools[$i]['name']);
+            $says = $operation === null ? null : AppliedTrials::says($operation->name, $this->admittedAtStart);
+            if ($says !== null && $this->router->eligible($operation)) {
+                $tools[$i]['description'] = rtrim((string) $tools[$i]['description']) . ' ' . $says;
+            }
+        }
         if ($this->pendingMultipartPromotion !== null) {
             $workspace = $this->router->workspace($this->pendingMultipartPromotion);
             if ($workspace === null || $workspace->stale() !== []) {

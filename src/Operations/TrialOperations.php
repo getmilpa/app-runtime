@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Operations;
 use Milpa\Agent\SessionStore;
 use Milpa\Command\InvocationContext;
 use Milpa\ToolRuntime\Contracts\ToolContext;
+use Milpa\AppRuntime\Agent\AppliedTrials;
 use Milpa\AppRuntime\Agent\HouseRouteObserver;
 use Milpa\AppRuntime\Agent\RouteFailureCause;
 use Milpa\AppRuntime\Agent\PluginAuthoringPolicy;
@@ -37,6 +38,7 @@ use Milpa\Command\Effect\Subject;
 use Milpa\Command\Operation;
 use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\Runtime\Kernel;
+use Milpa\ToolRuntime\Identity\GrantedAuthorization;
 
 /**
  * Promotion is the ONLY door from a trial into the house (greenhouse decisions/0068, 0069 §12).
@@ -168,6 +170,56 @@ final class TrialOperations implements CommandProvider
                     authority: Authority::WriteAsUser,
                     subject: Subject::Executable,
                 ),
+            ),
+            // WHAT THE HOUSE APPLIES ON ITS OWN IS A PERSON'S SIGNED ACT (greenhouse decisions/0586). The house lands
+            // the verified trial of an admitted operation without any call of the model asking for it, so which
+            // operations those are is said here, one at a time, under the signature that names who decides — the
+            // scope of recognizing an identity, because it is the same kind of act. Never on the surface a seat works
+            // through: a seat does not decide what the house does on its own. A house is born with none.
+            new Operation(
+                name: 'sandbox:admit',
+                description: 'Admit an operation whose verified trial the house applies on its own, one at a time — a person\'s signed act (greenhouse decisions/0586)',
+                handler: fn (array $input): array => $this->decideWhatTheHouseApplies($root, $input, admit: true),
+                inputSchema: self::ADMISSION_INPUT,
+                scopes: ['identity:enroll'],
+                surfaces: ['cli'],
+                mutating: true,
+                requiresConfirmation: true,
+                effects: new EffectProfile(
+                    mutation: Mutation::Persistent,
+                    externality: Externality::None,
+                    // Withdrawing it is the way back; what the house applied meanwhile stays applied.
+                    reversibility: Reversibility::Compensatable,
+                    // Deciding what the house does without being asked is an institutional act.
+                    authority: Authority::Privileged,
+                    subject: Subject::Configuration,
+                ),
+            ),
+            new Operation(
+                name: 'sandbox:withdraw',
+                description: 'Withdraw an admission: from the next call the model applies that operation\'s trials again — a person\'s signed act (greenhouse decisions/0586)',
+                handler: fn (array $input): array => $this->decideWhatTheHouseApplies($root, $input, admit: false),
+                inputSchema: self::ADMISSION_INPUT,
+                scopes: ['identity:enroll'],
+                surfaces: ['cli'],
+                mutating: true,
+                requiresConfirmation: true,
+                effects: new EffectProfile(
+                    mutation: Mutation::Persistent,
+                    externality: Externality::None,
+                    reversibility: Reversibility::Compensatable,
+                    authority: Authority::Privileged,
+                    subject: Subject::Configuration,
+                ),
+            ),
+            new Operation(
+                name: 'sandbox:admitted',
+                description: 'Which operations this house applies on its own once their trial verifies, who admitted each and when — and which can be admitted (greenhouse decisions/0586)',
+                handler: fn (array $input): array => self::whatTheHouseApplies($root),
+                inputSchema: ['type' => 'object', 'properties' => []],
+                surfaces: ['cli'],
+                mutating: false,
+                effects: EffectProfile::readOnly(),
             ),
             // THE HOUSE ASKED, WHEN THE RESIDENT WANTS TO KNOW (greenhouse decisions/0549). Measured on a copy of Rod's
             // first live run (t-0074, B-c): /blog answered 500, and the resident read its controller and wrote «GET /blog
@@ -397,10 +449,29 @@ final class TrialOperations implements CommandProvider
         $id = \is_string($input['workspace'] ?? null) ? $input['workspace'] : '';
         $ws = $id === '' ? null : TrialWorkspace::open($root, $id);
         if ($ws === null) {
+            // ALREADY PROMOTED IS AN ANSWER, NOT AN ERROR (greenhouse decisions/0586). When the house applied the
+            // verified trial of an admitted operation, a model that then asks for the same promotion is told so.
+            // Nothing is written again, and nothing here says the house changed: no `promoted`, no receipt, no record.
+            $already = $id === '' ? null : TrialWorkspace::promotedPaths($root, $id);
+            if ($already !== null) {
+                return [
+                    'ok' => true,
+                    'already_promoted' => true,
+                    'workspace' => $id,
+                    'paths' => $already,
+                    'note' => 'This trial was already promoted into the house; nothing was written again.',
+                ];
+            }
+
             return ['ok' => false, 'error' => "no trial «{$id}» to promote"];
         }
 
         $diff = $ws->diff();
+        // A TRIAL NEVER CARRIES WHAT THE HOUSE APPLIES ON ITS OWN (greenhouse decisions/0586). That list is a
+        // person's act; a seat does not write it through a rehearsal, whatever it may write.
+        if (isset($diff[AppliedTrials::PATH])) {
+            return ['ok' => false, 'error' => 'a trial never carries the list of what the house applies on its own — a person admits an operation with sandbox:admit; nothing was promoted'];
+        }
 
         // NO MERGE OF WHAT ACTUALLY COLLIDES (greenhouse decisions/0467, refining 0068). A moved keyed
         // declaration store is judged per key: the keys this trial touched merge into the house when the
@@ -789,6 +860,87 @@ final class TrialOperations implements CommandProvider
     }
 
     /** Where this app lives, from its kernel — the trials directory hangs under its var/. */
+    private const ADMISSION_INPUT = [
+        'type' => 'object',
+        'properties' => [
+            'operation' => ['type' => 'string', 'description' => 'The operation, by its name: plugins.register, entity:seed or make'],
+            'what' => ['type' => 'string', 'description' => 'For make, the one thing it makes: page or plugin'],
+        ],
+        'required' => ['operation'],
+    ];
+
+    /**
+     * Admit one operation in this house, or withdraw it — by the person whose signature covers exactly this call.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function decideWhatTheHouseApplies(string $root, array $input, bool $admit): array
+    {
+        $operation = \is_string($input['operation'] ?? null) ? trim($input['operation']) : '';
+        $what = $input['what'] ?? null;
+        $key = AppliedTrials::key($operation, $what === null ? [] : ['what' => $what]);
+        // The name a person signs is the name on the list, whole: a `what` an operation does not take is not ignored.
+        if ($key === null || ($what !== null && $key === $operation)) {
+            return ['ok' => false, 'error' => \sprintf(
+                '«%s» cannot be admitted: the house applies on its own the verified trial of %s, and of no other operation (greenhouse decisions/0586); nothing was written',
+                trim($operation . (\is_string($what) ? ' what=' . $what : '')),
+                implode(', ', AppliedTrials::admissible()),
+            )];
+        }
+        $name = $admit ? 'sandbox:admit' : 'sandbox:withdraw';
+        $granted = $this->container->has(GrantedAuthorization::class) ? $this->container->get(GrantedAuthorization::class) : null;
+        if (!$granted instanceof GrantedAuthorization) {
+            return ['ok' => false, 'error' => "{$name} requires the signature that names WHO decides; re-run with --sign — nothing was written"];
+        }
+        if ($granted->authorization->operation !== $name || $granted->authorization->arguments != ['operation' => $operation] + ($what === null ? [] : ['what' => $what])) {
+            return ['ok' => false, 'error' => "the granted signature does not cover THIS {$name} — nothing was written"];
+        }
+        $who = 'key:' . $granted->signer->fingerprint;
+        $list = AppliedTrials::forRoot($root);
+        try {
+            $done = $admit
+                ? $list->admit($key, $who, (new \DateTimeImmutable())->format(\DATE_ATOM))
+                : $list->withdraw($key, $who, (new \DateTimeImmutable())->format(\DATE_ATOM));
+        } catch (\RuntimeException $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+        if (!$done) {
+            return ['ok' => false, 'error' => $admit
+                ? "«{$key}» is already admitted in this house; nothing was written"
+                : "«{$key}» is not admitted in this house; nothing was written"];
+        }
+
+        return [
+            'ok' => true,
+            'operation' => $key,
+            ($admit ? 'admitted_by' : 'withdrawn_by') => $who,
+            'admitted' => array_keys($list->admitted()),
+            'note' => $admit
+                ? "From the next leg, the house applies the verified trial of «{$key}» on its own: it plays sandbox:promote for it through the governed door, as whoever runs the leg. Withdraw it with sandbox:withdraw."
+                : "From the next call, a trial of «{$key}» is applied by whoever asks for its promotion, as before. What the house already applied stays applied.",
+        ];
+    }
+
+    /**
+     * What this house applies on its own, what it once did, and what can be admitted at all.
+     *
+     * @return array<string, mixed>
+     */
+    private static function whatTheHouseApplies(string $root): array
+    {
+        $list = AppliedTrials::forRoot($root);
+        $admitted = $list->admitted();
+
+        return [
+            'ok' => true,
+            'admissible' => AppliedTrials::admissible(),
+            'admitted' => $admitted,
+            'withdrawn' => array_filter($list->record(), static fn (array $entry): bool => isset($entry['withdrawn_by'])),
+        ];
+    }
+
     private function rootFromContainer(): string
     {
         $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;

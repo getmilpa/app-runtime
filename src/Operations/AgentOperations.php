@@ -74,6 +74,7 @@ use Milpa\Plugin\Runtime\MetadataGraphResolver;
 use Milpa\Resolver\Report\ResolutionReport;
 use Milpa\AiGateway\LlmService;
 use Milpa\AppRuntime\Agent\AgentTable;
+use Milpa\AppRuntime\Agent\AppliedTrials;
 use Milpa\AppRuntime\Agent\ConfinedWork;
 use Milpa\AppRuntime\Agent\EffectClasses;
 use Milpa\AppRuntime\Agent\ExecutionRecorder;
@@ -3331,6 +3332,7 @@ class AgentOperations implements CommandProvider
 
         $orquestador = $this->orchestrator($modeloRemoto, $cliente, $pasos, $tablero, $lazyTools, $sonda);
         $this->playTheGrantedCall($orquestador);
+        $this->applyWhatTheHouseAdmitted($orquestador, $registry);
 
         // Only the base ask/run/getter chain proves what this return actually observed.
         // An override may return after another base run, or never run the producer at all.
@@ -4272,6 +4274,54 @@ class AgentOperations implements CommandProvider
         if (GrantedCall::open($orquestador, $call)) {
             GrantedCall::resumed($events, $session, $call, $by->id);
         }
+    }
+
+    /**
+     * THE HOUSE APPLIES THE VERIFIED TRIAL OF AN OPERATION A PERSON ADMITTED (greenhouse decisions/0586). Where the
+     * installed gateway lets the leg play the call that follows from a tool call, the house runs producers in
+     * trials, and a person of this house admitted at least one operation, a call to an admitted operation whose
+     * trial verified is continued with its promotion: {@see AppliedTrials} reads which call, and the leg's own trial
+     * layer confirms it is the trial it just ran and said it applies. The promotion is a step of its own through
+     * the governed door, as whoever runs the leg; the house records that it continued, after which call, and by
+     * which operation's contract.
+     *
+     * In a house where nobody admitted anything the leg is handed nothing: it is the leg it was.
+     *
+     * BY CONTRACT ONLY WHERE THE MODE DOES NOT ASK (greenhouse evidence/1128). In `ask` the promotion the house
+     * played did ask a person first — and after the yes nobody played it again, while the question had said «the
+     * agent wants to run sandbox:promote» of a call no agent made. So outside `auto` the leg is the leg it was: the
+     * model asks for the promotion and the person is asked about it. And a move the house cannot record is a move it
+     * does not make: without a session and its log there is no contract either.
+     */
+    private function applyWhatTheHouseAdmitted(object $orquestador, ToolRegistry $registry): void
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!method_exists($orquestador, 'setContinuation') || !$registry instanceof TrialAwareRegistry || !$kernel instanceof Kernel) {
+            return;
+        }
+        $session = $this->sesionDeLosPermisos;
+        $store = $this->sessionStore();
+        $events = $this->sessionEvents;
+        if ($session === null || $store === null || $events === null || $store->load($session)?->mode !== AutonomyMode::Auto) {
+            return;
+        }
+        $admitted = AppliedTrials::forRoot($kernel->root());
+        if ($admitted->admitted() === []) {
+            return;
+        }
+        $registry->houseApplies($admitted);
+        $as = ObservedExecutor::fromContext($this->contextoDeLaVuelta)->principal->id ?? '';
+        $orquestador->setContinuation(static function (string $tool, array $arguments, mixed $result) use ($registry, $session, $store, $events, $as): ?array {
+            $calls = AppliedTrials::follows($tool, $result);
+            // The result alone is never enough: only the trial this leg's own trial layer just ran and said it applies.
+            $contract = $calls === null ? null : $registry->saidItApplies($calls[0]['arguments']['workspace']);
+            if ($calls === null || $contract === null) {
+                return null;
+            }
+            AppliedTrials::continued($events, $store->stream($session), $session, $calls, $as, $contract);
+
+            return $calls;
+        });
     }
 
     /**
