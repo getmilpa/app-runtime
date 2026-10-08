@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Agent;
 
+use Milpa\AppRuntime\Config\SecretFiles;
 use Milpa\AppRuntime\Support\ChildProcess;
 use Milpa\AppRuntime\Support\PhpBinary;
 
@@ -143,14 +144,10 @@ final class TrialRunner
         if (! is_dir($scratch) || is_link($scratch)) {
             throw new \RuntimeException('Work needs a scratch directory of its own.');
         }
+        array_push($command, '--bind', $scratch, $scratch, '--setenv', 'TMPDIR', $scratch);
+        $command = [...$command, ...$this->maskArgs($house)];
         array_push(
             $command,
-            '--bind',
-            $scratch,
-            $scratch,
-            '--setenv',
-            'TMPDIR',
-            $scratch,
             '--',
             $this->php,
             '-d',
@@ -204,6 +201,7 @@ final class TrialRunner
         // (and refuses to run without it), a shell's `2>/dev/null` fails before running its command, and the
         // boot witness of 0515 could not start its child — every witnessed writer refused inside a leg. The
         // sink is bound back with its device; /dev/zero, /dev/tty and the rest stay closed.
+        $house = (string) realpath($workspace->root);
         $command = ['timeout', '-k', '2', (string) $this->timeoutSeconds, $this->bwrap,
             ...$this->namespaces() ?? self::NAMESPACES, '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null'];
         if ($writePaths === null) {
@@ -240,6 +238,7 @@ final class TrialRunner
         if (is_dir($vendor)) {
             array_push($command, '--ro-bind', $vendor, $workspace->copy . '/vendor');
         }
+        $command = [...$command, ...$this->maskArgs($house)];
         array_push(
             $command,
             '--setenv',
@@ -364,5 +363,28 @@ final class TrialRunner
         exec('command -v ' . escapeshellarg($bin) . ' 2>/dev/null', $_, $code);
 
         return $code === 0;
+    }
+
+    /**
+     * The `--ro-bind /dev/null` arguments that mask every file the house keeps a secret in from a confined
+     * process, so `--ro-bind / /` no longer lets a call read the real envelope or a copy a trial or boot
+     * candidate kept (greenhouse evidence/1161). The list is the real files {@see SecretFiles::existingUnder()}
+     * finds — the envelope, the environment family, Composer's credentials, and any REAL copy below; a copy a
+     * house LINKED (a boot candidate links its secrets) resolves to one of these, so masking the target covers
+     * the link, and bwrap will not mount onto a symlink in any case. This is the ONE place a confinement's mask
+     * is built: every caller that binds a tree writable appends it AFTER that bind, so a writable mount cannot
+     * re-expose a real copy it carries. `HouseRouteObserver` shares it through here (the guard holds the list of
+     * who confines).
+     *
+     * @return list<string>
+     */
+    public function maskArgs(string $root): array
+    {
+        $args = [];
+        foreach (SecretFiles::existingUnder($root) as $secret) {
+            array_push($args, '--ro-bind', '/dev/null', $secret);
+        }
+
+        return $args;
     }
 }

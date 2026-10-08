@@ -97,6 +97,37 @@ final class ATrialRunsInAnUnprivilegedContainerTest extends TestCase
     }
 
     /**
+     * A SECRET HAS ONE PLACE TO LIVE (greenhouse evidence/1161). A trial process runs under «--ro-bind / /», so
+     * the house's real envelope and any copy an old trial kept are visible to it read-only. The runner masks
+     * each one that exists with «--ro-bind /dev/null», so a call that runs in a trial reads nothing of them. A
+     * file of the house that is not a secret is not masked, and the trial still runs.
+     */
+    public function testTheRunnerMasksTheRealEnvelopeAndOldTrialCopiesFromAConfinedProcess(): void
+    {
+        $root = $this->root();
+        mkdir($root . '/.milpa', 0o777, true);
+        file_put_contents($root . '/.milpa/secrets.json', '{"ai":{"key":"canary"}}');
+        file_put_contents($root . '/auth.json', '{"canary":1}');
+        file_put_contents($root . '/.env.local', "KEY=canary\n");
+        mkdir($root . '/var/trials/wold/copy/.milpa', 0o777, true);
+        file_put_contents($root . '/var/trials/wold/copy/.milpa/secrets.json', '{"ai":{"key":"old-canary"}}');
+        mkdir($root . '/var/boot-candidates/bold/.milpa', 0o777, true);
+        file_put_contents($root . '/var/boot-candidates/bold/.milpa/secrets.json', '{"ai":{"key":"boot-canary"}}');
+        $runner = new TrialRunner(bwrap: $this->bwrap($root, 'host'));
+
+        $runner->run(TrialWorkspace::materialize($root, 'w1', $this->stub($root)), 'anything', []);
+
+        $calls = $this->calls($root);
+        $argv = $calls === [] ? '' : end($calls);
+        self::assertStringContainsString('--ro-bind /dev/null ' . $root . '/.milpa/secrets.json', $argv, 'the real envelope is masked');
+        self::assertStringContainsString('--ro-bind /dev/null ' . $root . '/auth.json', $argv, 'composer credentials are masked');
+        self::assertStringContainsString('--ro-bind /dev/null ' . $root . '/var/trials/wold/copy/.milpa/secrets.json', $argv, 'an old trial copy is masked');
+        self::assertStringContainsString('--ro-bind /dev/null ' . $root . '/.env.local', $argv, 'an env-local is masked');
+        self::assertStringContainsString('--ro-bind /dev/null ' . $root . '/var/boot-candidates/bold/.milpa/secrets.json', $argv, 'a boot candidate copy is masked');
+        self::assertStringNotContainsString('--ro-bind /dev/null ' . $root . '/src/A.php', $argv, 'a file that is not a secret is not masked');
+    }
+
+    /**
      * A bubblewrap that records its arguments and then behaves like the named kernel.
      *
      * It runs what follows `--`, or — as a confined request names no `--` — what starts at this PHP.
