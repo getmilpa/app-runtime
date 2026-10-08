@@ -342,6 +342,27 @@ final class TheHouseExercisesWhatItIsAboutToCloseOnTest extends TestCase
         self::assertNotNull($this->store->load('s'), 'the session folds as before: the reducer skips a fact it does not know');
     }
 
+    /**
+     * Measured on a house a build run left (greenhouse evidence/1171): a session that does not close is also told of
+     * every class it wrote that no call verified — eight lines there, before the one that says what threw. The verdict
+     * says sixteen facts and counts the rest; what the house saw must never be among the counted.
+     */
+    public function testHoweverManyFactsAreRecordedWhatThrewIsAmongTheOnesSaid(): void
+    {
+        foreach (range(1, 18) as $i) {
+            $this->fill("Extra{$i}", "src/Plugins/Ledger/Support/Extra{$i}.php", $this->both());
+        }
+        $this->built();
+
+        $closure = $this->atTheEnd($this->threw([['operation' => 'ledger:open', 'class' => 'Error', 'kind' => 'engine', 'line' => self::UNDEFINED, 'pass' => 1]]));
+
+        self::assertFalse($closure['verified']);
+        self::assertCount(16, $closure['reasons']);
+        self::assertStringStartsWith('… and ', (string) end($closure['reasons']));
+        self::assertCount(1, $this->seen($closure), implode("\n", $closure['reasons']));
+        self::assertStringContainsString('«ledger:open» threw Error: ' . self::UNDEFINED, $this->seen($closure)[0]);
+    }
+
     public function testALongFirstLineIsCutAndManyThrowsAreCounted(): void
     {
         $this->built();

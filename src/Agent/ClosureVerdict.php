@@ -211,11 +211,15 @@ final class ClosureVerdict
                 $reasons[] = "artifact {$artifact} has no current verification";
             }
         }
+        // What the HOUSE saw, apart from what the session's own record lacks: it is never the part that is counted
+        // and not said (below).
+        $seen = $notListing;
         if ($house !== null) {
             if ($house['derived']) {
                 $hasEvidence = true;
             } elseif ($house['lastChangeSeq'] !== null && $house['reason'] !== null) {
                 $reasons[] = $house['reason'];
+                $seen = [$house['reason']];
                 $notListing = [];
             }
         }
@@ -232,10 +236,16 @@ final class ClosureVerdict
             $reasons[] = 'no positive verification evidence recorded';
         }
 
+        // WHAT THE HOUSE SAW IS AMONG THE FACTS SAID, HOWEVER MANY ARE COUNTED (greenhouse decisions/0605). A session
+        // that does not close is told of every class it wrote that no call verified, and the house's own finding came
+        // after them: measured on a house a build run left (evidence/1171), eight such lines stood before the one that
+        // names the operation that threw — with sixteen, that one was counted and not said.
         if (\count($reasons) > self::MAX_REASONS) {
-            $overflow = \count($reasons) - (self::MAX_REASONS - 1);
-            $reasons = \array_slice($reasons, 0, self::MAX_REASONS - 1);
-            $reasons[] = "… and {$overflow} more recorded facts";
+            $said = \array_slice(array_values(array_intersect($reasons, $seen)), 0, self::MAX_REASONS - 1);
+            $others = array_values(array_diff($reasons, $said));
+            $room = self::MAX_REASONS - 1 - \count($said);
+            $overflow = \count($others) - $room;
+            $reasons = [...\array_slice($others, 0, $room), ...$said, "… and {$overflow} more recorded facts"];
         }
 
         $work = $worked !== null && $worked['derived'] ? ['work' => $worked['work']] : [];
