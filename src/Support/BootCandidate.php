@@ -14,6 +14,8 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Support;
 
+use Milpa\AppRuntime\Config\SecretFiles;
+
 /**
  * The house as it WOULD be after a change, built beside it — so the change can be booted before it lands.
  *
@@ -29,7 +31,7 @@ namespace Milpa\AppRuntime\Support;
  *
  * A copy of the house's tree under `var/boot-candidates/<id>/`, with the change applied, minus what a
  * boot never reads and what is too heavy or too private to copy: `var/` (state; an empty one is made, as a
- * trial's), `.git/`, `node_modules/`, and `.env` and `.milpa/secrets.json` (LINKED, never copied: a secret does
+ * trial's), `.git/`, `node_modules/`, and every file that holds a secret ({@see SecretFiles}: LINKED, never copied: a secret does
  * not get a second file).
  *
  * `vendor/` is the one subtle part. Composer's autoloader resolves the app's own classes from the directory
@@ -43,14 +45,6 @@ final class BootCandidate
     /** Top-level entries a boot never needs from a copy: state, history, front-end builds. `vendor/` is rebuilt, not skipped. */
     private const SKIP = ['var', 'vendor', '.git', 'node_modules', '.env'];
 
-    /**
-     * Files that hold secrets: LINKED into the candidate, never copied — a secret does not get a second file.
-     *
-     * `.milpa/secrets.json` is where `provider:declare` keeps a credential (SecretOverlay); the first candidate
-     * copied it with the rest of `.milpa/` (found in greenhouse decisions/0515). `auth.json` is Composer's own
-     * credential file (a registry token): a staged composer run reads it through the link (decisions/0527).
-     */
-    private const LINKED = ['.env', '.milpa/secrets.json', 'auth.json'];
 
     /**
      * Symlinks in a staged `vendor/` that pointed OUTSIDE it by a relative path (a Composer path repository),
@@ -82,7 +76,7 @@ final class BootCandidate
         $candidate = new self($path);
         try {
             self::copyTree($root, $path, true);
-            foreach (self::LINKED as $secret) {
+            foreach (SecretFiles::under($root) as $secret) {
                 if (is_file($root . '/' . $secret)) {
                     if (!is_dir(\dirname($path . '/' . $secret))) {
                         mkdir(\dirname($path . '/' . $secret), 0o777, true);
@@ -146,7 +140,7 @@ final class BootCandidate
         $candidate = new self($path);
         try {
             self::copyTree($root, $path, true);
-            foreach (self::LINKED as $secret) {
+            foreach (SecretFiles::under($root) as $secret) {
                 if (is_file($root . '/' . $secret)) {
                     if (!is_dir(\dirname($path . '/' . $secret))) {
                         mkdir(\dirname($path . '/' . $secret), 0o777, true);
@@ -228,7 +222,7 @@ final class BootCandidate
     private static function copyTree(string $from, string $to, bool $top, string $under = ''): void
     {
         foreach (scandir($from) ?: [] as $name) {
-            if ($name === '.' || $name === '..' || ($top && \in_array($name, self::SKIP, true)) || \in_array($under . $name, self::LINKED, true)) {
+            if ($name === '.' || $name === '..' || ($top && \in_array($name, self::SKIP, true)) || SecretFiles::isSecret($under . $name)) {
                 continue;
             }
             $source = $from . '/' . $name;
