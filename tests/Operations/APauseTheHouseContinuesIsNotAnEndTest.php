@@ -78,6 +78,9 @@ final class APauseTheHouseContinuesIsNotAnEndTest extends TestCase
     /** The first call the model got after the house went on. */
     private ?int $firstCallOfTheLegThatFollowed = null;
 
+    /** @var list<list<array<string, mixed>>> the messages of each request the model got, in order */
+    private array $sent = [];
+
     /** @var list<bool> whether the record would close, and had nothing run or closed yet, at each call the model got */
     private array $wouldCloseUnrun = [];
 
@@ -163,6 +166,51 @@ final class APauseTheHouseContinuesIsNotAnEndTest extends TestCase
     }
 
     /**
+     * THE NOTICE AND WHAT THE HOUSE RAN AND THREW, IN THE SAME REQUEST (greenhouse decisions/0605: what threw is said to
+     * the session that wrote it). An invocation ended on its answer, the house ran the capability and one operation
+     * threw: nothing closed. The next invocation runs out of its steps and the house goes on. The request that opens
+     * the leg that follows carries both, each in its own message and neither inside the other: the house's notice as
+     * the turn that says why the leg follows, and after the conversation the section that names what threw.
+     */
+    public function testTheLegThatFollowsIsToldWhyItFollowsAndWhatTheHouseRanAndThrew(): void
+    {
+        ExercisedTaller::promoted($this->sessions, self::SESSION, [...ExercisedTaller::RUNS, 'taller:rota']);
+        $ended = $this->invocation(answersOnceTheHouseWentOn: false, answersAtOnce: true);
+        self::assertSame('final_answer', $ended['termination']['reason']);
+        self::assertFalse($ended['closure']['verified'] ?? true, 'the control: what threw did not close');
+        self::assertSame('threw', $this->ofType(CapabilityExercise::EVENT)[0]->payload['exercised']);
+        self::assertSame([], $this->ofType(HouseGoesOn::EVENT));
+
+        $r = $this->invocation(answersOnceTheHouseWentOn: true);
+
+        self::assertSame('steps_exhausted', $r['wentOn']['after']);
+        self::assertSame('final_answer', $r['termination']['reason']);
+        $opened = $this->sent[$this->firstCallOfTheLegThatFollowed - 1];
+        $notice = HouseGoesOn::notice('steps_exhausted');
+        $noticed = array_keys(array_filter($opened, static fn (array $m): bool => ($m['content'] ?? null) === $notice));
+        $told = array_keys(array_filter($opened, static fn (array $m): bool => str_contains((string) ($m['content'] ?? ''), '<half-done>')));
+        self::assertCount(1, $noticed, 'the notice is one message, and it is the notice and nothing more');
+        self::assertSame('user', $opened[$noticed[0]]['role']);
+        self::assertSame([\count($opened) - 1], $told, 'the section is said once, after the conversation');
+        self::assertGreaterThan($noticed[0], $told[0]);
+        self::assertSame(1, preg_match('~<half-done>\n(.*)\n</half-done>~s', (string) $opened[$told[0]]['content'], $found));
+        $data = json_decode($found[1], true, flags: \JSON_THROW_ON_ERROR);
+        self::assertSame(['taller:rota'], array_column($data['ran_and_threw'], 'operation'));
+        self::assertSame([], $data['scaffolded_not_written']);
+        self::assertStringNotContainsString('[house]', (string) $opened[$told[0]]['content'], 'the section does not carry the notice');
+
+        // The leg that paused was told the same from its first call, and opened with a person's turn, not the house's.
+        $before = $this->sent[1];
+        self::assertStringContainsString('"ran_and_threw"', (string) end($before)['content']);
+        self::assertSame([], array_filter($before, static fn (array $m): bool => ($m['content'] ?? null) === $notice));
+
+        // What threw still stands when the leg that follows answers: nothing landed, so the house does not run it again
+        // and does not close.
+        self::assertCount(1, $this->ofType(CapabilityExercise::EVENT));
+        self::assertFalse($r['closure']['verified'] ?? true);
+    }
+
+    /**
      * What the house writes when it goes on is a turn of the session, and a session's standing ask reads every turn.
      * A notice that wrote a route as a goal writes one would make it the only thing that closes the session.
      */
@@ -216,18 +264,19 @@ final class APauseTheHouseContinuesIsNotAnEndTest extends TestCase
     /**
      * One invocation of `agent`, with the real loop built anew for each leg. Its model calls a tool that changes
      * nothing; with `$answersOnceTheHouseWentOn` it gives its final answer on its first call after the house went on,
-     * and otherwise it never answers.
+     * with `$answersAtOnce` on its first call of this invocation, and otherwise it never answers.
      * `$declaredByToolCall`: the tool call during which the promotion that declares the capability whole is recorded.
      *
      * @param list<int> $windows the context window of each leg, in order (none: no limit)
      *
      * @return array<string, mixed>
      */
-    private function invocation(bool $answersOnceTheHouseWentOn, ?int $declaredByToolCall = null, array $windows = []): array
+    private function invocation(bool $answersOnceTheHouseWentOn, ?int $declaredByToolCall = null, array $windows = [], bool $answersAtOnce = false): array
     {
         $llm = $this->createMock(LlmService::class);
-        $llm->method('generateResponse')->willReturnCallback(function () use ($answersOnceTheHouseWentOn): array {
+        $llm->method('generateResponse')->willReturnCallback(function (string $prompt, array $tools = [], array $messages = []) use ($answersOnceTheHouseWentOn, $answersAtOnce): array {
             ++$this->modelCalls;
+            $this->sent[] = array_values($messages);
             $session = $this->sessions->load(self::SESSION);
             $this->wouldCloseUnrun[] = $session !== null
                 && ClosureVerdict::derive($session, $this->sessions->facts(self::SESSION), $this->sessions->stream(self::SESSION))['verified']
@@ -237,7 +286,7 @@ final class APauseTheHouseContinuesIsNotAnEndTest extends TestCase
                 $this->firstCallOfTheLegThatFollowed ??= $this->modelCalls;
             }
 
-            return $answersOnceTheHouseWentOn && $this->firstCallOfTheLegThatFollowed !== null
+            return $answersAtOnce || ($answersOnceTheHouseWentOn && $this->firstCallOfTheLegThatFollowed !== null)
                 ? ['role' => 'assistant', 'content' => 'The capability is built.']
                 : ['role' => 'assistant', 'content' => '', 'tool_calls' => [['id' => 'c' . $this->modelCalls, 'type' => 'function', 'function' => ['name' => 'read', 'arguments' => '{"n":' . $this->modelCalls . '}']]]];
         });
