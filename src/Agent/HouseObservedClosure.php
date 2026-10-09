@@ -141,7 +141,7 @@ final class HouseObservedClosure
      *                                                                      ({@see StandingAsk::explicitRoutes()}): for the reason, and
      *                                                                      so a receipt served elsewhere is not taken for one of them
      *
-     * @return array{derived: bool, reason: ?string, observation: ?array{subject: string, seq: int, content?: array<string, mixed>|string, surface?: array<string, mixed>, capability?: array{operations: int, exercised: string, calls?: int, answered?: int, refused?: int, behavior?: 'unjudged', why?: string}}, lastChangeSeq: ?int, landed: list<int>, unlisted: list<string>}
+     * @return array{derived: bool, reason: ?string, observation: ?array{subject: string, seq: int, content?: array<string, mixed>|string, surface?: array<string, mixed>, capability?: array{operations: int, exercised: string, calls?: int, answered?: int, refused?: int, behavior?: 'unjudged', why?: string}}, lastChangeSeq: ?int, landed: list<int>, unlisted: list<string>, standing: list<string>}
      */
     public static function of(array $stream, SessionFacts $facts, ?\Closure $named = null, ?\Closure $lasting = null, array $written = []): array
     {
@@ -403,7 +403,10 @@ final class HouseObservedClosure
         }
 
         return ['derived' => $reason === null, 'reason' => $reason, 'observation' => $observation, 'lastChangeSeq' => $lastChange, 'landed' => $landed,
-            'unlisted' => array_values(array_filter($unlisted))];
+            'unlisted' => array_values(array_filter($unlisted)),
+            // The files where `make what=operation` landed a scaffold that no later change that landed has written,
+            // in the order they landed: what a leg is told stands half done ({@see WhatStandsHalfDone}).
+            'standing' => array_keys(array_filter($unfilled))];
     }
 
     /**
