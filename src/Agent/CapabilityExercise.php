@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Agent;
 
 use Milpa\Agent\SessionEvent;
 use Milpa\Agent\SessionStore;
+use Milpa\AppRuntime\Config\SecretRedaction;
 use Milpa\Command\Operation;
 use Milpa\EventStore\Event;
 use Milpa\EventStore\EventStoreInterface;
@@ -100,7 +101,7 @@ final class CapabilityExercise
         try {
             $copy = TrialWorkspace::forExercise($root, bin2hex(random_bytes(8)), $runnerPath);
         } catch (\Throwable $e) {
-            return $unjudged('the house could not make the copy to run it in: ' . self::line($e->getMessage()));
+            return $unjudged('the house could not make the copy to run it in: ' . self::kept($e->getMessage(), $root));
         }
         $runner = $runner->within($ceiling);
         $answers = [];
@@ -116,6 +117,9 @@ final class CapabilityExercise
                     }
                     ++$calls;
                     [$answer, $what] = self::read($runner->run($copy, $name, []), $ceiling);
+                    if ($what !== null) {
+                        $what['line'] = self::kept($what['line'], $root, $copy->copy);
+                    }
                     $answers[$name][] = $answer;
                     if ($answer === 'not found') {
                         $missing ??= $name;
@@ -128,7 +132,7 @@ final class CapabilityExercise
                 }
             }
         } catch (\Throwable $e) {
-            return $unjudged('the house could not run it: ' . self::line($e->getMessage()), $calls);
+            return $unjudged('the house could not run it: ' . self::kept($e->getMessage(), $root, $copy->copy), $calls);
         } finally {
             $copy->discard();
             // Nothing of it stays: the directory the copies live in goes with the last of them.
@@ -357,6 +361,24 @@ final class CapabilityExercise
             $of === 1 ? '' : 's',
             implode('; ', $named),
         );
+    }
+
+    /**
+     * What the house keeps of a text the session's own code wrote — the first line of what it threw — before it writes
+     * it anywhere: a receipt in the ledger, a reason of the verdict, a line said to the session's next leg.
+     *
+     * KEPT THE WAY THE RESULT OF ANY TOOL IS ({@see SecretRedaction}, as the session gate keeps what a call answered):
+     * no value the house holds as a secret. It is text that goes back to the session that wrote it, and the code that
+     * threw it ran with the environment the leg has. And a path inside the copy is said as the path it is in the
+     * house: where the copy stood is the house's machinery, gone by the time anyone reads the line.
+     */
+    private static function kept(string $text, string $root, ?string $copy = null): string
+    {
+        if ($copy !== null) {
+            $text = str_replace([$copy . '/', $copy], '', $text);
+        }
+
+        return self::line(SecretRedaction::inText($text, $root));
     }
 
     /** The first line of a text that has any, cut where a reason stops being one. */
