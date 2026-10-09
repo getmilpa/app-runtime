@@ -114,7 +114,8 @@ final class WhatStandsHalfDone
         $data = ['schema' => 'milpa.half-done/v1', 'session' => $session, 'scaffolded_not_written' => $kept]
             + ($said === [] ? [] : ['ran_and_threw' => $said])
             + ['omitted' => \count($files) + \count($threw) - \count($kept) - \count($said)];
-        $intro = implode(' ', array_filter([$files === [] ? null : self::OF_FILES, $threw === [] ? null : self::OF_WHAT_THREW, self::QUOTED]));
+        // Each list is introduced only when the section names something of it: what was left out is counted, not said.
+        $intro = implode(' ', array_filter([$kept === [] ? null : self::OF_FILES, $said === [] ? null : self::OF_WHAT_THREW, self::QUOTED]));
 
         // Quoted the way the recorded results are: a file name a session chose — or a line its code threw — cannot
         // close the section.

@@ -176,7 +176,8 @@ final class HouseObservedClosure
         $lastWork = null;
         // capability => the seq of the declaration the house last saw of it WHOLE, and what it found when it ran that
         // declaration (decisions/0605). A receipt is taken only for the declaration that stood when it was left; it
-        // then speaks of the HOUSE it ran on, until a change lands.
+        // then speaks of the HOUSE it ran on, until a change lands. So a receipt kept here is always of a capability
+        // the house last saw whole: it is dropped the moment one is seen that is not.
         $whole = [];
         $exercises = [];
         foreach ($stream as $event) {
@@ -342,7 +343,7 @@ final class HouseObservedClosure
         // wrote it is told ({@see WhatStandsHalfDone}).
         $threw = [];
         foreach ($exercises as $subject => $receipt) {
-            if (($receipt['exercised'] ?? null) === 'threw' && isset($whole[$subject])) {
+            if (($receipt['exercised'] ?? null) === 'threw') {
                 $unlisted['capability:' . $subject] = CapabilityExercise::whyNotWhole($receipt);
                 foreach (\is_array($receipt['thrown'] ?? null) ? $receipt['thrown'] : [] as $one) {
                     if (\is_array($one) && \is_string($one['operation'] ?? null)) {
@@ -355,7 +356,7 @@ final class HouseObservedClosure
         // WHAT THE HOUSE FOUND WHEN IT RAN THE CAPABILITY IT CLOSES ON: it ran, with its counts — never «correct»; or the
         // house tried and says what stopped it.
         $ran = isset($observation['capability']) ? ($exercises[$observation['subject']] ?? null) : null;
-        if ($ran !== null && isset($whole[$observation['subject']])) {
+        if ($ran !== null) {
             $count = static fn (string $key): int => \is_int($ran[$key] ?? null) ? $ran[$key] : 0;
             $observation['capability'] = ['operations' => $observation['capability']['operations']] + match ($ran['exercised'] ?? null) {
                 'ran' => ['exercised' => 'ran', 'calls' => $count('calls'), 'answered' => $count('answered'), 'refused' => $count('refused'), 'behavior' => 'unjudged'],
