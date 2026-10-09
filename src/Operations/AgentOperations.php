@@ -3812,6 +3812,12 @@ class AgentOperations implements CommandProvider
         $root = $kernel->root();
 
         return function (string $tool, array $arguments, ?string $principal) use ($session, $kernel, $store, $root): ?string {
+            // NO LEDGER TO WRITE THAT IT HAPPENED, NO REHEARSAL: the fact is the one trace a rehearsal leaves, so a
+            // house that cannot append it runs nothing — decided here, before anything runs.
+            $events = $this->sessionEvents;
+            if ($events === null) {
+                return null;
+            }
             $built = \Milpa\AppRuntime\Agent\BuiltCapabilities::of($kernel);
             $verb = OwnVerbRehearsal::mayRehearse($root, $store->stream($session), CapabilityAdmissions::forRoot($root, $built), $built, $principal, $tool);
             $router = $verb === null ? null : $this->trialRouter($kernel);
@@ -3820,9 +3826,10 @@ class AgentOperations implements CommandProvider
             if ($verb === null || $rehearsal === null) {
                 return null;
             }
-            if ($this->sessionEvents !== null) {
-                OwnVerbRehearsal::record($this->sessionEvents, $session, $verb, OwnVerbRehearsal::refusalOf($store->stream($session), $tool), $rehearsal);
-            }
+            // The fact comes after the run, because how it ended is in it. If it cannot be appended this throws, the
+            // door hears no rehearsal and the refusal ends the leg as it did: a rehearsal ran that nothing counts,
+            // and nothing of it was handed to anyone.
+            OwnVerbRehearsal::record($events, $session, $verb, OwnVerbRehearsal::refusalOf($store->stream($session), $tool), $rehearsal);
 
             return OwnVerbRehearsal::said($rehearsal);
         };

@@ -116,6 +116,11 @@ final class ASessionRehearsesTheVerbItBuiltTest extends TestCase
             self::assertNotInstanceOf(ToolCallRefused::class, $handed, 'the leg goes on');
             self::assertStringStartsWith('«taller:lista» is a verb of the capability «Taller», built in this house, and no person has admitted it for this seat', $handed->getMessage(), 'the refusal of decisions/0590, first and word for word');
             self::assertStringContainsString('And «Taller» is in works: a seat holds its building permit', $handed->getMessage());
+            // 0590's sentence tells the seat that the leg ends there — and it is handed whole. The house says after it,
+            // first thing, that this leg does not.
+            $ends = strpos($handed->getMessage(), 'The leg ends here and waits for that admission');
+            self::assertNotFalse($ends, 'the refusal as the house says it to a seat, with who admits it');
+            self::assertGreaterThan($ends, (int) strpos($handed->getMessage(), "\n\nThis leg does NOT end here, whatever the refusal above says"));
             self::assertSame(1, preg_match('~\n<rehearsal>\n(.*)\n</rehearsal>$~s', $handed->getMessage(), $found), $handed->getMessage());
             $rehearsal = json_decode($found[1], true);
             self::assertTrue($rehearsal['ran_in_trial']);
@@ -198,6 +203,28 @@ final class ASessionRehearsesTheVerbItBuiltTest extends TestCase
         $container->registerService(Kernel::class, $kernel);
 
         self::assertNull($this->closure('builder', $container)('taller_lista', [], 'key:' . self::SEAT));
+        self::assertDirectoryDoesNotExist($this->root . '/var/exercises');
+    }
+
+    /**
+     * NO LEDGER TO WRITE THAT IT HAPPENED, NO REHEARSAL. The fact is the one trace a rehearsal leaves; a house that
+     * cannot append it rehearses nothing — decided before anything runs, not after. Found by t-0104.
+     */
+    public function testAHouseThatCannotRecordThatItHappenedRehearsesNothing(): void
+    {
+        $operations = new AgentOperations($this->container);
+        (new \ReflectionProperty(AgentOperations::class, 'sesionDeLosPermisos'))->setValue($operations, 'builder');
+        (new \ReflectionMethod(AgentOperations::class, 'sessions'))->invoke($operations);
+        $rehearses = (new \ReflectionMethod(AgentOperations::class, 'rehearsalOfItsOwnVerbs'))->invoke($operations);
+        self::assertInstanceOf(\Closure::class, $rehearses);
+        $this->sessions->recordToolCall('builder', 'taller_lista', [], 'refused', false);
+        self::assertNotNull($rehearses('taller_lista', [], 'key:' . self::SEAT), 'the control: with its ledger it rehearses');
+        $facts = \count($this->ofType('builder', OwnVerbRehearsal::EVENT));
+
+        (new \ReflectionProperty(AgentOperations::class, 'sessionEvents'))->setValue($operations, null);
+
+        self::assertNull($rehearses('taller_lista', [], 'key:' . self::SEAT));
+        self::assertCount($facts, $this->ofType('builder', OwnVerbRehearsal::EVENT));
         self::assertDirectoryDoesNotExist($this->root . '/var/exercises');
     }
 
