@@ -141,7 +141,8 @@ return $loader;
 
         $result = $witness->writeIfItBoots(
             ['src/Plugins/Fine/Fine.php' => self::routePlugin('Fine', '/fine'), 'config/plugins.php' => self::pluginsFile('Normal', 'FailClosed', 'Fine')],
-            static function (): void {},
+            static function (): void {
+            },
         );
 
         self::assertNull($result['refused'], (string) json_encode($result));
