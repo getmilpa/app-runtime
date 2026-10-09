@@ -170,6 +170,13 @@ final class AgentKeys
                     . 'touch the house — ON by default (decisions/0072); declare false to turn it off. '
                     . 'Promoting is the only door in',
             ],
+            'agent.contained' => [
+                'type' => DeclaredType::union(DeclaredType::literal(false), DeclaredType::literal('container'), DeclaredType::literal('user')),
+                'does' => 'What holds this house from outside — a container, or a dedicated user — when a person '
+                    . 'runs it that way (decisions/0606); absent or false, nothing does. The house does not check it: '
+                    . 'it is where the person who runs it says they put it, and what `php bin/coa doctor` reads to '
+                    . 'say whether anything contains what an agent runs here',
+            ],
             'agent.architectureSummary' => [
                 'type' => DeclaredType::union(
                     DeclaredType::literal(true),

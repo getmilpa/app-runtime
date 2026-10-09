@@ -14,6 +14,8 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Console;
 
+use Milpa\AppRuntime\Agent\TrialRunner;
+use Milpa\AppRuntime\Config\Containment;
 use Milpa\AppRuntime\Config\MachineOverlay;
 use Milpa\AppRuntime\Config\SecretFiles;
 use Milpa\AppRuntime\Config\SecretOverlay;
@@ -250,12 +252,15 @@ final class Application
      *                                                                        asked the same question with the same key (greenhouse decisions/0506)
      * @param BootProbe|null                                     $bootProbe   who asks a fresh process whether the house boots, for `coa doctor`;
      *                                                                        null is the real one (greenhouse decisions/0533)
+     * @param TrialRunner|null                                   $trialRunner who says whether this machine can confine a trial, for `coa doctor`;
+     *                                                                        null is the one the house runs its trials with (greenhouse decisions/0607)
      */
     public function __construct(
         private readonly string $root,
         private readonly ?\Milpa\Console\OperationSigner $firmante = null,
         private readonly ?\Milpa\ToolRuntime\Identity\SignatureVerifier $verificador = null,
         private readonly ?BootProbe $bootProbe = null,
+        private readonly ?TrialRunner $trialRunner = null,
     ) {
     }
 
@@ -1413,6 +1418,15 @@ final class Application
         foreach (SecretFiles::trialsHoldingASecret($this->root) as $ensayo) {
             $this->line("  ! trial «{$ensayo}» still holds a copy of a file this house keeps a secret in — "
                 . 'discard it: ' . Capabilities::cli() . "sandbox:discard --workspace={$ensayo} --sign");
+        }
+
+        // WHAT CONTAINS WHAT AN AGENT RUNS HERE (greenhouse decisions/0607, annex; evidence/1181). Two things can:
+        // this machine confines a trial, or the house runs inside something that holds it and says so. Without the
+        // first there is no trial — the change is asked for and then written in the house itself — and nothing said
+        // so. One line, never a failure: this exit is `coa update`'s boot check. The runner is asked, not probed again.
+        $contenida = Containment::of($delApp, $this->root)->said(($this->trialRunner ?? new TrialRunner())->available());
+        if ($contenida !== null) {
+            $this->line($contenida);
         }
 
         // A GRAPH THAT CLOSES IS NOT A HOUSE THAT BOOTS (greenhouse evidence/1067): a 0.200.3 house moved to
