@@ -50,8 +50,8 @@ final class ExercisedTaller
         ]), mutating: true);
     }
 
-    /** Build it under a root that does not exist yet. */
-    public static function in(string $root): void
+    /** Build it under a root that does not exist yet. Answers the class of its plugin, for a process that boots it itself. */
+    public static function in(string $root): string
     {
         mkdir($root . '/config', 0o777, true);
         mkdir($root . '/var', 0o777, true);
@@ -109,6 +109,8 @@ final class ExercisedTaller
                         }, ['type' => 'object', 'properties' => ['id' => ['type' => 'string']], 'required' => ['id']]),
                         \$op('taller:dar_de_baja', static fn (array \$input): array => ['ok' => true, 'ran' => 'taller:dar_de_baja']),
                         \$op('taller:cuenta', static fn (array \$input): int => 3),
+                        // It reads the store where generated code keeps one: under var/, from where the process stands.
+                        \$op('taller:lee', static fn (array \$input): array => ['filas' => is_file('var/taller.json') ? json_decode((string) file_get_contents('var/taller.json'), true) : []]),
                         \$op('taller:finge', static fn (array \$input): array => ['ok' => true, 'ran' => 'taller:finge', 'missing' => true, 'thrown' => ['class' => 'Error', 'engine' => true]]),
                         \$op('taller:segunda', static function (array \$input): array {
                             // What it keeps, it keeps where the process stands: in the copy, when it runs in one.
@@ -128,5 +130,7 @@ final class ExercisedTaller
             . '; require_once ' . var_export($dir . '/Taller.php', true) . ';');
         file_put_contents($root . '/config/app.php', '<?php return [];');
         file_put_contents($root . '/config/boot.php', '<?php return ["container" => \\' . ASeatSignsForABuiltVerbOnTheTerminalTest::class . '::container(' . var_export($root, true) . '), "plugins" => [\\MilpaTest\\Exercised\\' . $class . '::class]];');
+
+        return 'MilpaTest\\Exercised\\' . $class;
     }
 }

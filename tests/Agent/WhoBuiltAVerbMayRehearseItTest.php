@@ -1,0 +1,227 @@
+<?php
+
+/**
+ * This file is part of Milpa App Runtime — the application runtime of the Milpa PHP framework.
+ *
+ * (c) Rodrigo Vicente - TeamX Agency — https://teamx.agency <hola@teamx.agency>
+ *
+ * @license Apache-2.0
+ *
+ * @link    https://github.com/getmilpa/app-runtime
+ */
+
+declare(strict_types=1);
+
+namespace Milpa\AppRuntime\Tests\Agent;
+
+use Milpa\Agent\AutonomyMode;
+use Milpa\Agent\EffectObservation;
+use Milpa\Agent\SessionStore;
+use Milpa\AppRuntime\Agent\BuiltCapabilities;
+use Milpa\AppRuntime\Agent\CapabilityAdmissions;
+use Milpa\AppRuntime\Agent\OwnVerbRehearsal;
+use Milpa\AppRuntime\Identity\IdentityEnrolled;
+use Milpa\EventStore\Event;
+use Milpa\EventStore\InMemoryEventStore;
+use Milpa\Runtime\Kernel;
+use PHPUnit\Framework\TestCase;
+
+/**
+ * WHO BUILT A VERB MAY REHEARSE IT — who, and only who (greenhouse decisions/0605, R2).
+ *
+ * Measured on twenty build runs (greenhouse evidence/1166): four sessions called a verb they had just built, and the
+ * house stopped all four — «…built in this house, and no person has admitted it for this seat» (decisions/0590). The
+ * leg ended there. So the house answers that call in a rehearsal — but ONLY for the session that wrote the verb, and
+ * only while the capability is in works.
+ *
+ * These are the falsifiers, written before the code:
+ *
+ *  - X5 — it answers who did not build: another session of the SAME seat, another seat, or the same session after
+ *    someone else landed that file.
+ *  - X7 — a rehearsal answers from the house's own state: a capability that keeps state where the copy would carry
+ *    it is not rehearsed at all.
+ *
+ * «This session wrote it» is read from its own receipts, by FILE: the last thing that landed on the file declaring
+ * the verb is a promotion of this session, and the file is still what that promotion left. One file that declares
+ * several verbs makes them all this session's.
+ */
+final class WhoBuiltAVerbMayRehearseItTest extends TestCase
+{
+    use BuiltHouse;
+
+    private const PERMIT = 'plugins.Prestamos:write';
+    private const FILE = 'src/Plugins/Prestamos/Prestamos.php';
+
+    private InMemoryEventStore $events;
+
+    private SessionStore $sessions;
+
+    protected function setUp(): void
+    {
+        $this->events = new InMemoryEventStore();
+        $this->sessions = new SessionStore($this->events);
+    }
+
+    public function testTheSessionThatLandedAVerbMayRehearseItWhileItIsInWorks(): void
+    {
+        [$root, $kernel] = $this->houseInWorks();
+        $this->landedBy('builder', $root);
+
+        $verb = $this->mayRehearse($root, $kernel, 'builder', self::SEAT, 'herramientas_prestar');
+
+        self::assertNotNull($verb, 'it built the verb, the capability is in works, and nobody landed that file since');
+        self::assertSame('herramientas.prestar', $verb->operation->name);
+        self::assertNotNull($this->mayRehearse($root, $kernel, 'builder', self::SEAT, 'herramientas_listar'), 'by file: every verb that file declares');
+    }
+
+    /** X5, first: the seat's building permit is not the session's. A second session of the same seat wrote nothing. */
+    public function testAnotherSessionOfTheSameSeatMayNot(): void
+    {
+        [$root, $kernel] = $this->houseInWorks();
+        $this->landedBy('builder', $root);
+        $this->sessions->start('another', 'Lend the drill.', AutonomyMode::Auto);
+
+        self::assertNull($this->mayRehearse($root, $kernel, 'another', self::SEAT, 'herramientas_prestar'));
+    }
+
+    /** X5: another seat, in a session of its own, with the very same permit. */
+    public function testAnotherSeatMayNot(): void
+    {
+        [$root, $kernel] = $this->houseInWorks();
+        $this->landedBy('builder', $root);
+        $this->grant($root, self::OTHER_SEAT, [self::PERMIT]);
+        $this->sessions->start('theirs', 'Lend the drill.', AutonomyMode::Auto);
+
+        self::assertNull($this->mayRehearse($root, $kernel, 'theirs', self::OTHER_SEAT, 'herramientas_prestar'));
+    }
+
+    /** X5: the same session, after something else landed on that file. It is no longer what this session left. */
+    public function testAfterAnotherLandingOnThatFileTheSessionMayNot(): void
+    {
+        [$root, $kernel] = $this->houseInWorks();
+        $this->landedBy('builder', $root);
+        self::assertNotNull($this->mayRehearse($root, $kernel, 'builder', self::SEAT, 'herramientas_prestar'), 'the control');
+
+        file_put_contents($root . '/' . self::FILE, "\n// landed by another session\n", \FILE_APPEND);
+
+        self::assertNull($this->mayRehearse($root, $kernel, 'builder', self::SEAT, 'herramientas_prestar'));
+    }
+
+    /** A rehearsal the session only made in a trial — never promoted — landed nothing. */
+    public function testATrialThatNeverLandedIsNotALanding(): void
+    {
+        [$root, $kernel] = $this->houseInWorks();
+        $this->sessions->start('builder', 'Build Prestamos.', AutonomyMode::Auto);
+        $this->sessions->recordToolCall('builder', 'implement', ['plugin' => 'Prestamos', 'class' => 'Prestamos'], (string) json_encode([
+            'ran_in_trial' => true, 'applied' => false, 'workspace' => 'w1', 'changed' => [self::FILE => 'modified'], 'output' => ['ok' => true],
+        ]), mutating: true);
+
+        self::assertNull($this->mayRehearse($root, $kernel, 'builder', self::SEAT, 'herramientas_prestar'));
+    }
+
+    /** After a person admits it, the works are closed: the call is work, in the house, and there is nothing to rehearse. */
+    public function testOnceAPersonAdmittedItThereIsNothingToRehearse(): void
+    {
+        [$root, $kernel] = $this->houseInWorks();
+        $this->landedBy('builder', $root);
+        foreach (['herramientas:read', 'herramientas:write'] as $scope) {
+            $group = CapabilityAdmissions::forRoot($root, BuiltCapabilities::of($kernel))->group('Prestamos', $scope);
+            self::assertNotNull($group);
+            self::assertTrue($this->ledger($root)->admit(self::SEAT, 'Prestamos', $scope, $group['verbs'], 'key:' . self::HUMAN));
+        }
+        self::assertSame([], $this->ledger($root)->permitHolders('Prestamos'), 'the control: admitting closed the permit');
+
+        self::assertNull($this->mayRehearse($root, $kernel, 'builder', self::SEAT, 'herramientas_prestar'));
+    }
+
+    /** Refused, but not in works — nobody holds the permit: that is 0590 and nothing else. */
+    public function testAVerbRefusedWhileNobodyHoldsThePermitIsNotRehearsed(): void
+    {
+        $root = $this->root();
+        $kernel = $this->kernel($root, [$this->capability($root, 'Prestamos', $this->prestamos())]);
+        $this->landedBy('builder', $root);
+        self::assertNotNull(CapabilityAdmissions::forRoot($root, BuiltCapabilities::of($kernel))->missing('key:' . self::SEAT, 'herramientas_prestar'), 'the control: the seat is refused');
+
+        self::assertNull($this->mayRehearse($root, $kernel, 'builder', self::SEAT, 'herramientas_prestar'));
+    }
+
+    /**
+     * X7. The copy a rehearsal runs in starts with an empty `var/`: a store kept there is left behind. A capability
+     * that keeps state anywhere else would be answered with rows of real work, so it is not rehearsed at all.
+     */
+    public function testACapabilityThatKeepsStateWhereTheCopyCarriesItIsNotRehearsed(): void
+    {
+        $root = $this->root();
+        $plugin = $this->capability($root, 'Prestamos', $this->prestamos());
+        $this->keepsStateIn($plugin, ['herramientas.agregar' => ['storage/herramientas.json']]);
+        $kernel = $this->kernel($root, [$plugin]);
+        $this->grant($root, self::SEAT, [self::PERMIT]);
+        $this->landedBy('builder', $root);
+
+        self::assertNull($this->mayRehearse($root, $kernel, 'builder', self::SEAT, 'herramientas_prestar'), 'not that verb');
+        self::assertNull($this->mayRehearse($root, $kernel, 'builder', self::SEAT, 'herramientas_listar'), 'and not one that only reads: it would read that store');
+    }
+
+    public function testWhatIsNoVerbOfABuiltCapabilityAndWhoIsNoSeatAreNotRehearsed(): void
+    {
+        [$root, $kernel] = $this->houseInWorks();
+        $this->landedBy('builder', $root);
+
+        self::assertNull($this->mayRehearse($root, $kernel, 'builder', self::SEAT, 'implement'));
+        self::assertNull($this->mayRehearse($root, $kernel, 'builder', self::SEAT, 'no_such_tool'));
+        self::assertNull(OwnVerbRehearsal::mayRehearse($root, $this->sessions->stream('builder'), CapabilityAdmissions::forRoot($root, BuiltCapabilities::of($kernel)), BuiltCapabilities::of($kernel), 'passkey:QM1LEWEfsoWiMm', 'herramientas_prestar'));
+        self::assertNull(OwnVerbRehearsal::mayRehearse($root, $this->sessions->stream('builder'), CapabilityAdmissions::forRoot($root, BuiltCapabilities::of($kernel)), BuiltCapabilities::of($kernel), null, 'herramientas_prestar'));
+    }
+
+    /** @return array{0: string, 1: Kernel} a house whose capability Prestamos is in works: the seat holds its building permit */
+    private function houseInWorks(): array
+    {
+        $root = $this->root();
+        $kernel = $this->kernel($root, [$this->capability($root, 'Prestamos', $this->prestamos())]);
+        $this->grant($root, self::SEAT, [self::PERMIT]);
+
+        return [$root, $kernel];
+    }
+
+    private function grant(string $root, string $seat, array $more): void
+    {
+        $ledger = $this->ledger($root);
+        $ledger->recordAndReport(new IdentityEnrolled($seat, array_values(array_unique([...($ledger->scopesFor($seat) ?? []), ...$more])), 'key:' . self::HUMAN), keepAdmissions: true);
+    }
+
+    /**
+     * A session that built the capability: its trial was promoted, the promotion's receipt says what the capability
+     * declares and in which file, and the house observed what that promotion left of the file — as the house records it.
+     */
+    private function landedBy(string $session, string $root): void
+    {
+        $this->sessions->start($session, 'Build a plugin named Prestamos to lend the tools of a workshop.', AutonomyMode::Auto);
+        $this->sessions->recordToolCall($session, 'implement', ['plugin' => 'Prestamos', 'class' => 'Prestamos'], (string) json_encode([
+            'ran_in_trial' => true, 'applied' => false, 'workspace' => 'w1', 'changed' => [self::FILE => 'modified'], 'output' => ['ok' => true],
+        ]), mutating: true);
+        $left = hash('sha256', (string) json_encode(['applied', self::FILE, hash_file('sha256', $root . '/' . self::FILE)], \JSON_THROW_ON_ERROR));
+        $observed = $this->sessions->recordEffectObservation($session, 'sandbox_promote', ['workspace' => 'w1'], new EffectObservation('app-runtime/file-effects/v1', true, [$left]));
+        $this->sessions->recordToolCall($session, 'sandbox_promote', ['workspace' => 'w1'], (string) json_encode([
+            'ok' => true,
+            'promoted' => [self::FILE],
+            'evidence' => ['predicate' => 'promoted', 'subject' => 'w1', 'environment' => ['kind' => 'house'], 'from' => ['kind' => 'trial', 'workspace' => 'w1'], 'paths' => [self::FILE]],
+            'capabilities' => [['predicate' => 'declared', 'subject' => 'Prestamos', 'environment' => ['kind' => 'house'], 'operations' => array_map(
+                static fn (string $name): array => ['name' => $name, 'file' => self::FILE, 'mutating' => $name !== 'herramientas.listar', 'effects' => true, 'scoped' => true],
+                ['herramientas.listar', 'herramientas.agregar', 'herramientas.prestar', 'herramientas.devolver'],
+            )]],
+        ]), mutating: true, effectObservationSeq: $observed);
+    }
+
+    private function mayRehearse(string $root, Kernel $kernel, string $session, string $seat, string $tool): ?\Milpa\AppRuntime\Agent\BuiltVerb
+    {
+        $built = BuiltCapabilities::of($kernel);
+
+        return OwnVerbRehearsal::mayRehearse($root, $this->stream($session), CapabilityAdmissions::forRoot($root, $built), $built, 'key:' . $seat, $tool);
+    }
+
+    /** @return list<Event> */
+    private function stream(string $session): array
+    {
+        return $this->sessions->stream($session);
+    }
+}

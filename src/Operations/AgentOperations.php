@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Operations;
 use Milpa\AppRuntime\Agent\BuiltCapabilities;
 use Milpa\AppRuntime\Agent\CapabilityAdmissions;
 use Milpa\AppRuntime\Agent\CapabilityExercise;
+use Milpa\AppRuntime\Agent\OwnVerbRehearsal;
 use Milpa\AppRuntime\Agent\FatalTermination;
 use Milpa\AppRuntime\Agent\GrantedCall;
 use Milpa\AppRuntime\Agent\HouseExecutedWork;
@@ -3700,6 +3701,7 @@ class AgentOperations implements CommandProvider
             // null only if the app's location cannot be told, in which case redaction is a no-op.
             root: $this->rootOrNull(),
             waitsOnAPerson: $this->frontierOfTheSeat(),
+            rehearses: $this->rehearsalOfItsOwnVerbs(),
             // The receipt of a work call carries what the layer that ran it saw of its state — asked of that layer,
             // never read out of a result (greenhouse decisions/0588).
             landed: $registry instanceof TrialAwareRegistry ? $registry->landedWork(...) : null,
@@ -3725,6 +3727,44 @@ class AgentOperations implements CommandProvider
         // What the house built is asked when a call is refused, not when the leg began: a verb landed during it.
         return static fn (string $tool, array $arguments): ?string
             => SeatFrontier::forRoot($root, $store, \Milpa\AppRuntime\Agent\BuiltCapabilities::of($kernel))->wouldOffer($session, $tool, $arguments)['permission'] ?? null;
+    }
+
+    /**
+     * What the house says, after a refusal, to the session that WROTE the verb it was refused — what the call answered
+     * in a rehearsal — or null: this session may not rehearse it, or the house cannot ({@see OwnVerbRehearsal},
+     * greenhouse decisions/0605, R2). Null without a session, a house or a store: then every such refusal ends the leg
+     * as it did.
+     *
+     * Asked when the call is refused, like the frontier: who wrote what, and what is in works, are facts of that
+     * moment. That it happened is appended to the session's stream; what was answered is not.
+     *
+     * @return (\Closure(string, array<string, mixed>, ?string): ?string)|null
+     */
+    private function rehearsalOfItsOwnVerbs(): ?\Closure
+    {
+        $session = $this->sesionDeLosPermisos;
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        $store = $this->sessionStore();
+        if ($session === null || $session === '' || !$kernel instanceof Kernel || $store === null) {
+            return null;
+        }
+        $root = $kernel->root();
+
+        return function (string $tool, array $arguments, ?string $principal) use ($session, $kernel, $store, $root): ?string {
+            $built = \Milpa\AppRuntime\Agent\BuiltCapabilities::of($kernel);
+            $verb = OwnVerbRehearsal::mayRehearse($root, $store->stream($session), CapabilityAdmissions::forRoot($root, $built), $built, $principal, $tool);
+            $router = $verb === null ? null : $this->trialRouter($kernel);
+            $rehearsal = $verb === null || $router === null
+                ? null : OwnVerbRehearsal::run($root, $verb, $arguments, $router->runner(), \dirname(__DIR__, 2) . '/resources/trial-run.php');
+            if ($verb === null || $rehearsal === null) {
+                return null;
+            }
+            if ($this->sessionEvents !== null) {
+                OwnVerbRehearsal::record($this->sessionEvents, $session, $verb, OwnVerbRehearsal::refusalOf($store->stream($session), $tool), $rehearsal);
+            }
+
+            return OwnVerbRehearsal::said($rehearsal);
+        };
     }
 
     /** The app root for redaction, or null when the app's location cannot be told (redaction then a no-op). */
