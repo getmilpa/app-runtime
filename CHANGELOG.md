@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [0.215.0](https://github.com/getmilpa/app-runtime/compare/v0.214.0...v0.215.0) (2026-10-09)
+
+
+### Features
+
+* a leg is told what its session left half done — read from what landed, said after the conversation (greenhouse decisions/0604) ([#766](https://github.com/getmilpa/app-runtime/issues/766)) ([bf55455](https://github.com/getmilpa/app-runtime/commit/bf55455c3285fce5946c22886e42a05703656ec5))
+* after a pause for window or for steps the house goes on by itself, once, under a written cap (greenhouse decisions/0604) ([#769](https://github.com/getmilpa/app-runtime/issues/769)) ([ec9e462](https://github.com/getmilpa/app-runtime/commit/ec9e462df41cecdd7cb5ecce9320d2618a394ccf))
+* before it closes on a capability, the house runs it once in a trial — and what throws does not close (greenhouse decisions/0605) ([#767](https://github.com/getmilpa/app-runtime/issues/767)) ([943ed80](https://github.com/getmilpa/app-runtime/commit/943ed8011d5df9fe3a3f662d80c4527712c8ad74))
+
+
+### Bug Fixes
+
+* what the house ran and threw is said to the session that wrote it — and kept as any tool's result is (greenhouse decisions/0605) ([#770](https://github.com/getmilpa/app-runtime/issues/770)) ([30a3250](https://github.com/getmilpa/app-runtime/commit/30a325065c5f2904278a85730bdaec7d9b10eeba))
+
 ## [0.214.0](https://github.com/getmilpa/app-runtime/compare/v0.213.1...v0.214.0) (2026-10-08)
 
 
