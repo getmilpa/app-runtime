@@ -47,11 +47,23 @@ use Milpa\EventStore\Event;
  *   refused for lack of an admission that nobody admitted, and receipts that do not chain: when the state a receipt
  *   started from is not the state the one before left, somebody else changed it in between.
  * - AN ACT THE DOMAIN REFUSED DOES NOT STOP IT. Refusing well is working well. It is counted and said.
+ * - NOR DOES A REFUSAL THE HOUSE ANSWERED IN A REHEARSAL (decisions/0605, R2 — decided by Rod on 2026-10-09). The
+ *   session that wrote a verb may be handed, after the refusal, what its call answered in a copy that is discarded
+ *   ({@see OwnVerbRehearsal}). As first built that refusal kept waiting on a person, so a builder that tried nothing
+ *   closed and one that tried its own verb did not — the incentive 0605 came to remove. While a capability is in
+ *   works no seat uses its verbs, so that call could never have been work in the house: it is a try. BY THE FACT AND
+ *   ITS SEQ, nothing else: the house's own `session.own_verb_rehearsed` lifts the refusal it points at, as a
+ *   person's grant lifts the one it admitted, and a refusal with no such fact waits as it always did. IT ADDS
+ *   NOTHING: a rehearsed call is no act, no work and no receipt — it only stops being a reason. AND IT IS SAID:
+ *   `rehearsed`, beside the verdict — how many calls were answered in rehearsal, how many of them were of a verb
+ *   that changes state, and that nothing of them was applied.
  *
  * ── WHAT IT DOES NOT PROVE ──────────────────────────────────────────────────────────────────────
  *
  * That what was done is what was asked: the request is in the words of the domain, and the house does not read
- * them. The work says so beside the verdict — `asked: "unjudged"`.
+ * them. The work says so beside the verdict — `asked: "unjudged"`. For the same reason it cannot tell a try from
+ * work that was asked for: a goal that asks to build AND to use closes on what was built, with the use undone. What
+ * the house can see it says — `rehearsed`, with `applied: false` — and no more.
  */
 final class HouseExecutedWork
 {
@@ -67,15 +79,22 @@ final class HouseExecutedWork
      *                                                   verb of a capability built in the house. Asked with a null
      *                                                   principal, it only says whether it is such a verb
      *
-     * @return array{derived: bool, reasons: list<string>, work: ?array{executed: int, refused_by_the_domain: int, state: list<array{path: string, after: ?string}>, asked: 'unjudged'}}
+     * @return array{derived: bool, reasons: list<string>, work: ?array{executed: int, refused_by_the_domain: int, state: list<array{path: string, after: ?string}>, asked: 'unjudged'}, rehearsed: ?array{calls: int, of_verbs_that_change_state: int, applied: false}}
      */
     public static function of(array $stream, \Closure $admitted): array
     {
         $built = static fn (string $operation): bool => $admitted($operation, null) !== null;
         // seq => the call of a built verb the domain accepted, until the house's receipt of it arrives.
         $accepted = [];
-        // seq => the tool of a call refused for lack of an admission, until a person admits it.
+        // seq => the tool of a call refused for lack of an admission, until a person admits it — or the house answers
+        // it in a rehearsal, for the session that wrote that verb.
         $waiting = [];
+        // seq => a refused call of a built verb that CHANGES STATE, whatever its refusal said. A refusal waits only when
+        // it says nobody admitted it; a seat whose admission is kept and suspended while the capability is back in works
+        // is refused in other words — and its call is still one of a verb that writes.
+        $refusedWrites = [];
+        // The calls the house answered in a rehearsal, and how many of them were of a verb that changes state.
+        $rehearsed = $ofWrites = 0;
         // path => [the digest the last receipt left, its seq].
         $state = [];
         $last = null;
@@ -88,6 +107,19 @@ final class HouseExecutedWork
 
                 continue;
             }
+            if ($event->type === OwnVerbRehearsal::EVENT) {
+                // BY THE FACT AND ITS SEQ, NOTHING ELSE. The fact is the house's own and points at the refusal it
+                // accompanied: that one stops being a reason. It is not an act, and nothing else is read of it.
+                $rehearsed++;
+                $pointed = $payload['refusal'] ?? null;
+                if (\is_int($pointed)) {
+                    // What it is counted as is read from the call itself, not from whether the closure was waiting.
+                    $ofWrites += isset($refusedWrites[$pointed]) ? 1 : 0;
+                    unset($waiting[$pointed]);
+                }
+
+                continue;
+            }
             if ($event->type === SessionEvent::ToolCalled->value && \is_string($payload['tool'] ?? null) && $built($payload['tool'])) {
                 $last = null;
                 if (($payload['mutating'] ?? false) !== true) {
@@ -95,6 +127,7 @@ final class HouseExecutedWork
                 }
                 $result = json_decode(\is_string($payload['result'] ?? null) ? $payload['result'] : '', true);
                 if (($payload['ok'] ?? true) !== true) {
+                    $refusedWrites[$event->seq] = true;
                     $said = \is_string($payload['result'] ?? null) ? $payload['result'] : '';
                     if (\is_array($result) && ($result['ran_in_house'] ?? null) === true) {
                         // THE VERB RAN AND SAID NO: the house records a refusal of the domain as a call that failed, with
@@ -174,6 +207,9 @@ final class HouseExecutedWork
             'derived' => $executed > 0 && $reasons === [],
             'reasons' => $reasons,
             'work' => $executed > 0 ? ['executed' => $executed, 'refused_by_the_domain' => $refused, 'state' => $left, 'asked' => 'unjudged'] : null,
+            // What was answered in a rehearsal and is NOT in the house — said beside the verdict, never a reason and
+            // never evidence. `applied` is always false: a rehearsal runs in a copy that is discarded.
+            'rehearsed' => $rehearsed > 0 ? ['calls' => $rehearsed, 'of_verbs_that_change_state' => $ofWrites, 'applied' => false] : null,
         ];
     }
 

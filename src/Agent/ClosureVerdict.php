@@ -87,7 +87,13 @@ final class ClosureVerdict
      * since ({@see HouseObservedClosure}), which hold the closure in every form above, and whether they are ALL that
      * holds it — then the house runs them again at the natural end of the leg ({@see CapabilityExercise::atTheEnd()}).
      *
-     * @return array{verified: bool, reasons: list<string>, scope: string, derivedFrom?: array<string, mixed>, houseOwes?: array{capabilities: list<array{subject: string, seq: int, threwAt: int, changedAt: ?int, tried: bool}>, holdsAlone: bool}}
+     * WHAT WAS REHEARSED (`rehearsed`, decisions/0605 R2): the calls of its own verbs the house answered for the
+     * session in a rehearsal ({@see OwnVerbRehearsal}) — how many, how many of a verb that changes state, and
+     * `applied: false`: nothing of them is in the house. A refusal so answered does not hold the closure
+     * ({@see HouseExecutedWork}); this line is what tells a builder that tried from one that did not. Absent when
+     * nothing was rehearsed.
+     *
+     * @return array{verified: bool, reasons: list<string>, scope: string, derivedFrom?: array<string, mixed>, houseOwes?: array{capabilities: list<array{subject: string, seq: int, threwAt: int, changedAt: ?int, tried: bool}>, holdsAlone: bool}, rehearsed?: array{calls: int, of_verbs_that_change_state: int, applied: false}}
      */
     public static function derive(Session $session, SessionFacts $facts, ?array $stream = null, ?\Closure $lasting = null, ?\Closure $admitted = null): array
     {
@@ -277,7 +283,13 @@ final class ClosureVerdict
             default => ['scope' => 'recorded_work'],
         };
 
-        return ['verified' => $reasons === [], 'reasons' => $reasons] + $form + $houseOwes;
+        // WHAT WAS REHEARSED AND NOT APPLIED IS SAID BESIDE THE VERDICT (greenhouse decisions/0605, R2 — decided by Rod
+        // on 2026-10-09). A refusal the house answered in a rehearsal no longer holds the closure, so a builder that
+        // tried its own verbs closes as one that tried nothing does — and whoever reads «verified» is told the
+        // difference: so many calls were answered in a copy, and nothing of them is in the house.
+        $rehearsed = \is_array($worked['rehearsed'] ?? null) ? ['rehearsed' => $worked['rehearsed']] : [];
+
+        return ['verified' => $reasons === [], 'reasons' => $reasons] + $form + $houseOwes + $rehearsed;
     }
 
     /**
@@ -287,7 +299,7 @@ final class ClosureVerdict
      * and on what scope — the same three things a reloaded page reads from the stream (greenhouse
      * decisions/0563). Only a literal `true` is a verification.
      *
-     * @return array{session: string, kind: 'closure', at: int, closure: array{verified: bool, reasons: list<string>, scope: string}}|null
+     * @return array{session: string, kind: 'closure', at: int, closure: array{verified: bool, reasons: list<string>, scope: string, rehearsed?: array<string, mixed>}}|null
      */
     public static function surface(Event $event, string $sessionId): ?array
     {
@@ -307,7 +319,9 @@ final class ClosureVerdict
                     static fn (mixed $reason): bool => \is_string($reason) && $reason !== '',
                 )),
                 'scope' => \is_string($p['scope'] ?? null) ? $p['scope'] : '',
-            ],
+                // What was answered in a rehearsal and is not in the house, when anything was: a surface that paints
+                // «verified» can say it of a builder that tried its own verbs.
+            ] + (\is_array($p['rehearsed'] ?? null) ? ['rehearsed' => $p['rehearsed']] : []),
         ];
     }
 

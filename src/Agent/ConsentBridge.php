@@ -125,6 +125,11 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
         // state was and is — asked of the layer that ran it, with the call, or null when there is none to ask.
         // The receipt never reads this out of a result: what a tool answers is data.
         private readonly ?\Closure $landed = null,
+        // WHO BUILT A VERB MAY REHEARSE IT (greenhouse decisions/0605, R2): for a call this caller was just refused
+        // and only a person can lift, what the house says AFTER the refusal when the session that makes it wrote
+        // that verb — what the call answered in a rehearsal — or null: this session may not rehearse it, or the
+        // house cannot. With an answer the leg goes on; the refusal itself is untouched. Null: nothing changes.
+        private readonly ?\Closure $rehearses = null,
     ) {
         // THE DOOR DOES NOT NEED THE MODEL GATEWAY (greenhouse decisions/0225): gate, registry and recorder
         // are milpa/tool-runtime's. The option table is the model loop's own concern and stays optional —
@@ -251,6 +256,16 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
             // what the loop does with every other refusal of a gate. What the frontier does not offer — an invented
             // name, a session nobody enrolled, any other failure — still goes back to the model.
             if ($this->onlyAPersonLiftsIt($rechazo, $name, $args)) {
+                // …UNLESS THE SESSION THAT WROTE THE VERB MAY REHEARSE IT (greenhouse decisions/0605, R2). Measured
+                // (evidence/1166): four sessions called a verb they had just built and the house ended their leg
+                // here. The refusal stays what it is, word for word — it is what was recorded, inside the gate, and
+                // what a person admits over — and the model is handed, after it, what the call answered in a copy
+                // that is discarded. It goes back as any failure does, so the leg goes on.
+                $rehearsed = $this->rehearsalOf($name, $args);
+                if ($rehearsed !== null) {
+                    throw new \RuntimeException($rechazo->getMessage() . $rehearsed);
+                }
+
                 throw new ToolCallRefused($rechazo->getMessage());
             }
 
@@ -333,6 +348,26 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
         $this->declareIfEffect($name, $args, $grant);
 
         return $this->redactForModel($executed);
+    }
+
+    /**
+     * What the house says after a refusal when this session may rehearse the call — or null. A rehearsal that cannot
+     * be asked for is no rehearsal: the refusal ends the leg as it always did.
+     *
+     * @param array<string, mixed> $args
+     */
+    private function rehearsalOf(string $tool, array $args): ?string
+    {
+        if ($this->rehearses === null) {
+            return null;
+        }
+        try {
+            $said = ($this->rehearses)($tool, $args, $this->principalOfTheCaller());
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return \is_string($said) && $said !== '' ? $said : null;
     }
 
     /**
