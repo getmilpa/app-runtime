@@ -427,24 +427,30 @@ final class TrialRunner
         // from a confined process: 1178 measured that a plugin's `boot()` or an operation's handler could read the
         // private key the Desktop keeps mounted and SIGN a governed act as the person who holds it. Each keyring
         // directory and each gpg-agent socket directory is overlaid with an empty tmpfs — a directory cannot be masked
-        // with `--ro-bind /dev/null`, which mounts a file — so a confined process finds no key and no agent to speak
-        // to. A keyring that does NOT EXIST is left out: `--tmpfs` must create its mountpoint, which cannot be done
-        // inside `--ro-bind / /` (the tree is read-only), so masking an absent directory would make bwrap fail and
-        // break every confined run. An absent keyring is no risk either — under a read-only root none can appear.
+        // with `--ro-bind /dev/null`, which mounts a file. Each is named by its REAL path (symlinks resolved) and
+        // must exist: `--tmpfs` must create its mountpoint, which cannot be done inside `--ro-bind / /` (the tree is
+        // read-only), so an absent or symlinked target is handled by {@see keyringDirectories()}, never passed raw.
         foreach (self::keyringDirectories() as $directory) {
-            if (is_dir($directory)) {
-                array_push($args, '--tmpfs', $directory);
-            }
+            array_push($args, '--tmpfs', $directory);
         }
 
         return $args;
     }
 
+    /** The smartcard daemon's socket directory the Desktop mounts into the house when it is present (0121). */
+    public const PCSCD_SOCKET_DIR = '/run/pcscd';
+
     /**
-     * The keyring directories and gpg-agent socket directories a confined process must not reach — distinct, and
-     * each named once by its real path (greenhouse evidence/1178). Read from the environment the runner runs in,
-     * because that is the environment a confined child would inherit: `GNUPGHOME`, the default `$HOME/.gnupg`, and
-     * the agent's runtime sockets under `$XDG_RUNTIME_DIR/gnupg` and `/run/user/<uid>/gnupg`.
+     * The REAL directories a confined process must not reach because the house signs with what they hold — distinct,
+     * existing, each resolved through symlinks (greenhouse evidence/1178): the keyring `GNUPGHOME` names, the default
+     * `$HOME/.gnupg`, the gpg-agent's runtime sockets under `$XDG_RUNTIME_DIR/gnupg` and `/run/user/<uid>/gnupg`, and
+     * the smartcard daemon's socket directory the Desktop mounts. Read from the environment the runner runs in,
+     * because that is what a confined child inherits.
+     *
+     * The REAL path, not the path as it came: a keyring reached through a symlink (a common `$HOME/.gnupg` pointing
+     * elsewhere) would otherwise leave the real directory readable by its own path, and bwrap cannot mount a tmpfs
+     * onto a symlink at all. `realpath()` resolves it and returns false for an absent or broken one, which is left
+     * out — under a read-only root there is then nothing to hide, and masking it would make bwrap fail.
      *
      * @return list<string>
      */
@@ -453,24 +459,24 @@ final class TrialRunner
         $candidates = [];
         $gnupg = getenv('GNUPGHOME');
         if (\is_string($gnupg) && $gnupg !== '') {
-            $candidates[] = rtrim($gnupg, '/');
+            $candidates[] = $gnupg;
         }
         $home = getenv('HOME');
         if (\is_string($home) && $home !== '') {
             $candidates[] = rtrim($home, '/') . '/.gnupg';
         }
         foreach ([getenv('XDG_RUNTIME_DIR'), '/run/user/' . (string) getmyuid()] as $run) {
-            if (\is_string($run) && $run !== '' && is_dir($run . '/gnupg')) {
+            if (\is_string($run) && $run !== '') {
                 $candidates[] = rtrim($run, '/') . '/gnupg';
             }
         }
-        $seen = [];
+        $candidates[] = self::PCSCD_SOCKET_DIR;
+
         $directories = [];
-        foreach ($candidates as $directory) {
-            $key = realpath($directory) ?: $directory;
-            if (!isset($seen[$key])) {
-                $seen[$key] = true;
-                $directories[] = $directory;
+        foreach ($candidates as $candidate) {
+            $real = realpath($candidate);
+            if ($real !== false && is_dir($real) && !\in_array($real, $directories, true)) {
+                $directories[] = $real;
             }
         }
 

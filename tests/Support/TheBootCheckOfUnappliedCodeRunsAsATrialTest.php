@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Tests\Support;
 
 use Milpa\AppRuntime\Agent\TrialRunner;
 use Milpa\AppRuntime\Support\BootProbe;
+use Milpa\AppRuntime\Support\HouseBootWitness;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -128,6 +129,24 @@ return $loader;
         self::assertArrayNotHasKey('Normal', $less, 'a plugin that does not need a secret mounts the same, masked or not');
         $new = array_column($check['new_plugins'], 'plugin');
         self::assertContains('Added', $new, 'a plugin only the candidate has is named as new: ' . json_encode($check['new_plugins']));
+    }
+
+    public function testTheUnconfinedRoomReachesWhatAWriterSaysSoAReceiptCarriesIt(): void
+    {
+        // Where there is no bwrap the check runs unconfined; the sentence must be READ, not die in an array. It is
+        // carried into what a writer SAYS (`said`), which every writer spreads into its operation receipt
+        // (capabilities:enable, framework:apply, a promotion's landing). It is NOT in the closure verdict.
+        $probe = new BootProbe(runner: new TrialRunner(bwrap: $this->bwrap('none')));
+        $witness = new HouseBootWitness($this->root, $probe);
+
+        $result = $witness->writeIfItBoots(
+            ['src/Plugins/Fine/Fine.php' => self::routePlugin('Fine', '/fine'), 'config/plugins.php' => self::pluginsFile('Normal', 'FailClosed', 'Fine')],
+            static function (): void {},
+        );
+
+        self::assertNull($result['refused'], (string) json_encode($result));
+        self::assertTrue($result['said']['house_boots'] ?? null);
+        self::assertStringContainsString('UNCONFINED', $result['said']['boot_room'] ?? '', 'the writer says the check ran unconfined');
     }
 
     private static function pluginsFile(string ...$plugins): string

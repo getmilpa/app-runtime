@@ -113,7 +113,7 @@ final class OnlyOneConfinementIsBuiltAndItMasksTest extends TestCase
 
         try {
             $args = (new TrialRunner())->maskArgs($house);
-            $i = array_search($home . '/.gnupg', $args, true);
+            $i = array_search((string) realpath($home . '/.gnupg'), $args, true);
             self::assertNotFalse($i, 'the keyring the house signs with ($HOME/.gnupg) is in the mask');
             self::assertSame('--tmpfs', $args[$i - 1] ?? null, 'a keyring is masked with an empty tmpfs');
         } finally {

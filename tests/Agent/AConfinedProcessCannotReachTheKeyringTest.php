@@ -63,9 +63,40 @@ final class AConfinedProcessCannotReachTheKeyringTest extends TestCase
 
         $args = (new TrialRunner())->maskArgs($this->dir());
 
-        self::assertMasksDirectory($args, $home . '/.gnupg', 'the default keyring ($HOME/.gnupg) is masked');
-        self::assertMasksDirectory($args, $gnupg, 'the keyring GNUPGHOME names is masked');
-        self::assertMasksDirectory($args, $runtime . '/gnupg', 'the agent socket directory under XDG_RUNTIME_DIR is masked');
+        self::assertMasksDirectory($args, (string) realpath($home . '/.gnupg'), 'the default keyring ($HOME/.gnupg) is masked');
+        self::assertMasksDirectory($args, (string) realpath($gnupg), 'the keyring GNUPGHOME names is masked');
+        self::assertMasksDirectory($args, (string) realpath($runtime . '/gnupg'), 'the agent socket directory under XDG_RUNTIME_DIR is masked');
+    }
+
+    public function testASymlinkedKeyringIsMaskedByItsRealPathSoBwrapNeitherFailsNorLeavesItReadable(): void
+    {
+        // `$HOME/.gnupg` is often a symlink elsewhere. bwrap cannot mount a tmpfs onto a symlink, and masking the
+        // symlink path would leave the real directory readable by its own path. The mask names the REAL directory.
+        $real = $this->dir();
+        file_put_contents($real . '/a-key', 'x');
+        $home = $this->dir();
+        symlink($real, $home . '/.gnupg');
+        $this->setEnv('HOME', $home);
+        $this->setEnv('GNUPGHOME', false);
+
+        $args = (new TrialRunner())->maskArgs($this->dir());
+
+        self::assertMasksDirectory($args, $real, 'the real keyring the symlink points at is masked');
+        self::assertNotContains($home . '/.gnupg', $args, 'the symlink path is not passed to --tmpfs (bwrap would fail)');
+    }
+
+    public function testTheSmartcardSocketDirectoryIsMaskedWhereItExists(): void
+    {
+        self::assertSame('/run/pcscd', TrialRunner::PCSCD_SOCKET_DIR, 'the smartcard socket dir the Desktop mounts');
+        if (!is_dir(TrialRunner::PCSCD_SOCKET_DIR)) {
+            self::markTestSkipped('no /run/pcscd on this host to mask');
+        }
+        $this->setEnv('HOME', false);
+        $this->setEnv('GNUPGHOME', false);
+
+        $args = (new TrialRunner())->maskArgs($this->dir());
+
+        self::assertMasksDirectory($args, (string) realpath(TrialRunner::PCSCD_SOCKET_DIR), 'the smartcard socket directory is masked (evidence/1178)');
     }
 
     public function testADirectoryIsMaskedWithATmpfsNotABindOfDevNull(): void
@@ -79,7 +110,7 @@ final class AConfinedProcessCannotReachTheKeyringTest extends TestCase
 
         $args = (new TrialRunner())->maskArgs($this->dir());
 
-        $i = array_search($home . '/.gnupg', $args, true);
+        $i = array_search((string) realpath($home . '/.gnupg'), $args, true);
         self::assertNotFalse($i, 'the keyring is in the mask');
         self::assertSame('--tmpfs', $args[$i - 1] ?? null, 'a keyring is masked by an empty tmpfs, not --ro-bind /dev/null');
     }
