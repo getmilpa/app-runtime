@@ -123,6 +123,18 @@ final class AgentKeys
                     . 'is set, the provider is asked what it actually allocated and the SMALLER of '
                     . 'the two governs — declare less to leave air, never more than exists',
             ],
+            'agent.continuations' => [
+                'type' => DeclaredType::integer(),
+                'does' => 'How many times the house goes on by itself, inside one invocation, after a leg in auto '
+                    . 'paused because it ran out of window or of steps; absent, 1. 0 turns it off. It never goes '
+                    . 'on over a pause that waits for a person, nor past the steps a person typed',
+            ],
+            'agent.invocationSteps' => [
+                'type' => DeclaredType::integer(),
+                'does' => 'The steps one invocation may take in all when the house goes on by itself, counting '
+                    . 'those before every pause; absent, 60. The leg that follows takes what is left of it and '
+                    . 'never more than a leg\'s own ceiling. A first leg keeps its own ceiling whatever this says',
+            ],
             'agent.outputTokens' => [
                 'type' => DeclaredType::integer(),
                 'does' => 'A positive output-token limit for each native loop call; absent, the house derives '

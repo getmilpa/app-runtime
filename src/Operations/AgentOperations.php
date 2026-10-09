@@ -20,6 +20,7 @@ use Milpa\AppRuntime\Agent\CapabilityExercise;
 use Milpa\AppRuntime\Agent\OwnVerbRehearsal;
 use Milpa\AppRuntime\Agent\FatalTermination;
 use Milpa\AppRuntime\Agent\GrantedCall;
+use Milpa\AppRuntime\Agent\HouseGoesOn;
 use Milpa\AppRuntime\Agent\HouseExecutedWork;
 use Milpa\AppRuntime\Agent\OfferedTools;
 use Milpa\AppRuntime\Agent\LegMemory;
@@ -1936,7 +1937,7 @@ class AgentOperations implements CommandProvider
     private function runUnlessItEchoes(array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array
     {
         try {
-            return $this->runAndResumeAnEcho($input, $context, $authority);
+            return $this->runAndGoOn($input, $context, $authority);
         } finally {
             // THE RUN IS OVER, whichever way it left — the lease it took says so (greenhouse decisions/0513 §3).
             $this->runLease?->release();
@@ -1945,15 +1946,74 @@ class AgentOperations implements CommandProvider
     }
 
     /**
-     * {@see runUnlessItEchoes()} without the lease's release: the run, and the one resume an echo earns.
+     * AFTER A PAUSE FOR WINDOW OR FOR STEPS THE HOUSE GOES ON BY ITSELF, UNDER ITS WRITTEN CAP (greenhouse
+     * decisions/0604, rule A; {@see HouseGoesOn}). The leg that follows is a whole leg of the same session — its
+     * window folded as any leg's is, its ceiling what is left of the total — told by the house why it follows, and
+     * recorded as the house's before it starts. The result is the last leg's, and says how often the house went on
+     * and how many steps the invocation took in all.
+     *
+     * The pause is not an end: the leg that paused recorded no closure, and nothing of it is taken for one.
+     *
+     * EVERY STEP OF THE INVOCATION COUNTS, those of a turn the house resumed over an echo included (decisions/0475,
+     * unchanged: that resume takes a leg's ceiling of its own). What the total bounds is the house going on.
      *
      * @param array<string, mixed> $input
      *
      * @return array<string, mixed>
      */
-    private function runAndResumeAnEcho(array $input, ?InvocationContext $context, ?ToolContext $authority): array
+    private function runAndGoOn(array $input, ?InvocationContext $context, ?ToolContext $authority): array
+    {
+        $spent = 0;
+        $result = $this->runAndResumeAnEcho($input, $context, $authority, $spent);
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $config = $config instanceof Config ? $config : null;
+        $times = 0;
+        while (true) {
+            $session = \is_string($result['session'] ?? null) ? $result['session'] : '';
+            $store = $session === '' ? null : $this->sessionStore();
+            $state = $store?->load($session);
+            $left = $state === null ? null : HouseGoesOn::stepsLeft(
+                $result,
+                $state->mode,
+                $state->question !== null,
+                $input['steps'] ?? null,
+                LegWindow::steps($input['steps'] ?? null, $state->mode, LegWindow::of($config)),
+                $spent,
+                $times,
+                $config,
+            );
+            if ($left === null) {
+                break;
+            }
+            $why = HouseGoesOn::pause($result);
+            ++$times;
+            $this->sessionEvents?->append(new \Milpa\EventStore\Event(
+                streamId: SessionStore::PREFIX . $session,
+                type: HouseGoesOn::EVENT,
+                payload: ['after' => $why, 'steps_before' => $spent, 'steps_left' => $left, 'time' => $times, 'cap' => HouseGoesOn::cap($config), 'by' => 'house'],
+                seq: $this->sessionEvents->nextSeq(),
+            ));
+            $before = $spent;
+            $result = $this->run(['prompt' => HouseGoesOn::notice($why), 'session' => $session, 'steps' => $left], $context, $authority);
+            $spent += \is_int($result['steps'] ?? null) ? $result['steps'] : 0;
+            $result['wentOn'] = ['times' => $times, 'after' => $why, 'stepsBefore' => $before, 'stepsInAll' => $spent];
+        }
+
+        return $result;
+    }
+
+    /**
+     * {@see runUnlessItEchoes()} without the lease's release: the run, and the one resume an echo earns. `$spent`
+     * gains the steps of every run it made.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function runAndResumeAnEcho(array $input, ?InvocationContext $context, ?ToolContext $authority, int &$spent): array
     {
         $result = $this->run($input, $context, $authority);
+        $spent += \is_int($result['steps'] ?? null) ? $result['steps'] : 0;
         $session = \is_string($result['session'] ?? null) ? $result['session'] : '';
         if ($session === '' || ! \is_string($result['answer'] ?? null) || ! self::isTheHouseVoice($result['answer'])
             || ($result['paused'] ?? false) === true || ($result['termination']['reason'] ?? null) !== 'final_answer'
@@ -1962,6 +2022,7 @@ class AgentOperations implements CommandProvider
         }
 
         $again = $this->run(['prompt' => self::HOUSE_VOICE_NUDGE, 'session' => $session] + array_intersect_key($input, ['steps' => true]), $context, $authority);
+        $spent += \is_int($again['steps'] ?? null) ? $again['steps'] : 0;
         $again['houseVoiceResumed'] = true;
         if (\is_string($again['answer'] ?? null) && self::isTheHouseVoice($again['answer'])) {
             $again['houseVoiceTwice'] = true;
