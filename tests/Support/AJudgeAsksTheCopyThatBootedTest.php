@@ -67,7 +67,8 @@ final class AJudgeAsksTheCopyThatBootedTest extends TestCase
         self::assertSame("<?php return ['x' => 1];\n", $seen, 'the judge saw the copy WITH the change, while it existed');
         self::assertFalse($wrote);
         self::assertSame('the promotion breaks GET /x', $boot['refused']);
-        self::assertSame(['unwritten' => ['config/app.php'], 'judged' => 'the promotion breaks GET /x'], $boot['said']);
+        self::assertSame(['config/app.php'], $boot['said']['unwritten']);
+        self::assertSame('the promotion breaks GET /x', $boot['said']['judged']);
         self::assertSame($before, file_get_contents($this->root . '/config/plugins.php'));
         self::assertSame([], glob($this->root . '/var/boot-candidates/*') ?: []);
     }

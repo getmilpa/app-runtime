@@ -70,7 +70,7 @@ final class AWriterBootsItsCopyInsideATrialTest extends TestCase
         $run = $this->withoutDevices('disable');
 
         self::assertNull($run['boot']['refused'], (string) json_encode($run['boot']));
-        self::assertSame(['house_boots' => true], $run['boot']['said']);
+        self::assertTrue($run['boot']['said']['house_boots'], (string) json_encode($run['boot']['said']));
         self::assertSame("<?php return [];\n", $run['plugins']);
     }
 
@@ -94,7 +94,7 @@ final class AWriterBootsItsCopyInsideATrialTest extends TestCase
         $run = $this->inTrial('disable');
 
         self::assertNull($run['boot']['refused'], (string) json_encode($run['boot']));
-        self::assertSame(['house_boots' => true], $run['boot']['said']);
+        self::assertTrue($run['boot']['said']['house_boots'], (string) json_encode($run['boot']['said']));
         self::assertSame("<?php return [];\n", $run['plugins'], 'written in the copy');
         self::assertStringContainsString('Blog::class', (string) file_get_contents($this->root . '/config/plugins.php'), 'and never in the host');
     }

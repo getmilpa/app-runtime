@@ -117,6 +117,31 @@ final class TrialRunner
     }
 
     /**
+     * The argv that confines a boot of a tree the house did NOT apply — the boot check of code nobody applied runs
+     * as a trial (greenhouse decisions/0607, Rod's alternative A; evidence/1180): the namespaces a trial found here
+     * (no network, its own pids), the root read-only, `/dev/null` bound back so git and a shell's `2>/dev/null`
+     * work (evidence/1060), the tree bound so its own `var/` can be written while it boots, and THE MASK — the
+     * secret files AND the keyring the house signs with — through the one place ({@see maskArgs}, placed AFTER the
+     * writable bind so the bind cannot re-expose a secret the tree carries).
+     *
+     * Null when nothing can be confined here (no unprivileged namespace, e.g. macOS): the caller boots the candidate
+     * UNCONFINED and must SAY so (0607: where there is no bwrap it runs unconfined; confining it there is another
+     * slice). The applied house's boot is not confined by this and does not change.
+     *
+     * @return list<string>|null
+     */
+    public function confinement(string $tree, string $secretsRoot): ?array
+    {
+        $namespaces = $this->namespaces();
+        if ($namespaces === null) {
+            return null;
+        }
+
+        return [$this->bwrap, ...$namespaces, '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null',
+            '--bind', $tree, $tree, ...$this->maskArgs($secretsRoot)];
+    }
+
+    /**
      * Run one operation of work IN THE HOUSE, confined to its state (greenhouse decisions/0588, rule 2).
      *
      * Not a trial: there is no copy. The child runs against the house itself with the same confinement a trial
@@ -397,7 +422,57 @@ final class TrialRunner
         foreach (SecretFiles::existingUnder($root) as $secret) {
             array_push($args, '--ro-bind', '/dev/null', $secret);
         }
+        // THE KEYRING THE HOUSE SIGNS WITH IS NOT A FILE OF THE HOUSE, AND IT IS MASKED TOO (greenhouse evidence/1178,
+        // decided by Rod 2026-10-09). Under `--ro-bind / /` the keyring gpg reads and the agent's sockets are reachable
+        // from a confined process: 1178 measured that a plugin's `boot()` or an operation's handler could read the
+        // private key the Desktop keeps mounted and SIGN a governed act as the person who holds it. Each keyring
+        // directory and each gpg-agent socket directory is overlaid with an empty tmpfs — a directory cannot be masked
+        // with `--ro-bind /dev/null`, which mounts a file — so a confined process finds no key and no agent to speak
+        // to. A target whose PARENT does not exist is left out: a tmpfs onto it would make bwrap fail, and a failing
+        // mask would break every trial.
+        foreach (self::keyringDirectories() as $directory) {
+            if (is_dir(\dirname($directory))) {
+                array_push($args, '--tmpfs', $directory);
+            }
+        }
 
         return $args;
+    }
+
+    /**
+     * The keyring directories and gpg-agent socket directories a confined process must not reach — distinct, and
+     * each named once by its real path (greenhouse evidence/1178). Read from the environment the runner runs in,
+     * because that is the environment a confined child would inherit: `GNUPGHOME`, the default `$HOME/.gnupg`, and
+     * the agent's runtime sockets under `$XDG_RUNTIME_DIR/gnupg` and `/run/user/<uid>/gnupg`.
+     *
+     * @return list<string>
+     */
+    private static function keyringDirectories(): array
+    {
+        $candidates = [];
+        $gnupg = getenv('GNUPGHOME');
+        if (\is_string($gnupg) && $gnupg !== '') {
+            $candidates[] = rtrim($gnupg, '/');
+        }
+        $home = getenv('HOME');
+        if (\is_string($home) && $home !== '') {
+            $candidates[] = rtrim($home, '/') . '/.gnupg';
+        }
+        foreach ([getenv('XDG_RUNTIME_DIR'), '/run/user/' . (string) getmyuid()] as $run) {
+            if (\is_string($run) && $run !== '' && is_dir($run . '/gnupg')) {
+                $candidates[] = rtrim($run, '/') . '/gnupg';
+            }
+        }
+        $seen = [];
+        $directories = [];
+        foreach ($candidates as $directory) {
+            $key = realpath($directory) ?: $directory;
+            if (!isset($seen[$key])) {
+                $seen[$key] = true;
+                $directories[] = $directory;
+            }
+        }
+
+        return $directories;
     }
 }

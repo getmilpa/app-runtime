@@ -49,12 +49,20 @@ if ($mode === 'boot') {
     require $root . '/vendor/autoload.php';
     try {
         $app = new Milpa\AppRuntime\Console\Application($root);
-        (new ReflectionMethod($app, 'kernel'))->invoke($app);
+        $kernel = (new ReflectionMethod($app, 'kernel'))->invoke($app);
     } catch (Throwable $e) {
         fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => false, 'error' => $e::class . ': ' . $e->getMessage()], \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE) . "\n");
         exit(1);
     }
-    fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => true]) . "\n");
+    // WHAT EACH PLUGIN MOUNTED, so the boot check can name one that mounted fewer routes without its secret than
+    // the house mounts with it (greenhouse evidence/1180 §4.1). Best-effort and additive: a house that booted
+    // booted, whatever this reads — a plugin whose `routes()` throws does not turn a boot into a non-boot.
+    $routesByPlugin = null;
+    try {
+        $routesByPlugin = Milpa\AppRuntime\Agent\HouseRouteObserver::routesByPluginOf($kernel);
+    } catch (Throwable) {
+    }
+    fwrite(\STDOUT, HOUSE_OBSERVE_MARK . json_encode(['ok' => true] + ($routesByPlugin !== null ? ['routes_by_plugin' => $routesByPlugin] : []), \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE) . "\n");
     exit(0);
 }
 
