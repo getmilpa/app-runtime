@@ -388,7 +388,7 @@ final class GoOnFixtureOperations extends AgentOperations
         $this->ceilings[] = $pasos;
 
         return $window > 0
-            ? new AgentOrchestrator($this->model, $this->tools, $pasos, contextTokens: $window, outputTokens: intdiv($window, 4))
-            : new AgentOrchestrator($this->model, $this->tools, $pasos);
+            ? new AgentOrchestrator($this->model, $this->tools, $pasos, progressProbe: $sonda, contextTokens: $window, outputTokens: intdiv($window, 4))
+            : new AgentOrchestrator($this->model, $this->tools, $pasos, progressProbe: $sonda);
     }
 }
