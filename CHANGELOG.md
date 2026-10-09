@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.216.0](https://github.com/getmilpa/app-runtime/compare/v0.215.0...v0.216.0) (2026-10-09)
+
+
+### Features
+
+* the model's own output is redacted too (answer + recorded stream) ([#771](https://github.com/getmilpa/app-runtime/issues/771)) ([877906f](https://github.com/getmilpa/app-runtime/commit/877906f41ab5789d4c8c14be913959f83169c9a8))
+
 ## [0.215.0](https://github.com/getmilpa/app-runtime/compare/v0.214.0...v0.215.0) (2026-10-09)
 
 
