@@ -112,6 +112,18 @@ use Milpa\EventStore\Event;
  * way a routed one is: by who wrote what each promotion landed, read from the receipts alone. When the goal writes a
  * route, only that route closes it. And the observation says what the house did NOT do: `exercised: "unjudged"` — it
  * read the declarations and called nothing.
+ *
+ * ── WHAT THE HOUSE SAW WHEN IT RAN IT IS READ HERE TOO (greenhouse decisions/0605, R1) ──────────
+ *
+ * Measured on twenty houses (evidence/1166): one of the six closed that way holds three operations that call a method
+ * that does not exist. So at the natural end of a leg the house runs the capability it is about to close on, in a
+ * trial that is discarded ({@see CapabilityExercise}), and leaves a receipt in this stream, bound to the declaration
+ * it ran. Read here, as everything is: `exercised: "ran"`, with its counts and `behavior: "unjudged"` — it ran, and
+ * whether it does what was asked nobody judged; or it THREW, and then the capability is not whole, the reason names
+ * the operation, the class and the first line, and nothing else closes the session. Nothing is run from here, so
+ * between steps a capability still reads `unjudged` until its end — and what already threw stands there, so the next
+ * leg's epilogue does not open over it. A receipt speaks of the house it ran on: any change that lands after it takes
+ * it back, whatever it said — and what is declared then is run when the house is about to close on it.
  */
 final class HouseObservedClosure
 {
@@ -129,7 +141,7 @@ final class HouseObservedClosure
      *                                                                      ({@see StandingAsk::explicitRoutes()}): for the reason, and
      *                                                                      so a receipt served elsewhere is not taken for one of them
      *
-     * @return array{derived: bool, reason: ?string, observation: ?array{subject: string, seq: int, content?: array<string, mixed>|string, surface?: array<string, mixed>, capability?: array{operations: int, exercised: string}}, lastChangeSeq: ?int, landed: list<int>, unlisted: list<string>, standing: list<string>}
+     * @return array{derived: bool, reason: ?string, observation: ?array{subject: string, seq: int, content?: array<string, mixed>|string, surface?: array<string, mixed>, capability?: array{operations: int, exercised: string, calls?: int, answered?: int, refused?: int, behavior?: 'unjudged', why?: string}}, lastChangeSeq: ?int, landed: list<int>, unlisted: list<string>, standing: list<string>}
      */
     public static function of(array $stream, SessionFacts $facts, ?\Closure $named = null, ?\Closure $lasting = null, array $written = []): array
     {
@@ -162,7 +174,19 @@ final class HouseObservedClosure
         // capability stale — and it does make that of a page, which lists that data.
         $work = HouseExecutedWork::calls($stream);
         $lastWork = null;
+        // capability => the seq of the declaration the house last saw of it WHOLE, and what it found when it ran that
+        // declaration (decisions/0605). A receipt is taken only for the declaration that stood when it was left; it
+        // then speaks of the HOUSE it ran on, until a change lands.
+        $whole = [];
+        $exercises = [];
         foreach ($stream as $event) {
+            if ($event->type === CapabilityExercise::EVENT) {
+                $ran = $event->payload['subject'] ?? null;
+                if (\is_string($ran) && isset($whole[$ran]) && ($event->payload['observation'] ?? null) === $whole[$ran]) {
+                    $exercises[$ran] = $event->payload;
+                }
+                continue;
+            }
             if ($event->type !== SessionEvent::ToolCalled->value) {
                 continue;
             }
@@ -185,6 +209,10 @@ final class HouseObservedClosure
                 && $environment !== 'trial' && !$rehearsed && self::lasts($payload, $readable ? $result : null, $lasting)) {
                 $lastChange = $event->seq;
                 $landed[] = $event->seq;
+                // WHAT THE HOUSE RAN, IT RAN ON THE HOUSE AS IT WAS (greenhouse decisions/0605). A repair — or a break —
+                // can land outside what the capability declares: a shared class, its entity, a service. So any change
+                // takes the receipt back, and the capability is again what its last declaration said.
+                $exercises = [];
                 $writers = self::writersOf($payload, $result, $evidence, $trials);
                 $scaffolds = self::afterLanding($scaffolds, $writers);
                 $unfilled = self::operationScaffoldsAfter($unfilled, $writers);
@@ -294,12 +322,38 @@ final class HouseObservedClosure
                 }
                 $why = self::notWhole($entry, $unfilled, $event->seq);
                 $unlisted['capability:' . $entry['subject']] = $why;
+                // Seen again with nothing landed since — a promotion that wrote nothing — it is the house that was run:
+                // the receipt stands. Seen no longer whole, there is nothing it speaks of.
+                unset($whole[$entry['subject']]);
+                if ($why !== null) {
+                    unset($exercises[$entry['subject']]);
+                }
                 if ($why === null) {
+                    $whole[$entry['subject']] = $event->seq;
                     $declared = ['subject' => $entry['subject'], 'seq' => $event->seq,
                         'capability' => ['operations' => \count(\is_array($entry['operations'] ?? null) ? $entry['operations'] : []), 'exercised' => 'unjudged']];
                 }
             }
             $observation = $served ?? $declared ?? $observation;
+        }
+
+        // WHAT THREW IS NOT WHOLE (greenhouse decisions/0605), whatever else answers — and it is said in every form the
+        // verdict takes, as a scaffold left standing is.
+        foreach ($exercises as $subject => $receipt) {
+            if (($receipt['exercised'] ?? null) === 'threw' && isset($whole[$subject])) {
+                $unlisted['capability:' . $subject] = CapabilityExercise::whyNotWhole($receipt);
+            }
+        }
+        // WHAT THE HOUSE FOUND WHEN IT RAN THE CAPABILITY IT CLOSES ON: it ran, with its counts — never «correct»; or the
+        // house tried and says what stopped it.
+        $ran = isset($observation['capability']) ? ($exercises[$observation['subject']] ?? null) : null;
+        if ($ran !== null && isset($whole[$observation['subject']])) {
+            $count = static fn (string $key): int => \is_int($ran[$key] ?? null) ? $ran[$key] : 0;
+            $observation['capability'] = ['operations' => $observation['capability']['operations']] + match ($ran['exercised'] ?? null) {
+                'ran' => ['exercised' => 'ran', 'calls' => $count('calls'), 'answered' => $count('answered'), 'refused' => $count('refused'), 'behavior' => 'unjudged'],
+                'threw' => ['exercised' => 'threw'],
+                default => ['exercised' => 'unjudged'] + (\is_string($ran['why'] ?? null) ? ['why' => $ran['why']] : []),
+            };
         }
 
         // A route the house answered with a server error, or with nothing, is not served — and one it served

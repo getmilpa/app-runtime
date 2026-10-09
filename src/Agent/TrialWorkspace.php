@@ -64,8 +64,28 @@ final class TrialWorkspace
      */
     public static function materialize(string $root, string $id, string $runnerPath): self
     {
+        return self::copyUnder(self::baseDir($root, $id), $root, $id, $runnerPath);
+    }
+
+    /**
+     * The copy the house makes to EXERCISE a capability it is about to close on (greenhouse decisions/0605, R1).
+     *
+     * The same copy a trial is — the app without its state, without a file that holds a secret, the runner in place —
+     * kept APART: under `var/exercises/`, never `var/trials/`. Nothing that lists, opens, promotes or sweeps a trial
+     * ({@see ids()}, {@see open()}, {@see promotedPaths()}, {@see capUndecided()}) can reach it, not even while it
+     * runs: it is not a proposal, and nobody is offered it. Whoever makes it discards it ({@see discard()}).
+     *
+     * @throws \InvalidArgumentException if the id could escape its directory
+     * @throws \RuntimeException         if the copy cannot be made
+     */
+    public static function forExercise(string $root, string $id, string $runnerPath): self
+    {
+        return self::copyUnder(rtrim($root, '/') . '/var/exercises/' . $id, $root, $id, $runnerPath);
+    }
+
+    private static function copyUnder(string $base, string $root, string $id, string $runnerPath): self
+    {
         self::guardId($id);
-        $base = self::baseDir($root, $id);
         $copy = $base . '/copy';
         if (is_dir($base)) {
             self::rmrf($base);
@@ -232,7 +252,7 @@ final class TrialWorkspace
      */
     public function manifest(): array
     {
-        $raw = @file_get_contents(self::baseDir($this->root, $this->id) . '/manifest.json');
+        $raw = @file_get_contents($this->baseDirectory() . '/manifest.json');
         $decoded = \is_string($raw) ? json_decode($raw, true) : null;
 
         if (!\is_array($decoded)) {
@@ -249,16 +269,16 @@ final class TrialWorkspace
         return $out;
     }
 
-    /** The trial's own directory, where a promotion keeps its pre-image. */
+    /** The trial's own directory, where a promotion keeps its pre-image: the one its copy lives in. */
     public function baseDirectory(): string
     {
-        return self::baseDir($this->root, $this->id);
+        return \dirname($this->copy);
     }
 
     /** Erase this trial entirely. */
     public function discard(): void
     {
-        self::rmrf(self::baseDir($this->root, $this->id));
+        self::rmrf($this->baseDirectory());
     }
 
     /**
