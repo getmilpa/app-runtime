@@ -58,6 +58,14 @@ switch ($operation) {
         }
         echo json_encode(['ok' => true]), "\n";
         exit(0);
+    case 'stub:throws-a-secret':
+        // What a session's code can put in a message: a value the house keeps as a secret.
+        $thrown('RuntimeException', false, 'could not reach https://api.test with the key sk-fixture-secret-0605, twice');
+        // no break
+    case 'stub:throws-its-own-path':
+        // And where it ran: the copy, whose path is the house's machinery and not the session's.
+        $thrown('RuntimeException', false, 'cannot open ' . __DIR__ . '/var/accounts.json for writing');
+        // no break
     case 'stub:dies':
         // A fatal that is no Throwable: the process ends and the runner never prints its answer.
         fwrite(\STDERR, "PHP Fatal error:  Cannot redeclare App\\Plugins\\Ledger\\helper() in /app/src/Plugins/Ledger/helpers.php on line 9\n");

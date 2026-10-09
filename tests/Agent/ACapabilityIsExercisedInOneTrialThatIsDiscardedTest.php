@@ -98,6 +98,33 @@ final class ACapabilityIsExercisedInOneTrialThatIsDiscardedTest extends TestCase
         );
     }
 
+    /**
+     * The first line of what was thrown is text the session's own code wrote, and it goes back to the session: it is
+     * kept the way the result of any tool is — no value the house holds as a secret — before it is written anywhere.
+     */
+    public function testWhatWasThrownIsKeptLikeTheResultOfAnyTool(): void
+    {
+        $root = $this->root();
+        mkdir($root . '/.milpa', 0o700, true);
+        file_put_contents($root . '/.milpa/secrets.json', '{"agent":{"apiKey":"sk-fixture-secret-0605"}}');
+
+        $exercise = $this->exercise($root, ['stub:throws-a-secret']);
+
+        self::assertSame('could not reach https://api.test with the key [secret], twice', $exercise['thrown'][0]['line']);
+        self::assertStringNotContainsString('sk-fixture-secret-0605', (string) json_encode($exercise), 'nowhere in what the house records');
+    }
+
+    /** Where it ran is the house's machinery: a path inside the copy is said as the path it is in the house. */
+    public function testAPathOfTheCopyIsSaidAsAPathOfTheHouse(): void
+    {
+        $root = $this->root();
+
+        $exercise = $this->exercise($root, ['stub:throws-its-own-path']);
+
+        self::assertSame('cannot open var/accounts.json for writing', $exercise['thrown'][0]['line']);
+        self::assertStringNotContainsString('exercises', (string) json_encode($exercise));
+    }
+
     public function testAProcessThatEndsWithoutAnAnswerThrewToo(): void
     {
         $exercise = $this->exercise($this->root(), ['stub:dies', 'stub:exits-quietly']);

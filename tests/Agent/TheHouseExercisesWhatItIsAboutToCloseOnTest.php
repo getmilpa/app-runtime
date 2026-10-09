@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Agent;
 
 use Milpa\Agent\AutonomyMode;
+use Milpa\Agent\Evidence;
 use Milpa\Agent\SessionStore;
 use Milpa\Agent\Todo;
 use Milpa\Agent\TodoStatus;
@@ -229,6 +230,35 @@ final class TheHouseExercisesWhatItIsAboutToCloseOnTest extends TestCase
 
         self::assertSame([], $this->asked);
         self::assertSame([], $this->receipts());
+    }
+
+    /**
+     * Said in EVERY form the verdict takes. A session that planned with todos and closed them is judged by its own
+     * record when the house does not derive its closure — and what the house saw is said there too, first. Without
+     * that, closing the todos would make what threw vanish.
+     */
+    public function testWithTodosClosedWhatThrewIsStillSaidAndSaidFirst(): void
+    {
+        $this->store->setTodo('s', new Todo('t1', 'Build Ledger', TodoStatus::Pending));
+        $seq = $this->built();
+        $this->store->completeTodo('s', 't1', Evidence::operationOk('e1', 'sandbox_promote'));
+        self::assertTrue($this->verdict()['verified'], 'the control: with its todo closed and the capability whole, it would close');
+
+        $closure = $this->atTheEnd($this->threw([['operation' => 'ledger:open', 'class' => 'Error', 'kind' => 'engine', 'line' => self::UNDEFINED, 'pass' => 1]]));
+
+        self::assertFalse($closure['verified']);
+        self::assertStringStartsWith("the house ran «Ledger» in a trial before closing on it (seq {$seq}) and 1 of its 2 operations threw", $closure['reasons'][0]);
+        self::assertCount(1, $this->seen($closure));
+
+        // A landing in that same session takes it back in this form too — and here the house then says nothing of
+        // itself: a session with todos whose house observation does not stand is judged by its own record alone
+        // (decisions/0509 §3). HERE that record does not close it: what it wrote in trials has no verification of its
+        // own. A session whose every class had one would close on its record, with what threw taken back by a
+        // landing that repaired nothing — not built against, and said so (greenhouse evidence/1171 §8).
+        $this->landElsewhere();
+        $after = $this->verdict();
+        self::assertSame([], $this->seen($after));
+        self::assertFalse($after['verified']);
     }
 
     public function testADeclarationIsExercisedOnce(): void
