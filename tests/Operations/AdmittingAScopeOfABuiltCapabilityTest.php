@@ -223,7 +223,8 @@ final class AdmittingAScopeOfABuiltCapabilityTest extends TestCase
         self::assertCount(1, $turns);
         $told = (string) $turns[0]->payload['content'];
         self::assertStringStartsWith(SeatFrontier::NOTICE_PREFIX, $told);
-        self::assertStringContainsString('key:' . self::HUMAN . ' admitted «herramientas:write» of the capability «Prestamos» for this seat', $told);
+        self::assertStringStartsWith('[house] key:' . substr(self::HUMAN, 0, 8) . '… admitted «herramientas:write» of the capability «Prestamos» for this seat', $told);
+        self::assertStringNotContainsString(self::HUMAN, $told, 'the whole fingerprint does not travel to a model (greenhouse decisions/0609)');
         self::assertStringContainsString('herramientas.agregar, herramientas.devolver, herramientas.prestar', $told);
         self::assertStringContainsString('#' . $write . ' (herramientas_agregar)', $told);
         $facts = array_values(array_filter($sessions->stream(self::SESSION), static fn ($e): bool => $e->type === GrantedCall::GRANTED));

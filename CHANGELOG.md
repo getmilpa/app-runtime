@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.217.0](https://github.com/getmilpa/app-runtime/compare/v0.216.1...v0.217.0) (2026-10-09)
+
+
+### Features
+
+* a person's session is told whose decision it is, and a model is not handed a whole credential (greenhouse decisions/0609) ([#775](https://github.com/getmilpa/app-runtime/issues/775)) ([561d7a9](https://github.com/getmilpa/app-runtime/commit/561d7a982f34fbe2f110822deca81b40ca2ef23c))
+
 ## [0.216.1](https://github.com/getmilpa/app-runtime/compare/v0.216.0...v0.216.1) (2026-10-09)
 
 
