@@ -116,6 +116,21 @@ final class SecretRedaction
     }
 
     /**
+     * The length of the longest value the house keeps as a secret, or 0 when it keeps none. A redactor that
+     * reads a stream in pieces holds back this many characters (less one) at the tail, so a value split across
+     * two consecutive pieces is caught whole before any of it is let out ({@see StreamingSecretRedaction}).
+     */
+    public static function maxValueLength(?string $root): int
+    {
+        $longest = 0;
+        foreach (self::values($root) as $value) {
+            $longest = max($longest, \strlen($value));
+        }
+
+        return $longest;
+    }
+
+    /**
      * The overlay file is present but is not readable JSON: the house holds secrets we cannot enumerate.
      * A missing file is not this — it is the ordinary «no secrets» case, which {@see values()} answers [].
      */
