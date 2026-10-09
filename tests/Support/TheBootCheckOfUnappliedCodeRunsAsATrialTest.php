@@ -96,12 +96,14 @@ return $loader;
         self::assertTrue($check['confined']);
         self::assertStringContainsString('confined', $check['room']);
         self::assertStringContainsString('keyring masked', $check['room']);
-        $argv = $this->recorded();
-        self::assertStringContainsString('--unshare-net', $argv, 'the confined boot has no network');
-        self::assertStringContainsString('--ro-bind / /', $argv, 'the confined boot runs under a read-only root');
-        self::assertStringContainsString('--ro-bind /dev/null ' . $this->root . '/.milpa/secrets.json', $argv, 'the envelope is masked');
-        self::assertStringContainsString('--tmpfs ' . $home . '/.gnupg', $argv, 'the keyring the house signs with is masked (evidence/1178)');
-        self::assertStringContainsString('--bind ' . $this->root . '/var/boot-candidates/', $argv, 'the candidate is bound so its own var/ can be written while it boots');
+        // The BOOT command itself (the recorded line that binds the candidate), NOT the namespace probe — the probe
+        // always carries --unshare-net, so asserting on the whole log would miss a boot that dropped the network.
+        $boot = $this->bootCommandLine();
+        self::assertStringContainsString('--bind ' . $this->root . '/var/boot-candidates/', $boot, 'the candidate is bound so its own var/ can be written while it boots');
+        self::assertStringContainsString('--unshare-net', $boot, 'the confined boot has no network');
+        self::assertStringContainsString('--ro-bind / /', $boot, 'the confined boot runs under a read-only root');
+        self::assertStringContainsString('--ro-bind /dev/null ' . $this->root . '/.milpa/secrets.json', $boot, 'the envelope is masked');
+        self::assertStringContainsString('--tmpfs ' . $home . '/.gnupg', $boot, 'the keyring the house signs with is masked (evidence/1178)');
     }
 
     public function testItNamesAPluginThatMountedFewerRoutesWithoutItsSecretAndANewPlugin(): void
@@ -200,9 +202,16 @@ final class ' . $name . ' implements \Milpa\Interfaces\Plugin\PluginInterface, \
         return $path;
     }
 
-    private function recorded(): string
+    /** The recorded bwrap invocation that booted the candidate — the one that binds it, not the namespace probe. */
+    private function bootCommandLine(): string
     {
-        return (string) @file_get_contents($this->root . '/bwrap-argv.txt');
+        foreach (explode("\n", (string) @file_get_contents($this->root . '/bwrap-argv.txt')) as $line) {
+            if (str_contains($line, '--bind ' . $this->root . '/var/boot-candidates/')) {
+                return $line;
+            }
+        }
+
+        return '';
     }
 
     private function setEnv(string $name, string|false $value): void
