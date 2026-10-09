@@ -147,6 +147,37 @@ final class ALegThatEndsRunsTheCapabilityItIsAboutToCloseOnTest extends TestCase
     }
 
     /**
+     * THE NATURAL END IS THE ANSWER, NOT THE STOP. A leg that runs out of steps — or of window, or is refused, or
+     * stalls — did not end: whoever continues it, a person or the house itself, has not heard the session say it is
+     * done. Such a leg runs nothing and records no verdict, though the same stream would close. The leg that continues
+     * it and ends on its answer is the one that runs the capability and closes.
+     */
+    public function testALegThatStopsWithoutItsAnswerRunsNothingAndTheOneThatContinuesItDoes(): void
+    {
+        $this->declared(ExercisedTaller::RUNS);
+        $stream = $this->sessions->stream(self::SESSION);
+        $session = $this->sessions->load(self::SESSION);
+        self::assertNotNull($session);
+        self::assertTrue(ClosureVerdict::derive($session, $this->sessions->facts(self::SESSION), $stream)['verified'], 'the control: this stream would close');
+
+        $stopped = $this->leg(['prompt' => 'Build it', 'session' => self::SESSION], stepsBeforeItStops: 1);
+
+        self::assertSame('steps_exhausted', $stopped['termination']['reason']);
+        self::assertArrayNotHasKey('closure', $stopped);
+        self::assertSame([], $this->ofType(CapabilityExercise::EVENT), 'nothing was run');
+        self::assertSame([], $this->ofType(ClosureVerdict::EVENT), 'and no verdict was recorded');
+        self::assertDirectoryDoesNotExist($this->root . '/var/exercises');
+
+        $continued = $this->leg(['prompt' => 'continue', 'session' => self::SESSION]);
+
+        self::assertSame('final_answer', $continued['termination']['reason']);
+        self::assertTrue($continued['closure']['verified'] ?? false, implode('; ', $continued['closure']['reasons'] ?? []));
+        self::assertSame('ran', $continued['closure']['derivedFrom']['observation']['capability']['exercised']);
+        self::assertCount(1, $this->ofType(CapabilityExercise::EVENT));
+        self::assertCount(1, $this->ofType(ClosureVerdict::EVENT));
+    }
+
+    /**
      * The door of a closed session reads; it never runs. A session a house closed before it ran anything — recorded
      * `verified` with no receipt — is answered as closed when a leg asks nothing new of it. The next leg that really
      * ends is the one that runs it.
@@ -186,45 +217,38 @@ final class ALegThatEndsRunsTheCapabilityItIsAboutToCloseOnTest extends TestCase
     }
 
     /**
-     * The last promotion of the session, as the house records it: what landed, and what the capability built there
-     * declares. Its seq.
+     * The last promotion of the session, as the house records it. Its seq.
      *
      * @param list<string> $operations
      */
     private function declared(array $operations): int
     {
-        $this->sessions->recordToolCall(self::SESSION, 'implement', ['plugin' => 'Taller', 'class' => 'Taller'], (string) json_encode([
-            'ran_in_trial' => true, 'applied' => false, 'workspace' => 'w1', 'changed' => ['src/Plugins/Taller/Taller.php' => 'modified'], 'output' => ['ok' => true],
-        ]), mutating: true);
-
-        return $this->sessions->recordToolCall(self::SESSION, 'sandbox_promote', ['workspace' => 'w1'], (string) json_encode([
-            'ok' => true,
-            'promoted' => ['src/Plugins/Taller/Taller.php'],
-            'evidence' => ['predicate' => 'promoted', 'subject' => 'w1', 'environment' => ['kind' => 'house'], 'from' => ['kind' => 'trial', 'workspace' => 'w1'], 'paths' => ['src/Plugins/Taller/Taller.php']],
-            'capabilities' => [['predicate' => 'declared', 'subject' => 'Taller', 'environment' => ['kind' => 'house'], 'operations' => array_map(
-                static fn (string $name): array => ['name' => $name, 'file' => 'src/Plugins/Taller/Taller.php', 'mutating' => false, 'effects' => true, 'scoped' => true],
-                $operations,
-            )]],
-        ]), mutating: true);
+        return ExercisedTaller::promoted($this->sessions, self::SESSION, $operations);
     }
 
     /**
+     * One leg. Its model gives its final answer at once — or, with `$stepsBeforeItStops`, keeps calling a tool that
+     * changes nothing until the leg runs out of that many steps.
+     *
      * @param array<string, mixed> $input
      *
      * @return array<string, mixed>
      */
-    private function leg(array $input): array
+    private function leg(array $input, ?int $stepsBeforeItStops = null): array
     {
         $llm = $this->createMock(LlmService::class);
-        $llm->method('generateResponse')->willReturnCallback(function (): array {
+        $llm->method('generateResponse')->willReturnCallback(function () use ($stepsBeforeItStops): array {
             ++$this->modelCalls;
 
-            return ['role' => 'assistant', 'content' => 'The capability is built.'];
+            return $stepsBeforeItStops === null
+                ? ['role' => 'assistant', 'content' => 'The capability is built.']
+                : ['role' => 'assistant', 'content' => '', 'tool_calls' => [['id' => 'again', 'function' => ['name' => 'read', 'arguments' => '{}']]]];
         });
         $tools = $this->createMock(GatedToolCalls::class);
         $tools->method('getToolSummaries')->willReturn([['name' => 'read', 'description' => 'Read', 'inputSchema' => ['type' => 'object']]]);
+        $tools->method('callTool')->willReturn('Recorded result');
         $ops = new ExerciseFixtureOperations($this->container);
-        $ops->loop = new AgentOrchestrator($llm, $tools);
+        $ops->loop = $stepsBeforeItStops === null ? new AgentOrchestrator($llm, $tools) : new AgentOrchestrator($llm, $tools, maxSteps: $stepsBeforeItStops);
 
         $previous = getenv('OPENAI_API_KEY');
         putenv('OPENAI_API_KEY=fixture-key');

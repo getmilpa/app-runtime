@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tests\Fixtures;
 
+use Milpa\Agent\SessionStore;
 use Milpa\AppRuntime\Tests\Console\ASeatSignsForABuiltVerbOnTheTerminalTest;
 
 /**
@@ -25,6 +26,29 @@ final class ExercisedTaller
 {
     /** The operations that answer or refuse: a capability made of these ran. */
     public const RUNS = ['taller:lista', 'taller:alta', 'taller:niega', 'taller:dar_de_baja', 'taller:cuenta'];
+
+    /**
+     * The promotion that declared the capability, as the house records it in a session's stream: what landed, and what
+     * the capability built there declares — whole. Its seq. A session whose goal names «Taller» is about to close on it.
+     *
+     * @param list<string> $operations the operations the promotion says it declares, by name
+     */
+    public static function promoted(SessionStore $sessions, string $session, array $operations): int
+    {
+        $sessions->recordToolCall($session, 'implement', ['plugin' => 'Taller', 'class' => 'Taller'], (string) json_encode([
+            'ran_in_trial' => true, 'applied' => false, 'workspace' => 'w1', 'changed' => ['src/Plugins/Taller/Taller.php' => 'modified'], 'output' => ['ok' => true],
+        ]), mutating: true);
+
+        return $sessions->recordToolCall($session, 'sandbox_promote', ['workspace' => 'w1'], (string) json_encode([
+            'ok' => true,
+            'promoted' => ['src/Plugins/Taller/Taller.php'],
+            'evidence' => ['predicate' => 'promoted', 'subject' => 'w1', 'environment' => ['kind' => 'house'], 'from' => ['kind' => 'trial', 'workspace' => 'w1'], 'paths' => ['src/Plugins/Taller/Taller.php']],
+            'capabilities' => [['predicate' => 'declared', 'subject' => 'Taller', 'environment' => ['kind' => 'house'], 'operations' => array_map(
+                static fn (string $name): array => ['name' => $name, 'file' => 'src/Plugins/Taller/Taller.php', 'mutating' => false, 'effects' => true, 'scoped' => true],
+                $operations,
+            )]],
+        ]), mutating: true);
+    }
 
     /** Build it under a root that does not exist yet. */
     public static function in(string $root): void
