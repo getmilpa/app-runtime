@@ -251,6 +251,35 @@ final class ARehearsalIsNoWorkAndLeavesNothingTest extends TestCase
         self::assertFalse(ClosureVerdict::derive($session, $sessions->facts('bv'), $stream)['verified'], 'and nothing closes on it');
     }
 
+    /**
+     * WHAT A REHEARSAL DOES NOT SETTLE. A call of a verb that changes state, refused for lack of an admission, is a
+     * call the closure waits on a person for (greenhouse decisions/0587, 0590) — rehearsed or not. That it was
+     * rehearsed lifts nothing: only a person's grant does. So the builder's leg goes on, and its session does not
+     * close until a person admits that call. A refused call of a verb that changes nothing was never waited on.
+     *
+     * It states what the house does today with this fact in the stream; it is no property of the rehearsal's code.
+     */
+    public function testARehearsedRefusalOfAVerbThatChangesStateStillWaitsOnAPerson(): void
+    {
+        $refusal = '«herramientas.prestar» is a verb of the capability «Prestamos», built in this house, and no person has admitted it for this seat: it is admitted under \'herramientas:write\' of «Prestamos».';
+        $built = static fn (string $operation, ?string $principal): ?bool => false;
+        $rehearsed = function (bool $mutating) use ($refusal): array {
+            $events = new InMemoryEventStore();
+            $sessions = new SessionStore($events);
+            $sessions->start('bv', 'Build a plugin named Prestamos.', AutonomyMode::Auto);
+            $sessions->recordToolCall('bv', 'herramientas_prestar', [], $refusal, false, mutating: $mutating);
+            $stream = $sessions->stream('bv');
+            OwnVerbRehearsal::record($events, 'bv', $this->verb('herramientas.prestar'), end($stream)->seq, ['output' => ['ok' => true], 'exit' => 0, 'bounds' => TrialWorkspace::BOUNDS]);
+
+            return [$sessions->stream('bv'), end($stream)->seq];
+        };
+
+        [$stream, $seq] = $rehearsed(true);
+        self::assertSame(OwnVerbRehearsal::EVENT, end($stream)->type);
+        self::assertSame(["a call of «herramientas_prestar» was refused for lack of an admission, and nobody has admitted it (seq {$seq})"], HouseExecutedWork::of($stream, $built)['reasons']);
+        self::assertSame([], HouseExecutedWork::of($rehearsed(false)[0], $built)['reasons']);
+    }
+
     private function verb(string $operation): BuiltVerb
     {
         return new BuiltVerb('Prestamos', new Operation(name: $operation, description: "What {$operation} does.", handler: static fn (array $input): array => ['ok' => true]));
