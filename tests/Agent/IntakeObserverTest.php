@@ -97,6 +97,65 @@ final class IntakeObserverTest extends TestCase
         self::assertSame('The user asked for the plugins; I will call plugins_list.', $payload['reasoning']);
     }
 
+    public function testTheReasoningIsRedactedBeforeItReachesTheStream(): void
+    {
+        // greenhouse decisions/0608: the model's output is redacted too. A secret in the reasoning the stream
+        // keeps is taken out by the same exact-value set as a tool result (0589).
+        $root = sys_get_temp_dir() . '/milpa-intake-redact-' . bin2hex(random_bytes(4));
+        @mkdir($root . '/.milpa', 0o700, true);
+        file_put_contents($root . '/.milpa/secrets.json', json_encode(['agent' => ['apiKey' => 'canary-intake-7f3a9c2e1b8d']]));
+        $eventos = new InMemoryEventStore();
+        $almacen = new SessionStore($eventos);
+        $almacen->start('s1', 'x');
+
+        (new IntakeObserver($almacen, 's1', null, $root))->observeReasoning(
+            'https://llama.local/v1/chat/completions',
+            'the key is canary-intake-7f3a9c2e1b8d and I will use it',
+        );
+
+        $payload = null;
+        foreach ($eventos->replay(SessionStore::PREFIX . 's1') as $event) {
+            if ($event->type === 'session.model_reasoned') {
+                $payload = $event->payload;
+            }
+        }
+        @unlink($root . '/.milpa/secrets.json');
+        @rmdir($root . '/.milpa');
+        @rmdir($root);
+
+        self::assertNotNull($payload);
+        self::assertStringNotContainsString('canary-intake-7f3a9c2e1b8d', $payload['reasoning'], 'the secret must not survive in the recorded reasoning');
+        self::assertStringContainsString('[secret]', $payload['reasoning']);
+    }
+
+    public function testTheModelReturnIsRedactedBeforeItReachesTheStream(): void
+    {
+        $root = sys_get_temp_dir() . '/milpa-intake-redact-' . bin2hex(random_bytes(4));
+        @mkdir($root . '/.milpa', 0o700, true);
+        file_put_contents($root . '/.milpa/secrets.json', json_encode(['agent' => ['apiKey' => 'canary-intake-7f3a9c2e1b8d']]));
+        $eventos = new InMemoryEventStore();
+        $almacen = new SessionStore($eventos);
+        $almacen->start('s1', 'x');
+
+        (new IntakeObserver($almacen, 's1', null, $root))->observeReturn('https://llama.local/v1/chat/completions', [
+            'model' => 'qwen3-coder:30b',
+            'content' => 'here it is: canary-intake-7f3a9c2e1b8d',
+        ]);
+
+        $payload = null;
+        foreach ($eventos->replay(SessionStore::PREFIX . 's1') as $event) {
+            if ($event->type === 'session.model_returned') {
+                $payload = $event->payload;
+            }
+        }
+        @unlink($root . '/.milpa/secrets.json');
+        @rmdir($root . '/.milpa');
+        @rmdir($root);
+
+        self::assertNotNull($payload);
+        self::assertStringNotContainsString('canary-intake-7f3a9c2e1b8d', (string) json_encode($payload), 'the secret must not survive in the recorded return');
+    }
+
     public function testTheDeclaredWindowReachesTheStreamWithoutEnteringTheProviderPayload(): void
     {
         $events = new InMemoryEventStore();

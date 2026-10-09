@@ -68,14 +68,18 @@ final class StreamingSecretRedaction
     }
 
     /**
-     * The stream has ended: let out the held-back tail, redacted. After this the redactor has emitted the whole
-     * stream, each secret value masked whether it fell inside a piece or across two of them.
+     * A block of the stream has ended (the model turned from thinking to answering): let out the held-back tail,
+     * redacted, and RESET. A reasoning block is one window — a value never spans the turn from thinking to content —
+     * so the next block starts empty. Resetting is what keeps this O(block), not O(leg): without it a long leg's
+     * every push would re-redact all of its accumulated reasoning, and the memory would never be let go
+     * (greenhouse decisions/0608, measured in evidence/1174).
      */
     public function flush(): string
     {
         $redacted = SecretRedaction::inText($this->raw, $this->root);
         $out = substr($redacted, $this->emitted);
-        $this->emitted = \strlen($redacted);
+        $this->raw = '';
+        $this->emitted = 0;
 
         return $out;
     }
