@@ -53,12 +53,16 @@ final class TheHouseExercisesWhatItIsAboutToCloseOnTest extends TestCase
     /** @var list<string> the capabilities the house was asked to exercise, in order */
     private array $asked = [];
 
+    /** Whether each writer of this house says its own verification of what it wrote ({@see built()}). */
+    private bool $verified = false;
+
     protected function setUp(): void
     {
         $this->events = new InMemoryEventStore();
         $this->store = new SessionStore($this->events);
         $this->store->start('s', self::GOAL, AutonomyMode::Auto);
         $this->asked = [];
+        $this->verified = false;
     }
 
     public function testBeforeItClosesTheHouseRunsWhatItSawDeclaredWhole(): void
@@ -133,8 +137,12 @@ final class TheHouseExercisesWhatItIsAboutToCloseOnTest extends TestCase
 
         $seq = $this->fill('OpenAccount', self::OPEN, $this->both());
 
+        // The receipt no longer speaks of this house; what the house owes is its look. Between steps nothing runs, so
+        // the epilogue does not open over a capability it last saw throw (decided by Rod, 2026-10-09).
         $between = $this->betweenSteps();
-        self::assertTrue($between['verified'], implode('; ', $between['reasons']));
+        self::assertFalse($between['verified']);
+        self::assertCount(1, $between['reasons']);
+        self::assertStringStartsWith('the house ran «Ledger» and 1 of its 2 operations threw', $between['reasons'][0]);
         self::assertSame('unjudged', $between['derivedFrom']['observation']['capability']['exercised'], 'the repaired declaration has not been run yet');
 
         $closure = $this->atTheEnd($this->ran());
@@ -156,9 +164,17 @@ final class TheHouseExercisesWhatItIsAboutToCloseOnTest extends TestCase
 
         $elsewhere = $this->landElsewhere();
 
+        $threwAt = $this->receiptSeq();
         $after = $this->verdict();
         self::assertFalse($after['verified']);
-        self::assertSame(["the house changed at seq {$elsewhere} after its last observation (seq {$seq})"], $this->seen($after), 'what threw is no longer said of a house that is not the one that was run');
+        // What threw is no longer said of a house that is not the one that was run — the receipt is taken back. What
+        // IS said, and first, is what the house owes: it last saw it throw, and has not looked again (decided by Rod,
+        // 2026-10-09).
+        self::assertSame([
+            "the house ran «Ledger» and 1 of its 2 operations threw (seq {$threwAt}); a change landed after that (seq {$elsewhere}) and the house has not run it since: it does not close on what it last saw throw",
+            "the house changed at seq {$elsewhere} after its last observation (seq {$seq})",
+        ], $this->seen($after));
+        self::assertSame([], $this->verdict()['derivedFrom'] ?? [], 'and the house derives nothing from it');
 
         $this->setUp();
         $seq = $this->built();
@@ -250,15 +266,230 @@ final class TheHouseExercisesWhatItIsAboutToCloseOnTest extends TestCase
         self::assertStringStartsWith("the house ran «Ledger» in a trial before closing on it (seq {$seq}) and 1 of its 2 operations threw", $closure['reasons'][0]);
         self::assertCount(1, $this->seen($closure));
 
-        // A landing in that same session takes it back in this form too — and here the house then says nothing of
-        // itself: a session with todos whose house observation does not stand is judged by its own record alone
-        // (decisions/0509 §3). HERE that record does not close it: what it wrote in trials has no verification of its
-        // own. A session whose every class had one would close on its record, with what threw taken back by a
-        // landing that repaired nothing — not built against, and said so (greenhouse evidence/1171 §8).
+        // A landing in that same session takes the receipt back in this form too: a session with todos whose house
+        // observation does not stand is judged by its own record alone (decisions/0509 §3). What the house says there
+        // then is what it OWES — it last saw the capability throw and has not looked again — so that record does not
+        // close over it ({@see testALandingThatRepairsNothingDoesNotLetTheRecordCloseOverWhatLastThrew()}).
         $this->landElsewhere();
         $after = $this->verdict();
-        self::assertSame([], $this->seen($after));
+        self::assertCount(1, $this->seen($after));
+        self::assertStringStartsWith('the house ran «Ledger» and 1 of its 2 operations threw', $after['reasons'][0]);
         self::assertFalse($after['verified']);
+    }
+
+    /**
+     * THE HOUSE DOES NOT CLOSE ON WHAT IT LAST SAW THROW (greenhouse decisions/0605, decided by Rod on 2026-10-09).
+     *
+     * The hole, in what was published: a session planned with todos is judged by its own record when the house's
+     * observation does not stand (decisions/0509 §3) — and any landing takes the house's receipt back. So a session
+     * with its todos closed and every class verified by its own writer closed `verified` after a landing that
+     * repaired nothing took back what threw. The last thing the house KNEW of that capability was that it threw, and
+     * it had not looked again.
+     */
+    public function testALandingThatRepairsNothingDoesNotLetTheRecordCloseOverWhatLastThrew(): void
+    {
+        $this->plannedBuiltAndClosed();
+        $thrown = $this->threw([['operation' => 'ledger:open', 'class' => 'Error', 'kind' => 'engine', 'line' => self::UNDEFINED, 'pass' => 1]]);
+        self::assertFalse($this->atTheEnd($thrown)['verified'], 'the control: the house ran it and it threw');
+        $threwAt = $this->receiptSeq();
+
+        $elsewhere = $this->landElsewhere();
+
+        $after = $this->verdict();
+        self::assertSame('recorded_work', $after['scope'], 'the control: the house no longer observes what landed, so the record judges');
+        self::assertSame(
+            ["the house ran «Ledger» and 1 of its 2 operations threw (seq {$threwAt}); a change landed after that (seq {$elsewhere}) and the house has not run it since: it does not close on what it last saw throw"],
+            $after['reasons'],
+            'and that record is whole: the one thing that holds the closure is what the house owes',
+        );
+        self::assertFalse($after['verified']);
+    }
+
+    /** At that natural end the house runs it again — once per landing. It throws: no closure, and the reason is true of THIS house. */
+    public function testAtThatEndTheHouseRunsItAgainAndWhatStillThrowsDoesNotClose(): void
+    {
+        $seq = $this->plannedBuiltAndClosed();
+        $thrown = $this->threw([['operation' => 'ledger:open', 'class' => 'Error', 'kind' => 'engine', 'line' => self::UNDEFINED, 'pass' => 1]]);
+        $this->atTheEnd($thrown);
+        $elsewhere = $this->landElsewhere();
+        $this->asked = [];
+
+        $closure = $this->atTheEnd($thrown);
+
+        self::assertSame(['Ledger'], $this->asked);
+        self::assertFalse($closure['verified']);
+        self::assertStringStartsWith("the house ran «Ledger» in a trial before closing on it (seq {$seq}) and 1 of its 2 operations threw: «ledger:open» threw Error", $closure['reasons'][0]);
+        self::assertCount(1, $closure['reasons'], 'what it saw of the house as it is now, and nothing of what it owed');
+        self::assertSame($elsewhere, $this->receipts()[1]['last_change'], 'the receipt says the house it ran on');
+
+        $this->atTheEnd($thrown);
+        self::assertSame(['Ledger'], $this->asked, 'once per landing: a leg that ends again reads the receipt');
+    }
+
+    /** It runs: what the house owed is paid, and the record judges as it did. */
+    public function testWhenItRunsTheRecordJudgesAsItDid(): void
+    {
+        $this->plannedBuiltAndClosed();
+        $this->atTheEnd($this->threw([['operation' => 'ledger:open', 'class' => 'Error', 'kind' => 'engine', 'line' => self::UNDEFINED, 'pass' => 1]]));
+        $this->landElsewhere();
+        $this->asked = [];
+
+        $closure = $this->atTheEnd($this->ran());
+
+        self::assertSame(['Ledger'], $this->asked);
+        self::assertSame(['verified' => true, 'reasons' => [], 'scope' => 'recorded_work'], $closure);
+        self::assertSame($closure, $this->atTheEnd($this->ran()));
+        self::assertSame(['Ledger'], $this->asked);
+    }
+
+    /** «Before it says verified», as ever: with something else holding the closure the house runs nothing — and says what it owes. */
+    public function testWhatTheHouseOwesIsRunOnlyWhenNothingElseHoldsTheClosure(): void
+    {
+        $this->plannedBuiltAndClosed();
+        $this->atTheEnd($this->threw([['operation' => 'ledger:open', 'class' => 'Error', 'kind' => 'engine', 'line' => self::UNDEFINED, 'pass' => 1]]));
+        $this->landElsewhere();
+        $this->store->setTodo('s', new Todo('t2', 'write the manual', TodoStatus::Pending));
+        $this->asked = [];
+
+        $closure = $this->atTheEnd($this->ran());
+
+        self::assertSame([], $this->asked);
+        self::assertCount(2, $closure['reasons']);
+        self::assertStringStartsWith('the house ran «Ledger» and 1 of its 2 operations threw', $closure['reasons'][0], 'what the house saw is said first');
+        self::assertSame('1 todo open', $closure['reasons'][1]);
+        self::assertFalse($closure['houseOwes']['holdsAlone']);
+    }
+
+    /**
+     * The house cannot run it again — trials switched off since, no confinement. It tried and learned nothing: the
+     * last thing it knows is still that it threw. Closed, with why; and not tried again until something lands.
+     */
+    public function testAHouseThatCannotRunItAgainDoesNotCloseAndSaysWhy(): void
+    {
+        $this->plannedBuiltAndClosed();
+        $this->atTheEnd($this->threw([['operation' => 'ledger:open', 'class' => 'Error', 'kind' => 'engine', 'line' => self::UNDEFINED, 'pass' => 1]]));
+        $threwAt = $this->receiptSeq();
+        $elsewhere = $this->landElsewhere();
+        $this->asked = [];
+        $cannot = ['exercised' => 'unjudged', 'why' => 'this house runs no trial: they are switched off, or it cannot confine a process', 'operations' => 2, 'calls' => 0];
+
+        $closure = $this->atTheEnd($cannot);
+
+        self::assertSame(['Ledger'], $this->asked);
+        self::assertSame(
+            ["the house ran «Ledger» and 1 of its 2 operations threw (seq {$threwAt}); after the change at seq {$elsewhere} it could not run it again — this house runs no trial: they are switched off, or it cannot confine a process: it does not close on what it last saw throw"],
+            $closure['reasons'],
+        );
+        $this->atTheEnd($cannot);
+        self::assertSame(['Ledger'], $this->asked, 'once per landing, whatever it found');
+
+        // The next landing is another house: it looks again, and this time it can.
+        $this->landElsewhere();
+        self::assertTrue($this->atTheEnd($this->ran())['verified']);
+        self::assertSame(['Ledger', 'Ledger'], $this->asked);
+    }
+
+    /** In every form the verdict takes — here the house's own, with no todo — and between steps, where nothing runs. */
+    public function testWhatTheHouseOwesHoldsEveryFormAndBetweenStepsNothingRuns(): void
+    {
+        $this->built();
+        $this->atTheEnd($this->threw([['operation' => 'ledger:open', 'class' => 'Error', 'kind' => 'engine', 'line' => self::UNDEFINED, 'pass' => 1]]));
+        $threwAt = $this->receiptSeq();
+        $again = $this->fill('OpenAccount', self::OPEN, $this->both());
+        $this->asked = [];
+
+        $between = $this->betweenSteps();
+
+        self::assertFalse($between['verified'], 'declared whole again is not seen running again');
+        self::assertSame(["the house ran «Ledger» and 1 of its 2 operations threw (seq {$threwAt}); a change landed after that (seq {$again}) and the house has not run it since: it does not close on what it last saw throw"], $between['reasons']);
+        self::assertSame('house_observation', $between['scope']);
+        self::assertSame([], $this->asked);
+
+        $closure = $this->atTheEnd($this->ran());
+
+        self::assertSame(['Ledger'], $this->asked);
+        self::assertTrue($closure['verified'], implode('; ', $closure['reasons']));
+        self::assertSame('ran', $closure['derivedFrom']['observation']['capability']['exercised']);
+        self::assertArrayNotHasKey('houseOwes', $closure);
+    }
+
+    /** It is owed only for what THREW. What ran, and was taken back by a landing, the record closes over as it did. */
+    public function testWhatRanAndWasTakenBackOwesNothing(): void
+    {
+        $this->plannedBuiltAndClosed();
+        self::assertTrue($this->atTheEnd($this->ran())['verified']);
+        $this->landElsewhere();
+        $this->asked = [];
+
+        $closure = $this->atTheEnd($this->ran());
+
+        self::assertSame(['verified' => true, 'reasons' => [], 'scope' => 'recorded_work'], $closure);
+        self::assertSame([], $this->asked);
+    }
+
+    /** Last seen NOT whole, that is what is said, and there is nothing to run. Whole again, the house still owes its look. */
+    public function testACapabilityLastSeenNotWholeIsNotRunAndWholeAgainItIsOwed(): void
+    {
+        $this->plannedBuiltAndClosed();
+        $this->atTheEnd($this->threw([['operation' => 'ledger:open', 'class' => 'Error', 'kind' => 'engine', 'line' => self::UNDEFINED, 'pass' => 1]]));
+        $scaffolded = $this->scaffold('OpenAccount', self::OPEN, $this->both());
+        $this->asked = [];
+
+        $closure = $this->atTheEnd($this->ran());
+
+        self::assertSame([], $this->asked);
+        self::assertSame(["the house observed «Ledger» declaring 2 operations, 1 of them still the scaffold «make» landed (seq {$scaffolded}): ledger:open — fill it with implement"], $this->seen($closure));
+
+        $this->fill('OpenAccount', self::OPEN, $this->both());
+        self::assertStringStartsWith('the house ran «Ledger» and 1 of its 2 operations threw', $this->verdict()['reasons'][0]);
+        self::assertTrue($this->atTheEnd($this->ran())['verified']);
+        self::assertSame(['Ledger'], $this->asked);
+    }
+
+    /**
+     * ONE END, EVERYTHING IT IS ABOUT TO CLOSE ON. Paying what it owed can leave the verdict about to close on
+     * something the house has not run either: that is run too, before the verdict says `verified` — and nothing is
+     * ever run twice at one end, whatever the verdict keeps saying.
+     */
+    public function testAtOneEndTheHouseRunsAllItIsAboutToCloseOnAndNothingTwice(): void
+    {
+        $owes = ['verified' => false, 'reasons' => ['the house ran «Ledger» and …'], 'scope' => 'recorded_work',
+            'houseOwes' => ['capabilities' => [['subject' => 'Ledger', 'seq' => 7, 'threwAt' => 9, 'changedAt' => 11, 'tried' => false]], 'holdsAlone' => true]];
+        $unrun = ['verified' => true, 'reasons' => [], 'scope' => 'house_observation',
+            'derivedFrom' => ['observation' => ['subject' => 'Vault', 'seq' => 12, 'capability' => ['operations' => 1, 'exercised' => 'unjudged']], 'lastChangeSeq' => 12]];
+        $whole = ['verified' => true, 'reasons' => [], 'scope' => 'house_observation',
+            'derivedFrom' => ['observation' => ['subject' => 'Vault', 'seq' => 12, 'capability' => ['operations' => 1, 'exercised' => 'ran']], 'lastChangeSeq' => 12]];
+        $verdicts = [$owes, $unrun, $whole];
+        $ran = [];
+        $exercise = static function (string $capability, int $seq) use (&$ran): array {
+            $ran[] = [$capability, $seq];
+
+            return ['exercised' => 'ran', 'operations' => 1, 'calls' => 2, 'answered' => 1, 'refused' => 0, 'threw' => 0, 'thrown' => []];
+        };
+
+        $closure = CapabilityExercise::atTheEnd($this->events, 's', static function () use (&$verdicts): array {
+            return \count($verdicts) > 1 ? array_shift($verdicts) : $verdicts[0];
+        }, $exercise);
+
+        self::assertSame([['Ledger', 7], ['Vault', 12]], $ran);
+        self::assertSame($whole, $closure);
+        self::assertSame([11, 12], array_column($this->receipts(), 'last_change'));
+
+        // A verdict that keeps saying it owes the same look is not run in a loop.
+        $ran = [];
+        $closure = CapabilityExercise::atTheEnd($this->events, 's', static fn (): array => $owes, $exercise);
+        self::assertSame([['Ledger', 7]], $ran);
+        self::assertSame($owes, $closure);
+
+        // What it tried and could not run is not owed again; nor is anything while something else holds the closure.
+        $tried = $owes;
+        $tried['houseOwes']['capabilities'][0]['tried'] = true;
+        $held = $owes;
+        $held['houseOwes']['holdsAlone'] = false;
+        $ran = [];
+        CapabilityExercise::atTheEnd($this->events, 's', static fn (): array => $tried, $exercise);
+        CapabilityExercise::atTheEnd($this->events, 's', static fn (): array => $held, $exercise);
+        self::assertSame([], $ran);
     }
 
     public function testADeclarationIsExercisedOnce(): void
@@ -455,14 +686,42 @@ final class TheHouseExercisesWhatItIsAboutToCloseOnTest extends TestCase
         return ['exercised' => 'threw', 'operations' => 2, 'calls' => 4, 'answered' => 2 - \count($names), 'refused' => 0, 'threw' => \count($names), 'thrown' => $thrown];
     }
 
-    /** Two operations scaffolded and filled: a capability the house sees declared whole. The last promotion's seq. */
-    private function built(): int
+    /**
+     * Two operations scaffolded and filled: a capability the house sees declared whole. The last promotion's seq.
+     *
+     * `$verified`: every writer says its own verification of what it wrote, green — so the session's record holds a
+     * current verification for each class, and that record alone can close a session planned with todos.
+     */
+    private function built(bool $verified = false): int
     {
+        $this->verified = $verified;
         $this->scaffold('OpenAccount', self::OPEN, [$this->operation('ledger:open', self::OPEN)]);
         $this->scaffold('ListAccounts', self::LISTS, $this->both());
         $this->fill('OpenAccount', self::OPEN, $this->both());
 
         return $this->fill('ListAccounts', self::LISTS, $this->both());
+    }
+
+    /** The seq of the last receipt the house left of an exercise. */
+    private function receiptSeq(): int
+    {
+        $seq = null;
+        foreach ($this->store->stream('s') as $event) {
+            $seq = $event->type === CapabilityExercise::EVENT ? $event->seq : $seq;
+        }
+        self::assertNotNull($seq);
+
+        return $seq;
+    }
+
+    /** A session that planned its work with one todo, built the capability with every class verified, and closed the todo. */
+    private function plannedBuiltAndClosed(): int
+    {
+        $this->store->setTodo('s', new Todo('t1', 'Build Ledger', TodoStatus::Pending));
+        $seq = $this->built(verified: true);
+        $this->store->completeTodo('s', 't1', Evidence::operationOk('e1', 'sandbox_promote'));
+
+        return $seq;
     }
 
     /**
@@ -527,7 +786,7 @@ final class TheHouseExercisesWhatItIsAboutToCloseOnTest extends TestCase
         $changed = ['src/Support/Clock.php' => 'modified'];
         $this->store->recordToolCall('s', 'edit', ['class' => 'Clock'], (string) json_encode([
             'ran_in_trial' => true, 'applied' => false, 'workspace' => $workspace, 'changed' => $changed, 'output' => ['ok' => true],
-        ]), mutating: true);
+        ] + $this->itsOwnVerification()), mutating: true);
 
         return $this->store->recordToolCall('s', 'sandbox_promote', ['workspace' => $workspace], (string) json_encode([
             'ok' => true,
@@ -560,7 +819,7 @@ final class TheHouseExercisesWhatItIsAboutToCloseOnTest extends TestCase
         $workspace = 'w' . ++$this->trials;
         $this->store->recordToolCall('s', $tool, $arguments, (string) json_encode([
             'ran_in_trial' => true, 'applied' => false, 'workspace' => $workspace, 'changed' => $changed, 'output' => ['ok' => true],
-        ]), mutating: true);
+        ] + $this->itsOwnVerification()), mutating: true);
         $paths = array_keys($changed);
 
         return $this->store->recordToolCall('s', 'sandbox_promote', ['workspace' => $workspace], (string) json_encode([
@@ -569,6 +828,17 @@ final class TheHouseExercisesWhatItIsAboutToCloseOnTest extends TestCase
             'evidence' => ['predicate' => 'promoted', 'subject' => $workspace, 'environment' => ['kind' => 'house'], 'from' => ['kind' => 'trial', 'workspace' => $workspace], 'paths' => $paths],
             'capabilities' => [['predicate' => 'declared', 'subject' => 'Ledger', 'environment' => ['kind' => 'house'], 'operations' => $operations]],
         ]), mutating: true);
+    }
+
+    /**
+     * What a writer adds to its answer when it verified what it wrote, in the words each one uses: `make` says
+     * `verify`, `implement` and `edit` say what verified it.
+     *
+     * @return array<string, mixed>
+     */
+    private function itsOwnVerification(): array
+    {
+        return $this->verified ? ['ok' => true, 'verify' => ['ok' => true], 'verified' => 'its own test, green'] : [];
     }
 
     /** @return list<array<string, mixed>> */
