@@ -365,6 +365,34 @@ final class ARehearsalIsNoWorkAndLeavesNothingTest extends TestCase
         );
     }
 
+    /**
+     * THE NUMBER SAYS WHAT ITS NAME SAYS. «Of verbs that change state» is read from the refused call itself — what its
+     * operation declares — and not from whether the closure happened to be waiting on it. A refusal waits only when
+     * its sentence says nobody admitted it; a seat whose admission is kept and SUSPENDED while the capability is back
+     * in works is refused in other words, and the closure never waited on that. Its rehearsed call of a verb that
+     * writes is still a call of a verb that writes, answered in a copy and not applied. Found by t-0104.
+     */
+    public function testACallOfAVerbThatWritesIsCountedAsOneWhetherOrNotTheClosureWaitedOnIt(): void
+    {
+        $events = new InMemoryEventStore();
+        $sessions = new SessionStore($events);
+        $sessions->start('bv', 'Build a plugin named Prestamos.', AutonomyMode::Auto);
+        self::assertStringNotContainsString('no person has admitted', self::REFUSAL, 'the control: the sentence of a suspended admission');
+        $suspended = $sessions->recordToolCall('bv', 'herramientas_prestar', ['id' => 1], self::REFUSAL, false, mutating: true);
+        OwnVerbRehearsal::record($events, 'bv', $this->verb('herramientas.prestar'), $suspended, ['output' => ['ok' => true], 'exit' => 0, 'bounds' => TrialWorkspace::BOUNDS]);
+
+        $work = HouseExecutedWork::of($sessions->stream('bv'), static fn (string $operation, ?string $principal): ?bool => false);
+
+        self::assertSame([], $work['reasons'], 'the control: the closure was not waiting on it');
+        self::assertSame(['calls' => 1, 'of_verbs_that_change_state' => 1, 'applied' => false], $work['rehearsed']);
+
+        // And one that is no verb of a built capability at all is not counted as one that writes.
+        $other = $sessions->recordToolCall('bv', 'make', ['what' => 'plugin'], 'Missing required permission', false, mutating: true);
+        OwnVerbRehearsal::record($events, 'bv', $this->verb('herramientas.prestar'), $other, ['output' => ['ok' => true], 'exit' => 0, 'bounds' => TrialWorkspace::BOUNDS]);
+        $built = static fn (string $operation, ?string $principal): ?bool => $operation === 'make' ? null : false;
+        self::assertSame(['calls' => 2, 'of_verbs_that_change_state' => 1, 'applied' => false], HouseExecutedWork::of($sessions->stream('bv'), $built)['rehearsed']);
+    }
+
     /** A session in which nothing was rehearsed says nothing of rehearsals: the verdict is byte for byte what it was. */
     public function testWhereNothingWasRehearsedNothingIsSaidOfIt(): void
     {

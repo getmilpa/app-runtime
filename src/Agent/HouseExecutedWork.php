@@ -89,8 +89,12 @@ final class HouseExecutedWork
         // seq => the tool of a call refused for lack of an admission, until a person admits it — or the house answers
         // it in a rehearsal, for the session that wrote that verb.
         $waiting = [];
-        // The calls the house answered in a rehearsal, and how many of them were waited on: of a verb that changes state.
-        $rehearsed = $lifted = 0;
+        // seq => a refused call of a built verb that CHANGES STATE, whatever its refusal said. A refusal waits only when
+        // it says nobody admitted it; a seat whose admission is kept and suspended while the capability is back in works
+        // is refused in other words — and its call is still one of a verb that writes.
+        $refusedWrites = [];
+        // The calls the house answered in a rehearsal, and how many of them were of a verb that changes state.
+        $rehearsed = $ofWrites = 0;
         // path => [the digest the last receipt left, its seq].
         $state = [];
         $last = null;
@@ -108,9 +112,10 @@ final class HouseExecutedWork
                 // accompanied: that one stops being a reason. It is not an act, and nothing else is read of it.
                 $rehearsed++;
                 $pointed = $payload['refusal'] ?? null;
-                if (\is_int($pointed) && isset($waiting[$pointed])) {
+                if (\is_int($pointed)) {
+                    // What it is counted as is read from the call itself, not from whether the closure was waiting.
+                    $ofWrites += isset($refusedWrites[$pointed]) ? 1 : 0;
                     unset($waiting[$pointed]);
-                    $lifted++;
                 }
 
                 continue;
@@ -122,6 +127,7 @@ final class HouseExecutedWork
                 }
                 $result = json_decode(\is_string($payload['result'] ?? null) ? $payload['result'] : '', true);
                 if (($payload['ok'] ?? true) !== true) {
+                    $refusedWrites[$event->seq] = true;
                     $said = \is_string($payload['result'] ?? null) ? $payload['result'] : '';
                     if (\is_array($result) && ($result['ran_in_house'] ?? null) === true) {
                         // THE VERB RAN AND SAID NO: the house records a refusal of the domain as a call that failed, with
@@ -203,7 +209,7 @@ final class HouseExecutedWork
             'work' => $executed > 0 ? ['executed' => $executed, 'refused_by_the_domain' => $refused, 'state' => $left, 'asked' => 'unjudged'] : null,
             // What was answered in a rehearsal and is NOT in the house — said beside the verdict, never a reason and
             // never evidence. `applied` is always false: a rehearsal runs in a copy that is discarded.
-            'rehearsed' => $rehearsed > 0 ? ['calls' => $rehearsed, 'of_verbs_that_change_state' => $lifted, 'applied' => false] : null,
+            'rehearsed' => $rehearsed > 0 ? ['calls' => $rehearsed, 'of_verbs_that_change_state' => $ofWrites, 'applied' => false] : null,
         ];
     }
 
