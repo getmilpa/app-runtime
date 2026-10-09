@@ -124,6 +124,18 @@ use Milpa\EventStore\Event;
  * between steps a capability still reads `unjudged` until its end — and what already threw stands there, so the next
  * leg's epilogue does not open over it. A receipt speaks of the house it ran on: any change that lands after it takes
  * it back, whatever it said — and what is declared then is run when the house is about to close on it.
+ *
+ * ── AND IT DOES NOT CLOSE ON WHAT IT LAST SAW THROW (decided by Rod, 2026-10-09) ───────────────────
+ *
+ * Taking the receipt back left a hole. A session planned with todos is judged by its own record when the house's
+ * observation does not stand (decisions/0509 §3); so, with every class verified by its own writer, a landing that
+ * repaired nothing took back what threw and the record closed `verified`. The last thing the house KNEW of that
+ * capability was that it threw, and it had not looked again. That is kept here across the landing — it is the
+ * house's own debt, not a claim about the house as it now is: `owed`, which holds the closure in EVERY form the
+ * verdict takes, with a reason that says exactly that. At the natural end of a leg, when nothing else holds the
+ * closure, the house runs it again ({@see CapabilityExercise::atTheEnd()}): it ran — the debt is paid and the verdict
+ * is the one it was; it threw — that is said of this house; it could not be run — the house learned nothing, and
+ * what it last knew still stands. Only what THREW is owed: what ran and was taken back owes nothing.
  */
 final class HouseObservedClosure
 {
@@ -141,7 +153,7 @@ final class HouseObservedClosure
      *                                                                      ({@see StandingAsk::explicitRoutes()}): for the reason, and
      *                                                                      so a receipt served elsewhere is not taken for one of them
      *
-     * @return array{derived: bool, reason: ?string, observation: ?array{subject: string, seq: int, content?: array<string, mixed>|string, surface?: array<string, mixed>, capability?: array{operations: int, exercised: string, calls?: int, answered?: int, refused?: int, behavior?: 'unjudged', why?: string}}, lastChangeSeq: ?int, landed: list<int>, unlisted: list<string>, standing: list<string>, threw: list<array{capability: string, operation: string, class: string, line: string}>}
+     * @return array{derived: bool, reason: ?string, observation: ?array{subject: string, seq: int, content?: array<string, mixed>|string, surface?: array<string, mixed>, capability?: array{operations: int, exercised: string, calls?: int, answered?: int, refused?: int, behavior?: 'unjudged', why?: string}}, lastChangeSeq: ?int, landed: list<int>, unlisted: list<string>, standing: list<string>, threw: list<array{capability: string, operation: string, class: string, line: string}>, owed: list<array{subject: string, seq: int, threwAt: int, changedAt: ?int, tried: bool, why: string}>}
      */
     public static function of(array $stream, SessionFacts $facts, ?\Closure $named = null, ?\Closure $lasting = null, array $written = []): array
     {
@@ -180,11 +192,21 @@ final class HouseObservedClosure
         // the house last saw whole: it is dropped the moment one is seen that is not.
         $whole = [];
         $exercises = [];
+        // capability => the receipt of the last time the house ran it and it THREW, with its seq — kept across the
+        // changes that take the receipt itself back, until the house sees it run (decided 2026-10-09).
+        $threwLast = [];
         foreach ($stream as $event) {
             if ($event->type === CapabilityExercise::EVENT) {
                 $ran = $event->payload['subject'] ?? null;
                 if (\is_string($ran) && isset($whole[$ran]) && ($event->payload['observation'] ?? null) === $whole[$ran]) {
                     $exercises[$ran] = $event->payload;
+                    // WHAT THE HOUSE KNOWS OF IT NOW. It threw: that is the last thing it knows. It ran: it knows
+                    // better. It could not be run: it learned nothing, and what it knew stands.
+                    if (($event->payload['exercised'] ?? null) === 'threw') {
+                        $threwLast[$ran] = ['seq' => $event->seq] + $event->payload;
+                    } elseif (($event->payload['exercised'] ?? null) === 'ran') {
+                        unset($threwLast[$ran]);
+                    }
                 }
                 continue;
             }
@@ -353,6 +375,20 @@ final class HouseObservedClosure
                 }
             }
         }
+        // WHAT THE HOUSE LAST SAW THROW AND HAS NOT SEEN RUN SINCE (decided 2026-10-09). Not said while a receipt says
+        // it threw on the house as it is — that is said above — nor while the capability is not whole, which is said
+        // too and leaves nothing to run. Otherwise it is owed: a change took the receipt back, or the house tried
+        // again after it and could not run it.
+        $owed = [];
+        foreach ($threwLast as $subject => $last) {
+            $now = $exercises[$subject] ?? null;
+            if (! isset($whole[$subject]) || ($now['exercised'] ?? null) === 'threw') {
+                continue;
+            }
+            $couldNot = $now === null ? null : (\is_string($now['why'] ?? null) && $now['why'] !== '' ? $now['why'] : 'it does not say why');
+            $owed[] = ['subject' => (string) $subject, 'seq' => $whole[$subject], 'threwAt' => $last['seq'], 'changedAt' => $lastChange, 'tried' => $now !== null,
+                'why' => CapabilityExercise::whyOwed((string) $subject, $last, $lastChange, $couldNot)];
+        }
         // WHAT THE HOUSE FOUND WHEN IT RAN THE CAPABILITY IT CLOSES ON: it ran, with its counts — never «correct»; or the
         // house tried and says what stopped it.
         $ran = isset($observation['capability']) ? ($exercises[$observation['subject']] ?? null) : null;
@@ -418,7 +454,10 @@ final class HouseObservedClosure
             'standing' => array_keys(array_filter($unfilled)),
             // Each operation the house ran and that threw, of what it ran on the house as it is now: nothing has
             // landed since (decisions/0605).
-            'threw' => $threw];
+            'threw' => $threw,
+            // Each capability the house last saw throw and has not seen run since: the declaration to run, and why
+            // it holds the closure. `derived` does not know of it — it is applied to every form by the verdict.
+            'owed' => $owed];
     }
 
     /**

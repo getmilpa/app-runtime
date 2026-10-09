@@ -83,7 +83,11 @@ final class ClosureVerdict
      * @param (\Closure(string, ?string): ?bool)|null              $admitted whether a person's admission covers an operation for a principal; null
      *                                                                       when it is no verb of a built capability; no closure, no work is read
      *
-     * @return array{verified: bool, reasons: list<string>, scope: string, derivedFrom?: array<string, mixed>}
+     * WHAT THE HOUSE OWES (`houseOwes`, decided 2026-10-09): the capabilities it last saw throw and has not seen run
+     * since ({@see HouseObservedClosure}), which hold the closure in every form above, and whether they are ALL that
+     * holds it — then the house runs them again at the natural end of the leg ({@see CapabilityExercise::atTheEnd()}).
+     *
+     * @return array{verified: bool, reasons: list<string>, scope: string, derivedFrom?: array<string, mixed>, houseOwes?: array{capabilities: list<array{subject: string, seq: int, threwAt: int, changedAt: ?int, tried: bool}>, holdsAlone: bool}}
      */
     public static function derive(Session $session, SessionFacts $facts, ?array $stream = null, ?\Closure $lasting = null, ?\Closure $admitted = null): array
     {
@@ -172,6 +176,10 @@ final class ClosureVerdict
         // (evidence/1110): a session with todos whose house observation does not derive is judged by its record alone
         // (§3 of 0509, below), so closing the todos made the house's finding vanish and an empty page closed verified.
         $notListing = $house['unlisted'] ?? [];
+        // AND SO IS WHAT THE HOUSE LAST SAW THROW AND HAS NOT LOOKED AT AGAIN (decided by Rod, 2026-10-09). A landing
+        // takes back the receipt that said a capability threw; when the house's observation then does not stand, the
+        // record below judged alone — and closed over it. It is the house's own debt, and it holds every form.
+        $owed = $house['owed'] ?? [];
         if ($session->todos !== [] && $house !== null && ! ($house['derived'] && $house['lastChangeSeq'] !== null)) {
             $house = null;
         }
@@ -235,6 +243,17 @@ final class ClosureVerdict
             $reasons[] = 'no positive verification evidence recorded';
         }
 
+        // THE HOUSE DOES NOT CLOSE ON WHAT IT LAST SAW THROW. Whether anything ELSE holds the closure is said beside it:
+        // only then is there nothing for the house to run — it looks again when its look is all that is missing.
+        $closesButForIt = $reasons === [];
+        $owes = array_column($owed, 'why');
+        $reasons = [...$owes, ...$reasons];
+        $seen = [...$owes, ...$seen];
+        $houseOwes = $owed === [] ? [] : ['houseOwes' => [
+            'capabilities' => array_map(static fn (array $one): array => array_diff_key($one, ['why' => true]), $owed),
+            'holdsAlone' => $closesButForIt,
+        ]];
+
         // WHAT THE HOUSE SAW IS THE FIRST THING SAID (greenhouse decisions/0605). A session that does not close is told
         // of every class it wrote that no call verified, and the house's own finding came after those lines. Measured
         // on houses a build run left (evidence/1171): of ten reasons, the one that names the operations that threw
@@ -248,18 +267,17 @@ final class ClosureVerdict
         }
 
         $work = $worked !== null && $worked['derived'] ? ['work' => $worked['work']] : [];
-        if ($house !== null && $house['derived']) {
-            return ['verified' => $reasons === [], 'reasons' => $reasons,
+        // The form the verdict takes — and, beside whichever it is, what the house owes.
+        $form = match (true) {
+            $house !== null && $house['derived'] => [
                 'scope' => $session->todos === [] ? 'house_observation' : 'recorded_work_and_house_observation',
-                'derivedFrom' => ['observation' => $house['observation'], 'lastChangeSeq' => $house['lastChangeSeq']] + $work];
-        }
-        if ($work !== []) {
-            return ['verified' => $reasons === [], 'reasons' => $reasons,
-                'scope' => $session->todos === [] ? 'house_execution' : 'recorded_work_and_house_execution',
-                'derivedFrom' => $work];
-        }
+                'derivedFrom' => ['observation' => $house['observation'], 'lastChangeSeq' => $house['lastChangeSeq']] + $work,
+            ],
+            $work !== [] => ['scope' => $session->todos === [] ? 'house_execution' : 'recorded_work_and_house_execution', 'derivedFrom' => $work],
+            default => ['scope' => 'recorded_work'],
+        };
 
-        return ['verified' => $reasons === [], 'reasons' => $reasons, 'scope' => 'recorded_work'];
+        return ['verified' => $reasons === [], 'reasons' => $reasons] + $form + $houseOwes;
     }
 
     /**
