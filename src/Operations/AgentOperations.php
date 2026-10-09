@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Operations;
 
 use Milpa\AppRuntime\Agent\BuiltCapabilities;
 use Milpa\AppRuntime\Agent\CapabilityAdmissions;
+use Milpa\AppRuntime\Agent\CapabilityExercise;
 use Milpa\AppRuntime\Agent\FatalTermination;
 use Milpa\AppRuntime\Agent\GrantedCall;
 use Milpa\AppRuntime\Agent\HouseGoesOn;
@@ -3204,7 +3205,7 @@ class AgentOperations implements CommandProvider
             && $this->runTermination !== null
             && \in_array($this->runTermination->reason, [RunEnd::FinalAnswer, RunEnd::EpilogueExhausted], true)
         ) {
-            $closure = $this->deliveryClosure($store, $pausada);
+            $closure = $this->closureOfTheLegThatEnds($store, $pausada);
             $resultado['closure'] = $closure;
             if ($this->sessionEvents !== null) {
                 ClosureVerdict::record($this->sessionEvents, $sessionId, $closure);
@@ -3970,6 +3971,61 @@ class AgentOperations implements CommandProvider
     private function deliveryClosure(SessionStore $store, Session $session): array
     {
         return LegClosure::atTheEnd($session, $store->stream($session->id), fn (array $contract): array => $this->acceptanceEvidence($contract), $this->lastingCalls(), $this->admittedWork());
+    }
+
+    /**
+     * The verdict a leg RECORDS at its natural end — with the capability it is about to close on run first (greenhouse
+     * decisions/0605, R1; {@see CapabilityExercise}).
+     *
+     * Only here. Between steps the same verdict is read and nothing is run ({@see LegClosure::betweenSteps()}); the door
+     * of a session already closed reads the stream as it stands ({@see answerAClosedSession()}). What the house finds
+     * is a receipt in the session's stream, recorded before the verdict that reads it.
+     *
+     * @return array<string, mixed>
+     */
+    private function closureOfTheLegThatEnds(SessionStore $store, Session $session): array
+    {
+        if ($this->sessionEvents === null) {
+            return $this->deliveryClosure($store, $session);
+        }
+
+        return CapabilityExercise::atTheEnd(
+            $this->sessionEvents,
+            $session->id,
+            fn (): array => $this->deliveryClosure($store, $session),
+            fn (string $capability, int $seq): ?array => $this->exercise($store, $session->id, $capability, $seq),
+        );
+    }
+
+    /**
+     * The house running a capability as a promotion declared it — or null when this app has no kernel, and so no
+     * house to run it in: then nothing is recorded and the verdict is the one it was.
+     *
+     * THE OPERATIONS ARE READ FROM THE PROMOTION'S RECEIPT, not from this process: the leg that built a capability
+     * booted before any of it landed, and its own catalogue does not hold it. What each one takes is read in the copy,
+     * by a process started there. A house that runs no trial — they are switched off, or it cannot confine a process —
+     * runs nothing and says so: a session's code is never run unconfined to find out.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function exercise(SessionStore $store, string $sessionId, string $capability, int $seq): ?array
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return null;
+        }
+        $operations = CapabilityExercise::declaredAt($store->stream($sessionId), $capability, $seq);
+        try {
+            $router = $this->trialRouter($kernel);
+        } catch (\Throwable) {
+            $router = null;
+        }
+        if ($router === null) {
+            return ['exercised' => 'unjudged', 'why' => 'this house runs no trial: they are switched off, or it cannot confine a process',
+                'operations' => \count($operations), 'calls' => 0];
+        }
+
+        return CapabilityExercise::of($kernel->root(), $capability, $operations, $router->runner(), \dirname(__DIR__, 2) . '/resources/exercise-run.php');
     }
 
     /**
