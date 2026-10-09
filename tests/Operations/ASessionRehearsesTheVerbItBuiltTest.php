@@ -19,6 +19,7 @@ use Milpa\Agent\EffectObservation;
 use Milpa\Agent\Principal;
 use Milpa\Agent\SessionStore;
 use Milpa\AppRuntime\Agent\BuiltCapabilities;
+use Milpa\AppRuntime\Agent\CapabilityAdmissions;
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Agent\HouseExecutedWork;
 use Milpa\AppRuntime\Agent\OwnVerbRehearsal;
@@ -194,6 +195,43 @@ final class ASessionRehearsesTheVerbItBuiltTest extends TestCase
         self::assertCount(1, $this->ofType('builder', OwnVerbRehearsal::EVENT), 'one rehearsal in the builder\'s session: the control\'s, and none for the other seat');
     }
 
+    /**
+     * PATH B, THROUGH THE DOOR THE LEG BUILDS (decided by Rod, 2026-10-09). The refusal is the house's own sentence,
+     * the fact is the one the door leaves, and what a person admitted is asked of the judge the gate asks. The
+     * builder's call of a verb that writes, answered in a rehearsal, does not hold its closure. The same call by who
+     * did not build — another seat continuing the builder's session, another session of the same seat — was not
+     * rehearsed, left no fact, and holds the closure as it always did.
+     */
+    public function testTheBuildersRehearsedRefusalDoesNotHoldItsClosureAndWhoDidNotBuildStillWaits(): void
+    {
+        $admitted = HouseExecutedWork::admittedBy(CapabilityAdmissions::forRoot($this->root, BuiltCapabilities::of($this->kernel)));
+        $call = function (string $session, string $seat): void {
+            try {
+                $this->door($session, $seat)->callTool('taller_alta', ['nombre' => 'sierra', 'cantidad' => 2, 'tipo' => 'manual', 'activa' => false]);
+                self::fail('a verb nobody admitted is refused');
+            } catch (\Exception) {
+            }
+        };
+
+        $call('builder', self::SEAT);
+
+        $work = HouseExecutedWork::of($this->sessions->stream('builder'), $admitted);
+        self::assertSame([], $work['reasons'], 'the house answered it in a rehearsal: it is no longer a reason');
+        self::assertSame(['calls' => 1, 'of_verbs_that_change_state' => 1, 'applied' => false], $work['rehearsed']);
+        self::assertNull($work['work'], 'and it is no work');
+
+        $call('builder', self::OTHER_SEAT);
+        $call('another', self::SEAT);
+
+        $builder = HouseExecutedWork::of($this->sessions->stream('builder'), $admitted);
+        $refusals = $this->ofType('builder', 'session.tool_called');
+        self::assertSame(['a call of «taller_alta» was refused for lack of an admission, and nobody has admitted it (seq ' . end($refusals)->seq . ')'], $builder['reasons'], 'the other seat\'s call was not rehearsed: it holds');
+        self::assertSame(1, $builder['rehearsed']['calls'] ?? null);
+        $another = HouseExecutedWork::of($this->sessions->stream('another'), $admitted);
+        self::assertCount(1, $another['reasons'], 'nor was the other session\'s');
+        self::assertNull($another['rehearsed']);
+    }
+
     public function testAHouseThatSwitchedTrialsOffRehearsesNothing(): void
     {
         $container = new DIContainer();
@@ -268,7 +306,7 @@ final class ASessionRehearsesTheVerbItBuiltTest extends TestCase
     {
         $built = fn (): BuiltCapabilities => BuiltCapabilities::of($this->kernel);
         $registry = new ToolRegistry(new NullLogger());
-        foreach (['taller_lista', 'taller_lee'] as $tool) {
+        foreach (['taller_lista', 'taller_lee', 'taller_alta'] as $tool) {
             $registry->register($tool, $tool, ['type' => 'object'], static fn (array $args): array => ['reached_the_house' => true]);
         }
         $registry->getPolicyGate()->setCallPolicy((new PluginAuthoringPolicy($this->root, capabilities: $built))->withSeatSession($this->sessions, $session));
@@ -280,7 +318,9 @@ final class ASessionRehearsesTheVerbItBuiltTest extends TestCase
 
             public function recorded(string $tool, array $arguments, string $result, bool $ok): void
             {
-                $this->sessions->recordToolCall($this->session, $tool, $arguments, $result, $ok);
+                // A leg's gate records a call with what its operation declares — whether it changes state. This house's
+                // verbs all read, so one of them stands here for a verb that writes: `taller_alta`.
+                $this->sessions->recordToolCall($this->session, $tool, $arguments, $result, $ok, mutating: $tool === 'taller_alta');
             }
         };
         $operations = new AgentOperations($this->container);

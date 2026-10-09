@@ -24,6 +24,7 @@ use Milpa\AppRuntime\Agent\HouseObservedClosure;
 use Milpa\AppRuntime\Agent\OwnVerbRehearsal;
 use Milpa\AppRuntime\Agent\TrialRunner;
 use Milpa\AppRuntime\Agent\TrialWorkspace;
+use Milpa\AppRuntime\Tests\Fixtures\ExercisedTaller;
 use Milpa\Command\Operation;
 use Milpa\EventStore\InMemoryEventStore;
 use Milpa\ToolRuntime\Contracts\ToolContext;
@@ -47,6 +48,7 @@ use Psr\Log\NullLogger;
 final class ARehearsalIsNoWorkAndLeavesNothingTest extends TestCase
 {
     private const SEAT = 'CCCC3333DDDD4444EEEE5555FFFF6666AAAA7777';
+    private const UNADMITTED = "«herramientas.prestar» is a verb of the capability «Prestamos», built in this house, and no person has admitted it for this seat: it is admitted under 'herramientas:write' of «Prestamos».";
     private const REFUSAL = "«herramientas.prestar» is a verb of the capability «Prestamos», built in this house, and «Prestamos» is in works: a seat holds its building permit, and while it does no seat uses its verbs. What a person admitted for this seat is kept and suspended: a person admits it again under 'herramientas:write' of «Prestamos», seeing its contract, and that closes the permit.";
 
     /** @var list<string> */
@@ -267,32 +269,116 @@ final class ARehearsalIsNoWorkAndLeavesNothingTest extends TestCase
     }
 
     /**
-     * WHAT A REHEARSAL DOES NOT SETTLE. A call of a verb that changes state, refused for lack of an admission, is a
-     * call the closure waits on a person for (greenhouse decisions/0587, 0590) — rehearsed or not. That it was
-     * rehearsed lifts nothing: only a person's grant does. So the builder's leg goes on, and its session does not
-     * close until a person admits that call. A refused call of a verb that changes nothing was never waited on.
+     * A REFUSAL THE HOUSE REHEARSED DOES NOT HOLD THE CLOSURE (greenhouse decisions/0605, R2 — decided by Rod on
+     * 2026-10-09, path B). A call of a verb that changes state, refused for lack of an admission, is one the closure
+     * waits on a person for (decisions/0587, 0590). As first built, the rehearsal lifted nothing — and so a builder
+     * that tried nothing closed, and one that tried its own verb did not: the incentive 0605 came to remove.
      *
-     * It states what the house does today with this fact in the stream; it is no property of the rehearsal's code.
+     * Three conditions, t-0104's, whose rule 0590 is: BY THE FACT AND ITS SEQ, nothing else — a refusal with no such
+     * fact waits as it always did; IT ADDS NOTHING — a rehearsed call is no act, no work, no receipt, it only stops
+     * being a reason; and THE VERDICT SAYS IT, beside itself ({@see testTheVerdictSaysBesideItselfWhatWasRehearsedAndNotApplied()}).
+     *
+     * This test pinned the opposite — «still waits on a person» — on purpose, so that changing it would be a
+     * deliberate edit. This is that edit.
      */
-    public function testARehearsedRefusalOfAVerbThatChangesStateStillWaitsOnAPerson(): void
+    public function testARefusalTheHouseRehearsedDoesNotHoldTheClosureAndOneItDidNotStillDoes(): void
     {
-        $refusal = '«herramientas.prestar» is a verb of the capability «Prestamos», built in this house, and no person has admitted it for this seat: it is admitted under \'herramientas:write\' of «Prestamos».';
         $built = static fn (string $operation, ?string $principal): ?bool => false;
-        $rehearsed = function (bool $mutating) use ($refusal): array {
-            $events = new InMemoryEventStore();
-            $sessions = new SessionStore($events);
-            $sessions->start('bv', 'Build a plugin named Prestamos.', AutonomyMode::Auto);
-            $sessions->recordToolCall('bv', 'herramientas_prestar', [], $refusal, false, mutating: $mutating);
-            $stream = $sessions->stream('bv');
-            OwnVerbRehearsal::record($events, 'bv', $this->verb('herramientas.prestar'), end($stream)->seq, ['output' => ['ok' => true], 'exit' => 0, 'bounds' => TrialWorkspace::BOUNDS]);
+        $events = new InMemoryEventStore();
+        $sessions = new SessionStore($events);
+        $sessions->start('bv', 'Build a plugin named Prestamos.', AutonomyMode::Auto);
+        $rehearsed = $sessions->recordToolCall('bv', 'herramientas_prestar', ['id' => 1], self::UNADMITTED, false, mutating: true);
+        OwnVerbRehearsal::record($events, 'bv', $this->verb('herramientas.prestar'), $rehearsed, ['output' => ['ok' => true], 'exit' => 0, 'bounds' => TrialWorkspace::BOUNDS]);
 
-            return [$sessions->stream('bv'), end($stream)->seq];
+        $work = HouseExecutedWork::of($sessions->stream('bv'), $built);
+
+        self::assertSame([], $work['reasons'], 'the refusal the house answered in a rehearsal is no longer a reason');
+        self::assertFalse($work['derived'], 'and it adds nothing: no act…');
+        self::assertNull($work['work'], '…no work, no receipt');
+        self::assertSame(['calls' => 1, 'of_verbs_that_change_state' => 1, 'applied' => false], $work['rehearsed']);
+
+        // By the fact and its seq, nothing else: the same call again, refused and NOT rehearsed, waits as it always did.
+        $again = $sessions->recordToolCall('bv', 'herramientas_prestar', ['id' => 1], self::UNADMITTED, false, mutating: true);
+        $work = HouseExecutedWork::of($sessions->stream('bv'), $built);
+        self::assertSame(["a call of «herramientas_prestar» was refused for lack of an admission, and nobody has admitted it (seq {$again})"], $work['reasons']);
+        self::assertSame(['calls' => 1, 'of_verbs_that_change_state' => 1, 'applied' => false], $work['rehearsed']);
+
+        // A fact that points at something else lifts nothing: not at no refusal, and not at a call that is no refusal.
+        OwnVerbRehearsal::record($events, 'bv', $this->verb('herramientas.prestar'), null, ['output' => ['ok' => true], 'exit' => 0, 'bounds' => TrialWorkspace::BOUNDS]);
+        OwnVerbRehearsal::record($events, 'bv', $this->verb('herramientas.prestar'), $again + 100, ['output' => ['ok' => true], 'exit' => 0, 'bounds' => TrialWorkspace::BOUNDS]);
+        self::assertCount(1, HouseExecutedWork::of($sessions->stream('bv'), $built)['reasons']);
+
+        // A rehearsed call of a verb that changes nothing was never waited on: it is counted, and it lifted nothing.
+        $read = $sessions->recordToolCall('bv', 'herramientas_listar', [], self::UNADMITTED, false, mutating: false);
+        OwnVerbRehearsal::record($events, 'bv', $this->verb('herramientas.listar'), $read, ['output' => ['ok' => true], 'exit' => 0, 'bounds' => TrialWorkspace::BOUNDS]);
+        $work = HouseExecutedWork::of($sessions->stream('bv'), $built);
+        self::assertCount(1, $work['reasons']);
+        self::assertSame(['calls' => 4, 'of_verbs_that_change_state' => 1, 'applied' => false], $work['rehearsed']);
+    }
+
+    /**
+     * THE VERDICT SAYS IT, BESIDE ITSELF — the third condition. A builder that tried nothing closes, as it did. One
+     * whose call of its own verb was refused and NOT rehearsed does not. One whose call the house answered in a
+     * rehearsal closes — on what closes a builder, the house's own observation — and its verdict carries how many
+     * calls of its own verbs were answered in rehearsal, how many of them were of a verb that changes state, and that
+     * nothing of them was applied. Without that line a person reading «verified» cannot tell a builder that tried
+     * from one that did not; and a goal that asked to build AND to use would close with the use undone and nothing
+     * saying so. The house does not read the words of the domain: it cannot tell a try from the work that was asked.
+     * It says what it can see. A surface watching the session is told the same.
+     */
+    public function testTheVerdictSaysBesideItselfWhatWasRehearsedAndNotApplied(): void
+    {
+        $events = new InMemoryEventStore();
+        $sessions = new SessionStore($events);
+        $sessions->start('bv', 'Build a plugin named Taller to keep the tools of a workshop.', AutonomyMode::Auto);
+        ExercisedTaller::promoted($sessions, 'bv', ExercisedTaller::RUNS);
+        $built = static fn (string $operation, ?string $principal): ?bool => str_starts_with($operation, 'taller') ? false : null;
+        $verdict = static function () use ($sessions, $built): array {
+            $session = $sessions->load('bv');
+            self::assertNotNull($session);
+
+            return ClosureVerdict::derive($session, $sessions->facts('bv'), $sessions->stream('bv'), null, $built);
         };
+        $tried = $verdict();
+        self::assertTrue($tried['verified'], 'the control: a builder that tries nothing closes — ' . implode('; ', $tried['reasons']));
+        self::assertArrayNotHasKey('rehearsed', $tried);
 
-        [$stream, $seq] = $rehearsed(true);
-        self::assertSame(OwnVerbRehearsal::EVENT, end($stream)->type);
-        self::assertSame(["a call of «herramientas_prestar» was refused for lack of an admission, and nobody has admitted it (seq {$seq})"], HouseExecutedWork::of($stream, $built)['reasons']);
-        self::assertSame([], HouseExecutedWork::of($rehearsed(false)[0], $built)['reasons']);
+        $refused = $sessions->recordToolCall('bv', 'taller_alta', ['nombre' => 'sierra'], self::UNADMITTED, false, mutating: true);
+
+        $held = $verdict();
+        self::assertFalse($held['verified'], 'a refusal the house did not rehearse holds the closure, as it always did');
+        self::assertSame(["a call of «taller_alta» was refused for lack of an admission, and nobody has admitted it (seq {$refused})"], $held['reasons']);
+        self::assertArrayNotHasKey('rehearsed', $held);
+
+        OwnVerbRehearsal::record($events, 'bv', $this->verb('taller:alta'), $refused, ['output' => ['ok' => true], 'exit' => 0, 'bounds' => TrialWorkspace::BOUNDS]);
+
+        $closed = $verdict();
+        self::assertTrue($closed['verified'], implode('; ', $closed['reasons']));
+        self::assertSame(['calls' => 1, 'of_verbs_that_change_state' => 1, 'applied' => false], $closed['rehearsed']);
+        self::assertSame($tried, array_diff_key($closed, ['rehearsed' => true]), 'on what closes a builder, and on nothing else: the same verdict, with that line beside it');
+        ClosureVerdict::record($events, 'bv', $closed);
+        $recorded = $sessions->stream('bv');
+        self::assertSame(
+            ['verified' => true, 'reasons' => [], 'scope' => 'house_observation', 'rehearsed' => ['calls' => 1, 'of_verbs_that_change_state' => 1, 'applied' => false]],
+            ClosureVerdict::surface(end($recorded), 'bv')['closure'] ?? null,
+            'and a surface that paints the verdict is told it too',
+        );
+    }
+
+    /** A session in which nothing was rehearsed says nothing of rehearsals: the verdict is byte for byte what it was. */
+    public function testWhereNothingWasRehearsedNothingIsSaidOfIt(): void
+    {
+        $events = new InMemoryEventStore();
+        $sessions = new SessionStore($events);
+        $sessions->start('bv', 'Build a plugin named Prestamos.', AutonomyMode::Auto);
+        $sessions->recordToolCall('bv', 'herramientas_prestar', [], self::UNADMITTED, false, mutating: true);
+
+        $work = HouseExecutedWork::of($sessions->stream('bv'), static fn (string $operation, ?string $principal): ?bool => false);
+
+        self::assertNull($work['rehearsed']);
+        $session = $sessions->load('bv');
+        self::assertNotNull($session);
+        self::assertArrayNotHasKey('rehearsed', ClosureVerdict::derive($session, $sessions->facts('bv'), $sessions->stream('bv'), null, static fn (string $operation, ?string $principal): ?bool => false));
     }
 
     private function verb(string $operation): BuiltVerb

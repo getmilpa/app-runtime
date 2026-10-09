@@ -65,12 +65,17 @@ use Milpa\EventStore\EventStoreInterface;
  * {@see record()}: THAT it happened, pointing at the refusal it accompanied. What was answered is in no ledger: a
  * leg rebuilt from the session's record — after a pause, or the next one — sees the refusal and no rehearsal.
  *
- * ── WHAT IT DOES NOT SETTLE ─────────────────────────────────────────────────────────────────────
+ * ── WHAT THE CLOSURE MAKES OF IT (decided by Rod, 2026-10-09) ───────────────────────────────────
  *
- * The refusal is still a refusal to every reader. A refused call of a verb that changes state is one the closure
- * waits on a person for ({@see HouseExecutedWork}, decisions/0587 and 0590), rehearsed or not: the builder's leg
- * goes on, and its session does not close until a person admits that call (measured on four houses a build run
- * left). Whether a call the house answered in a rehearsal is still one left halfway is not decided here.
+ * The refusal is still a refusal to the gate, the frontier and the card. To the closure, a refusal the house
+ * answered in a rehearsal stops being a reason ({@see HouseExecutedWork}): by this fact and its seq, nothing else.
+ * As first built it kept waiting on a person — measured on four houses a build run left, the builder's leg went on
+ * and its session no longer closed — so a builder that tried nothing closed and one that tried its own verb did
+ * not. It adds nothing to the closure: no act, no work, no receipt. And the verdict says it beside itself:
+ * `rehearsed`, with `applied: false`.
+ *
+ * What that leaves SAID AND NOT RESOLVED: a goal that asks to build AND to use closes on what was built, with the
+ * use undone. The house does not read the words of the domain; it cannot tell a try from work that was asked for.
  *
  * ── WHAT IT DOES NOT PROVE ──────────────────────────────────────────────────────────────────────
  *
