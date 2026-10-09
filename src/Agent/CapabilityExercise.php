@@ -260,6 +260,13 @@ final class CapabilityExercise
      * to: one exercise per declaration, whatever it found. The receipt goes into the stream and the verdict is derived
      * again from it. Never called between steps.
      *
+     * AND WHAT IT LAST SAW THROW, IT RUNS AGAIN (decided by Rod, 2026-10-09): when the one thing that holds the
+     * closure is that the house saw a capability throw and a change landed since ({@see owedBy()}). Once per landing —
+     * the receipt it leaves stands until the next one, whatever it found.
+     *
+     * EVERYTHING THE VERDICT IS ABOUT TO CLOSE ON, AT THIS END: paying that can leave it about to close on something
+     * the house has not run either, so it is asked again after each run. Nothing is run twice at one end.
+     *
      * @param \Closure(): array<string, mixed>                   $derive   the leg's verdict, from the stream as it stands
      * @param \Closure(string, int): (array<string, mixed>|null) $exercise runs a capability as it was declared at a seq, or
      *                                                                     answers null: this house has nothing to run it with
@@ -269,21 +276,26 @@ final class CapabilityExercise
     public static function atTheEnd(EventStoreInterface $events, string $sessionId, \Closure $derive, \Closure $exercise): array
     {
         $closure = $derive();
-        $owed = self::owedBy($closure);
-        if ($owed === null) {
-            return $closure;
+        $done = [];
+        while (($owed = self::owedBy($closure)) !== null && ! isset($done[$owed['subject'] . ' ' . $owed['seq']])) {
+            $done[$owed['subject'] . ' ' . $owed['seq']] = true;
+            $receipt = $exercise($owed['subject'], $owed['seq']);
+            if ($receipt === null) {
+                break;
+            }
+            self::record($events, $sessionId, $owed, $receipt);
+            $closure = $derive();
         }
-        $receipt = $exercise($owed['subject'], $owed['seq']);
-        if ($receipt === null) {
-            return $closure;
-        }
-        self::record($events, $sessionId, $owed, $receipt);
 
-        return $derive();
+        return $closure;
     }
 
     /**
      * The capability a verdict is about to close on without the house having run it — or null.
+     *
+     * Two ways to be about to close: the verdict says `verified` over a capability nobody ran (R1); or the ONE thing
+     * that holds it is a capability the house last saw throw and has not looked at since a change landed
+     * (`houseOwes`, decided 2026-10-09) — one it already tried again and could not run is not owed twice.
      *
      * @param array<string, mixed> $closure
      *
@@ -291,6 +303,15 @@ final class CapabilityExercise
      */
     public static function owedBy(array $closure): ?array
     {
+        if (\is_array($closure['houseOwes'] ?? null)) {
+            foreach (($closure['houseOwes']['holdsAlone'] ?? null) === true && \is_array($closure['houseOwes']['capabilities'] ?? null) ? $closure['houseOwes']['capabilities'] : [] as $one) {
+                if (\is_array($one) && ($one['tried'] ?? null) === false && \is_string($one['subject'] ?? null) && \is_int($one['seq'] ?? null)) {
+                    return ['subject' => $one['subject'], 'seq' => $one['seq'], 'lastChangeSeq' => \is_int($one['changedAt'] ?? null) ? $one['changedAt'] : null];
+                }
+            }
+
+            return null;
+        }
         $observation = \is_array($closure['derivedFrom'] ?? null) ? ($closure['derivedFrom']['observation'] ?? null) : null;
         if (($closure['verified'] ?? null) !== true || ! \is_array($observation) || ! \is_array($observation['capability'] ?? null)
             || ! \is_string($observation['subject'] ?? null) || ! \is_int($observation['seq'] ?? null)) {
@@ -361,6 +382,26 @@ final class CapabilityExercise
             $of === 1 ? '' : 's',
             implode('; ', $named),
         );
+    }
+
+    /**
+     * Why the house does not close over a capability it last saw throw — said in every form the verdict takes, while a
+     * change has landed since and the house has not seen it run ({@see HouseObservedClosure}, decided 2026-10-09). It
+     * claims nothing of the house as it is now: only what the house saw, and that it has not looked again.
+     *
+     * @param array<string, mixed> $last     the receipt that said it threw, with its `seq`
+     * @param string|null          $couldNot why the house could not run it again after that change, when it tried
+     */
+    public static function whyOwed(string $subject, array $last, ?int $changedAt, ?string $couldNot): string
+    {
+        $thrown = \count(array_filter(\is_array($last['thrown'] ?? null) ? $last['thrown'] : [], 'is_array'));
+        $of = \is_int($last['operations'] ?? null) ? $last['operations'] : $thrown;
+
+        return sprintf('the house ran «%s» and %d of its %d operation%s threw (seq %d); ', $subject, $thrown, $of, $of === 1 ? '' : 's', \is_int($last['seq'] ?? null) ? $last['seq'] : 0)
+            . ($couldNot === null
+                ? sprintf('a change landed after that (seq %d) and the house has not run it since', $changedAt ?? 0)
+                : sprintf('after the change at seq %d it could not run it again — %s', $changedAt ?? 0, $couldNot))
+            . ': it does not close on what it last saw throw';
     }
 
     /**

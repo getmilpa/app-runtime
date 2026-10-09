@@ -15,7 +15,10 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Operations;
 
 use Milpa\Agent\AutonomyMode;
+use Milpa\Agent\Evidence;
 use Milpa\Agent\SessionStore;
+use Milpa\Agent\Todo;
+use Milpa\Agent\TodoStatus;
 use Milpa\AiGateway\AgentOrchestrator;
 use Milpa\AiGateway\LlmService;
 use Milpa\AiGateway\PlanBoard;
@@ -173,6 +176,62 @@ final class ALegThatEndsRunsTheCapabilityItIsAboutToCloseOnTest extends TestCase
         );
         self::assertStringNotContainsString('half-done', $loop->said[1], 'the repair landed: the house will run it again before it says anything of it');
         self::assertStringNotContainsString('ran_and_threw', (string) $loop->system, 'and the system prompt, which does not move inside a leg, never said it');
+    }
+
+    /**
+     * THE HOUSE DOES NOT CLOSE ON WHAT IT LAST SAW THROW (decided by Rod, 2026-10-09) — the whole, as legs do it, with
+     * the house's own runner.
+     *
+     * A session that planned with a todo and closed it, its class verified by its own writer. At the end of its leg
+     * the house runs the capability and an operation throws. Then a change lands that repairs nothing and declares
+     * nothing again — a class outside the plugin — so the house's observation no longer stands and the session's own
+     * record judges alone; and that record is whole. As published it closed there. Now the leg that ends next runs
+     * the capability again, before any verdict: it still throws, and that is said of the house as it is. With a
+     * repair landed, the leg after runs it once more, and closes.
+     */
+    public function testTheLegThatEndsAfterALandingThatRepairedNothingRunsItAgainAndDoesNotClose(): void
+    {
+        $this->sessions->setTodo(self::SESSION, new Todo('t1', 'Build Taller', TodoStatus::Pending));
+        $seq = ExercisedTaller::promoted($this->sessions, self::SESSION, [...ExercisedTaller::RUNS, 'taller:rota'], verified: true);
+        $this->sessions->completeTodo(self::SESSION, 't1', Evidence::operationOk('e1', 'sandbox_promote'));
+        $first = $this->leg(['prompt' => 'Build it', 'session' => self::SESSION]);
+        self::assertFalse($first['closure']['verified'] ?? true, 'the control: the house ran it and it threw');
+
+        $elsewhere = ExercisedTaller::landedElsewhere($this->sessions, self::SESSION);
+
+        $session = $this->sessions->load(self::SESSION);
+        self::assertNotNull($session);
+        $read = ClosureVerdict::derive($session, $this->sessions->facts(self::SESSION), $this->sessions->stream(self::SESSION));
+        self::assertSame('recorded_work', $read['scope'], 'the control: the record judges alone');
+        self::assertTrue($read['houseOwes']['holdsAlone'], 'and it is whole: what holds the closure is the look the house owes — ' . implode('; ', $read['reasons']));
+        self::assertCount(1, $read['reasons']);
+
+        $second = $this->leg(['prompt' => 'Go on', 'session' => self::SESSION]);
+
+        self::assertSame('final_answer', $second['termination']['reason']);
+        self::assertFalse($second['closure']['verified'] ?? true);
+        self::assertSame(
+            ["the house ran «Taller» in a trial before closing on it (seq {$seq}) and 1 of its 6 operations threw: "
+                . '«taller:rota» threw Error: Call to undefined method MilpaTest\Exercised\Almacen::guardar()'
+                . ' — an operation that throws is not whole: fix it with implement'],
+            $second['closure']['reasons'],
+        );
+        $receipts = $this->ofType(CapabilityExercise::EVENT);
+        self::assertCount(2, $receipts, 'it ran it again, once');
+        self::assertSame([$seq, $elsewhere], array_map(static fn (Event $e): mixed => $e->payload['last_change'], $receipts), 'each receipt says the house it ran on');
+        self::assertSame(TrialWorkspace::BOUNDS, $receipts[1]->payload['bounds']);
+        self::assertSame([], TrialWorkspace::ids($this->root));
+        self::assertDirectoryDoesNotExist($this->root . '/var/exercises');
+
+        // The repair lands — the capability declared again, without the operation that threw — and the leg that ends
+        // after it is the one that sees it run.
+        ExercisedTaller::promoted($this->sessions, self::SESSION, ExercisedTaller::RUNS, verified: true);
+        $third = $this->leg(['prompt' => 'Go on', 'session' => self::SESSION]);
+
+        self::assertTrue($third['closure']['verified'] ?? false, implode('; ', $third['closure']['reasons'] ?? []));
+        self::assertSame('ran', $third['closure']['derivedFrom']['observation']['capability']['exercised']);
+        self::assertArrayNotHasKey('houseOwes', $third['closure']);
+        self::assertCount(3, $this->ofType(CapabilityExercise::EVENT));
     }
 
     /**
