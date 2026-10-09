@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Tests\Agent;
 
 use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\EffectObservation;
+use Milpa\Agent\Principal;
 use Milpa\Agent\SessionStore;
 use Milpa\AppRuntime\Agent\BuiltCapabilities;
 use Milpa\AppRuntime\Agent\CapabilityAdmissions;
@@ -79,7 +80,7 @@ final class WhoBuiltAVerbMayRehearseItTest extends TestCase
     {
         [$root, $kernel] = $this->houseInWorks();
         $this->landedBy('builder', $root);
-        $this->sessions->start('another', 'Lend the drill.', AutonomyMode::Auto);
+        $this->sessions->start('another', 'Lend the drill.', AutonomyMode::Auto, by: new Principal('key:' . self::SEAT, true));
 
         self::assertNull($this->mayRehearse($root, $kernel, 'another', self::SEAT, 'herramientas_prestar'));
     }
@@ -90,9 +91,36 @@ final class WhoBuiltAVerbMayRehearseItTest extends TestCase
         [$root, $kernel] = $this->houseInWorks();
         $this->landedBy('builder', $root);
         $this->grant($root, self::OTHER_SEAT, [self::PERMIT]);
-        $this->sessions->start('theirs', 'Lend the drill.', AutonomyMode::Auto);
+        $this->sessions->start('theirs', 'Lend the drill.', AutonomyMode::Auto, by: new Principal('key:' . self::OTHER_SEAT, true));
 
         self::assertNull($this->mayRehearse($root, $kernel, 'theirs', self::OTHER_SEAT, 'herramientas_prestar'));
+    }
+
+    /**
+     * X5, the fourth: the builder's OWN session, continued by another seat that holds the very same permit. A
+     * different seat inherits nothing and building does not give the use (greenhouse decisions/0590, rules 8 and 9):
+     * the one exception is that the caller built it, and this caller did not. Who may speak in a session is another
+     * rule's (decisions/0517); this one asks who built.
+     */
+    public function testAnotherSeatThatContinuesTheBuildersSessionMayNot(): void
+    {
+        [$root, $kernel] = $this->houseInWorks();
+        $this->landedBy('builder', $root);
+        $this->grant($root, self::OTHER_SEAT, [self::PERMIT]);
+        self::assertNotNull($this->mayRehearse($root, $kernel, 'builder', self::SEAT, 'herramientas_prestar'), 'the control: the seat that opened it');
+
+        self::assertNull($this->mayRehearse($root, $kernel, 'builder', self::OTHER_SEAT, 'herramientas_prestar'));
+    }
+
+    /** A session no verified seat opened — a terminal's, or one whose opener nobody verified — has no seat that built in it. */
+    public function testASessionNoVerifiedSeatOpenedIsRehearsedByNobody(): void
+    {
+        [$root, $kernel] = $this->houseInWorks();
+        $this->landedBy('terminal', $root, openedBy: null);
+        $this->landedBy('unverified', $root, openedBy: new Principal('key:' . self::SEAT, false));
+
+        self::assertNull($this->mayRehearse($root, $kernel, 'terminal', self::SEAT, 'herramientas_prestar'));
+        self::assertNull($this->mayRehearse($root, $kernel, 'unverified', self::SEAT, 'herramientas_prestar'));
     }
 
     /** X5: the same session, after something else landed on that file. It is no longer what this session left. */
@@ -240,9 +268,10 @@ final class WhoBuiltAVerbMayRehearseItTest extends TestCase
      * A session that built the capability: its trial was promoted, the promotion's receipt says what the capability
      * declares and in which file, and the house observed what that promotion left of the file — as the house records it.
      */
-    private function landedBy(string $session, string $root, string $promotedBy = 'sandbox_promote', bool $known = true): void
+    private function landedBy(string $session, string $root, string $promotedBy = 'sandbox_promote', bool $known = true, Principal|false|null $openedBy = false): void
     {
-        $this->sessions->start($session, 'Build a plugin named Prestamos to lend the tools of a workshop.', AutonomyMode::Auto);
+        // Opened by the seat, verified, as a resident's session is — unless a case says who else, or nobody.
+        $this->sessions->start($session, 'Build a plugin named Prestamos to lend the tools of a workshop.', AutonomyMode::Auto, by: $openedBy === false ? new Principal('key:' . self::SEAT, true) : $openedBy);
         $this->sessions->recordToolCall($session, 'implement', ['plugin' => 'Prestamos', 'class' => 'Prestamos'], (string) json_encode([
             'ran_in_trial' => true, 'applied' => false, 'workspace' => 'w1', 'changed' => [self::FILE => 'modified'], 'output' => ['ok' => true],
         ]), mutating: true);

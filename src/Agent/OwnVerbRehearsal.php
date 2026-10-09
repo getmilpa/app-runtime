@@ -42,6 +42,8 @@ use Milpa\EventStore\EventStoreInterface;
  *    closure reads what landed: the last promotion that landed the file declaring the verb is one of this session's,
  *    and the file in the house is still what that promotion left. By FILE: a file that declares several verbs makes
  *    them all this session's. Anything landed on it since — by another session, by a person — and it is no longer;
+ *  - THE CALLER is the seat that opened this session, verified. A different seat inherits nothing, and building does
+ *    not give the use (rules 8 and 9): another seat that continues the builder's session did not build;
  *  - the capability keeps its state where the copy leaves it BEHIND. A rehearsal's answer goes to the model. The copy
  *    starts with an empty `var/`, so a store kept there answers with nothing of the house; a capability that declares
  *    state anywhere else would answer with rows of real work, and is not rehearsed at all.
@@ -56,6 +58,16 @@ use Milpa\EventStore\EventStoreInterface;
  * {@see said()}: what the model is handed, AFTER the refusal and never in place of it. The refusal travels word for
  * word and is what the ledger keeps — a person admits over that — so the frontier, the card and the grant are what
  * they were. The only thing that changes for the builder is that its leg does not end there.
+ *
+ * {@see record()}: THAT it happened, pointing at the refusal it accompanied. What was answered is in no ledger: a
+ * leg rebuilt from the session's record — after a pause, or the next one — sees the refusal and no rehearsal.
+ *
+ * ── WHAT IT DOES NOT SETTLE ─────────────────────────────────────────────────────────────────────
+ *
+ * The refusal is still a refusal to every reader. A refused call of a verb that changes state is one the closure
+ * waits on a person for ({@see HouseExecutedWork}, decisions/0587 and 0590), rehearsed or not: the builder's leg
+ * goes on, and its session does not close until a person admits that call (measured on four houses a build run
+ * left). Whether a call the house answered in a rehearsal is still one left halfway is not decided here.
  *
  * ── WHAT IT DOES NOT PROVE ──────────────────────────────────────────────────────────────────────
  *
@@ -97,6 +109,13 @@ final class OwnVerbRehearsal
         $verb = $built->verb($tool);
         $missing = $verb === null || $principal === null ? null : $admissions->missing($principal, $tool);
         if ($verb === null || $missing === null || ! $missing->inWorks) {
+            return null;
+        }
+        // THE CALLER IS THE SEAT THAT OPENED THIS SESSION. A different seat inherits nothing, and building does not
+        // give the use (greenhouse decisions/0590, rules 8 and 9): the one exception is that the caller built it —
+        // and another seat that continues the builder's session, holding the very same permit, did not. Who may
+        // speak in a session is another rule's (decisions/0517); this one asks who built.
+        if (! self::openedBy($stream, $principal)) {
             return null;
         }
         foreach ($built->verbsOf($verb->capability) as $one) {
@@ -242,6 +261,24 @@ final class OwnVerbRehearsal
     private static function line(mixed $text): string
     {
         return \is_string($text) ? trim(explode("\n", ltrim($text), 2)[0]) : '';
+    }
+
+    /**
+     * Whether this principal opened the session, verified — read from the event that opened it, and nothing else.
+     *
+     * @param list<Event> $stream
+     */
+    private static function openedBy(array $stream, string $principal): bool
+    {
+        foreach ($stream as $event) {
+            if ($event->type === SessionEvent::Started->value) {
+                $by = \is_array($event->payload['by'] ?? null) ? $event->payload['by'] : [];
+
+                return ($by['verified'] ?? false) === true && ($by['id'] ?? null) === $principal;
+            }
+        }
+
+        return false;
     }
 
     /**

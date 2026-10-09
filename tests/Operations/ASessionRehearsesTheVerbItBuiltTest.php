@@ -170,7 +170,8 @@ final class ASessionRehearsesTheVerbItBuiltTest extends TestCase
     /** X5, in a house: the same seat in another session; another seat; and the builder after that file changed. */
     public function testWhoDidNotBuildItIsStoppedAsToday(): void
     {
-        foreach ([['another', self::SEAT], ['theirs', self::OTHER_SEAT]] as [$session, $seat]) {
+        // …and the fourth: the builder's own session, continued by the other seat, which holds the same permit.
+        foreach ([['another', self::SEAT], ['theirs', self::OTHER_SEAT], ['builder', self::OTHER_SEAT]] as [$session, $seat]) {
             try {
                 $this->door($session, $seat)->callTool('taller_lista', []);
                 self::fail('refused');
@@ -185,6 +186,7 @@ final class ASessionRehearsesTheVerbItBuiltTest extends TestCase
 
         self::assertNull($this->rehearsed('builder', self::SEAT, 'taller_lista', []));
         self::assertSame([], [...$this->ofType('another', OwnVerbRehearsal::EVENT), ...$this->ofType('theirs', OwnVerbRehearsal::EVENT)]);
+        self::assertCount(1, $this->ofType('builder', OwnVerbRehearsal::EVENT), 'one rehearsal in the builder\'s session: the control\'s, and none for the other seat');
     }
 
     public function testAHouseThatSwitchedTrialsOffRehearsesNothing(): void
