@@ -16,8 +16,10 @@ namespace Milpa\AppRuntime\Operations;
 
 use Milpa\AppRuntime\Agent\BuiltCapabilities;
 use Milpa\AppRuntime\Agent\CapabilityAdmissions;
+use Milpa\AppRuntime\Agent\CapabilityExercise;
 use Milpa\AppRuntime\Agent\FatalTermination;
 use Milpa\AppRuntime\Agent\GrantedCall;
+use Milpa\AppRuntime\Agent\HouseGoesOn;
 use Milpa\AppRuntime\Agent\HouseExecutedWork;
 use Milpa\AppRuntime\Agent\OfferedTools;
 use Milpa\AppRuntime\Agent\LegMemory;
@@ -1934,7 +1936,7 @@ class AgentOperations implements CommandProvider
     private function runUnlessItEchoes(array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array
     {
         try {
-            return $this->runAndResumeAnEcho($input, $context, $authority);
+            return $this->runAndGoOn($input, $context, $authority);
         } finally {
             // THE RUN IS OVER, whichever way it left — the lease it took says so (greenhouse decisions/0513 §3).
             $this->runLease?->release();
@@ -1943,15 +1945,74 @@ class AgentOperations implements CommandProvider
     }
 
     /**
-     * {@see runUnlessItEchoes()} without the lease's release: the run, and the one resume an echo earns.
+     * AFTER A PAUSE FOR WINDOW OR FOR STEPS THE HOUSE GOES ON BY ITSELF, UNDER ITS WRITTEN CAP (greenhouse
+     * decisions/0604, rule A; {@see HouseGoesOn}). The leg that follows is a whole leg of the same session — its
+     * window folded as any leg's is, its ceiling what is left of the total — told by the house why it follows, and
+     * recorded as the house's before it starts. The result is the last leg's, and says how often the house went on
+     * and how many steps the invocation took in all.
+     *
+     * The pause is not an end: the leg that paused recorded no closure, and nothing of it is taken for one.
+     *
+     * EVERY STEP OF THE INVOCATION COUNTS, those of a turn the house resumed over an echo included (decisions/0475,
+     * unchanged: that resume takes a leg's ceiling of its own). What the total bounds is the house going on.
      *
      * @param array<string, mixed> $input
      *
      * @return array<string, mixed>
      */
-    private function runAndResumeAnEcho(array $input, ?InvocationContext $context, ?ToolContext $authority): array
+    private function runAndGoOn(array $input, ?InvocationContext $context, ?ToolContext $authority): array
+    {
+        $spent = 0;
+        $result = $this->runAndResumeAnEcho($input, $context, $authority, $spent);
+        $config = $this->container->has(Config::class) ? $this->container->get(Config::class) : null;
+        $config = $config instanceof Config ? $config : null;
+        $times = 0;
+        while (true) {
+            $session = \is_string($result['session'] ?? null) ? $result['session'] : '';
+            $store = $session === '' ? null : $this->sessionStore();
+            $state = $store?->load($session);
+            $left = $state === null ? null : HouseGoesOn::stepsLeft(
+                $result,
+                $state->mode,
+                $state->question !== null,
+                $input['steps'] ?? null,
+                LegWindow::steps($input['steps'] ?? null, $state->mode, LegWindow::of($config)),
+                $spent,
+                $times,
+                $config,
+            );
+            if ($left === null) {
+                break;
+            }
+            $why = HouseGoesOn::pause($result);
+            ++$times;
+            $this->sessionEvents?->append(new \Milpa\EventStore\Event(
+                streamId: SessionStore::PREFIX . $session,
+                type: HouseGoesOn::EVENT,
+                payload: ['after' => $why, 'steps_before' => $spent, 'steps_left' => $left, 'time' => $times, 'cap' => HouseGoesOn::cap($config), 'by' => 'house'],
+                seq: $this->sessionEvents->nextSeq(),
+            ));
+            $before = $spent;
+            $result = $this->run(['prompt' => HouseGoesOn::notice($why), 'session' => $session, 'steps' => $left], $context, $authority);
+            $spent += \is_int($result['steps'] ?? null) ? $result['steps'] : 0;
+            $result['wentOn'] = ['times' => $times, 'after' => $why, 'stepsBefore' => $before, 'stepsInAll' => $spent];
+        }
+
+        return $result;
+    }
+
+    /**
+     * {@see runUnlessItEchoes()} without the lease's release: the run, and the one resume an echo earns. `$spent`
+     * gains the steps of every run it made.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function runAndResumeAnEcho(array $input, ?InvocationContext $context, ?ToolContext $authority, int &$spent): array
     {
         $result = $this->run($input, $context, $authority);
+        $spent += \is_int($result['steps'] ?? null) ? $result['steps'] : 0;
         $session = \is_string($result['session'] ?? null) ? $result['session'] : '';
         if ($session === '' || ! \is_string($result['answer'] ?? null) || ! self::isTheHouseVoice($result['answer'])
             || ($result['paused'] ?? false) === true || ($result['termination']['reason'] ?? null) !== 'final_answer'
@@ -1960,6 +2021,7 @@ class AgentOperations implements CommandProvider
         }
 
         $again = $this->run(['prompt' => self::HOUSE_VOICE_NUDGE, 'session' => $session] + array_intersect_key($input, ['steps' => true]), $context, $authority);
+        $spent += \is_int($again['steps'] ?? null) ? $again['steps'] : 0;
         $again['houseVoiceResumed'] = true;
         if (\is_string($again['answer'] ?? null) && self::isTheHouseVoice($again['answer'])) {
             $again['houseVoiceTwice'] = true;
@@ -3147,7 +3209,7 @@ class AgentOperations implements CommandProvider
             && $this->runTermination !== null
             && \in_array($this->runTermination->reason, [RunEnd::FinalAnswer, RunEnd::EpilogueExhausted], true)
         ) {
-            $closure = $this->deliveryClosure($store, $pausada);
+            $closure = $this->closureOfTheLegThatEnds($store, $pausada);
             $resultado['closure'] = $closure;
             if ($this->sessionEvents !== null) {
                 ClosureVerdict::record($this->sessionEvents, $sessionId, $closure);
@@ -3913,6 +3975,61 @@ class AgentOperations implements CommandProvider
     private function deliveryClosure(SessionStore $store, Session $session): array
     {
         return LegClosure::atTheEnd($session, $store->stream($session->id), fn (array $contract): array => $this->acceptanceEvidence($contract), $this->lastingCalls(), $this->admittedWork());
+    }
+
+    /**
+     * The verdict a leg RECORDS at its natural end — with the capability it is about to close on run first (greenhouse
+     * decisions/0605, R1; {@see CapabilityExercise}).
+     *
+     * Only here. Between steps the same verdict is read and nothing is run ({@see LegClosure::betweenSteps()}); the door
+     * of a session already closed reads the stream as it stands ({@see answerAClosedSession()}). What the house finds
+     * is a receipt in the session's stream, recorded before the verdict that reads it.
+     *
+     * @return array<string, mixed>
+     */
+    private function closureOfTheLegThatEnds(SessionStore $store, Session $session): array
+    {
+        if ($this->sessionEvents === null) {
+            return $this->deliveryClosure($store, $session);
+        }
+
+        return CapabilityExercise::atTheEnd(
+            $this->sessionEvents,
+            $session->id,
+            fn (): array => $this->deliveryClosure($store, $session),
+            fn (string $capability, int $seq): ?array => $this->exercise($store, $session->id, $capability, $seq),
+        );
+    }
+
+    /**
+     * The house running a capability as a promotion declared it — or null when this app has no kernel, and so no
+     * house to run it in: then nothing is recorded and the verdict is the one it was.
+     *
+     * THE OPERATIONS ARE READ FROM THE PROMOTION'S RECEIPT, not from this process: the leg that built a capability
+     * booted before any of it landed, and its own catalogue does not hold it. What each one takes is read in the copy,
+     * by a process started there. A house that runs no trial — they are switched off, or it cannot confine a process —
+     * runs nothing and says so: a session's code is never run unconfined to find out.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function exercise(SessionStore $store, string $sessionId, string $capability, int $seq): ?array
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        if (!$kernel instanceof Kernel) {
+            return null;
+        }
+        $operations = CapabilityExercise::declaredAt($store->stream($sessionId), $capability, $seq);
+        try {
+            $router = $this->trialRouter($kernel);
+        } catch (\Throwable) {
+            $router = null;
+        }
+        if ($router === null) {
+            return ['exercised' => 'unjudged', 'why' => 'this house runs no trial: they are switched off, or it cannot confine a process',
+                'operations' => \count($operations), 'calls' => 0];
+        }
+
+        return CapabilityExercise::of($kernel->root(), $capability, $operations, $router->runner(), \dirname(__DIR__, 2) . '/resources/exercise-run.php');
     }
 
     /**

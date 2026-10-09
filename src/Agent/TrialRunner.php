@@ -94,6 +94,19 @@ final class TrialRunner
     }
 
     /**
+     * This runner with another ceiling of time per call — the same bubblewrap, the same PHP, and the namespaces it
+     * already probed. For a call the house makes on its own account and will not wait a whole minute for
+     * ({@see CapabilityExercise}): it is no session's authoring call, so nothing observes its inputs for one.
+     */
+    public function within(int $seconds): self
+    {
+        $runner = new self($this->bwrap, $seconds, $this->php);
+        $runner->namespaces = $this->namespaces();
+
+        return $runner;
+    }
+
+    /**
      * The confinement this runner imposes, named so a recorded trial can state what it ran under.
      *
      * @return array{fs: string, net: string, pid: string}

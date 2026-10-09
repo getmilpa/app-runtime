@@ -73,7 +73,8 @@ final class SecretFiles
 
     /**
      * The absolute paths of every file that holds a secret and exists under a house: at its tree, and in each
-     * copy a trial or a boot candidate kept (`var/trials/<id>/copy/`, `var/boot-candidates/<id>/`). The trial
+     * copy a trial, an exercise or a boot candidate kept (`var/trials/<id>/copy/`, `var/exercises/<id>/copy/`,
+     * `var/boot-candidates/<id>/`). The trial
      * runner masks these from the confined process; a boot candidate LINKS them, but one left by a crashed probe
      * of a version before they were linked would be a copy, so it is covered too.
      *
@@ -82,7 +83,7 @@ final class SecretFiles
     public static function existingUnder(string $root): array
     {
         $paths = array_map(static fn (string $rel): string => $root . '/' . $rel, self::under($root));
-        foreach ([...glob($root . '/var/trials/*/copy') ?: [], ...glob($root . '/var/boot-candidates/*') ?: []] as $copy) {
+        foreach ([...glob($root . '/var/trials/*/copy') ?: [], ...glob($root . '/var/exercises/*/copy') ?: [], ...glob($root . '/var/boot-candidates/*') ?: []] as $copy) {
             if (is_dir($copy)) {
                 foreach (self::scan($copy, '') as $rel) {
                     $paths[] = $copy . '/' . $rel;

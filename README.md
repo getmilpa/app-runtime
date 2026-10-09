@@ -305,6 +305,18 @@ If the provider reports a truncated response, `agent` returns `ok: false`, `trun
 `provider`, `outputLimit`, `stopReason`, and the session id when one exists. It records no final answer or
 closure for that incomplete response. Earlier effects and recorded usage remain in the session.
 
+After a leg in `auto` pauses because it ran out of window or of steps, the house goes on by itself
+inside the same invocation: a second leg of the same session, opened by a `[house]` notice that says
+why it follows, with the window folded as any leg's is. It does so once, and the invocation takes at
+most sixty steps in all, counting those before the pause; the leg that follows takes what is left of
+them and never more than a leg's own ceiling. The app may declare other numbers as
+`agent.continuations` (0 turns it off) and `agent.invocationSteps`. A `--steps` the caller typed is the
+total: the house does not walk past it. It never goes on over a pause that waits for a person — a
+refusal, a question, a stall — nor outside `auto`. The session records `session.leg_continued` before
+the leg that follows, and the result carries `wentOn` with `times`, `after`, `stepsBefore` and
+`stepsInAll`; `steps` stays the count of the leg that ended. A pause the house continues closes
+nothing: the closure belongs to the leg that ends in an answer. Greenhouse decision 0604, rule A.
+
 The app may declare `agent.outputTokens` as a positive integer in `config/app.php` or through
 `config:set`. Absent keeps the native 4096-token default; invalid values, including explicit null,
 are refused. Explicit output requires gateway 0.29+ and agent 0.47+ so both the native loop and
