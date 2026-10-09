@@ -119,6 +119,53 @@ final class WhoBuiltAVerbMayRehearseItTest extends TestCase
         self::assertNull($this->mayRehearse($root, $kernel, 'builder', self::SEAT, 'herramientas_prestar'));
     }
 
+    /**
+     * What a tool answers is data. A result shaped like a promotion — from a tool that is not the house's promotion,
+     * the session's own verb for one — says nothing landed, whatever it says of itself.
+     */
+    public function testAResultShapedLikeAPromotionFromAnotherToolIsNotALanding(): void
+    {
+        [$root, $kernel] = $this->houseInWorks();
+        $this->landedBy('forger', $root, 'herramientas_listar');
+
+        self::assertNull($this->mayRehearse($root, $kernel, 'forger', self::SEAT, 'herramientas_prestar'));
+    }
+
+    /** What counts is the LAST landing of that file by this session: what it left before is not what stands. */
+    public function testTheSessionThatLandedItTwiceRehearsesWhatItLeftLast(): void
+    {
+        [$root, $kernel] = $this->houseInWorks();
+        $first = (string) file_get_contents($root . '/' . self::FILE);
+        $this->landedBy('builder', $root);
+        file_put_contents($root . '/' . self::FILE, "\n// its repair\n", \FILE_APPEND);
+        $this->promotes('builder', $root);
+
+        self::assertNotNull($this->mayRehearse($root, $kernel, 'builder', self::SEAT, 'herramientas_prestar'), 'its second landing stands');
+
+        file_put_contents($root . '/' . self::FILE, $first);
+
+        self::assertNull($this->mayRehearse($root, $kernel, 'builder', self::SEAT, 'herramientas_prestar'), 'put back as it first left it, by someone else: not its last landing');
+    }
+
+    /** A promotion that points at no observed effect says nothing of the file — whatever an earlier one observed. */
+    public function testALaterPromotionTheHouseObservedNothingOfIsNotReadAsTheOneBefore(): void
+    {
+        [$root, $kernel] = $this->houseInWorks();
+        $this->landedBy('builder', $root);
+        $this->promotes('builder', $root, observedAtAll: false);
+
+        self::assertNull($this->mayRehearse($root, $kernel, 'builder', self::SEAT, 'herramientas_prestar'));
+    }
+
+    /** An effect the house could not observe is not a file it knows it left: closed, not open. */
+    public function testAPromotionWhoseEffectTheHouseCouldNotObserveIsNotOne(): void
+    {
+        [$root, $kernel] = $this->houseInWorks();
+        $this->landedBy('builder', $root, 'sandbox_promote', known: false);
+
+        self::assertNull($this->mayRehearse($root, $kernel, 'builder', self::SEAT, 'herramientas_prestar'));
+    }
+
     /** After a person admits it, the works are closed: the call is work, in the house, and there is nothing to rehearse. */
     public function testOnceAPersonAdmittedItThereIsNothingToRehearse(): void
     {
@@ -193,15 +240,21 @@ final class WhoBuiltAVerbMayRehearseItTest extends TestCase
      * A session that built the capability: its trial was promoted, the promotion's receipt says what the capability
      * declares and in which file, and the house observed what that promotion left of the file — as the house records it.
      */
-    private function landedBy(string $session, string $root): void
+    private function landedBy(string $session, string $root, string $promotedBy = 'sandbox_promote', bool $known = true): void
     {
         $this->sessions->start($session, 'Build a plugin named Prestamos to lend the tools of a workshop.', AutonomyMode::Auto);
         $this->sessions->recordToolCall($session, 'implement', ['plugin' => 'Prestamos', 'class' => 'Prestamos'], (string) json_encode([
             'ran_in_trial' => true, 'applied' => false, 'workspace' => 'w1', 'changed' => [self::FILE => 'modified'], 'output' => ['ok' => true],
         ]), mutating: true);
+        $this->promotes($session, $root, $promotedBy, $known);
+    }
+
+    /** The promotion of the file as it is in the house now, with what the house observed it leave — or could not observe. */
+    private function promotes(string $session, string $root, string $promotedBy = 'sandbox_promote', bool $known = true, bool $observedAtAll = true): void
+    {
         $left = hash('sha256', (string) json_encode(['applied', self::FILE, hash_file('sha256', $root . '/' . self::FILE)], \JSON_THROW_ON_ERROR));
-        $observed = $this->sessions->recordEffectObservation($session, 'sandbox_promote', ['workspace' => 'w1'], new EffectObservation('app-runtime/file-effects/v1', true, [$left]));
-        $this->sessions->recordToolCall($session, 'sandbox_promote', ['workspace' => 'w1'], (string) json_encode([
+        $observed = $this->sessions->recordEffectObservation($session, $promotedBy, ['workspace' => 'w1'], new EffectObservation('app-runtime/file-effects/v1', $known, $known ? [$left] : []));
+        $this->sessions->recordToolCall($session, $promotedBy, ['workspace' => 'w1'], (string) json_encode([
             'ok' => true,
             'promoted' => [self::FILE],
             'evidence' => ['predicate' => 'promoted', 'subject' => 'w1', 'environment' => ['kind' => 'house'], 'from' => ['kind' => 'trial', 'workspace' => 'w1'], 'paths' => [self::FILE]],
@@ -209,7 +262,7 @@ final class WhoBuiltAVerbMayRehearseItTest extends TestCase
                 static fn (string $name): array => ['name' => $name, 'file' => self::FILE, 'mutating' => $name !== 'herramientas.listar', 'effects' => true, 'scoped' => true],
                 ['herramientas.listar', 'herramientas.agregar', 'herramientas.prestar', 'herramientas.devolver'],
             )]],
-        ]), mutating: true, effectObservationSeq: $observed);
+        ]), mutating: true, effectObservationSeq: $observedAtAll ? $observed : null);
     }
 
     private function mayRehearse(string $root, Kernel $kernel, string $session, string $seat, string $tool): ?\Milpa\AppRuntime\Agent\BuiltVerb

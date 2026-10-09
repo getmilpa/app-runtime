@@ -16,9 +16,9 @@ namespace Milpa\AppRuntime\Tests\Operations;
 
 use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\EffectObservation;
+use Milpa\Agent\Principal;
 use Milpa\Agent\SessionStore;
 use Milpa\AppRuntime\Agent\BuiltCapabilities;
-use Milpa\AppRuntime\Agent\CapabilityAdmissions;
 use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Agent\HouseExecutedWork;
 use Milpa\AppRuntime\Agent\OwnVerbRehearsal;
@@ -93,7 +93,8 @@ final class ASessionRehearsesTheVerbItBuiltTest extends TestCase
         $this->container->registerService(Kernel::class, $this->kernel);
         // The session that built it, and one of the same seat that did not.
         $this->landedBy('builder');
-        $this->sessions->start('another', 'Lend the drill.', AutonomyMode::Auto);
+        $this->sessions->start('another', 'Lend the drill.', AutonomyMode::Auto, by: new Principal('key:' . self::SEAT, true));
+        $this->sessions->start('theirs', 'Lend the drill.', AutonomyMode::Auto, by: new Principal('key:' . self::OTHER_SEAT, true));
     }
 
     protected function tearDown(): void
@@ -154,12 +155,22 @@ final class ASessionRehearsesTheVerbItBuiltTest extends TestCase
         self::assertStringContainsString('"given":{"nombre":"sierra","cantidad":2,"tipo":"manual","activa":false}', (string) $given);
         self::assertStringContainsString('Error: Call to undefined method MilpaTest\\\\Exercised\\\\Almacen::guardar()', (string) $thrown);
         self::assertSame(['answered', 'did_not_succeed'], array_map(static fn (Event $event): string => $event->payload['ended'], $this->ofType('builder', OwnVerbRehearsal::EVENT)));
+
+        // It points at the refusal of THAT call: a later refusal of another tool is not the one it accompanied.
+        $this->sessions->recordToolCall('builder', 'taller_lista', [], 'refused', false);
+        $refusals = $this->ofType('builder', 'session.tool_called');
+        $own = end($refusals);
+        self::assertInstanceOf(Event::class, $own);
+        $this->sessions->recordToolCall('builder', 'make', ['what' => 'plugin', 'plugin' => 'Blog'], "Missing required permission 'plugins.Blog:write' for plugin 'Blog'.", false);
+        self::assertNotNull($this->closure('builder', $this->container)('taller_lista', [], 'key:' . self::SEAT));
+        $facts = $this->ofType('builder', OwnVerbRehearsal::EVENT);
+        self::assertSame($own->seq, end($facts)->payload['refusal']);
     }
 
     /** X5, in a house: the same seat in another session; another seat; and the builder after that file changed. */
     public function testWhoDidNotBuildItIsStoppedAsToday(): void
     {
-        foreach ([['another', self::SEAT], ['another', self::OTHER_SEAT]] as [$session, $seat]) {
+        foreach ([['another', self::SEAT], ['theirs', self::OTHER_SEAT]] as [$session, $seat]) {
             try {
                 $this->door($session, $seat)->callTool('taller_lista', []);
                 self::fail('refused');
@@ -173,7 +184,7 @@ final class ASessionRehearsesTheVerbItBuiltTest extends TestCase
         file_put_contents($this->root . '/' . self::FILE, "\n// landed by someone else\n", \FILE_APPEND);
 
         self::assertNull($this->rehearsed('builder', self::SEAT, 'taller_lista', []));
-        self::assertSame([], $this->ofType('another', OwnVerbRehearsal::EVENT));
+        self::assertSame([], [...$this->ofType('another', OwnVerbRehearsal::EVENT), ...$this->ofType('theirs', OwnVerbRehearsal::EVENT)]);
     }
 
     public function testAHouseThatSwitchedTrialsOffRehearsesNothing(): void
@@ -220,8 +231,9 @@ final class ASessionRehearsesTheVerbItBuiltTest extends TestCase
     }
 
     /**
-     * The door of a leg of that session, run by that seat: the judge of decisions/0590 on the gate, the frontier that
-     * decides whether a person can lift a refusal, and the rehearsal — each the house's own.
+     * The door of a leg of that session, run by that seat — THE ONE THE LEG BUILDS (`governedExecutor`): its frontier,
+     * its rehearsal. Over a registry whose gate holds the judge of decisions/0590, and a recorder that writes what
+     * the gate saw into the session, as a leg's does.
      */
     private function door(string $session, string $seat): ConsentBridge
     {
@@ -230,7 +242,7 @@ final class ASessionRehearsesTheVerbItBuiltTest extends TestCase
         foreach (['taller_lista', 'taller_lee'] as $tool) {
             $registry->register($tool, $tool, ['type' => 'object'], static fn (array $args): array => ['reached_the_house' => true]);
         }
-        $registry->getPolicyGate()->setCallPolicy(new PluginAuthoringPolicy($this->root, capabilities: $built));
+        $registry->getPolicyGate()->setCallPolicy((new PluginAuthoringPolicy($this->root, capabilities: $built))->withSeatSession($this->sessions, $session));
         $sessions = $this->sessions;
         $recorder = new class ($sessions, $session) implements ToolCallRecorder {
             public function __construct(private SessionStore $sessions, private string $session)
@@ -242,21 +254,18 @@ final class ASessionRehearsesTheVerbItBuiltTest extends TestCase
                 $this->sessions->recordToolCall($this->session, $tool, $arguments, $result, $ok);
             }
         };
+        $operations = new AgentOperations($this->container);
+        (new \ReflectionProperty(AgentOperations::class, 'sesionDeLosPermisos'))->setValue($operations, $session);
+        (new \ReflectionProperty(AgentOperations::class, 'sessionEvents'))->setValue($operations, $this->events);
+        (new \ReflectionProperty(AgentOperations::class, 'toolAuthority'))->setValue($operations, new ToolContext('key:' . $seat, 'cli', self::SEAT_SCOPES));
 
-        return new ConsentBridge(
-            $registry,
-            recorder: $recorder,
-            authority: new ToolContext('key:' . $seat, 'cli', self::SEAT_SCOPES),
-            // What a person could admit for that call: asked of the same judge the frontier asks.
-            waitsOnAPerson: fn (string $tool, array $arguments): ?string => CapabilityAdmissions::forRoot($this->root, $built())->missing('key:' . $seat, $tool)?->permission(),
-            rehearses: $this->closure($session, $this->container),
-        );
+        return (new \ReflectionMethod(AgentOperations::class, 'governedExecutor'))->invoke($operations, $registry, null, $recorder, null);
     }
 
     /** The session that built the capability: its trial promoted, what it declares said, and what the promotion left of the file observed. */
     private function landedBy(string $session): void
     {
-        $this->sessions->start($session, 'Build a plugin named Taller to keep the tools of a workshop.', AutonomyMode::Auto);
+        $this->sessions->start($session, 'Build a plugin named Taller to keep the tools of a workshop.', AutonomyMode::Auto, by: new Principal('key:' . self::SEAT, true));
         $this->sessions->recordToolCall($session, 'implement', ['plugin' => 'Taller', 'class' => 'Taller'], (string) json_encode([
             'ran_in_trial' => true, 'applied' => false, 'workspace' => 'w1', 'changed' => [self::FILE => 'modified'], 'output' => ['ok' => true],
         ]), mutating: true);

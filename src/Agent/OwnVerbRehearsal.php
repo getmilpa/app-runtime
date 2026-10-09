@@ -289,9 +289,11 @@ final class OwnVerbRehearsal
             }
         }
         $now = @hash_file('sha256', rtrim($root, '/') . '/' . $file);
-        if ($observed === null || $now === false || ($observed['known'] ?? null) !== true) {
+        if ($observed === null || $now === false) {
             return false;
         }
+        // An effect the house could not observe carries no identity — {@see \Milpa\Agent\EffectObservation} refuses
+        // one — so it matches nothing below: closed, without asking whether it was known.
 
         return \in_array(
             hash('sha256', (string) json_encode(['applied', $file, $now])),
