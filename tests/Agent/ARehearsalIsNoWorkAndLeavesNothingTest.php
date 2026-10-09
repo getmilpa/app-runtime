@@ -367,10 +367,11 @@ final class ARehearsalIsNoWorkAndLeavesNothingTest extends TestCase
 
     /**
      * THE NUMBER SAYS WHAT ITS NAME SAYS. «Of verbs that change state» is read from the refused call itself — what its
-     * operation declares — and not from whether the closure happened to be waiting on it. A refusal waits only when
-     * its sentence says nobody admitted it; a seat whose admission is kept and SUSPENDED while the capability is back
-     * in works is refused in other words, and the closure never waited on that. Its rehearsed call of a verb that
-     * writes is still a call of a verb that writes, answered in a copy and not applied. Found by t-0104.
+     * operation declares — and not from whether the closure happened to be waiting on it. A seat whose admission is
+     * kept and SUSPENDED while the capability is back in works is refused in other words than one nobody admitted, and
+     * when this was written the closure did not wait on that (it does since 2026-10-09: decisions/0599, amended —
+     * {@see TheClosureWaitsOnEveryRefusalAPersonMustLiftTest}). Its rehearsed call of a verb that writes is a call of
+     * a verb that writes either way, answered in a copy and not applied. Found by t-0104.
      */
     public function testACallOfAVerbThatWritesIsCountedAsOneWhetherOrNotTheClosureWaitedOnIt(): void
     {
@@ -383,7 +384,7 @@ final class ARehearsalIsNoWorkAndLeavesNothingTest extends TestCase
 
         $work = HouseExecutedWork::of($sessions->stream('bv'), static fn (string $operation, ?string $principal): ?bool => false);
 
-        self::assertSame([], $work['reasons'], 'the control: the closure was not waiting on it');
+        self::assertSame([], $work['reasons'], 'the rehearsal lifted it: it is not a reason');
         self::assertSame(['calls' => 1, 'of_verbs_that_change_state' => 1, 'applied' => false], $work['rehearsed']);
 
         // And one that is no verb of a built capability at all is not counted as one that writes.
