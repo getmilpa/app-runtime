@@ -44,8 +44,11 @@ use Milpa\EventStore\Event;
  *   asked derives nothing.
  * - NOTHING LEFT HALFWAY. A call of a built verb that was accepted and has no receipt of the house — it ran in a
  *   trial, or only its answer says it ran — stops the closure (decisions/0587). So does a receipt of a trial, a call
- *   refused for lack of an admission that nobody admitted, and receipts that do not chain: when the state a receipt
- *   started from is not the state the one before left, somebody else changed it in between.
+ *   refused for an admission a person can give and nobody gave — never admitted, or admitted and SUSPENDED while the
+ *   capability is back in works —, and receipts that do not chain: when the state a receipt started from is not the
+ *   state the one before left, somebody else changed it in between.
+ * - A GRANT LIFTS THE CALL IT WAS GIVEN FOR, however many times it was refused: every refusal of the same tool with
+ *   the same arguments that was pending when the person granted. Not another call's, and not one refused afterwards.
  * - AN ACT THE DOMAIN REFUSED DOES NOT STOP IT. Refusing well is working well. It is counted and said.
  * - NOR DOES A REFUSAL THE HOUSE ANSWERED IN A REHEARSAL (decisions/0605, R2 — decided by Rod on 2026-10-09). The
  *   session that wrote a verb may be handed, after the refusal, what its call answered in a copy that is discarded
@@ -67,8 +70,23 @@ use Milpa\EventStore\Event;
  */
 final class HouseExecutedWork
 {
-    /** What the house says when a call of a built verb is refused because no admission covers it (decisions/0590). */
-    private const UNADMITTED = ['no person has admitted', 'no longer covers it'];
+    /**
+     * What the house says when a call of a built verb is refused for an admission A PERSON CAN GIVE (decisions/0590),
+     * and what the closure says of that call while nobody has. The key is a phrase of the house's own sentence
+     * ({@see MissingAdmission::sentence()}): the stream holds the refusal as it was said, and nothing else of it.
+     *
+     * THE SUSPENDED ONE WAS MISSING (decided by Rod on 2026-10-09). A seat whose admission is kept and suspended
+     * while the capability is back in works (rule 10) is refused in other words, and waits on a person exactly as
+     * one nobody ever admitted: a person admits it again. The closure knew two phrases and that sentence says
+     * neither, so a session of work could close over a call of a verb that writes, refused and waiting.
+     *
+     * A WITHDRAWN admission (rule 12) is not here, and nobody decided it should be.
+     */
+    private const WAITS_ON_A_PERSON = [
+        'no person has admitted' => 'for lack of an admission, and nobody has admitted it',
+        'no longer covers it' => 'for lack of an admission, and nobody has admitted it',
+        'is kept and suspended' => 'because its admission is suspended while its capability is in works, and nobody has admitted it again',
+    ];
 
     /**
      * Read the work of a session from its stream.
@@ -86,12 +104,12 @@ final class HouseExecutedWork
         $built = static fn (string $operation): bool => $admitted($operation, null) !== null;
         // seq => the call of a built verb the domain accepted, until the house's receipt of it arrives.
         $accepted = [];
-        // seq => the tool of a call refused for lack of an admission, until a person admits it — or the house answers
-        // it in a rehearsal, for the session that wrote that verb.
+        // seq => a call refused for an admission a person can give — its tool, WHICH call it was (the digest of its
+        // arguments, as a grant's own fact names it) and what is said of it — until a person admits it, or the house
+        // answers it in a rehearsal for the session that wrote that verb.
         $waiting = [];
-        // seq => a refused call of a built verb that CHANGES STATE, whatever its refusal said. A refusal waits only when
-        // it says nobody admitted it; a seat whose admission is kept and suspended while the capability is back in works
-        // is refused in other words — and its call is still one of a verb that writes.
+        // seq => a refused call of a built verb that CHANGES STATE, whatever its refusal said: a call the domain itself
+        // refused, or one refused for a reason nobody waits on, is still one of a verb that writes.
         $refusedWrites = [];
         // The calls the house answered in a rehearsal, and how many of them were of a verb that changes state.
         $rehearsed = $ofWrites = 0;
@@ -103,7 +121,20 @@ final class HouseExecutedWork
         foreach ($stream as $event) {
             $payload = $event->payload;
             if ($event->type === GrantedCall::GRANTED) {
-                unset($waiting[$payload['seq'] ?? null]);
+                // A GRANT LIFTS THE CALL IT WAS GIVEN FOR, EVERY TIME IT WAS REFUSED (decided by Rod on 2026-10-09). A
+                // model retries a refused call and a later leg may meet it again; a person grants once, citing one of
+                // them — the frontier shows the latest — and nobody can cite the others any more. They are the same
+                // call: the same tool with the same arguments, which is what the grant's own fact says it was given
+                // for. Only what was PENDING: this is read in order, so the same call refused after the grant — its
+                // admission suspended since — waits on a person again. And only in this stream, which is one seat's.
+                $named = $payload['seq'] ?? null;
+                $tool = $payload['tool'] ?? null;
+                $call = $payload['arguments_sha256'] ?? null;
+                foreach ($waiting as $seq => $refusal) {
+                    if ($seq === $named || (\is_string($tool) && \is_string($call) && $refusal['tool'] === $tool && $refusal['call'] === $call)) {
+                        unset($waiting[$seq]);
+                    }
+                }
 
                 continue;
             }
@@ -134,8 +165,15 @@ final class HouseExecutedWork
                         // what it left — nothing. It is an act, and it is not one that changed anything.
                         $acts++;
                         $refused++;
-                    } elseif (!\is_array($result) && array_filter(self::UNADMITTED, static fn (string $phrase): bool => str_contains($said, $phrase)) !== []) {
-                        $waiting[$event->seq] = $payload['tool'];
+                    } elseif (!\is_array($result)) {
+                        foreach (self::WAITS_ON_A_PERSON as $phrase => $says) {
+                            if (str_contains($said, $phrase)) {
+                                $arguments = \is_array($payload['arguments'] ?? null) ? $payload['arguments'] : [];
+                                $waiting[$event->seq] = ['tool' => $payload['tool'], 'call' => ConsentBridge::digest($arguments), 'says' => $says];
+
+                                break;
+                            }
+                        }
                     }
 
                     continue;
@@ -192,8 +230,8 @@ final class HouseExecutedWork
         foreach ($accepted as $seq => $tool) {
             $reasons[] = "«{$tool}» was accepted and the house has no receipt of having run it (seq {$seq}): only what the house executed is work";
         }
-        foreach ($waiting as $seq => $tool) {
-            $reasons[] = "a call of «{$tool}» was refused for lack of an admission, and nobody has admitted it (seq {$seq})";
+        foreach ($waiting as $seq => $refusal) {
+            $reasons[] = "a call of «{$refusal['tool']}» was refused {$refusal['says']} (seq {$seq})";
         }
         if ($executed === 0 && $reasons === [] && $acts > 0 && $refused === $acts) {
             $reasons[] = "the work of this session changed nothing the house keeps: {$acts} act" . ($acts === 1 ? '' : 's') . ', all refused by the domain';
