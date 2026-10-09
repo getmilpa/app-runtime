@@ -121,9 +121,13 @@ final class SeatFrontier
 
     /**
      * What a session a PERSON opened was refused and nobody can grant (greenhouse decisions/0609, I2): each recorded
-     * call of hers that lacked a permission of a plugin — one row per call shape, the latest retry —, shaped like a
-     * seat's refusal without a seat. It is read so her panel can tell her, in her own conversation, what her session
-     * cannot do. The house judges the recorded call again, as it does for a seat; it never reads the sentence.
+     * call of hers that lacked a permission of a plugin, shaped like a seat's refusal without a seat. It is read so
+     * her panel can tell her, in her own conversation, what her session cannot do. The house judges the recorded call
+     * again, as it does for a seat; it never reads the sentence.
+     *
+     * ONE ROW PER TURN IT HAPPENED IN: within a turn the model retries a refused call, and she is told once — of the
+     * latest retry of each call shape. A later turn refused the same thing is told again, there: a thread read back
+     * from the record says what it said while it ran.
      *
      * IT IS NOT A FRONTIER. Nothing here can be granted: {@see openRefusals()}, {@see refusal()} and
      * {@see wouldOffer()} stay empty for her session, and no one answers for it.
@@ -142,11 +146,14 @@ final class SeatFrontier
         $person = substr((string) ($opening?->payload['by']['id'] ?? ''), \strlen('actor:'));
         // What the ledger says she holds NOW, as a seat's refusal is judged with what the seat holds now.
         $authority = new ToolContext($person, 'web', $this->enrollments->scopesFor(substr($person, \strlen('passkey:'))) ?? []);
+        $earlier = [];
         $latest = [];
         foreach ($this->sessions->stream($session) as $event) {
             $payload = $event->payload;
-            if ($ofTheLastTurn && $event->type === 'session.turn' && ($payload['role'] ?? null) === 'user'
+            // A turn begins when a person or a caller writes — never with a notice of the house, which nobody typed.
+            if ($event->type === 'session.turn' && ($payload['role'] ?? null) === 'user'
                 && !(\is_string($payload['content'] ?? null) && str_starts_with($payload['content'], self::NOTICE_PREFIX))) {
+                $earlier = [...$earlier, ...array_values($latest)];
                 $latest = [];
             }
             if ($event->type !== 'session.tool_called' || ($payload['ok'] ?? null) !== false || !\is_string($payload['tool'] ?? null)) {
@@ -171,7 +178,7 @@ final class SeatFrontier
             $latest[$key] = $row;
         }
 
-        return array_values($latest);
+        return $ofTheLastTurn ? array_values($latest) : [...$earlier, ...array_values($latest)];
     }
 
     /** Whether this principal answers for the session's seat. */

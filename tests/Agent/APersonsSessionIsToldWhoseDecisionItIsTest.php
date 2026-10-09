@@ -216,6 +216,29 @@ final class APersonsSessionIsToldWhoseDecisionItIsTest extends TestCase
         self::assertSame([$mine], array_column($frontier->refusedToAPerson('hers', ofTheLastTurn: true), 'seq'));
     }
 
+    /**
+     * A REPLAYED THREAD AND A LIVE ONE ARE ONE THING. Each turn that was refused told her so when it ran; read of the
+     * whole session it is one row per turn it happened in — the latest retry of each call shape IN that turn —, not
+     * one for the session. Measured on a lab house: three turns of hers were refused the same scope; her page showed a
+     * card under each as it ran, and a page loaded afterwards showed only the last.
+     */
+    public function testReadOfTheWholeSessionItIsOneRowPerTurnItWasRefusedIn(): void
+    {
+        $this->sessions->start('hers', self::GOAL, by: new Principal(self::PERSON, true));
+        $make = ['what' => 'plugin', 'plugin' => 'Blog', 'name' => 'Blog'];
+        $this->sessions->recordTurn('hers', 'user', 'Build the blog');
+        $this->sessions->recordToolCall('hers', 'make', $make, self::BARE, false, true);
+        $first = $this->sessions->recordToolCall('hers', 'make', $make, self::BARE, false, true);
+        $this->sessions->recordTurn('hers', 'assistant', 'I cannot.');
+        $this->sessions->recordTurn('hers', 'user', 'Try again');
+        $second = $this->sessions->recordToolCall('hers', 'make', $make, self::BARE, false, true);
+        $this->sessions->recordTurn('hers', 'user', 'Never mind — what is in the house?');
+        $frontier = SeatFrontier::forRoot($this->root, $this->sessions);
+
+        self::assertSame([$first, $second], array_column($frontier->refusedToAPerson('hers'), 'seq'), 'the same call, refused in two turns: two rows, each the latest retry of its turn');
+        self::assertSame([], $frontier->refusedToAPerson('hers', ofTheLastTurn: true));
+    }
+
     public function testItIsReadOnlyOfASessionAPersonOpened(): void
     {
         $make = ['what' => 'plugin', 'plugin' => 'Blog', 'name' => 'Blog'];
