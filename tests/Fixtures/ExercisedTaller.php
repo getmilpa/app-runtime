@@ -32,12 +32,14 @@ final class ExercisedTaller
      * the capability built there declares — whole. Its seq. A session whose goal names «Taller» is about to close on it.
      *
      * @param list<string> $operations the operations the promotion says it declares, by name
+     * @param bool         $verified   whether the writer says its own verification of the class it wrote, green — so
+     *                                 the session's record holds a current verification for it
      */
-    public static function promoted(SessionStore $sessions, string $session, array $operations): int
+    public static function promoted(SessionStore $sessions, string $session, array $operations, bool $verified = false): int
     {
         $sessions->recordToolCall($session, 'implement', ['plugin' => 'Taller', 'class' => 'Taller'], (string) json_encode([
             'ran_in_trial' => true, 'applied' => false, 'workspace' => 'w1', 'changed' => ['src/Plugins/Taller/Taller.php' => 'modified'], 'output' => ['ok' => true],
-        ]), mutating: true);
+        ] + ($verified ? ['ok' => true, 'verified' => 'its own test, green'] : [])), mutating: true);
 
         return $sessions->recordToolCall($session, 'sandbox_promote', ['workspace' => 'w1'], (string) json_encode([
             'ok' => true,
@@ -47,6 +49,24 @@ final class ExercisedTaller
                 static fn (string $name): array => ['name' => $name, 'file' => 'src/Plugins/Taller/Taller.php', 'mutating' => false, 'effects' => true, 'scoped' => true],
                 $operations,
             )]],
+        ]), mutating: true);
+    }
+
+    /**
+     * A change that lands OUTSIDE the capability and declares nothing again: a class of the house's own, written in a
+     * trial with its own verification and promoted. It repairs nothing of the capability. Its seq.
+     */
+    public static function landedElsewhere(SessionStore $sessions, string $session): int
+    {
+        $changed = ['src/Support/Clock.php' => 'modified'];
+        $sessions->recordToolCall($session, 'edit', ['class' => 'Clock'], (string) json_encode([
+            'ran_in_trial' => true, 'applied' => false, 'workspace' => 'w2', 'changed' => $changed, 'output' => ['ok' => true], 'ok' => true, 'verified' => 'its own test, green',
+        ]), mutating: true);
+
+        return $sessions->recordToolCall($session, 'sandbox_promote', ['workspace' => 'w2'], (string) json_encode([
+            'ok' => true,
+            'promoted' => array_keys($changed),
+            'evidence' => ['predicate' => 'promoted', 'subject' => 'w2', 'environment' => ['kind' => 'house'], 'from' => ['kind' => 'trial', 'workspace' => 'w2'], 'paths' => array_keys($changed)],
         ]), mutating: true);
     }
 

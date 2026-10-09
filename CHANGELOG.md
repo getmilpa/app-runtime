@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [0.216.1](https://github.com/getmilpa/app-runtime/compare/v0.216.0...v0.216.1) (2026-10-09)
+
+
+### Bug Fixes
+
+* the house does not close on what it last saw throw — at the end of the leg it runs it again, and until then no record closes over it (greenhouse decisions/0605) ([#774](https://github.com/getmilpa/app-runtime/issues/774)) ([eac4339](https://github.com/getmilpa/app-runtime/commit/eac43391ad991ec08592417eae8635cf24350666))
+
+## [0.216.0](https://github.com/getmilpa/app-runtime/compare/v0.215.0...v0.216.0) (2026-10-09)
+
+
+### Features
+
+* the model's own output is redacted too (answer + recorded stream) ([#771](https://github.com/getmilpa/app-runtime/issues/771)) ([877906f](https://github.com/getmilpa/app-runtime/commit/877906f41ab5789d4c8c14be913959f83169c9a8))
+
 ## [0.215.0](https://github.com/getmilpa/app-runtime/compare/v0.214.0...v0.215.0) (2026-10-09)
 
 
