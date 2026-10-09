@@ -84,16 +84,19 @@ final class AConfinedProcessCannotReachTheKeyringTest extends TestCase
         self::assertSame('--tmpfs', $args[$i - 1] ?? null, 'a keyring is masked by an empty tmpfs, not --ro-bind /dev/null');
     }
 
-    public function testNoKeyringParentDirectoryIsCreatedForAMountThatWouldFail(): void
+    public function testAKeyringThatDoesNotExistIsLeftOutSoBwrapNeverFailsToCreateIt(): void
     {
-        // A tmpfs target whose parent does not exist makes bwrap fail — and a failing maskArgs would break EVERY
-        // trial. GNUPGHOME pointing at a path with no parent is left out of the mask rather than risking that.
-        $this->setEnv('HOME', false);
-        $this->setEnv('GNUPGHOME', '/this/parent/does/not/exist/keyring');
+        // `--tmpfs` must CREATE its mountpoint, which cannot be done inside `--ro-bind / /` (the tree is read-only),
+        // so masking a keyring that does not exist makes bwrap fail and breaks EVERY confined run — the regression a
+        // host without a keyring hits. A keyring that is not there is left out; it is no risk either.
+        $home = $this->dir();     // a HOME with no .gnupg
+        $this->setEnv('HOME', $home);
+        $this->setEnv('GNUPGHOME', '/this/keyring/does/not/exist');
 
         $args = (new TrialRunner())->maskArgs($this->dir());
 
-        self::assertNotContains('/this/parent/does/not/exist/keyring', $args, 'a mask target whose parent is absent is left out');
+        self::assertNotContains($home . '/.gnupg', $args, 'a $HOME with no .gnupg adds no tmpfs mask (bwrap could not create it under ro-bind)');
+        self::assertNotContains('/this/keyring/does/not/exist', $args, 'a GNUPGHOME that does not exist is left out');
     }
 
     /** @param list<string> $args */

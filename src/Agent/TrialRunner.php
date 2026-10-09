@@ -428,10 +428,11 @@ final class TrialRunner
         // private key the Desktop keeps mounted and SIGN a governed act as the person who holds it. Each keyring
         // directory and each gpg-agent socket directory is overlaid with an empty tmpfs — a directory cannot be masked
         // with `--ro-bind /dev/null`, which mounts a file — so a confined process finds no key and no agent to speak
-        // to. A target whose PARENT does not exist is left out: a tmpfs onto it would make bwrap fail, and a failing
-        // mask would break every trial.
+        // to. A keyring that does NOT EXIST is left out: `--tmpfs` must create its mountpoint, which cannot be done
+        // inside `--ro-bind / /` (the tree is read-only), so masking an absent directory would make bwrap fail and
+        // break every confined run. An absent keyring is no risk either — under a read-only root none can appear.
         foreach (self::keyringDirectories() as $directory) {
-            if (is_dir(\dirname($directory))) {
+            if (is_dir($directory)) {
                 array_push($args, '--tmpfs', $directory);
             }
         }
