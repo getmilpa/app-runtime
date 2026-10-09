@@ -141,7 +141,7 @@ final class HouseObservedClosure
      *                                                                      ({@see StandingAsk::explicitRoutes()}): for the reason, and
      *                                                                      so a receipt served elsewhere is not taken for one of them
      *
-     * @return array{derived: bool, reason: ?string, observation: ?array{subject: string, seq: int, content?: array<string, mixed>|string, surface?: array<string, mixed>, capability?: array{operations: int, exercised: string, calls?: int, answered?: int, refused?: int, behavior?: 'unjudged', why?: string}}, lastChangeSeq: ?int, landed: list<int>, unlisted: list<string>, standing: list<string>}
+     * @return array{derived: bool, reason: ?string, observation: ?array{subject: string, seq: int, content?: array<string, mixed>|string, surface?: array<string, mixed>, capability?: array{operations: int, exercised: string, calls?: int, answered?: int, refused?: int, behavior?: 'unjudged', why?: string}}, lastChangeSeq: ?int, landed: list<int>, unlisted: list<string>, standing: list<string>, threw: list<array{capability: string, operation: string, class: string, line: string}>}
      */
     public static function of(array $stream, SessionFacts $facts, ?\Closure $named = null, ?\Closure $lasting = null, array $written = []): array
     {
@@ -338,10 +338,18 @@ final class HouseObservedClosure
         }
 
         // WHAT THREW IS NOT WHOLE (greenhouse decisions/0605), whatever else answers — and it is said in every form the
-        // verdict takes, as a scaffold left standing is.
+        // verdict takes, as a scaffold left standing is. It is handed over as data too: the leg of the session that
+        // wrote it is told ({@see WhatStandsHalfDone}).
+        $threw = [];
         foreach ($exercises as $subject => $receipt) {
             if (($receipt['exercised'] ?? null) === 'threw' && isset($whole[$subject])) {
                 $unlisted['capability:' . $subject] = CapabilityExercise::whyNotWhole($receipt);
+                foreach (\is_array($receipt['thrown'] ?? null) ? $receipt['thrown'] : [] as $one) {
+                    if (\is_array($one) && \is_string($one['operation'] ?? null)) {
+                        $threw[] = ['capability' => (string) $subject, 'operation' => $one['operation'],
+                            'class' => \is_string($one['class'] ?? null) ? $one['class'] : '?', 'line' => \is_string($one['line'] ?? null) ? $one['line'] : ''];
+                    }
+                }
             }
         }
         // WHAT THE HOUSE FOUND WHEN IT RAN THE CAPABILITY IT CLOSES ON: it ran, with its counts — never «correct»; or the
@@ -406,7 +414,10 @@ final class HouseObservedClosure
             'unlisted' => array_values(array_filter($unlisted)),
             // The files where `make what=operation` landed a scaffold that no later change that landed has written,
             // in the order they landed: what a leg is told stands half done ({@see WhatStandsHalfDone}).
-            'standing' => array_keys(array_filter($unfilled))];
+            'standing' => array_keys(array_filter($unfilled)),
+            // Each operation the house ran and that threw, of what it ran on the house as it is now: nothing has
+            // landed since (decisions/0605).
+            'threw' => $threw];
     }
 
     /**

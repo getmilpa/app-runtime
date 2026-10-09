@@ -147,6 +147,35 @@ final class ALegThatEndsRunsTheCapabilityItIsAboutToCloseOnTest extends TestCase
     }
 
     /**
+     * WHAT THREW IS SAID TO THE SESSION THAT WROTE IT (decisions/0605: the reason names it «to the session, which is who
+     * wrote it»). The whole of it, as two legs do it: the first ends, the house runs the capability for real and one
+     * operation throws; the next leg's model is told — after the conversation, on every call — and stops being told
+     * the moment a repair lands, inside that leg.
+     */
+    public function testTheLegAfterIsToldWhatThrewUntilARepairLands(): void
+    {
+        $this->declared([...ExercisedTaller::RUNS, 'taller:rota']);
+        $first = $this->leg(['prompt' => 'Build it', 'session' => self::SESSION]);
+        self::assertFalse($first['closure']['verified'] ?? true, 'the control: the house ran it and it threw');
+
+        $loop = new SaidAfterTheConversation($this->createMock(LlmService::class), $this->createMock(GatedToolCalls::class));
+        // Between two calls of that leg to its model, the repair lands: a change, and the capability declared again.
+        $loop->between = fn (): int => ExercisedTaller::promoted($this->sessions, self::SESSION, ExercisedTaller::RUNS);
+        $ops = new ExerciseFixtureOperations($this->container);
+        $ops->loop = $loop;
+        $this->invoke($ops, ['prompt' => 'continue', 'session' => self::SESSION]);
+
+        self::assertCount(2, $loop->said);
+        self::assertSame(1, preg_match('~\n<half-done>\n(.*)\n</half-done>$~s', $loop->said[0], $found), 'said after the conversation: ' . $loop->said[0]);
+        self::assertSame(
+            [['capability' => 'Taller', 'operation' => 'taller:rota', 'class' => 'Error', 'line' => 'Call to undefined method MilpaTest\Exercised\Almacen::guardar()']],
+            json_decode($found[1], true)['ran_and_threw'] ?? null,
+        );
+        self::assertStringNotContainsString('half-done', $loop->said[1], 'the repair landed: the house will run it again before it says anything of it');
+        self::assertStringNotContainsString('ran_and_threw', (string) $loop->system, 'and the system prompt, which does not move inside a leg, never said it');
+    }
+
+    /**
      * THE NATURAL END IS THE ANSWER, NOT THE STOP. A leg that runs out of steps — or of window, or is refused, or
      * stalls — did not end: whoever continues it, a person or the house itself, has not heard the session say it is
      * done. Such a leg runs nothing and records no verdict, though the same stream would close. The leg that continues
@@ -250,6 +279,18 @@ final class ALegThatEndsRunsTheCapabilityItIsAboutToCloseOnTest extends TestCase
         $ops = new ExerciseFixtureOperations($this->container);
         $ops->loop = $stepsBeforeItStops === null ? new AgentOrchestrator($llm, $tools) : new AgentOrchestrator($llm, $tools, maxSteps: $stepsBeforeItStops);
 
+        return $this->invoke($ops, $input);
+    }
+
+    /**
+     * One invocation of the `agent` operation.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function invoke(AgentOperations $ops, array $input): array
+    {
         $previous = getenv('OPENAI_API_KEY');
         putenv('OPENAI_API_KEY=fixture-key');
         try {
@@ -289,6 +330,41 @@ final class ALegThatEndsRunsTheCapabilityItIsAboutToCloseOnTest extends TestCase
         sort($entries);
 
         return hash('sha256', implode("\n", $entries));
+    }
+}
+
+/**
+ * A loop that makes two calls to its model and, like the real one, asks before each for what rides after the
+ * conversation — remembering what it was handed, and letting the test do something between the two.
+ */
+final class SaidAfterTheConversation extends AgentOrchestrator
+{
+    public ?string $system = null;
+
+    /** @var list<string> */
+    public array $said = [];
+
+    public ?\Closure $between = null;
+
+    private ?\Closure $trailing = null;
+
+    public function setTrailingProjection(?callable $projection): self
+    {
+        $this->trailing = $projection === null ? null : \Closure::fromCallable($projection);
+
+        return parent::setTrailingProjection($projection);
+    }
+
+    public function run(string $prompt, string $systemPrompt = 'You are a helpful assistant.', array $history = [], ?callable $onStep = null): string
+    {
+        $this->system = $systemPrompt;
+        $this->said[] = $this->trailing === null ? '' : ($this->trailing)([]);
+        if ($this->between !== null) {
+            ($this->between)();
+        }
+        $this->said[] = $this->trailing === null ? '' : ($this->trailing)([]);
+
+        return 'Done.';
     }
 }
 
