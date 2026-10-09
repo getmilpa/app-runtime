@@ -3184,6 +3184,14 @@ class AgentOperations implements CommandProvider
                 implode('», «', $awaiting),
             );
         }
+        // A PERSON'S SESSION HAS NO FRONTIER, AND ITS SURFACE IS TOLD SO AS DATA (greenhouse decisions/0609, I2). A seat's
+        // leg says what it waits on; the leg of a session a person opened waits on nothing — nobody can grant to it —,
+        // and her panel must tell her so without reading a sentence. So the result carries who opened it, the act that
+        // works today, and each call of THIS turn that lacked a permission of a plugin. It grants nothing.
+        $unseated = $sessionId === '' ? [] : $this->refusedToAPersonInThisTurn($sessionId);
+        if ($unseated !== []) {
+            $resultado['no_frontier'] = ['opened_by' => 'person', 'works' => 'seat_a_resident_and_grant', 'refused' => $unseated];
+        }
         if ($sessionId !== '' && $awaiting === []
             && $this->runTermination !== null
             && $this->runTermination->reason === RunEnd::HouseDebt
@@ -3715,6 +3723,27 @@ class AgentOperations implements CommandProvider
         }
 
         return array_values(array_unique(array_column($open, 'permission')));
+    }
+
+    /**
+     * What the turn that just ran was refused in a session a PERSON opened, and nobody can grant
+     * ({@see SeatFrontier::refusedToAPerson()}, greenhouse decisions/0609) — or `[]`: the session is a seat's, or
+     * nobody's, or nothing of the kind was refused in this turn.
+     *
+     * @return list<array{seq: int, tool: string, plugin: ?string, permission: string, call: array<string, mixed>}>
+     */
+    private function refusedToAPersonInThisTurn(string $session): array
+    {
+        $kernel = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        $store = $this->sessionStore();
+        if (!$kernel instanceof Kernel || $store === null) {
+            return [];
+        }
+        try {
+            return SeatFrontier::forRoot($kernel->root(), $store, \Milpa\AppRuntime\Agent\BuiltCapabilities::of($kernel))->refusedToAPerson($session, ofTheLastTurn: true);
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     /**

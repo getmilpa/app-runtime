@@ -206,7 +206,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             }
             return AuthorizationResult::allowed();
         } catch (MissingPermission $missing) {
-            return AuthorizationResult::denied($missing->getMessage() . $this->whoGrantsIt($tool->name, $arguments));
+            return AuthorizationResult::denied($missing->getMessage() . $this->whoGrantsIt($tool->name, $arguments, $missing->permission));
         } catch (\Throwable $error) {
             return AuthorizationResult::denied($error->getMessage());
         }
@@ -291,15 +291,25 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
      * declared `plugins.Blog:write` the scaffolder's chicken-and-egg and ended its leg as a false `HOUSE_DEBT`.
      * The frontier decides (decisions/0496): an invented name, or a session no one enrolled, gets nothing added.
      *
+     * A PERSON'S SESSION IS TOLD WHOSE DECISION IT IS (decisions/0609, path 1): it is nobody's seat, so the frontier
+     * offers nothing for it and it read the bare sentence — and a model with no way out declared a debt of the house
+     * (evidence/1175). It is told what is true of it instead ({@see toAPersonsSession()}). What a seat reads is
+     * untouched: a session a person opened is nobody's seat, so the two never meet.
+     *
      * @param array<string, mixed> $arguments
+     * @param string|null          $lacked    the permission this refusal names, when it names one
      */
-    private function whoGrantsIt(string $tool, array $arguments): string
+    private function whoGrantsIt(string $tool, array $arguments, ?string $lacked = null): string
     {
         if ($this->seatStore === null || $this->seatSession === null) {
             return '';
         }
         try {
-            $offered = SeatFrontier::forRoot($this->root, $this->seatStore, $this->built())->wouldOffer($this->seatSession, $tool, $arguments);
+            $frontier = SeatFrontier::forRoot($this->root, $this->seatStore, $this->built());
+            if ($lacked !== null && $frontier->openedByAPerson($this->seatSession)) {
+                return self::toAPersonsSession($lacked);
+            }
+            $offered = $frontier->wouldOffer($this->seatSession, $tool, $arguments);
         } catch (\Throwable) {
             return '';
         }
@@ -318,6 +328,23 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             . ' not a gap in the house: do not declare HOUSE_DEBT for it. The leg ends here and waits for that grant;'
             . ' after it, `continue` runs this same call again.',
             $offered['permission'],
+        );
+    }
+
+    /**
+     * What a session a PERSON opened is told after a refusal for a permission of a plugin (greenhouse decisions/0609,
+     * I1). Information, and nothing else: it grants nothing, it runs nothing, and it promises nothing the house will
+     * do — nobody can grant that scope to a person's session (decisions/0493), so there is nothing to wait for. It
+     * says whose decision this is, that it is no debt of the house, and the act that works today.
+     */
+    public static function toAPersonsSession(string $permission): string
+    {
+        return sprintf(
+            " A person opened this session, with a passkey, and in this house a seat builds, not a person's session: no one"
+            . ' can grant «%1$s» to it. This is how the house is decided, not a gap in the house: do not declare'
+            . " HOUSE_DEBT for it, and do not make this call again. What works today is the person's own act — to seat a resident"
+            . ' and grant it «%1$s» in the panel (Agent → Decisions) when it asks. Tell the person that.',
+            $permission,
         );
     }
 

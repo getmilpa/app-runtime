@@ -59,6 +59,9 @@ final class SeatFrontier
     /** How the house's own turns begin (decisions/0495): a fact it recorded, never the start of a run. */
     public const NOTICE_PREFIX = '[house] ';
 
+    /** How the principal of a person who opened a session from the panel is spelled: the actor her passkey resolves to. */
+    public const PERSON_PREFIX = 'actor:passkey:';
+
     /** How much of one argument's text a card shows before it says the rest's size. */
     private const SHOWN_BYTES = 120;
 
@@ -101,6 +104,74 @@ final class SeatFrontier
         $opening = $this->sessions->opening($session);
 
         return $opening === null ? null : $this->seatIn([$opening]);
+    }
+
+    /**
+     * Whether a PERSON opened this session — a passkey the house verified — and so it is nobody's seat (greenhouse
+     * decisions/0609). A person decides for the seats her line enrolled; her own session has no frontier, and nothing
+     * read here gives it one. Read from the opening event alone, as {@see seatOf()} is.
+     */
+    public function openedByAPerson(string $session): bool
+    {
+        $opening = $this->sessions->opening($session);
+        $by = $opening !== null && \is_array($opening->payload['by'] ?? null) ? $opening->payload['by'] : [];
+
+        return ($by['verified'] ?? false) === true && \is_string($by['id'] ?? null) && str_starts_with($by['id'], self::PERSON_PREFIX);
+    }
+
+    /**
+     * What a session a PERSON opened was refused and nobody can grant (greenhouse decisions/0609, I2): each recorded
+     * call of hers that lacked a permission of a plugin — one row per call shape, the latest retry —, shaped like a
+     * seat's refusal without a seat. It is read so her panel can tell her, in her own conversation, what her session
+     * cannot do. The house judges the recorded call again, as it does for a seat; it never reads the sentence.
+     *
+     * IT IS NOT A FRONTIER. Nothing here can be granted: {@see openRefusals()}, {@see refusal()} and
+     * {@see wouldOffer()} stay empty for her session, and no one answers for it.
+     *
+     * @param bool $ofTheLastTurn only what was refused since the last turn a person or a caller wrote — the turn
+     *                            that just ran —, so a surface is not told again of an earlier one
+     *
+     * @return list<array{seq: int, tool: string, plugin: ?string, permission: string, call: array<string, mixed>}>
+     */
+    public function refusedToAPerson(string $session, bool $ofTheLastTurn = false): array
+    {
+        if (!$this->openedByAPerson($session)) {
+            return [];
+        }
+        $opening = $this->sessions->opening($session);
+        $person = substr((string) ($opening?->payload['by']['id'] ?? ''), \strlen('actor:'));
+        // What the ledger says she holds NOW, as a seat's refusal is judged with what the seat holds now.
+        $authority = new ToolContext($person, 'web', $this->enrollments->scopesFor(substr($person, \strlen('passkey:'))) ?? []);
+        $latest = [];
+        foreach ($this->sessions->stream($session) as $event) {
+            $payload = $event->payload;
+            if ($ofTheLastTurn && $event->type === 'session.turn' && ($payload['role'] ?? null) === 'user'
+                && !(\is_string($payload['content'] ?? null) && str_starts_with($payload['content'], self::NOTICE_PREFIX))) {
+                $latest = [];
+            }
+            if ($event->type !== 'session.tool_called' || ($payload['ok'] ?? null) !== false || !\is_string($payload['tool'] ?? null)) {
+                continue;
+            }
+            $arguments = \is_array($payload['arguments'] ?? null) ? $payload['arguments'] : [];
+            $missing = $this->policy->missing($authority, $payload['tool'], $arguments);
+            if ($missing === null) {
+                continue;
+            }
+            $row = [
+                'seq' => $event->seq,
+                'tool' => $payload['tool'],
+                'plugin' => $missing->plugin ?? (\is_string($arguments['plugin'] ?? null) ? $arguments['plugin'] : null),
+                'permission' => $missing->permission,
+                'call' => self::shown($arguments),
+            ];
+            // Told apart as a seat's refusals are ({@see shape()}): the permission, the tool and the plugin — what a
+            // retry repeats. The latest retry is the one kept.
+            $key = $row['permission'] . "\0" . $row['tool'] . "\0" . ($row['plugin'] ?? '');
+            unset($latest[$key]);
+            $latest[$key] = $row;
+        }
+
+        return array_values($latest);
     }
 
     /** Whether this principal answers for the session's seat. */

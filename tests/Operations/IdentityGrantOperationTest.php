@@ -117,8 +117,35 @@ final class IdentityGrantOperationTest extends TestCase
         ));
         self::assertCount(1, $turns, 'one fact, recorded once');
         $told = (string) $turns[0]->payload['content'];
-        self::assertStringContainsString('key:' . self::HUMAN . ' granted this seat the scope «plugins.Blog:write»', $told);
+        // WHAT THE MODEL READS NAMES WHO DECIDED SHORT (greenhouse decisions/0609): the kind and eight characters. The
+        // whole attribution is the ledger's — the fact of the grant, pinned in the next test.
+        self::assertStringStartsWith('[house] key:BBBB2222… granted this seat the scope «plugins.Blog:write».', $told);
+        self::assertStringNotContainsString(self::HUMAN, $told, 'the whole fingerprint does not travel to a model');
         self::assertStringContainsString('#' . $seq . ' (make plugin=Blog)', $told);
+        self::assertSame('key:' . self::HUMAN, $r['authorized_by'], 'whoever asked is still answered with the whole of it');
+    }
+
+    /** The same for a passkey — the case measured: its whole identifier travelled in 4 of 6 model calls (evidence/1175). */
+    public function testAPasskeysGrantDoesNotPutItsWholeIdentifierInWhatTheModelReads(): void
+    {
+        [$c, , $seq] = $this->house();
+        $sessions = $c->get(SessionStore::class);
+        \assert($sessions instanceof SessionStore);
+        [$proof, $touch] = $this->passkey($c, self::PASSKEY);
+        $call = ['session' => self::SESSION, 'seq' => $seq];
+
+        $r = $this->call($c, $call + ['assertion' => $touch($call)], new ToolContext('passkey:' . self::PASSKEY, 'web', ['identity:enroll']));
+
+        self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
+        $turns = array_values(array_filter($sessions->stream(self::SESSION), static fn ($e): bool => $e->type === 'session.turn' && ($e->payload['role'] ?? null) === 'user'));
+        self::assertCount(1, $turns);
+        // This fixture's identifier has fourteen characters, so seven are said: never more than half. A real one shows eight.
+        self::assertStringStartsWith('[house] passkey:QM1LEWE… granted this seat the scope «plugins.Blog:write».', (string) $turns[0]->payload['content']);
+        self::assertStringNotContainsString(self::PASSKEY, (string) $turns[0]->payload['content']);
+        $facts = array_values(array_filter($sessions->stream(self::SESSION), static fn ($e): bool => $e->type === \Milpa\AppRuntime\Agent\GrantedCall::GRANTED));
+        self::assertSame('passkey:' . self::PASSKEY, $facts[0]->payload['authorized_by'], 'the ledger keeps the whole attribution');
+        self::assertSame('passkey:' . self::PASSKEY, $r['authorized_by']);
+        unset($proof);
     }
 
     /**
@@ -182,8 +209,53 @@ final class IdentityGrantOperationTest extends TestCase
         $r = $this->call($c, ['session' => self::SESSION, 'seq' => $seq]);
 
         self::assertFalse($r['ok']);
-        self::assertStringContainsString('do not answer for', (string) $r['error']);
+        // «You are not of its line» — the sentence as it was, whole: the session HAS a seat, and this key does not answer for it.
+        self::assertSame("you do not answer for this session's seat — only the line that enrolled it may decide its frontier; nothing was granted", $r['error']);
         self::assertSame($before, (string) file_get_contents($root . '/storage/identity/enrollments.json'), 'the ledger is untouched');
+    }
+
+    /**
+     * «THIS SESSION HAS NO SEAT» IS ANOTHER FACT, AND ANOTHER SENTENCE (greenhouse decisions/0609, I3). The key that
+     * founded the house — the very one that vouched for her passkey — was told «you do not answer for this session's
+     * seat» of a session a person opened (evidence/1175): the sentence for a stranger, about a seat that does not exist.
+     */
+    public function testAGrantOverASessionAPersonOpenedSaysItHasNoSeat(): void
+    {
+        [$c, $root] = $this->house();
+        $sessions = $c->get(SessionStore::class);
+        \assert($sessions instanceof SessionStore);
+        $sessions->start('hers', 'Build the blog', by: new Principal('actor:passkey:' . self::PASSKEY, true));
+        $seq = $sessions->recordToolCall('hers', 'make', ['what' => 'plugin', 'plugin' => 'Blog', 'name' => 'Blog'], "Missing required permission 'plugins.Blog:write' for plugin 'Blog'.", false, true);
+        $before = (string) file_get_contents($root . '/storage/identity/enrollments.json');
+        $this->signed($c, self::HUMAN, ['session' => 'hers', 'seq' => $seq]);
+
+        $r = $this->call($c, ['session' => 'hers', 'seq' => $seq]);
+
+        self::assertFalse($r['ok']);
+        self::assertSame(
+            'session «hers» has no seat — a person opened it, with a passkey, and a grant is given to a seat: there is nothing here to grant, for anyone.'
+            . ' What works today: seat a resident, and grant it the scope when it asks; nothing was granted',
+            $r['error'],
+        );
+        self::assertStringNotContainsString("this session's seat", (string) $r['error'], 'it does not speak of a seat that does not exist');
+        self::assertStringNotContainsString(self::PASSKEY, (string) $r['error'], 'nor does it say who the person is');
+        self::assertSame($before, (string) file_get_contents($root . '/storage/identity/enrollments.json'), 'the ledger is untouched');
+        self::assertSame([], array_values(array_filter($sessions->stream('hers'), static fn ($e): bool => $e->type === \Milpa\AppRuntime\Agent\GrantedCall::GRANTED)), 'and no grant is recorded');
+    }
+
+    public function testAGrantOverASessionNoSeatOpenedSaysSoToo(): void
+    {
+        [$c] = $this->house();
+        $sessions = $c->get(SessionStore::class);
+        \assert($sessions instanceof SessionStore);
+        $sessions->start('anon', 'goal', by: new Principal('cli:someone@host', false));
+        $seq = $sessions->recordToolCall('anon', 'make', ['what' => 'plugin', 'plugin' => 'Blog'], 'refused', false, true);
+        $this->signed($c, self::HUMAN, ['session' => 'anon', 'seq' => $seq]);
+
+        $r = $this->call($c, ['session' => 'anon', 'seq' => $seq]);
+
+        self::assertFalse($r['ok']);
+        self::assertSame('session «anon» has no seat — no verified key of an enrolled seat opened it, and a grant is given to a seat: there is nothing here to grant; nothing was granted', $r['error']);
     }
 
     /**

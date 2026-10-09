@@ -2380,6 +2380,18 @@ final class SessionOperations implements CommandProvider
         }
         $root = $kernel->root();
         $frontier = \Milpa\AppRuntime\Agent\SeatFrontier::forRoot($root, $store, \Milpa\AppRuntime\Agent\BuiltCapabilities::of($kernel));
+        // «THIS SESSION HAS NO SEAT» AND «YOU ARE NOT OF ITS LINE» ARE TWO FACTS (greenhouse decisions/0609, I3). The key
+        // that founded a house was told the second of a session a person had opened (evidence/1175): the sentence for a
+        // stranger, about a seat that does not exist. Neither grants anything; each says what is true.
+        if ($frontier->seatOf($session) === null) {
+            return ['ok' => false, 'error' => \sprintf(
+                $frontier->openedByAPerson($session)
+                    ? 'session «%s» has no seat — a person opened it, with a passkey, and a grant is given to a seat: there is nothing here to grant, for anyone.'
+                        . ' What works today: seat a resident, and grant it the scope when it asks; nothing was granted'
+                    : 'session «%s» has no seat — no verified key of an enrolled seat opened it, and a grant is given to a seat: there is nothing here to grant; nothing was granted',
+                $session,
+            )];
+        }
         if (!$frontier->answersFor($decider, $session)) {
             return ['ok' => false, 'error' => 'you do not answer for this session\'s seat — only the line that enrolled it may decide its frontier; nothing was granted'];
         }
@@ -2718,7 +2730,7 @@ final class SessionOperations implements CommandProvider
         }
         $store->recordTurn($session, 'user', \sprintf(
             \Milpa\AppRuntime\Agent\SeatFrontier::NOTICE_PREFIX . '%s admitted «%s» of the capability «%s» for this seat: its verbs %s, with the contract each has now. Your call #%d (%s) was refused for lacking that; that same call can run now.%s A verb of «%s» that is added or whose contract changes is not admitted until a person admits it.',
-            $decider,
+            \Milpa\AppRuntime\Agent\WhoDecided::said($decider),
             $permission,
             $capability,
             $names,
@@ -2758,7 +2770,7 @@ final class SessionOperations implements CommandProvider
 
         return sprintf(
             \Milpa\AppRuntime\Agent\SeatFrontier::NOTICE_PREFIX . '%s granted this seat the scope «%s». Your call #%d (%s) was refused for lacking it; that same call can run now. Nothing else changed.',
-            $authorizedBy,
+            \Milpa\AppRuntime\Agent\WhoDecided::said($authorizedBy),
             $refusal['permission'],
             $refusal['seq'],
             $call,
