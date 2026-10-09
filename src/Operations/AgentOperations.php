@@ -3003,7 +3003,11 @@ class AgentOperations implements CommandProvider
             // The house's own voice is not kept as the model's turn: kept, it would teach the next window
             // that this is what the model said — the mechanism that produced the echo (decisions/0475).
             && ! self::isTheHouseVoice($respuesta)) {
-            $store->recordTurn($sessionId, 'assistant', $respuesta);
+            // THE MODEL'S OWN ANSWER IS REDACTED TOO (greenhouse decisions/0608). A secret the model voices in its
+            // answer — the exact value, however it came to hold it — is taken out of what the stream keeps and of
+            // what a surface hands back, by the same exact-value redaction that runs on a tool's result. A
+            // transformed value still passes: this is the last line, not the boundary (evidence/1170).
+            $store->recordTurn($sessionId, 'assistant', $this->redactedAnswer($respuesta));
         }
 
         // THE QUESTION THE ANSWER PUT IN PROSE, ASKED BY THE HOUSE (greenhouse decisions/0473). A final
@@ -3016,7 +3020,7 @@ class AgentOperations implements CommandProvider
 
         $resultado = [
             'ok' => true,
-            'answer' => $respuesta,
+            'answer' => $this->redactedAnswer($respuesta),
             'termination' => $this->terminationObservation(),
             'steps' => $vistos,
             'tools' => \count($registry->getToolDefinitions()),
@@ -5060,7 +5064,7 @@ class AgentOperations implements CommandProvider
 
         $almacen = $this->sessions();
 
-        return $almacen === null ? null : new IntakeObserver($almacen, $sesion, $this->declaredWindow);
+        return $almacen === null ? null : new IntakeObserver($almacen, $sesion, $this->declaredWindow, $this->redactRoot());
     }
 
     protected function sessions(): ?SessionStore
@@ -5204,7 +5208,23 @@ class AgentOperations implements CommandProvider
         return false;
     }
 
-    private function progresoDelModelo(): ?\Closure
+    /** The house root whose secret values redaction matches, or null when no kernel is in the container. */
+    protected function redactRoot(): ?string
+    {
+        return $this->container->has(Kernel::class) ? $this->container->get(Kernel::class)->root() : null;
+    }
+
+    /**
+     * The model's own answer, with the house's secret values taken out — the ONE place the answer is redacted,
+     * used both where it is recorded as the assistant turn and where the operation returns it to a surface
+     * (greenhouse decisions/0608). The raw answer stays for the house's own reading of it (the trial it names).
+     */
+    protected function redactedAnswer(string $respuesta): string
+    {
+        return \Milpa\AppRuntime\Config\SecretRedaction::inText($respuesta, $this->redactRoot());
+    }
+
+    protected function progresoDelModelo(): ?\Closure
     {
         $superficie = $this->broadcaster();
         if ($superficie === null) {
@@ -5214,6 +5234,11 @@ class AgentOperations implements CommandProvider
         $ultimo = 0.0;
         $buffer = '';
         $ultimoFlush = 0.0;
+        // THE LIVE VIEW IS REDACTED, ACROSS ITS CHUNKS (greenhouse decisions/0608). The reasoning the surface
+        // paints arrives a batch at a time; a secret split between two batches must still come out masked. The
+        // stream redactor holds the value set once (SecretRedaction) and the last few characters back, so a value
+        // straddling two batches is caught whole before any of it is let out.
+        $redactor = new \Milpa\AppRuntime\Config\StreamingSecretRedaction($this->redactRoot());
 
         // EL PENSAMIENTO, ARMÁNDOSE EN VIVO (greenhouse decisions/0190). El callback ahora late con dos
         // clases de trozo: `reasoning` (el modelo pensando) y `content` (la respuesta). Los trozos de
@@ -5222,7 +5247,7 @@ class AgentOperations implements CommandProvider
         // por lotes (~40 chars o ~50ms) para no volver un token en una petición al hub. Un `content`
         // suelta primero la cola de reasoning pendiente (para no perder el final del bloque) y luego
         // mantiene el pulso `thinking` de antes. Sin sesión —un `coa agent` de script— no se transmite.
-        return function (string $pieza, string $kind = 'content') use ($superficie, &$ultimo, &$buffer, &$ultimoFlush): void {
+        return function (string $pieza, string $kind = 'content') use ($superficie, &$ultimo, &$buffer, &$ultimoFlush, $redactor): void {
             $sesion = $this->intakeSession;
 
             if ($kind === 'reasoning') {
@@ -5235,24 +5260,33 @@ class AgentOperations implements CommandProvider
                     return;
                 }
                 $ultimoFlush = $ahora;
-                $superficie->broadcast('milpa/sessions/' . $sesion, [
-                    'session' => $sesion,
-                    'kind' => 'reasoning',
-                    'reasoning' => ['delta' => $buffer],
-                ]);
+                $seguro = $redactor->push($buffer);
                 $buffer = '';
+                if ($seguro !== '') {
+                    $superficie->broadcast('milpa/sessions/' . $sesion, [
+                        'session' => $sesion,
+                        'kind' => 'reasoning',
+                        'reasoning' => ['delta' => $seguro],
+                    ]);
+                }
 
                 return;
             }
 
-            // content: flush any pending reasoning tail first, so the thinking block keeps its ending.
-            if ($buffer !== '' && $sesion !== null) {
-                $superficie->broadcast('milpa/sessions/' . $sesion, [
-                    'session' => $sesion,
-                    'kind' => 'reasoning',
-                    'reasoning' => ['delta' => $buffer],
-                ]);
+            // content: the reasoning block ends — push any pending batch AND ALWAYS let the redactor's held tail
+            // out (greenhouse decisions/0608). The tail (up to the longest secret, less one) is held back on every
+            // push; if the last batch already emptied the buffer, only flush() releases it — without this the live
+            // view loses the end of every thinking block. flush() also resets the redactor: one block, one window.
+            if ($sesion !== null) {
+                $seguro = ($buffer !== '' ? $redactor->push($buffer) : '') . $redactor->flush();
                 $buffer = '';
+                if ($seguro !== '') {
+                    $superficie->broadcast('milpa/sessions/' . $sesion, [
+                        'session' => $sesion,
+                        'kind' => 'reasoning',
+                        'reasoning' => ['delta' => $seguro],
+                    ]);
+                }
             }
 
             $ahora = microtime(true);
@@ -5268,7 +5302,7 @@ class AgentOperations implements CommandProvider
     }
 
     /** A quién se le empuja, si hay alguien. */
-    private function broadcaster(): ?SurfaceBroadcaster
+    protected function broadcaster(): ?SurfaceBroadcaster
     {
         if (!class_exists(BroadcastingEventStore::class)) {
             return null;

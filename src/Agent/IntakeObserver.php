@@ -44,6 +44,9 @@ final class IntakeObserver implements ChannelObserver, ReasoningObserver, Return
         private readonly SessionStore $sessions,
         private readonly string $session,
         private readonly ?array $window = null,
+        // The house root whose secret values are taken out of what the model's return and reasoning record on the
+        // stream — the same exact-value set a tool result goes through (greenhouse decisions/0608, 0589).
+        private readonly ?string $root = null,
     ) {
     }
 
@@ -74,7 +77,8 @@ final class IntakeObserver implements ChannelObserver, ReasoningObserver, Return
     public function observeReturn(string $uri, array $meta): void
     {
         try {
-            $this->sessions->recordModelReturn($this->session, $meta);
+            $kept = \Milpa\AppRuntime\Config\SecretRedaction::inResult($meta, $this->root);
+            $this->sessions->recordModelReturn($this->session, \is_array($kept) ? $kept : $meta);
         } catch (\Throwable) {
             // Same contract as observe(): observing a channel may not change it.
         }
@@ -89,7 +93,7 @@ final class IntakeObserver implements ChannelObserver, ReasoningObserver, Return
     public function observeReasoning(string $uri, string $reasoning): void
     {
         try {
-            $this->sessions->recordModelReasoning($this->session, $reasoning);
+            $this->sessions->recordModelReasoning($this->session, \Milpa\AppRuntime\Config\SecretRedaction::inText($reasoning, $this->root));
         } catch (\Throwable) {
             // Same contract as observe(): observing a channel may not change it.
         }
