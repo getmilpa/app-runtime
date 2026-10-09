@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.218.0](https://github.com/getmilpa/app-runtime/compare/v0.217.0...v0.218.0) (2026-10-09)
+
+
+### Features
+
+* who built a verb may rehearse it — the session that wrote it is handed what its call answered, and its leg goes on (greenhouse decisions/0605) ([#772](https://github.com/getmilpa/app-runtime/issues/772)) ([295f722](https://github.com/getmilpa/app-runtime/commit/295f72207d7e0932339c90b818a5bef5f3cf1fba))
+
 ## [0.217.0](https://github.com/getmilpa/app-runtime/compare/v0.216.1...v0.217.0) (2026-10-09)
 
 
