@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.219.2](https://github.com/getmilpa/app-runtime/compare/v0.219.1...v0.219.2) (2026-10-10)
+
+
+### Bug Fixes
+
+* a child that has ended is answered then — the house no longer waits on a pipe that a process left behind still holds ([#790](https://github.com/getmilpa/app-runtime/issues/790)) ([4288d9c](https://github.com/getmilpa/app-runtime/commit/4288d9c05f6c11f2a84d5f7aeeb73a0044843d6c))
+* a declared house is said as declared, not checked — the doctor is never silent about it, and tells a missing bubblewrap from one that is refused ([#787](https://github.com/getmilpa/app-runtime/issues/787)) ([4deae03](https://github.com/getmilpa/app-runtime/commit/4deae03c93e3741fe6119776b7c85329efbf9ac4))
+
 ## [0.219.1](https://github.com/getmilpa/app-runtime/compare/v0.219.0...v0.219.1) (2026-10-10)
 
 
