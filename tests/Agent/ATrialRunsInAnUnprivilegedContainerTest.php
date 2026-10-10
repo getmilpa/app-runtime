@@ -128,6 +128,38 @@ final class ATrialRunsInAnUnprivilegedContainerTest extends TestCase
     }
 
     /**
+     * A trial marks its own environment, so a boot check asked from INSIDE it (make → HouseBootWitness →
+     * BootProbe::check) sees it is already confined and boots PLAIN instead of nesting a user namespace in the
+     * trial's own — which is instant on a host but never returns in a container, the 0.219.0 timeout t-0104 measured
+     * (the 0.219.0 regression t-0104 measured, greenhouse evidence/1186).
+     */
+    public function testTheTrialMarksItselfSoAnInnerBootCheckDoesNotNestAConfinement(): void
+    {
+        $root = $this->root();
+        $runner = new TrialRunner(bwrap: $this->bwrap($root, 'host'));
+
+        $runner->run(TrialWorkspace::materialize($root, 'm1', $this->stub($root)), 'anything', []);
+
+        $argv = $this->calls($root);
+        self::assertStringContainsString('--setenv ' . TrialRunner::INSIDE_TRIAL_ENV . ' 1', end($argv) ?: '', 'the trial carries the mark that stops an inner boot check from nesting a confinement');
+    }
+
+    /** A work trial carries the same mark: every trial already confines whatever runs inside it (evidence/1186). */
+    public function testAWorkTrialAlsoMarksItselfSoNothingInsideItNestsAConfinement(): void
+    {
+        $root = $this->root();
+        mkdir($root . '/var/data', 0o777, true);
+        file_put_contents($root . '/var/data/x.json', '{}');
+        mkdir($scratch = $root . '/scratch', 0o777, true);
+        $runner = new TrialRunner(bwrap: $this->bwrap($root, 'host'));
+
+        $runner->work($root, $this->stub($root), 'anything', [], ['var/data/x.json'], $scratch);
+
+        $argv = $this->calls($root);
+        self::assertStringContainsString('--setenv ' . TrialRunner::INSIDE_TRIAL_ENV . ' 1', end($argv) ?: '', 'a work trial marks itself too');
+    }
+
+    /**
      * A bubblewrap that records its arguments and then behaves like the named kernel.
      *
      * It runs what follows `--`, or — as a confined request names no `--` — what starts at this PHP.

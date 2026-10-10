@@ -116,10 +116,18 @@ final class BootProbe
             return ['why' => 'the house as it would be could not be built to boot it: ' . self::short($e->getMessage(), $root),
                 'room' => 'the house as it would be could not be built', 'confined' => false, 'mounted_less' => [], 'new_plugins' => []];
         }
-        $confinement = $this->runner->confinement($candidate->path, $root);
-        $room = $confinement === null
-            ? 'UNCONFINED: this machine has no unprivileged namespace (no bwrap), so the change booted with the envelope readable and the network open — contain the house in its own container or say so (decisions/0607)'
-            : 'a trial: confined, no network, the envelope and the keyring masked';
+        // A boot check asked from INSIDE a trial must not build a SECOND confinement: a user namespace nested in the
+        // trial's own is instant on a host but, in a container, waits forever — the 0.219.0 trial timeout t-0104
+        // measured (greenhouse evidence/1186). The enclosing trial already confines (no network, the mask), so the
+        // candidate boots PLAIN within it. `make` reaches here this way: it runs in a trial, and the house it
+        // scaffolds is checked by {@see HouseBootWitness::writeIfItBoots}.
+        $insideTrial = TrialRunner::insideTrial();
+        $confinement = $insideTrial ? null : $this->runner->confinement($candidate->path, $root);
+        $room = match (true) {
+            $insideTrial => 'within the enclosing trial: it already confines this boot (no network, the mask), so the check boots plain inside it rather than nesting a confinement that would never return in a container (decisions/0607; evidence/1186)',
+            $confinement === null => 'UNCONFINED: this machine has no unprivileged namespace (no bwrap), so the change booted with the envelope readable and the network open — contain the house in its own container or say so (decisions/0607)',
+            default => 'a trial: confined, no network, the envelope and the keyring masked',
+        };
         try {
             ['why' => $why, 'routes' => $withoutSecret] = $this->boot($candidate->path, $confinement);
             if ($why === null && $whileItStands !== null) {
@@ -141,7 +149,7 @@ final class BootProbe
             }
         }
 
-        return ['why' => $why === null ? null : self::short($why, $root), 'room' => $room, 'confined' => $confinement !== null,
+        return ['why' => $why === null ? null : self::short($why, $root), 'room' => $room, 'confined' => $insideTrial || $confinement !== null,
             'mounted_less' => $mountedLess, 'new_plugins' => $newPlugins];
     }
 

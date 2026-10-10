@@ -83,6 +83,25 @@ return $loader;
         self::assertStringContainsString('UNCONFINED', $check['room'], 'and the room SAYS it ran unconfined (decisions/0607)');
     }
 
+    public function testInsideAnEnclosingTrialTheCheckBootsPlainAndNeverNestsAConfinement(): void
+    {
+        // THE 0.219.0 REGRESSION (t-0104's measure; greenhouse evidence/1186): `make` runs INSIDE a trial, and the
+        // check it asks (devtools MakeHandler → HouseBootWitness::writeIfItBoots → BootProbe::check) must NOT build a
+        // second confinement — a user namespace nested in the trial's own is instant on a host but WAITS forever in a
+        // container, so the trial timed out at 60s. The enclosing trial already confines the boot (no network, the
+        // mask); the check boots plain within it and SAYS which room it ran in.
+        $this->setEnv(TrialRunner::INSIDE_TRIAL_ENV, '1');
+        // A bwrap that EXECS (host-capable); if the check nested a confinement it would be recorded here.
+        $probe = new BootProbe(runner: new TrialRunner(bwrap: $this->bwrap('host')));
+
+        $check = $probe->check($this->root, ['src/Plugins/Normal/Normal.php' => self::routePlugin('Normal', '/always') . "\n// touched\n"]);
+
+        self::assertNull($check['why'], (string) json_encode($check));
+        self::assertTrue($check['confined'], 'the enclosing trial confines this boot, so the check is confined');
+        self::assertStringContainsString('enclosing trial', $check['room'], 'the room says the boot ran within the enclosing trial, not nested');
+        self::assertSame('', (string) @file_get_contents($this->root . '/bwrap-argv.txt'), 'no bwrap ran: neither a namespace probe nor a nested confinement (the nested one is what hung in a container)');
+    }
+
     public function testTheConfinedCandidateBootHasNoNetworkTheEnvelopeAndTheKeyringMasked(): void
     {
         $home = $this->dir();

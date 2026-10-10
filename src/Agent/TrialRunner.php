@@ -36,6 +36,14 @@ final class TrialRunner
     private const NAMESPACES = ['--unshare-net', '--unshare-pid', '--die-with-parent'];
 
     /**
+     * Set in a trial's own environment (`--setenv`), so a boot check asked from INSIDE a trial does not build a SECOND
+     * confinement. A user namespace nested in the trial's own is instant on a host but, in a container, neither works
+     * nor fails — it waits, and the trial timed out (the 0.219.0 regression t-0104 measured, greenhouse evidence/1186).
+     * The enclosing trial already confines (no network, the mask), so the inner check boots plain within it (0607).
+     */
+    public const INSIDE_TRIAL_ENV = 'MILPA_TRIAL';
+
+    /**
      * The namespace arguments that run here, probed once: false before the probe, null when none does.
      *
      * @var list<string>|false|null
@@ -58,6 +66,15 @@ final class TrialRunner
     public function available(): bool
     {
         return $this->namespaces() !== null;
+    }
+
+    /**
+     * True when this very process runs INSIDE a trial — so a confinement asked here would nest in the trial's own
+     * (never do that: {@see INSIDE_TRIAL_ENV}). The enclosing trial already confines whatever this process boots.
+     */
+    public static function insideTrial(): bool
+    {
+        return getenv(self::INSIDE_TRIAL_ENV) === '1';
     }
 
     /**
@@ -182,7 +199,7 @@ final class TrialRunner
         if (! is_dir($scratch) || is_link($scratch)) {
             throw new \RuntimeException('Work needs a scratch directory of its own.');
         }
-        array_push($command, '--bind', $scratch, $scratch, '--setenv', 'TMPDIR', $scratch);
+        array_push($command, '--bind', $scratch, $scratch, '--setenv', 'TMPDIR', $scratch, '--setenv', self::INSIDE_TRIAL_ENV, '1');
         $command = [...$command, ...$this->maskArgs($house)];
         array_push(
             $command,
@@ -282,6 +299,9 @@ final class TrialRunner
             '--setenv',
             'TMPDIR',
             $temporary,
+            '--setenv',
+            self::INSIDE_TRIAL_ENV,
+            '1',
             '--',
             $this->php,
             '-d',
