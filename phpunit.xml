@@ -2,6 +2,14 @@
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/11.5/phpunit.xsd"
          bootstrap="tests/bootstrap.php" colors="true" cacheDirectory=".phpunit.cache">
+  <!--
+    Xdebug coverage keeps a line map for the whole run, which grows with the suite; at PHP's default 128M it ran out
+    (a 282 KB allocation over the line, on 8.3) as the codebase grew. This raises the ceiling for the run — it masks
+    no leak: coverage memory is cumulative, not retained between tests.
+  -->
+  <php>
+    <ini name="memory_limit" value="512M"/>
+  </php>
   <testsuites>
     <testsuite name="AppRuntime">
       <directory>tests</directory>
