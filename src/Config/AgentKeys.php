@@ -174,8 +174,9 @@ final class AgentKeys
                 'type' => DeclaredType::union(DeclaredType::literal(false), DeclaredType::literal('container'), DeclaredType::literal('user')),
                 'does' => 'What holds this house from outside — a container, or a dedicated user — when a person '
                     . 'runs it that way (decisions/0606); absent or false, nothing does. The house does not check it: '
-                    . 'it is where the person who runs it says they put it, and what `php bin/coa doctor` reads to '
-                    . 'say whether anything contains what an agent runs here',
+                    . 'it is where the person who runs it says they put it, and `php bin/coa doctor` says it every '
+                    . 'time as declared, not checked (decisions/0612) — contained is not safe: what an agent runs here '
+                    . 'still reaches whatever that container was given, or that user can read',
             ],
             'agent.architectureSummary' => [
                 'type' => DeclaredType::union(

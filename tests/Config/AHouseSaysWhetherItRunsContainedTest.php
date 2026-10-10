@@ -42,10 +42,12 @@ final class AHouseSaysWhetherItRunsContainedTest extends TestCase
     {
         $this->root = sys_get_temp_dir() . '/contained-' . bin2hex(random_bytes(4));
         mkdir($this->root . '/.milpa', 0o777, true);
+        putenv(Containment::VARIABLE);
     }
 
     protected function tearDown(): void
     {
+        putenv(Containment::VARIABLE);
         @unlink($this->root . '/.milpa/agent.json');
         @rmdir($this->root . '/.milpa');
         @rmdir($this->root);
@@ -60,6 +62,8 @@ final class AHouseSaysWhetherItRunsContainedTest extends TestCase
         self::assertSame("false | 'container' | 'user'", $keys[Containment::KEY]['type']);
         self::assertStringContainsString('absent or false, nothing does', $keys[Containment::KEY]['does'], 'the default says today\'s truth');
         self::assertStringContainsString('The house does not check it', $keys[Containment::KEY]['does'], 'and that it is a statement, not a measurement');
+        self::assertStringContainsString('declared, not checked', $keys[Containment::KEY]['does'], 'as its doctor says it every time (decisions/0612)');
+        self::assertStringContainsString('contained is not safe', $keys[Containment::KEY]['does']);
     }
 
     public function testOnlyAContainerOrADedicatedUserIsReadAsContained(): void
@@ -86,6 +90,31 @@ final class AHouseSaysWhetherItRunsContainedTest extends TestCase
 
         self::assertSame('user', Containment::of(['agent' => ['contained' => 'container']], $this->root)->by());
         self::assertSame('user', Containment::of([], $this->root)->by());
+    }
+
+    /**
+     * EVERY STATE IS SAID (greenhouse decisions/0612, which amends «with both, silence» of evidence/1181). `!` only
+     * when nothing holds: no trial is confined and nothing is declared. A declared house is `·` and never unsaid.
+     */
+    public function testEveryStateHasALineAndOnlyAHouseNothingHoldsIsWarned(): void
+    {
+        $runners = ['confines' => [true, true], 'the tool is refused' => [false, true], 'the tool is missing' => [false, false]];
+        foreach (['nothing' => [], 'container' => ['agent' => ['contained' => 'container']], 'user' => ['agent' => ['contained' => 'user']]] as $declared => $config) {
+            foreach ($runners as $runner => [$confines, $toolIsThere]) {
+                $line = Containment::of($config, $this->root)->said($confines, $toolIsThere);
+                $warned = $declared === 'nothing' && !$confines;
+
+                self::assertStringStartsWith($warned ? '  ! ' : '  · ', $line, "declared: {$declared} · runner: {$runner}");
+                self::assertSame($declared !== 'nothing', str_contains($line, 'declared, not checked'), "declared: {$declared} · runner: {$runner}");
+                self::assertStringNotContainsString("\n", $line, 'one line');
+            }
+        }
+    }
+
+    /** The variable whoever starts a house sets is named after the key, like the family's other `MILPA_AGENT_*`. */
+    public function testTheVariableOfWhoeverStartsTheHouseIsNamedAfterTheKey(): void
+    {
+        self::assertSame('MILPA_AGENT_CONTAINED', Containment::VARIABLE);
     }
 
     public function testConfigSetWritesItTypedAndRefusesAValueThatNamesNothing(): void

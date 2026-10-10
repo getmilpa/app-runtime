@@ -38,6 +38,16 @@ use Milpa\Runtime\Config;
  * where they put the house — the house cannot see its own container from the inside in any way it could not be
  * fooled about — and a trial reads what it read before. Narrowing what a trial can read is another slice.
  *
+ * ── DECLARED, NOT CHECKED (greenhouse decisions/0612, decided by Rod on 2026-10-10) ─────────────
+ *
+ * The line used to stop when a trial was confined AND the house was declared: «with both, silence» (evidence/1181).
+ * Measured in the public image (evidence/1186), that silence covered a container started privileged, one with a
+ * home mounted, one with Docker's socket, one with a keyring a process in it signed with. A doctor that says
+ * nothing is read as a house that is safe, and the house cannot check what it declares. So a declared house is
+ * ALWAYS said: WHERE the declaration is read — the house's own configuration, the file `config:set` writes, or the
+ * variable of whoever started it ({@see VARIABLE}) —, that nothing checks it, and what an agent run in it still
+ * reaches. «Contained» is never said as «safe».
+ *
  * ── WHAT «CANNOT CONFINE A TRIAL» MEANS, MEASURED (greenhouse evidence/1181) ────────────────────
  *
  * The runner fails closed: without bubblewrap there is no trial. What the house does then is ask — «The agent
@@ -56,8 +66,14 @@ final readonly class Containment
     /** The house runs as a user of its own, who can read what the house needs and no person's home. */
     public const USER = 'user';
 
-    /** @param mixed $declared what the house's configuration holds under {@see KEY}, as it is */
-    private function __construct(private mixed $declared)
+    /** The variable whoever starts a house declares it through, where the house's configuration reads it (greenhouse decisions/0612). */
+    public const VARIABLE = 'MILPA_AGENT_CONTAINED';
+
+    /**
+     * @param mixed $declared  what the house's configuration holds under {@see KEY}, as it is
+     * @param bool  $byMachine whether the file `config:set` writes is the one that says it
+     */
+    private function __construct(private mixed $declared, private bool $byMachine = false)
     {
     }
 
@@ -70,7 +86,10 @@ final readonly class Containment
      */
     public static function of(array $delHumano, string $root): self
     {
-        return new self((new Config(MachineOverlay::sobre($delHumano, $root)))->get('agent.contained'));
+        return new self(
+            (new Config(MachineOverlay::sobre($delHumano, $root)))->get('agent.contained'),
+            (new Config(MachineOverlay::sobre([], $root)))->get('agent.contained') !== null,
+        );
     }
 
     /** What holds this house, by its own declaration: {@see CONTAINER}, {@see USER}, or null — not contained. */
@@ -96,25 +115,53 @@ final readonly class Containment
     }
 
     /**
-     * The one line `coa doctor` says, with its mark — or null when a trial is confined AND the house is declared
-     * contained: a report that prints a line to say «nothing» trains people to skip it.
+     * Where the declaration is read, as far as a house can tell who made it — null when the house is not declared.
      *
-     * `!` when neither holds, with both steps. `·` when exactly one does, naming which and the step for the other:
-     * that is a house that is held, said as it is. It is never a failure — the doctor's exit is `coa update`'s boot
-     * check, and a machine without bubblewrap is not a house that does not boot.
-     *
-     * @param bool $confines whether this machine can confine a trial — the runner's own answer, never a second probe
+     * The house has two files and sees no further: the person's `config/app.php`, and the one `config:set` writes,
+     * which wins. When the person's file says what {@see VARIABLE} says in this process's environment, the
+     * declaration came through it — in the image the baked configuration reads it — and whoever started the house
+     * made it. A variable that says something else, or that no configuration reads, declared nothing.
      */
-    public function said(bool $confines): ?string
+    public function from(): ?string
     {
         $by = $this->by();
-        if ($confines && $by !== null) {
-            return null;
-        }
+
+        return match (true) {
+            $by === null => null,
+            $this->byMachine => 'in .milpa/agent.json, where `config:set` writes it',
+            getenv(self::VARIABLE) === $by => 'by whoever started it (' . self::VARIABLE . ' in its environment)',
+            default => 'in config/app.php',
+        };
+    }
+
+    /**
+     * The one line `coa doctor` says, with its mark — in every state (greenhouse decisions/0612).
+     *
+     * `!` when nothing holds: no trial is confined and the house is not declared, with both steps. `·` otherwise.
+     * A DECLARED house is always said — where it is declared, «declared, not checked», and what an agent run in it
+     * still reaches — whether or not a trial is confined: the house cannot check its own declaration, so it never
+     * stops saying that it is one. It is never a failure — the doctor's exit is `coa update`'s boot check, and a
+     * machine without bubblewrap is not a house that does not boot.
+     *
+     * THE STEP TELLS A MISSING BUBBLEWRAP FROM ONE THAT IS REFUSED (evidence/1186). The image carries it; under
+     * Docker's own seccomp profile it cannot make a namespace, and the line said «install bubblewrap». What a
+     * person can do about each is different, so the runner is asked which.
+     *
+     * @param bool $confines    whether this machine can confine a trial — the runner's own answer, never a second probe
+     * @param bool $toolIsThere whether bubblewrap is installed at all — the runner's own answer too
+     */
+    public function said(bool $confines, bool $toolIsThere): string
+    {
+        $by = $this->by();
         $declare = 'if a container or a dedicated user holds this house, declare it: '
             . Capabilities::cli() . 'config:set ' . self::KEY . ' ' . self::CONTAINER . ' --sign (or ' . self::USER . ')';
-        $noTrial = 'this machine cannot confine a trial, so a change is asked for and then runs in the house itself';
-        $install = 'install bubblewrap (bwrap)';
+        $noTrial = 'this machine cannot confine a trial'
+            . ($toolIsThere ? ' (bubblewrap is installed, and is refused a namespace here)' : '')
+            . ', so a change is asked for and then runs in the house itself';
+        $letItConfine = $toolIsThere
+            ? 'let bubblewrap make a user namespace here (on a host, the kernel\'s unprivileged user namespaces; '
+                . 'in a container, the seccomp profile it is started with)'
+            : 'install bubblewrap (bwrap)';
         $unreadable = $this->unreadable();
         $remark = $unreadable === null
             ? ''
@@ -122,13 +169,19 @@ final readonly class Containment
                 . self::CONTAINER . ' or ' . self::USER . ' is read)';
 
         if ($by !== null) {
-            return '  · this house is declared contained (' . $by . '); ' . $noTrial . ' — ' . $install . ' to try it on a copy first';
+            $declared = '  · this house is declared contained (' . $by . ') ' . $this->from() . ' — declared, not checked: '
+                . 'the house cannot see what holds it, and what an agent runs here still reaches everything '
+                . ($by === self::CONTAINER ? 'mounted into that container' : 'that user can read');
+
+            return $confines
+                ? $declared . '; a trial runs confined on this machine'
+                : $declared . '; ' . $noTrial . ' — ' . $letItConfine . ' to try it on a copy first';
         }
         if ($confines) {
             return '  · a trial runs confined on this machine; the house itself is not declared contained' . $remark . ' — ' . $declare;
         }
 
         return '  ! nothing contains what an agent runs in this house: ' . $noTrial . ', and the house is not declared contained'
-            . $remark . ' — ' . $install . ', or, ' . $declare;
+            . $remark . ' — ' . $letItConfine . ', or, ' . $declare;
     }
 }
