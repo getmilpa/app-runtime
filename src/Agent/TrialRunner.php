@@ -69,6 +69,16 @@ final class TrialRunner
     }
 
     /**
+     * Is bubblewrap here at all? The difference between «install it» and «it is here, and is refused a namespace»
+     * (greenhouse evidence/1186: the image carries it, and under Docker's own profile it cannot confine). The tool
+     * is looked for, never run: whether it CAN confine is {@see available()}'s to say, and is asked once.
+     */
+    public function installed(): bool
+    {
+        return $this->resolvable($this->bwrap);
+    }
+
+    /**
      * True when this very process runs INSIDE a trial — so a confinement asked here would nest in the trial's own
      * (never do that: {@see INSIDE_TRIAL_ENV}). The enclosing trial already confines whatever this process boots.
      */

@@ -44,6 +44,28 @@ final class TrialRunnerTest extends TestCase
         self::assertFalse($runner->available(), 'the probe is memoised, and stays false');
     }
 
+    /**
+     * A bubblewrap that is MISSING and one that is there and refused both leave the house without a trial, and the
+     * step that fixes each is different (greenhouse evidence/1186: the image carries it, and its doctor said to
+     * install it). The runner says which — by looking for the tool, never by running it a second time.
+     */
+    public function testItSaysWhetherBubblewrapIsThereWithoutRunningIt(): void
+    {
+        $dir = sys_get_temp_dir() . '/milpa-bwrap-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        $this->roots[] = $dir;
+        file_put_contents($dir . '/bwrap', "#!/bin/sh\necho ran >> " . escapeshellarg($dir . '/ran') . "\nexit 1\n");
+        chmod($dir . '/bwrap', 0o755);
+
+        $refused = new TrialRunner(bwrap: $dir . '/bwrap');
+        self::assertTrue($refused->installed(), 'it is there');
+        self::assertFileDoesNotExist($dir . '/ran', 'and asking whether it is there ran nothing');
+        self::assertFalse($refused->available(), 'there, and refused');
+
+        self::assertFalse((new TrialRunner(bwrap: '/nonexistent/bwrap'))->installed());
+        self::assertFalse((new TrialRunner(bwrap: 'no-such-bwrap-on-any-path'))->installed(), 'looked for by name too');
+    }
+
     public function testTheBoundsAreTheOnesTheContractNames(): void
     {
         self::assertSame(['fs' => 'ro-root+rw-copy', 'net' => 'unshared', 'pid' => 'unshared'], (new TrialRunner())->bounds());

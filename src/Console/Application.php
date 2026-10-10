@@ -1438,10 +1438,13 @@ final class Application
         // this machine confines a trial, or the house runs inside something that holds it and says so. Without the
         // first there is no trial — the change is asked for and then written in the house itself — and nothing said
         // so. One line, never a failure: this exit is `coa update`'s boot check. The runner is asked, not probed again.
-        $contenida = Containment::of($delApp, $this->root)->said(($this->trialRunner ?? new TrialRunner())->available());
-        if ($contenida !== null) {
-            $this->line($contenida);
-        }
+        //
+        // IN EVERY STATE (greenhouse decisions/0612): a declared house is always said — «declared, not checked» —
+        // because the house cannot check what it declares, and a doctor that says nothing reads as a house that is
+        // safe (evidence/1186). And the runner is asked whether bubblewrap is there at all, so the step never tells
+        // a person to install what is installed and merely refused a namespace.
+        $ensayos = $this->trialRunner ?? new TrialRunner();
+        $this->line(Containment::of($delApp, $this->root)->said($ensayos->available(), $ensayos->installed()));
 
         // A GRAPH THAT CLOSES IS NOT A HOUSE THAT BOOTS (greenhouse evidence/1067): a 0.200.3 house moved to
         // 0.201.0 died in a plugin's boot() while this said «✓ el grafo cierra», exit 0 — and `coa update` reads
