@@ -117,6 +117,31 @@ final class TrialRunner
     }
 
     /**
+     * The argv that confines a boot of a tree the house did NOT apply — the boot check of code nobody applied runs
+     * as a trial (greenhouse decisions/0607, Rod's alternative A; evidence/1180): the namespaces a trial found here
+     * (no network, its own pids), the root read-only, `/dev/null` bound back so git and a shell's `2>/dev/null`
+     * work (evidence/1060), the tree bound so its own `var/` can be written while it boots, and THE MASK — the
+     * secret files AND the keyring the house signs with — through the one place ({@see maskArgs}, placed AFTER the
+     * writable bind so the bind cannot re-expose a secret the tree carries).
+     *
+     * Null when nothing can be confined here (no unprivileged namespace, e.g. macOS): the caller boots the candidate
+     * UNCONFINED and must SAY so (0607: where there is no bwrap it runs unconfined; confining it there is another
+     * slice). The applied house's boot is not confined by this and does not change.
+     *
+     * @return list<string>|null
+     */
+    public function confinement(string $tree, string $secretsRoot): ?array
+    {
+        $namespaces = $this->namespaces();
+        if ($namespaces === null) {
+            return null;
+        }
+
+        return [$this->bwrap, ...$namespaces, '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null',
+            '--bind', $tree, $tree, ...$this->maskArgs($secretsRoot)];
+    }
+
+    /**
      * Run one operation of work IN THE HOUSE, confined to its state (greenhouse decisions/0588, rule 2).
      *
      * Not a trial: there is no copy. The child runs against the house itself with the same confinement a trial
@@ -397,7 +422,64 @@ final class TrialRunner
         foreach (SecretFiles::existingUnder($root) as $secret) {
             array_push($args, '--ro-bind', '/dev/null', $secret);
         }
+        // THE KEYRING THE HOUSE SIGNS WITH IS NOT A FILE OF THE HOUSE, AND IT IS MASKED TOO (greenhouse evidence/1178,
+        // decided by Rod 2026-10-09). Under `--ro-bind / /` the keyring gpg reads and the agent's sockets are reachable
+        // from a confined process: 1178 measured that a plugin's `boot()` or an operation's handler could read the
+        // private key the Desktop keeps mounted and SIGN a governed act as the person who holds it. Each keyring
+        // directory and each gpg-agent socket directory is overlaid with an empty tmpfs — a directory cannot be masked
+        // with `--ro-bind /dev/null`, which mounts a file. Each is named by its REAL path (symlinks resolved) and
+        // must exist: `--tmpfs` must create its mountpoint, which cannot be done inside `--ro-bind / /` (the tree is
+        // read-only), so an absent or symlinked target is handled by {@see keyringDirectories()}, never passed raw.
+        foreach (self::keyringDirectories() as $directory) {
+            array_push($args, '--tmpfs', $directory);
+        }
 
         return $args;
+    }
+
+    /** The smartcard daemon's socket directory the Desktop mounts into the house when it is present (0121). */
+    public const PCSCD_SOCKET_DIR = '/run/pcscd';
+
+    /**
+     * The REAL directories a confined process must not reach because the house signs with what they hold — distinct,
+     * existing, each resolved through symlinks (greenhouse evidence/1178): the keyring `GNUPGHOME` names, the default
+     * `$HOME/.gnupg`, the gpg-agent's runtime sockets under `$XDG_RUNTIME_DIR/gnupg` and `/run/user/<uid>/gnupg`, and
+     * the smartcard daemon's socket directory the Desktop mounts. Read from the environment the runner runs in,
+     * because that is what a confined child inherits.
+     *
+     * The REAL path, not the path as it came: a keyring reached through a symlink (a common `$HOME/.gnupg` pointing
+     * elsewhere) would otherwise leave the real directory readable by its own path, and bwrap cannot mount a tmpfs
+     * onto a symlink at all. `realpath()` resolves it and returns false for an absent or broken one, which is left
+     * out — under a read-only root there is then nothing to hide, and masking it would make bwrap fail.
+     *
+     * @return list<string>
+     */
+    private static function keyringDirectories(): array
+    {
+        $candidates = [];
+        $gnupg = getenv('GNUPGHOME');
+        if (\is_string($gnupg) && $gnupg !== '') {
+            $candidates[] = $gnupg;
+        }
+        $home = getenv('HOME');
+        if (\is_string($home) && $home !== '') {
+            $candidates[] = rtrim($home, '/') . '/.gnupg';
+        }
+        foreach ([getenv('XDG_RUNTIME_DIR'), '/run/user/' . (string) getmyuid()] as $run) {
+            if (\is_string($run) && $run !== '') {
+                $candidates[] = rtrim($run, '/') . '/gnupg';
+            }
+        }
+        $candidates[] = self::PCSCD_SOCKET_DIR;
+
+        $directories = [];
+        foreach ($candidates as $candidate) {
+            $real = realpath($candidate);
+            if ($real !== false && is_dir($real) && !\in_array($real, $directories, true)) {
+                $directories[] = $real;
+            }
+        }
+
+        return $directories;
     }
 }

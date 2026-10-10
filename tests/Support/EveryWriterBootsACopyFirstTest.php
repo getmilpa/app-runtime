@@ -105,7 +105,7 @@ final class EveryWriterBootsACopyFirstTest extends TestCase
         );
 
         self::assertNull($boot['refused']);
-        self::assertSame(['house_boots' => true], $boot['said']);
+        self::assertTrue($boot['said']['house_boots'], (string) json_encode($boot['said']));
         self::assertStringContainsString('Good::class', $this->list());
     }
 

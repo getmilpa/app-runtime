@@ -28,6 +28,8 @@ use Milpa\ToolRuntime\Gate\ToolCallGate;
 use Milpa\ToolRuntime\Gate\ToolCallRecorder;
 use Milpa\ToolRuntime\ToolRegistry;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 
@@ -102,6 +104,9 @@ final class ALegFitsInItsMemoryTest extends TestCase
         self::assertSame('the goal another process set', $again->load('s1')?->goal);
     }
 
+    // Isolated: it lowers the process memory to assert the raise, which a suite already over 128M (coverage) refuses.
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function testTheLegDeclaresItsMemoryBeforeItRunsAndSaysSo(): void
     {
         ini_set('memory_limit', '128M');
@@ -112,6 +117,9 @@ final class ALegFitsInItsMemoryTest extends TestCase
         self::assertSame('256M', \ini_get('memory_limit'));
     }
 
+    // Isolated: it lowers the process memory to assert the raise, which a suite already over 128M (coverage) refuses.
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function testALegNeverLowersWhatTheProcessAlreadyHas(): void
     {
         ini_set('memory_limit', '1G');

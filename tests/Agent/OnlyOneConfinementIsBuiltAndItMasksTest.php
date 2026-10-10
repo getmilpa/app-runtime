@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Agent;
 
 use Milpa\AppRuntime\Agent\HouseRouteObserver;
+use Milpa\AppRuntime\Agent\TrialRunner;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -93,6 +94,34 @@ final class OnlyOneConfinementIsBuiltAndItMasksTest extends TestCase
             @rmdir($root . '/var/boot-candidates');
             @rmdir($root . '/var');
             @rmdir($root);
+        }
+    }
+
+    public function testTheMaskAlsoHidesTheKeyringTheHouseSignsWith(): void
+    {
+        // The one mask hides the keyring the house signs with, not only the house's secret files (greenhouse
+        // evidence/1178): under `--ro-bind / /` a confined boot or trial could read the private key the Desktop
+        // keeps mounted and sign a governed act as the person. A keyring is a directory, so it is masked with a
+        // tmpfs, not `--ro-bind /dev/null`.
+        $base = sys_get_temp_dir() . '/milpa-guard-keyring-' . bin2hex(random_bytes(4));
+        $home = $base . '/home';
+        $house = $base . '/house';
+        mkdir($home . '/.gnupg', 0o700, true);
+        mkdir($house, 0o700, true);
+        $was = getenv('HOME');
+        putenv("HOME={$home}");
+
+        try {
+            $args = (new TrialRunner())->maskArgs($house);
+            $i = array_search((string) realpath($home . '/.gnupg'), $args, true);
+            self::assertNotFalse($i, 'the keyring the house signs with ($HOME/.gnupg) is in the mask');
+            self::assertSame('--tmpfs', $args[$i - 1] ?? null, 'a keyring is masked with an empty tmpfs');
+        } finally {
+            $was === false ? putenv('HOME') : putenv("HOME={$was}");
+            @rmdir($home . '/.gnupg');
+            @rmdir($home);
+            @rmdir($house);
+            @rmdir($base);
         }
     }
 

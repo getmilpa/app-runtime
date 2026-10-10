@@ -93,9 +93,16 @@ final class HouseBootWitness implements BootWitnessInterface
         $ask = $judge === null ? null : static function (string $candidate) use ($judge, &$judged): void {
             $judged = $judge($candidate);
         };
-        $why = $this->probeBefore ? $this->probe->whyNotWith($this->root, $writes, $deletes, $ask) : null;
+        // The boot check runs as a trial and says the two things 1180 §4.1 asks for: the ROOM it ran in (confined,
+        // no network, the envelope and the keyring masked — or, with no bwrap, unconfined, said), and the plugins
+        // that mounted FEWER routes without their secret. Carried into `said` so a writer's answer names them.
+        $check = $this->probeBefore ? $this->probe->check($this->root, $writes, $deletes, $ask) : null;
+        $why = $check['why'] ?? null;
+        $room = $check === null ? [] : ['boot_room' => $check['room']]
+            + ($check['mounted_less'] === [] ? [] : ['mounted_less_without_their_secret' => $check['mounted_less']])
+            + ($check['new_plugins'] === [] ? [] : ['new_plugins' => $check['new_plugins']]);
         if ($why === null && $judged !== null) {
-            return ['refused' => $judged, 'said' => ['unwritten' => $paths, 'judged' => $judged]];
+            return ['refused' => $judged, 'said' => ['unwritten' => $paths, 'judged' => $judged] + $room];
         }
         if ($why !== null) {
             $now = $this->probe->whyNot($this->root);
@@ -118,7 +125,7 @@ final class HouseBootWitness implements BootWitnessInterface
 
         $after = $this->probe->whyNot($this->root);
         if ($after === null) {
-            return ['refused' => null, 'said' => ['house_boots' => true]];
+            return ['refused' => null, 'said' => ['house_boots' => true] + $room];
         }
         if ($recovery && $why !== null) {
             return ['refused' => null, 'said' => ['house_boots' => false, 'still_broken' => $after]];

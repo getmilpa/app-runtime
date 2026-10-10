@@ -172,6 +172,37 @@ final class HouseRouteObserver
     }
 
     /**
+     * How many routes each booted plugin mounts, by its short class name — EVERY route-providing plugin, the house's
+     * own and the ones it installed alike (unlike {@see routesOf}, which is for a session's own `src/Plugins`). The
+     * boot check of code nobody applied reads this to NAME a plugin that mounted FEWER routes without its secret than
+     * the house mounts with it (greenhouse evidence/1180 §4.1, decided by Rod 2026-10-09): a plugin that fails closed
+     * without its secret — Live, AgentWorkspace, Passkey (decisions/0569) — mounts nothing and says nothing, so
+     * «boots» would read as «boots as it will run» when the house it booted is smaller. A plugin booted but mounting
+     * no route is kept, at zero, so the drop from its with-secret count is seen.
+     *
+     * @return array<string, int>
+     */
+    public static function routesByPluginOf(Kernel $kernel): array
+    {
+        $booted = $kernel->bootedPluginNames();
+        $counts = [];
+        foreach ($kernel->plugins() as $plugin) {
+            if (!$plugin instanceof RouteProviderInterface) {
+                continue;
+            }
+            $class = new \ReflectionClass($plugin);
+            $attributes = $class->getAttributes(PluginMetadata::class);
+            if ($attributes !== [] && !\in_array($attributes[0]->newInstance()->name, $booted, true)) {
+                continue;
+            }
+            $counts[$class->getShortName()] = \count($plugin->routes());
+        }
+        ksort($counts);
+
+        return $counts;
+    }
+
+    /**
      * What the capabilities BUILT in a booted house declare, among the touched plugins (greenhouse decisions/0595).
      *
      * Built is where the plugin's class lives — under the house's own `src/Plugins/<dir>/`, never in a package it
