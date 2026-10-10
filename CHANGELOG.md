@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.220.0](https://github.com/getmilpa/app-runtime/compare/v0.219.2...v0.220.0) (2026-10-10)
+
+
+### Features
+
+* a contained house signs through the host, holding no key (decisions/0611) ([#789](https://github.com/getmilpa/app-runtime/issues/789)) ([ea1ea97](https://github.com/getmilpa/app-runtime/commit/ea1ea97172eabb373a39205fea9e660a792856e1))
+
 ## [0.219.2](https://github.com/getmilpa/app-runtime/compare/v0.219.1...v0.219.2) (2026-10-10)
 
 
