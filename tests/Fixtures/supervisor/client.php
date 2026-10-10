@@ -16,7 +16,8 @@ declare(strict_types=1);
 // what the relay writes back. It walks `<state>/plan.json` and records every line it receives, with the step that
 // was waiting for it, in `<state>/transcript.jsonl`. The relay runs IN the test process — this is the other end.
 //
-// Steps: {"send": {...}} · {"raw": "line"} · {"expect": seconds} (the next line, or a timeout record) ·
+// Steps: {"send": {...}} · {"raw": "line"} · {"unterminated": {...}} (no newline after it) · {"done-asking": true}
+// (closes its writing end and keeps reading) · {"expect": seconds} (the next line, or a timeout record) ·
 // {"quiet": seconds} (records anything that arrives) · {"write": ["file", "content"]} · {"touch": "file"} ·
 // {"remove": "file"}
 [, $state] = $argv;
@@ -56,6 +57,13 @@ foreach ($plan as $i => $step) {
     } elseif (isset($step['raw'])) {
         fwrite(\STDOUT, $step['raw'] . "\n");
         fflush(\STDOUT);
+    } elseif (isset($step['unterminated'])) {
+        // The last line of a pipe that ends without a newline: `printf '%s' …`.
+        fwrite(\STDOUT, json_encode($step['unterminated']));
+        fflush(\STDOUT);
+    } elseif (isset($step['done-asking'])) {
+        // A script or a CI: it has asked everything it will ask, closes its writing end, and goes on reading.
+        fclose(\STDOUT);
     } elseif (isset($step['expect'])) {
         $line = $next((float) $step['expect']);
         $record(['step' => $i, 'line' => $line]);

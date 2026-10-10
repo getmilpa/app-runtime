@@ -75,6 +75,45 @@ final class ALongLivedProcessKnowsWhenItWentStaleTest extends TestCase
         self::assertSame(['work a 0', 'work p1 1', 'work p2 1'], $this->lines('ran.log'));
     }
 
+    /**
+     * `printf … | coa mcp` — a script, a CI: the client closes its end as soon as it has asked, and is still
+     * reading. What it asked is answered; the relay threw those answers away (greenhouse evidence/1187).
+     */
+    public function testAClientThatClosesItsEndRightAfterAskingStillGetsItsAnswers(): void
+    {
+        $seen = $this->relay([
+            ['send' => self::INIT], ['send' => self::work(2, 'piped')], ['done-asking' => true],
+            ['expect' => 5], ['expect' => 5], ['quiet' => 0.3],
+        ]);
+
+        self::assertSame([1, 2], array_map(static fn (array $m): mixed => $m['id'] ?? null, $seen), "both answers, in order, and nothing of the relay's own");
+        self::assertSame(['initialize  0', 'work piped 0'], $this->lines('ran.log'), 'each ran once');
+    }
+
+    /** What the child says while it finishes goes through the same door as every other line: only messages cross. */
+    public function testWhatIsNoMessageStillNeverReachesAClientThatFinishedAsking(): void
+    {
+        $seen = $this->relay([
+            ['send' => self::INIT], ['send' => ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'echo-garbage']], ['done-asking' => true],
+            ['expect' => 5], ['expect' => 5], ['quiet' => 0.3],
+        ]);
+
+        self::assertSame([1, 2], array_map(static fn (array $m): mixed => $m['id'] ?? null, $seen));
+        self::assertStringContainsString('an echo somewhere in the house', (string) file_get_contents($this->state . '/stderr.log'));
+    }
+
+    /** The last line of a pipe may end without a newline; it was asked all the same. */
+    public function testALastLineWithoutANewlineIsAskedToo(): void
+    {
+        $seen = $this->relay([
+            ['send' => self::INIT], ['unterminated' => self::work(2, 'last')], ['done-asking' => true],
+            ['expect' => 5], ['expect' => 5],
+        ]);
+
+        self::assertSame([1, 2], array_map(static fn (array $m): mixed => $m['id'] ?? null, $seen));
+        self::assertSame(['initialize  0', 'work last 0'], $this->lines('ran.log'));
+    }
+
     public function testTheRequestThatChangedTheHouseIsAnsweredBeforeItsChildLeaves(): void
     {
         $seen = $this->relay([
