@@ -133,8 +133,10 @@ final class KernelSupervisor
         $this->start();
         $clientOpen = true;
 
-        // Until the client closes its end — then nobody reads another answer. {@see stop()} lets the child finish the
-        // call it is running and leave; the relay does not wait for answers it could no longer deliver.
+        // Until the client closes its end: it has finished ASKING. {@see stop()} lets the child finish what it was
+        // asked and leave, and hands the client what the child answered meanwhile — a script or a CI that pipes its
+        // messages in (`printf … | coa mcp`) closes its end at once and is still reading. The relay waits for
+        // nothing more than it always did: the child's leaving.
         while ($clientOpen) {
             $read = [$this->in];
             if ($this->process !== null) {
@@ -160,6 +162,11 @@ final class KernelSupervisor
                 if ($stream === $this->in) {
                     $chunk = (string) fread($this->in, 65536);
                     if ($chunk === '' && feof($this->in)) {
+                        // A last line that ends without a newline was asked all the same.
+                        if (trim($this->fromClient) !== '') {
+                            $this->fromClient(rtrim($this->fromClient, "\r"));
+                        }
+                        $this->fromClient = '';
                         $clientOpen = false;
                         continue;
                     }
@@ -466,7 +473,11 @@ final class KernelSupervisor
         }
         fclose($this->pipes[0]);
         stream_set_blocking($this->pipes[1], true);
-        stream_get_contents($this->pipes[1]);
+        // What the child answers while it finishes belongs to whoever asked: it goes to the client through the same
+        // door as every other line (the relay's own answers stay here). It used to be read and thrown away, so a
+        // client that closed its end right after asking got nothing, and exit 0.
+        $this->fromChild .= (string) stream_get_contents($this->pipes[1]);
+        $this->childLines();
         stream_set_blocking($this->pipes[2], true);
         $this->passErrors((string) stream_get_contents($this->pipes[2]));
         fclose($this->pipes[1]);
@@ -485,8 +496,10 @@ final class KernelSupervisor
 
     private function toClient(string $line): void
     {
-        fwrite($this->out, $line . "\n");
-        fflush($this->out);
+        // A client that really left cannot be written to; that is not an error of this relay.
+        if (@fwrite($this->out, $line . "\n") !== false) {
+            @fflush($this->out);
+        }
     }
 
     private function passErrors(string $chunk): void
