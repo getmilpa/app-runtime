@@ -66,6 +66,28 @@ final class TrialRunnerTest extends TestCase
         self::assertFalse((new TrialRunner(bwrap: 'no-such-bwrap-on-any-path'))->installed(), 'looked for by name too');
     }
 
+    /**
+     * THE PROBE THAT WAITED (greenhouse evidence/1186; measured by t-0104 on 2026-10-10). Asked from inside a trial,
+     * bubblewrap's parent died at once and left the child it had cloned blocked for ever, holding the probe's
+     * output — and the runner waited on that child. A bubblewrap that dies is a bubblewrap that cannot confine,
+     * said when it dies.
+     */
+    public function testAProbeWhoseProcessDiedIsNotWaitedOnForTheChildItLeftBehind(): void
+    {
+        $dir = sys_get_temp_dir() . '/milpa-bwrap-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        $this->roots[] = $dir;
+        file_put_contents($dir . '/bwrap', "#!/bin/sh\n(sleep 8 &)\necho 'bwrap: open /proc/3/ns/ns failed: No such file or directory' >&2\nexit 1\n");
+        chmod($dir . '/bwrap', 0o755);
+
+        $started = microtime(true);
+        $runner = new TrialRunner(bwrap: $dir . '/bwrap');
+
+        self::assertFalse($runner->available(), 'it cannot confine');
+        self::assertLessThan(6.0, microtime(true) - $started, 'and says so when its process dies — two shapes asked, neither waited on');
+        self::assertTrue($runner->installed());
+    }
+
     public function testTheBoundsAreTheOnesTheContractNames(): void
     {
         self::assertSame(['fs' => 'ro-root+rw-copy', 'net' => 'unshared', 'pid' => 'unshared'], (new TrialRunner())->bounds());

@@ -32,8 +32,24 @@ namespace Milpa\AppRuntime\Support;
  */
 final class ChildProcess
 {
+    /** How long one wait for output lasts before the process is looked at again: a tenth of a second. */
+    private const TICK_MICROSECONDS = 100_000;
+
     /**
      * Run `$command` to its end; null when no process could be started.
+     *
+     * ── ITS END IS THE PROCESS'S, NOT ITS PIPES' (greenhouse evidence/1186; measured by t-0104, 2026-10-10) ──
+     *
+     * The pipes were read until BOTH reached their end, and the process was never looked at. So a process that
+     * ended while something it left behind still held its output was waited on for as long as that something
+     * lived. That is what killed every trial of 0.219.0 inside a container at 60 s: the runner's confinement probe
+     * was asked from inside a trial, bubblewrap's parent died at once (`open /proc/3/ns/ns failed` — inside a
+     * trial `/proc` is the outer one, and a pid of the trial names nothing there), and the child it had already
+     * cloned stayed blocked in a `read()` only that parent would have answered, holding both pipes. A deadline
+     * around the command does not end that wait: `timeout` ends with its own child, the one already dead.
+     *
+     * So once the process has ended, what is left in the pipes is read and the answer is given. A process whose
+     * pipes end first is waited for as before: its end is the answer, not its silence.
      *
      * @param list<string> $command the program and its arguments, run without a shell
      *
@@ -55,7 +71,7 @@ final class ChildProcess
             $read = array_values($open);
             $write = null;
             $except = null;
-            if (@stream_select($read, $write, $except, 1) === false) {
+            if (@stream_select($read, $write, $except, 0, self::TICK_MICROSECONDS) === false) {
                 break;
             }
             foreach ($open as $channel => $pipe) {
@@ -64,6 +80,15 @@ final class ChildProcess
                     fclose($pipe);
                     unset($open[$channel]);
                 }
+            }
+            if ($open !== [] && proc_get_status($proc)['running'] === false) {
+                // The process ended and a pipe did not: someone it left behind holds it. Read what the process
+                // wrote between the read above and its end — it cannot write any more — and stop waiting on
+                // whoever that is. (No test holds that window open: a real process cannot be made to write in it.)
+                foreach ($open as $channel => $pipe) {
+                    $output[$channel] .= (string) stream_get_contents($pipe);
+                }
+                break;
             }
         }
         foreach ($open as $pipe) {
