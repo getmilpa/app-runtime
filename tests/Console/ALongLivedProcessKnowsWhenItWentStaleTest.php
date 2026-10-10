@@ -102,6 +102,32 @@ final class ALongLivedProcessKnowsWhenItWentStaleTest extends TestCase
         self::assertStringContainsString('an echo somewhere in the house', (string) file_get_contents($this->state . '/stderr.log'));
     }
 
+    /**
+     * A client that truly left — its reading end closed too — cannot be written to. That is no error of the relay:
+     * it says nothing of it, it leaves as it always did, and what it was asked still ran.
+     */
+    public function testAClientThatTrulyLeftIsNoErrorOfTheRelay(): void
+    {
+        $raised = [];
+        set_error_handler(static function (int $level, string $message) use (&$raised): bool {
+            // PHP tells a handler of a silenced error too, with nothing left to report but what cannot be silenced.
+            if ((error_reporting() & ~(\E_ERROR | \E_PARSE | \E_CORE_ERROR | \E_COMPILE_ERROR | \E_USER_ERROR | \E_RECOVERABLE_ERROR)) !== 0) {
+                $raised[] = $message;
+            }
+
+            return true;
+        });
+        try {
+            $seen = $this->relay([['deaf' => true], ['send' => self::INIT], ['send' => self::work(2, 'unread')], ['done-asking' => true]]);
+        } finally {
+            restore_error_handler();
+        }
+
+        self::assertSame([], $raised, 'writing to a client that left is no error');
+        self::assertSame([], $seen);
+        self::assertSame(['initialize  0', 'work unread 0'], $this->lines('ran.log'), 'what it asked still ran');
+    }
+
     /** The last line of a pipe may end without a newline; it was asked all the same. */
     public function testALastLineWithoutANewlineIsAskedToo(): void
     {

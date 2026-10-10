@@ -17,7 +17,7 @@ declare(strict_types=1);
 // was waiting for it, in `<state>/transcript.jsonl`. The relay runs IN the test process — this is the other end.
 //
 // Steps: {"send": {...}} · {"raw": "line"} · {"unterminated": {...}} (no newline after it) · {"done-asking": true}
-// (closes its writing end and keeps reading) · {"expect": seconds} (the next line, or a timeout record) ·
+// (closes its writing end and keeps reading) · {"deaf": true} (closes its reading end) · {"expect": seconds} (the next line, or a timeout record) ·
 // {"quiet": seconds} (records anything that arrives) · {"write": ["file", "content"]} · {"touch": "file"} ·
 // {"remove": "file"}
 [, $state] = $argv;
@@ -61,6 +61,9 @@ foreach ($plan as $i => $step) {
         // The last line of a pipe that ends without a newline: `printf '%s' …`.
         fwrite(\STDOUT, json_encode($step['unterminated']));
         fflush(\STDOUT);
+    } elseif (isset($step['deaf'])) {
+        // A client that is gone for good, or going: nothing written to it from here on can arrive.
+        fclose(\STDIN);
     } elseif (isset($step['done-asking'])) {
         // A script or a CI: it has asked everything it will ask, closes its writing end, and goes on reading.
         fclose(\STDOUT);
