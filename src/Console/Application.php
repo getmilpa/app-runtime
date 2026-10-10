@@ -689,7 +689,7 @@ final class Application
         }
 
         return (new CliRunner(
-            signer: $this->firmante,
+            signer: $this->firmanteEfectivo(),
             renderer: $renderer,
             verifier: $this->verificador,
             callerAuthority: $caller,
@@ -1801,6 +1801,22 @@ final class Application
     private ?Kernel $booted = null;
 
     /**
+     * Who signs a `--sign` here. A signer the host handed in stands (a test, another host). Otherwise, when a
+     * CONTAINED house was given a host sign-socket (greenhouse decisions/0611 (b): the Desktop signs on the host and
+     * the person approves each call there), the signing crosses to it through a {@see RemoteOperationSigner} and this
+     * house holds no key; with no socket it is null, and {@see CliRunner} signs with gpg on this machine as before.
+     */
+    private function firmanteEfectivo(): ?\Milpa\Console\OperationSigner
+    {
+        if ($this->firmante !== null) {
+            return $this->firmante;
+        }
+        $socket = getenv(RemoteOperationSigner::SIGN_SOCKET_ENV);
+
+        return \is_string($socket) && $socket !== '' ? new RemoteOperationSigner($socket) : null;
+    }
+
+    /**
      * What a verified signer may do in this house — one judgment for every door of the terminal.
      *
      * The enrollment ledger and the policy file are read from disk, never from the kernel: the same
@@ -1974,7 +1990,7 @@ final class Application
         }
         $lineas = [];
         $salida = (new CliRunner(
-            signer: $this->firmante,
+            signer: $this->firmanteEfectivo(),
             renderer: new JsonCliRenderer(),
             verifier: $this->verificador,
             callerAuthority: ToolContext::cli(),
@@ -2082,7 +2098,7 @@ final class Application
             }
         }
         $salida = (new CliRunner(
-            signer: $this->firmante,
+            signer: $this->firmanteEfectivo(),
             renderer: $renderer,
             callerAuthority: $base,
             verifier: $this->verificador,
