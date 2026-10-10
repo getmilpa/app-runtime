@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.220.1](https://github.com/getmilpa/app-runtime/compare/v0.220.0...v0.220.1) (2026-10-10)
+
+
+### Bug Fixes
+
+* the runtime admits no milpa/console older than the one its host signer is written against (greenhouse evidence/1191) ([#792](https://github.com/getmilpa/app-runtime/issues/792)) ([ce4fd00](https://github.com/getmilpa/app-runtime/commit/ce4fd00ca8ec786ce2b604bf37b1c5b6bdae9604))
+
 ## [0.220.0](https://github.com/getmilpa/app-runtime/compare/v0.219.2...v0.220.0) (2026-10-10)
 
 
