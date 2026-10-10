@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [0.219.0](https://github.com/getmilpa/app-runtime/compare/v0.218.0...v0.219.0) (2026-10-10)
+
+
+### Features
+
+* a house says whether it runs contained, and the doctor names what contains what an agent runs in it (greenhouse decisions/0607) ([#779](https://github.com/getmilpa/app-runtime/issues/779)) ([6206d57](https://github.com/getmilpa/app-runtime/commit/6206d57cc18e32fd0816029117e0ef8a8018b860))
+* the boot check of unapplied code runs as a trial (decisions/0607) ([#781](https://github.com/getmilpa/app-runtime/issues/781)) ([c0a46b5](https://github.com/getmilpa/app-runtime/commit/c0a46b5f71958eb03e779ec1ec88d197b83895ca))
+
+
+### Bug Fixes
+
+* the closure waits on a call whose admission is suspended, and a grant lifts every pending refusal of the call it was given for (greenhouse decisions/0599) ([#782](https://github.com/getmilpa/app-runtime/issues/782)) ([a74be80](https://github.com/getmilpa/app-runtime/commit/a74be8023756689a052a6daf281175db7888f0a7))
+
 ## [0.218.0](https://github.com/getmilpa/app-runtime/compare/v0.217.0...v0.218.0) (2026-10-09)
 
 
