@@ -605,9 +605,23 @@ final class Application
 
         $operacion = $this->find($comando);
         if ($operacion === null) {
-            $this->line("✗ no such command «{$comando}»");
+            $this->line(self::words('terminal.no_such_command', $comando));
             $this->line('');
-            $this->help();
+            // A NAME THAT IS NO COMMAND IS ANSWERED WITH THE ONES NEAR IT, WHEN THERE ARE ANY.
+            //
+            // `coa plugins` is what a person types to see what the group has; a slip of a finger is a name away
+            // from a command. Both were answered like a made-up word — the sentence, and the whole catalogue
+            // under it — so the lines that mattered had to be found among all of them. Only a name that
+            // resembles nothing still gets the whole catalogue: there, showing what DOES exist is the answer.
+            //
+            // A program that asked with `--json` keeps the answer it always had: its shape is not this change's.
+            $near = \in_array('--json', $argv, true) ? null : $this->near($comando);
+            if ($near === null) {
+                $this->help();
+            } else {
+                $this->section(self::words($near['words'], $near['subject']), $near['rows']);
+                $this->line(self::words('terminal.everything'));
+            }
 
             // A NAME THAT IS NOT THERE HAS TO LEAVE A FAILING STATUS BEHIND IT.
             //
@@ -1510,21 +1524,8 @@ final class Application
         // existe y no se anuncia no la encuentra nadie — y `doctor` es justamente la que hace falta
         // cuando lo demás no corre.
         $this->line('  Also:');
-        if (Capabilities::installed('devtools')) {
-            $this->line('    doctor           Explain the architectural state of this app WITHOUT booting it');
-        }
-        $this->line('    shell            Every operation, on one screen');
-        // `panel` only with the admin: it is what puts sections in the terminal. Without it the screen
-        // would open on an empty state, and announcing a screen with nothing to show teaches that the
-        // help lies — the same rule `chat` follows one line below.
-        if (Capabilities::installed('admin')) {
-            $this->line('    panel            Every section of this app, on one screen (or one: `panel <section>`, `--json`)');
-        }
-        // `chat` sólo si el agente está instalado. Este framework es tiny por default: anunciar una
-        // pantalla que no puede abrirse enseñaría que la ayuda miente, y `coa capabilities` es donde
-        // se ve lo que falta con el `composer require` que lo enciende.
-        if (Capabilities::installed('agent')) {
-            $this->line('    chat [<session>] The agent, in a session that outlives the process');
+        foreach ($this->also() as [, $written, $description]) {
+            $this->line(\sprintf('    %-16s %s', $written, $description));
         }
         $this->line('');
 
@@ -1532,6 +1533,35 @@ final class Application
         $this->line('  into a one-line document, for a program.');
 
         return 0;
+    }
+
+    /**
+     * What this terminal carries that is no operation, as the help announces it: the word a person types, how the
+     * help writes it, and what it is. One list, so that a name near one of them is answered with it too.
+     *
+     * @return list<array{0: string, 1: string, 2: string}>
+     */
+    private function also(): array
+    {
+        $also = [];
+        if (Capabilities::installed('devtools')) {
+            $also[] = ['doctor', 'doctor', 'Explain the architectural state of this app WITHOUT booting it'];
+        }
+        $also[] = ['shell', 'shell', 'Every operation, on one screen'];
+        // `panel` only with the admin: it is what puts sections in the terminal. Without it the screen
+        // would open on an empty state, and announcing a screen with nothing to show teaches that the
+        // help lies — the same rule `chat` follows one line below.
+        if (Capabilities::installed('admin')) {
+            $also[] = ['panel', 'panel', 'Every section of this app, on one screen (or one: `panel <section>`, `--json`)'];
+        }
+        // `chat` sólo si el agente está instalado. Este framework es tiny por default: anunciar una
+        // pantalla que no puede abrirse enseñaría que la ayuda miente, y `coa capabilities` es donde
+        // se ve lo que falta con el `composer require` que lo enciende.
+        if (Capabilities::installed('agent')) {
+            $also[] = ['chat', 'chat [<session>]', 'The agent, in a session that outlives the process'];
+        }
+
+        return $also;
     }
 
     /**
@@ -1550,6 +1580,81 @@ final class Application
         $this->line('  `php bin/coa capabilities` lists everything this app can switch on.');
 
         return 1;
+    }
+
+    /**
+     * What the terminal says to a person about a name that is no command: each sentence under a key, with its
+     * English default. The dispatcher has no way yet for a host to pass its own words — the panel has one
+     * ({@see \Milpa\Console\Tui\ScreenLabels}) — so today these keys only name the sentences; they are where a
+     * catalogue would hang.
+     */
+    private const WORDS = [
+        'terminal.no_such_command' => '✗ no such command «%s»',
+        'terminal.a_group' => '«%s» is a group of commands, not one — it has',
+        'terminal.begin_with' => 'these begin with «%s»',
+        'terminal.did_you_mean' => 'did you mean',
+        'terminal.everything' => '  `coa` alone lists every command.',
+    ];
+
+    private static function words(string $key, string ...$with): string
+    {
+        return \sprintf(self::WORDS[$key], ...$with);
+    }
+
+    /**
+     * The commands a name that is no command may have meant, or null when it resembles none.
+     *
+     * A group without its verb is answered with what the group has; the beginning of a name, with the names that
+     * begin so. A name a slip or two away is answered with the ones within reach — and, when it is a group that
+     * was mistyped, with what that group has. How far «near» reaches grows with the name and stops at two: past
+     * that, two different words start to look alike.
+     *
+     * @return array{words: string, subject: string, rows: list<array{0: string, 1: string, 2: bool}>}|null
+     */
+    private function near(string $comando): ?array
+    {
+        $word = rtrim($comando, ':');
+        if ($word === '') {
+            return null;
+        }
+
+        $rows = [];
+        foreach ($this->all() as $operacion) {
+            $name = $this->commandName($operacion);
+            $rows[$name] = [$name, $operacion->description, $operacion->requiresConfirmation];
+        }
+        foreach ($this->also() as [$name, , $description]) {
+            $rows[$name] ??= [$name, $description, false];
+        }
+        $beginning = static fn (string $with): array => array_filter($rows, static fn (array $row): bool => str_starts_with($row[0], $with));
+
+        if (($its = $beginning($word . ':')) !== []) {
+            return ['words' => 'terminal.a_group', 'subject' => $word, 'rows' => array_values($its)];
+        }
+        if (($those = $beginning($word)) !== []) {
+            return ['words' => 'terminal.begin_with', 'subject' => $word, 'rows' => array_values($those)];
+        }
+
+        $reach = min(2, max(1, intdiv(\strlen($word), 4)));
+        $far = static fn (string $name): int => levenshtein(strtolower($word), strtolower($name));
+        $within = array_filter($rows, static fn (array $row): bool => $far($row[0]) <= $reach);
+
+        if (!str_contains($word, ':')) {
+            $groups = [];
+            foreach (array_keys($rows) as $name) {
+                if (str_contains($name, ':')) {
+                    $group = explode(':', $name, 2)[0];
+                    $groups[$group] = $far($group);
+                }
+            }
+            asort($groups);
+            $closest = array_key_first($groups);
+            if ($closest !== null && $groups[$closest] <= $reach) {
+                $within += $beginning($closest . ':');
+            }
+        }
+
+        return $within === [] ? null : ['words' => 'terminal.did_you_mean', 'subject' => $word, 'rows' => array_values($within)];
     }
 
     /**
