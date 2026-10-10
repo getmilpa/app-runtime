@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [0.219.1](https://github.com/getmilpa/app-runtime/compare/v0.219.0...v0.219.1) (2026-10-10)
+
+
+### Bug Fixes
+
+* a client that pipes its messages in and closes its end still gets its answers ([#784](https://github.com/getmilpa/app-runtime/issues/784)) ([9df9db8](https://github.com/getmilpa/app-runtime/commit/9df9db864394ffca1374196bbaec1b2657ae1ecd))
+* a name that is no command is answered with the ones near it ([#785](https://github.com/getmilpa/app-runtime/issues/785)) ([920d5cd](https://github.com/getmilpa/app-runtime/commit/920d5cd2772fbeb9974d2cb72c6815cffe4f30fb))
+* the in-trial boot check does not nest a confinement (0.219.0 regression) ([#783](https://github.com/getmilpa/app-runtime/issues/783)) ([aa99503](https://github.com/getmilpa/app-runtime/commit/aa99503101ef29a4dc0571f9472c59ad09029cff))
+
 ## [0.219.0](https://github.com/getmilpa/app-runtime/compare/v0.218.0...v0.219.0) (2026-10-10)
 
 
