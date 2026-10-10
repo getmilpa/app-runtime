@@ -720,6 +720,39 @@ foreach (array_reverse($chain) as $middleware) {                                
 $response = $handler->handle($request);
 ```
 
+## Telegram: told there, decided here
+
+**A new surface, the same operations** (greenhouse `decisions/0572`). `Milpa\AppRuntime\Telegram\TelegramPlugin`
+sends a card to one Telegram chat when something waits for a person — a seat's refused call (`identity:grant`) or a
+session's open question (`agent:answer`) — and rewrites the card when it is settled. It adds **no way to decide**: a
+card's button is a link to the house, where the passkey sign-in and the panel's own ceremony do what they do without
+Telegram. Nothing comes *in* from Telegram: no webhook, no polling, no callback. A chat is a place to be told, never a
+principal.
+
+List the plugin **after** `PasskeyPlugin` in `config/plugins.php`. It sends nothing and mounts no route until the house
+declares all of:
+
+| Key | What it is | Where it is written |
+|---|---|---|
+| `telegram.token` | the bot's token | the secrets overlay: `provider:declare --key=telegram.token --value=… --sign` |
+| `telegram.chat` | the chat cards go to | the secrets overlay: `provider:declare --key=telegram.chat --value=… --sign` |
+| `telegram.for` | the principal that chat *is* — `passkey:<id>` or `key:<fingerprint>`. Cards are derived for that one principal, under the same rule the panel's frontier follows | config |
+| `telegram.link` | the origin a phone reaches the house at. It must be one of the passkey door's own origins (`passkey.origins`, `MILPA_PASSKEY_ORIGINS`) | config |
+
+Optional: `telegram.landing` (the panel's local path, `/milpa/admin/s/agent`), `telegram.ttl` (seconds a link lives, `900`),
+`telegram.detail` (`names`, or `none` for cards that name nothing), `telegram.locale` (`en`, `es`) and `telegram.api`
+(the Bot API's base URL). `telegram:status` says which key is missing and how many cards were sent — never what a key
+holds; `telegram:notify` runs one pass by hand.
+
+**What a card carries.** That something waits, and — unless `detail` is `none` — the names the house itself coined for
+it: the scope and tool of a refusal, or the operation of a question. Never a session's goal or id, a question's text, a
+call's arguments, a path, a diff or an invitation. Plain text, no parse mode.
+
+**What the link is.** `<telegram.link>/telegram/open/<token>`: 32 random bytes whose sha256 is what
+`var/telegram/cards.json` keeps. Without a passkey session every token — minted or not — goes to the sign-in. With one,
+the door asks the house again whether that card still waits for that principal; a yes spends the link and redirects to
+the panel, anything else answers one `410`. It is continuity, never authority.
+
 ## Upgrading
 
 ### 0.201.x — a house from 0.200.x keeps booting without `passkey.origins`
