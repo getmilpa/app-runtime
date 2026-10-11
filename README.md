@@ -520,6 +520,96 @@ Most of these exist because a measurement said they were needed, not because the
 idea. The settlements live in the monorepo (`docs/library/settlement-q-*.md`) and the docblocks cite
 which one.
 
+## Standing grants: the house judges a seat's act
+
+Some acts repeat, and a person should not have to sign each one. Until now the only way to let a
+seat repeat an act was to give it the scope whole — no ceiling, no condition, nothing to take it
+back when the evidence changes. A **standing grant** is narrower on every count, and the house
+enforces it: before a seat's act, it reads its book at that moment and refuses or lets pass
+(greenhouse decisions/0615).
+
+A person gives one, once, at the terminal:
+
+```bash
+php bin/coa standing:grant --grant="$(cat release-line.json)" --sign
+```
+
+```json
+{
+  "id": "release-line",
+  "to": ["<the seat's key, as the house shows it>"],
+  "covers": [{"operation": "release:publish", "arguments": {"channel": "stable"}}],
+  "ceiling": {"mutation": "persistent", "externality": "public", "reversibility": "compensatable",
+              "authority": "write_as_user", "subject": "executable"},
+  "conditions": [{"name": "no-host-names", "statement": "what is published names no machine",
+                  "by": {"operation": "release:scan"}}],
+  "undo": "withdraw the release and publish the one before it",
+  "falsifier": {"name": "measured-late", "statement": "a condition was measured after the act",
+                "watcher": {"operation": "release:watch"}, "within_seconds": 86400}
+}
+```
+
+The signature covers the whole document, and the document is read back out of the signed bytes on
+every judgment — never from a copy kept beside them.
+
+**What the house then does on every call of a seat the grant names.** It hands the seat the words
+that operation declares, for that one call, and asks the judge instead of the word. The call runs
+only if all of this holds, read from the book *now*:
+
+1. the grant's signature still verifies, and its signer still holds `identity:enroll`, still answers
+   for the seat, and is not the seat;
+2. the grant is in force — not suspended, superseded, revoked, or past its own date;
+3. the operation watching its falsifier gave a sign of life within its window;
+4. the operation says what content this call acts on (`Operation::$actsOn`);
+5. the effect of this call fits under the ceiling;
+6. every condition has a green receipt **on the digest of that very content**, taken by the
+   measuring operation as it is today.
+
+A call whose arguments the grant does not name is judged exactly as before, with the lent word
+taken back first. A grant that names the call governs it even for a seat that holds the scope on
+its own — every scope included. The operator's own terminal, and a key no grant names, are not
+judged: a grant governs the seats it names.
+
+**The house writes its own receipts**, in `storage/identity/standing.jsonl` — append-only, each
+line carrying the digest of the one before it. What a measuring operation answered (its `ok`), what
+a watcher saw (its `fired`), every act it let pass (written *before* the act runs, with the
+receipts it ran on) and every refusal of a call a grant names. Nothing lets a caller hand in a
+verdict. A house where nobody grants anything keeps no book and answers as it always did.
+
+**Shrinking is automatic and anyone's; growing back is a person's signature.**
+
+| Operation | Who | What it does |
+|-----------|-----|--------------|
+| `standing:grant --sign` | a person | gives a grant; refused over an operation that itself gives authority, above a `compensatable` ceiling, or without a watched falsifier |
+| `standing:suspend` | anyone recognized | stops a grant — no scope, no signature. Every act it covers is the person's again |
+| `standing:reinstate --sign` | a person | lifts a suspension, **naming the very suspension it lifts**; an older signature or a line written by hand lifts nothing |
+| `standing:revoke --sign` | a person | withdraws a grant for good |
+| `standing:granted` | the terminal | the grants, where each stands and why, and what happened under it |
+
+The house suspends a grant itself when a watcher reports its falsifier fired, and when the content
+an act touched is not what was judged once the act has run.
+
+**What this does not do — say so before relying on it.**
+
+- **It cannot bound money.** There is no effect axis for it and nothing says an operation spends.
+  Do not grant over one that does: that rule is yours to keep, the house cannot.
+- **It does not answer a consent question.** At the terminal a seat still signs its own call; in a
+  session that asks, the person still answers.
+- **It judges a seat, not whoever holds the operator's shell.** A key the house never recognized
+  runs at the terminal with every scope, and nothing here reaches it.
+- **It detects a swap, it does not prevent one.** The digest is read before the act and again
+  after; content that changed under the act suspends the grant, and the act has already run.
+- **The book is not tamper-proof.** The chain shows an edit in the middle; whoever holds the disk
+  can still truncate it. What a forged grant or reinstatement cannot do is verify.
+- **The keyring that judges must hold the public key of whoever granted.** A seat that runs in its
+  own keyring needs that public key imported, or the grant is not honoured there.
+- **A suspension is cheap.** Any recognized principal can hand every absorbed act back to the
+  person. Nothing widens.
+- **A measuring operation is pinned by its declaration and its handler's body.** One that
+  delegates changes behaviour without changing that pin; one whose own argument weakens it must
+  have that argument fixed in the condition's `by`.
+- A grant is bound to the host it was signed on.
+
 ## Install
 
 ```bash

@@ -14,8 +14,11 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Agent;
 
+use Milpa\Command\Consent\OperationId;
 use Milpa\Command\Operation;
 use Milpa\AppRuntime\Auth\HostPermissionPolicy;
+use Milpa\AppRuntime\Standing\HouseStandingJudge;
+use Milpa\AppRuntime\Standing\StandingDecision;
 use Milpa\Console\McpProjector;
 use Milpa\Console\OperationBoundary;
 use Milpa\Console\OperationPermissionPolicy;
@@ -24,6 +27,7 @@ use Milpa\Interfaces\Event\MilpaEventDispatcherInterface;
 use Milpa\ToolRuntime\Policy\AuthorizationResult;
 use Milpa\ToolRuntime\Contracts\CallPolicy;
 use Milpa\ToolRuntime\Contracts\ToolContext;
+use Milpa\ToolRuntime\PolicyGate;
 use Milpa\ToolRuntime\ToolDefinition;
 
 /** The house's authoring policy: current permission, concrete write set, and full export. */
@@ -40,6 +44,9 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
     /** The plugin state `plugins:write` exports: the registry the boot reads and the lock, by what each one is. */
     private const PLUGIN_STATE = ['storage/plugins.json' => 'registry', 'milpa.lock' => 'lock'];
 
+    /** The one mutation a finite caller runs without a word: stopping a standing grant (greenhouse decisions/0615). */
+    private const SUSPEND = 'standing_suspend';
+
     /** The seat's session this policy answers in, when a leg set one ({@see withSeatSession()}); otherwise none. */
     private ?\Milpa\Agent\SessionStore $seatStore = null;
 
@@ -53,6 +60,14 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
     private \ArrayObject $permissioned;
 
     /**
+     * Every operation of the catalogue, by its identity — shared with every copy of this policy. The judge of
+     * standing grants reads it: for what a call acts on, and for the instruments a grant names.
+     *
+     * @var \ArrayObject<string, Operation>
+     */
+    private \ArrayObject $catalogued;
+
+    /**
      * @param (\Closure(): ?\Milpa\Agent\SessionStore)|null $sessions
      * @param JudgedPermission|null                         $judged       the HTTP policy's verdict on the permissioned
      *                                                                    operation now running; without it a mutation
@@ -62,6 +77,8 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
      *                                                                    `permission`; without it that call is refused
      * @param (\Closure(): ?BuiltCapabilities)|null         $capabilities the capabilities built in this house; without
      *                                                                    them no verb is judged as a built one
+     * @param HouseStandingJudge|null                       $standing     the judge of standing grants; without one, the
+     *                                                                    house's own over this root's book
      */
     public function __construct(
         private readonly string $root,
@@ -70,8 +87,10 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         private readonly ?JudgedPermission $judged = null,
         private readonly ?\Closure $permissions = null,
         private readonly ?\Closure $capabilities = null,
+        private readonly ?HouseStandingJudge $standing = null,
     ) {
         $this->permissioned = new \ArrayObject();
+        $this->catalogued = new \ArrayObject();
     }
 
     /**
@@ -137,6 +156,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
                 if ($operation->permission !== null) {
                     $boundary->permissioned[McpProjector::toolName($operation->name)] = $operation;
                 }
+                $boundary->catalogued[(new OperationId($operation->name))->canonical] = $operation;
             }
         }
 
@@ -153,12 +173,28 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         return $this->verdict($context, $tool, $arguments, $this->permissioned[$tool->name] ?? null);
     }
 
+    /** The operation the catalogue holds under this identity, however a surface spells it — or null. */
+    public function operationNamed(OperationId|string $operation): ?Operation
+    {
+        $id = $operation instanceof OperationId ? $operation : new OperationId($operation);
+
+        return $this->catalogued[$id->canonical] ?? null;
+    }
+
+    /** The judge of standing grants over this house's book (greenhouse decisions/0615). */
+    public function standing(): HouseStandingJudge
+    {
+        return $this->standing ?? new HouseStandingJudge($this->root);
+    }
+
     /**
      * The verdict for one call; `$permissioned` is the operation behind the tool when it is typed by `permission`.
      *
-     * @param array<string, mixed> $arguments
+     * @param array<string, mixed>  $arguments
+     * @param StandingDecision|null $decided   set to what the judge of standing grants answered about this call, when
+     *                                         some grant has to do with it
      */
-    private function verdict(ToolContext $context, ToolDefinition $tool, array $arguments, ?Operation $permissioned): AuthorizationResult
+    private function verdict(ToolContext $context, ToolDefinition $tool, array $arguments, ?Operation $permissioned, ?StandingDecision &$decided = null): AuthorizationResult
     {
         try {
             $name = $tool->name;
@@ -170,7 +206,39 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
                 $this->checkExport($context, $name, $arguments);
                 return AuthorizationResult::allowed();
             }
+            // A CALL THAT A STANDING GRANT NAMES IS JUDGED BY THAT GRANT, AT THIS MOMENT (greenhouse decisions/0615).
+            // The seat was handed the operation's words for the asking ({@see contextFor()}), so the gate's question
+            // about a word decided nothing; this one does. The book is read now — not when the session started, not
+            // from anyone's memory — and a grant that is suspended refuses its whole class, the harmless act included.
+            // A pass lends exactly this call. A grant that names the operation but not THESE arguments lends nothing:
+            // the call is judged as it was before any grant existed, with the lent words taken back first.
+            //
+            // BEFORE the question of who holds every scope, on purpose: a grant governs the seat it names whatever
+            // that seat holds on its own — a condition that a scope given separately walks around is not a condition.
+            // The operator's own terminal and a key no grant names are not this judge's: it says nothing of them.
+            $operation = $this->operationNamed($name);
+            $decided = $operation === null ? null : $this->standing()->decide($context, $operation, $arguments, $this->operationNamed(...));
+            if ($decided?->named() === true && !$decided->passes()) {
+                $this->standing()->refused($decided);
+
+                return AuthorizationResult::denied((string) $decided->verdict?->sentence);
+            }
             if ($context->hasScope('*')) {
+                return AuthorizationResult::allowed();
+            }
+            if ($decided?->passes() !== true) {
+                $own = HouseStandingJudge::withoutLent($context);
+                if ($own !== $context) {
+                    $scoped = (new PolicyGate())->authorizeScopes($own, $name, $tool->scopes);
+                    if (!$scoped->allowed) {
+                        return $scoped;
+                    }
+                    $context = $own;
+                }
+            }
+            // ANYONE THE HOUSE RECOGNIZES MAY STOP A STANDING GRANT (decisions/0615 §4): stopping gives nobody
+            // authority, so the operation asks for no word and is let through here — the one mutation that is.
+            if ($name === self::SUSPEND && $context->principal !== null) {
                 return AuthorizationResult::allowed();
             }
             // A VERB OF A CAPABILITY BUILT IN THIS HOUSE RUNS FOR A SEAT ONLY IF A PERSON ADMITTED IT (greenhouse
@@ -226,18 +294,24 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         $admissions = $context->hasScope('*') ? null : $this->admissions();
         $verb = $admissions?->seatOf($context->principal) === null ? null : $admissions->verb($tool);
         $words = $verb === null ? [] : array_values(array_diff($verb->operation->scopes, $context->scopes));
-        if ($words === []) {
+        // THE SAME HANDING-OVER FOR AN OPERATION A STANDING GRANT NAMES FOR THIS SEAT (greenhouse decisions/0615): the
+        // words it declares, for this one call, in whatever state the grant is — so that the question that decides is
+        // this policy's judge, asked with the call's arguments, and not a word the seat lacks. What was lent is marked,
+        // so that a call no grant ends up naming has it taken back before anything else is asked.
+        $operation = $verb === null ? $this->operationNamed($tool) : null;
+        $lent = $operation === null ? [] : $this->standing()->lends($context, $operation);
+        if ($words === [] && $lent === []) {
             return $context;
         }
 
         return new ToolContext(
             principal: $context->principal,
             channel: $context->channel,
-            scopes: [...$context->scopes, ...$words],
+            scopes: [...$context->scopes, ...$words, ...$lent],
             request_id: $context->request_id,
             ip: $context->ip,
             userAgent: $context->userAgent,
-            extra: $context->extra,
+            extra: $lent === [] ? $context->extra : [HouseStandingJudge::LENT => $lent] + $context->extra,
             mode: $context->mode,
             resultBudget: $context->resultBudget,
         );
@@ -436,6 +510,29 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
      */
     public function execute(Operation $operation, array $input, ?ToolContext $authority, \Closure $next): mixed
     {
+        // WHAT A MEASURING OR A WATCHING OPERATION ANSWERS, THE HOUSE WRITES DOWN ITSELF (greenhouse decisions/0615
+        // §2, §4). Noted before the run — which content it is about to measure — and written after it, from the
+        // result the handler returned: a verdict never arrives as an argument. An operation no grant names as an
+        // instrument or a watcher leaves no trace here, and in a house with no grant nothing is even read.
+        $standing = $this->standing();
+        $noted = $standing->witnessing($operation, $input);
+        $result = $this->governed($operation, $input, $authority, $next);
+        if ($noted !== null) {
+            $standing->witnessed($noted, $operation, $input, $result, $authority);
+        }
+
+        return $result;
+    }
+
+    /**
+     * One run through the boundary, judged — and, for an act a standing grant covers, written down before it
+     * runs and looked at again after.
+     *
+     * @param array<string, mixed> $input
+     * @param \Closure(): mixed    $next
+     */
+    private function governed(Operation $operation, array $input, ?ToolContext $authority, \Closure $next): mixed
+    {
         $context = $authority ?? ToolContext::cli();
         $name = McpProjector::toolName($operation->name);
         // A PERMISSION IS JUDGED FOR THE OPERATION THAT RUNS (greenhouse decisions/0544). `Operation` holds `scopes`
@@ -453,9 +550,22 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             scopes: $operation->scopes,
             mutating: $operation->mutating
         );
-        $verdict = $this->verdict($context, $tool, $input, $operation->permission !== null ? $operation : null);
+        $decided = null;
+        $verdict = $this->verdict($context, $tool, $input, $operation->permission !== null ? $operation : null, $decided);
         if (!$verdict->allowed) {
             throw new \RuntimeException((string) $verdict->reason);
+        }
+        // THE ACT A STANDING GRANT COVERS IS WRITTEN DOWN BEFORE IT RUNS, AND LOOKED AT AGAIN AFTER (decisions/0615).
+        // Before: under which grant, on which content, on which receipts — and if that cannot be written, nothing runs.
+        // After: the content it acted on is read again, and if it is not what was judged, the grant is suspended. The
+        // swap is detected, not prevented; the acta says so.
+        if ($decided?->passes() === true) {
+            $this->standing()->absorbing($decided);
+            try {
+                return $next();
+            } finally {
+                $this->standing()->absorbed($decided, $operation);
+            }
         }
         $recorded = RecordedEdit::usesSource($operation, $input);
         if (($context->hasScope('*') && !$recorded) || !in_array($name, self::BUILD, true)) {
