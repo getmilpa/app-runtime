@@ -570,6 +570,11 @@ taken back first. A grant that names the call governs it even for a seat that ho
 its own — every scope included. The operator's own terminal, and a key no grant names, are not
 judged: a grant governs the seats it names.
 
+When several grants name the same call, **shrinking wins**: a suspended one refuses the call
+whatever another would lend, until a person lifts that suspension or gives a grant that supersedes
+it by name. Expired, revoked and superseded grants stop nobody; otherwise one grant that passes is
+enough.
+
 **The house writes its own receipts**, in `storage/identity/standing.jsonl` — append-only, each
 line carrying the digest of the one before it. What a measuring operation answered (its `ok`), what
 a watcher saw (its `fired`), every act it let pass (written *before* the act runs, with the

@@ -322,24 +322,64 @@ final class AStandingGrantShrinksOnItsOwnAndGrowsOnlyByAPersonTest extends TestC
         self::assertSame(['ok' => true], $this->merge());
     }
 
-    public function testWhenTwoGrantsNameACallTheOneThatGotFurthestSpeaks(): void
+    public function testASuspendedGrantRefusesTheCallWhateverAnotherGrantWouldLend(): void
     {
-        // One grant is suspended — a person's to lift. The other stands and only lacks a measurement — the caller's
-        // to fix. The refusal the caller reads is the one it can do something about, whichever was given first.
-        $strict = [['name' => 'builds', 'statement' => 'it builds', 'by' => ['operation' => 'lab:scan', 'arguments' => ['strict' => true]]]];
+        // Two grants over the same act, both in force: one that passes is enough.
+        $this->house->granted(['id' => 'second-line']);
+        self::assertSame(['ok' => true], $this->merge(), 'control: both in force');
 
-        $this->house->granted(['id' => 'second-line', 'conditions' => $strict]);
+        // One of them is stopped. Shrinking wins: the other, in force and with everything green, lends nothing —
+        // a suspension that a second grant walks around is not a suspension.
         $this->house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'stopped']);
-        self::assertStringContainsString('Standing grant «second-line» lends nothing to this call: condition «builds» was never measured', $this->merge()['refused']);
+        $refused = $this->merge();
+        self::assertStringContainsString('Standing grant «release-line» is suspended — stopped', $refused['refused']);
+        self::assertStringContainsString('Another grant names this call too, and it lends nothing while «release-line» is suspended', $refused['refused']);
+        $written = $this->house->lines(StandingLedger::REFUSED);
+        self::assertSame(['release-line', 'suspended'], [$written[0]['grant'], $written[0]['reason']]);
+        self::assertCount(1, $this->house->done('merged'));
 
-        // The other way round: the one that stands was given FIRST, the suspended one after it.
+        // Giving yet another grant beside it does not take it out of the way…
+        $this->house->granted(['id' => 'third-line']);
+        self::assertStringContainsString('Standing grant «release-line» is suspended', $this->merge()['refused']);
+        // …a person's act that NAMES it does: here, a grant that supersedes it.
+        $this->house->granted(['id' => 'fourth-line', 'supersedes' => 'release-line']);
+        self::assertSame(['ok' => true], $this->merge());
+        self::assertSame('superseded', $this->house->book()->record('release-line')?->standsAs($this->house->now));
+    }
+
+    public function testLiftingTheSuspensionLetsTheOtherGrantLendAgain(): void
+    {
+        $this->house->granted(['id' => 'second-line']);
+        $this->house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'second-line', 'reason' => 'stopped']);
+        self::assertStringContainsString('Standing grant «second-line» is suspended', $this->merge()['refused']);
+
+        $this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'second-line', 'suspension' => (string) $this->house->book()->record('second-line')?->suspension]);
+
+        // The first grant was never stopped and its watcher never went quiet: it lends, though the one just lifted is
+        // not watched yet.
+        self::assertSame(['ok' => true], $this->merge());
+        self::assertSame('release-line', $this->house->lines(StandingLedger::ABSORBED)[0]['grant']);
+    }
+
+    public function testARevokedGrantStopsNobody(): void
+    {
+        $this->house->granted(['id' => 'second-line']);
+        $this->house->signed(LabHouse::PERSON, 'standing:revoke', ['grant' => 'release-line']);
+
+        self::assertSame(['ok' => true], $this->merge(), 'what is gone lends nothing and stops nobody');
+        self::assertSame('second-line', $this->house->lines(StandingLedger::ABSORBED)[0]['grant']);
+    }
+
+    public function testWhenNoGrantLendsTheRefusalThatGotFurthestSpeaks(): void
+    {
+        // Given first: a grant the caller is one measurement away from. Given after it: one whose ceiling this act
+        // will never fit under. The refusal the caller reads is the one it can do something about.
         $other = new LabHouse();
         try {
-            $other->granted(['conditions' => $strict]);
-            $other->granted(['id' => 'second-line']);
+            $other->granted(['conditions' => [['name' => 'builds', 'statement' => 'it builds', 'by' => ['operation' => 'lab:scan', 'arguments' => ['strict' => true]]]]]);
+            $other->granted(['id' => 'second-line', 'ceiling' => ['mutation' => 'persistent', 'externality' => 'same_principal', 'reversibility' => 'compensatable', 'authority' => 'write_as_user', 'subject' => 'executable']]);
             $candidate = $other->candidate('evidence.diff', 'an acta and nothing else');
             $other->as(LabHouse::SEAT, 'lab:scan', ['path' => $candidate]);
-            $other->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'second-line', 'reason' => 'stopped']);
 
             self::assertStringContainsString('Standing grant «release-line» lends nothing to this call: condition «builds» was never measured', $other->as(LabHouse::SEAT, 'lab:merge', ['path' => $candidate])['refused']);
         } finally {

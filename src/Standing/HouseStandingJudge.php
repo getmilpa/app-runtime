@@ -21,7 +21,6 @@ use Milpa\Command\Standing\ConditionReceipt;
 use Milpa\Command\Standing\GrantStanding;
 use Milpa\Command\Standing\GrantState;
 use Milpa\Command\Standing\StandingCall;
-use Milpa\Command\Standing\StandingCheck;
 use Milpa\Command\Standing\StandingJudge;
 use Milpa\ToolRuntime\Contracts\ToolContext;
 use Milpa\ToolRuntime\Identity\SignatureVerifier;
@@ -44,9 +43,10 @@ use Milpa\ToolRuntime\Identity\SignatureVerifier;
  *   · LENDS, for the asking: a seat calling an operation some grant names is seen holding the words
  *     that operation declares, for that one call ({@see self::lends()}) — so the question that decides
  *     is this judge's, not a word the seat lacks. Nothing is written to the seat.
- *   · JUDGES: gathers the facts — who the signer is today, where the book says the grant stands, what
+ *   · JUDGES: gathers the facts — who the signer is today, where the book says each grant stands, what
  *     the call acts on, what it would do, what was measured on that very content — and hands them to
- *     the pure judgment in milpa/command ({@see StandingJudge}). It adds no criterion of its own.
+ *     the pure judgment in milpa/command ({@see StandingJudge}). It adds no criterion of its own, for
+ *     one grant or for several: a suspended grant that names the call refuses it whatever another lends.
  *   · WRITES DOWN: every act it lets pass, BEFORE it runs; every refusal of a call a grant names; what
  *     a measuring operation found; what a watcher saw. And when a watcher reports its falsifier fired,
  *     or the content an act touched is not what was judged, it suspends the grant itself.
@@ -129,8 +129,12 @@ final class HouseStandingJudge
             $operation->ceilingForCall($arguments),
             $this->clock === null ? new \DateTimeImmutable() : ($this->clock)(),
         );
+        // Every grant that may concern this call is judged alone, and the contract says how their answers combine
+        // ({@see StandingJudge::among()}): a suspended grant that names the call refuses it whatever another would
+        // lend, otherwise one that passes is enough, otherwise the refusal that got furthest speaks.
         $receipts = $book->receipts();
-        $refused = null;
+        $held = [];
+        $records = [];
         foreach ($book->records() as $record) {
             if (!$record->grant->lendsTo($seat) || !$record->grant->namesOperation($operation->name)) {
                 continue;
@@ -142,24 +146,15 @@ final class HouseStandingJudge
                     $instruments[$condition->by->operation->canonical] = $digest;
                 }
             }
-            $verdict = StandingJudge::judge(
-                $record->grant,
-                new GrantStanding($record->state, $record->because, $record->fault, $record->watcherSignalAt, $receipts, $instruments),
-                $call,
-            );
-            if ($verdict->passes()) {
-                return new StandingDecision($call, $record, $verdict);
-            }
-            // Of the grants that name this call and refuse it, the one that got furthest speaks: it is the one
-            // the caller is closest to, and the only one whose refusal the caller may be able to fix. Level with
-            // another, the later grant speaks — it is the one a person gave knowing the earlier existed: a grant that
-            // replaced another and then expired says «expired», not «superseded» of the one it replaced.
-            if ($verdict->named() && ($refused === null || self::reached($verdict->failed) >= self::reached($refused->verdict?->failed))) {
-                $refused = new StandingDecision($call, $record, $verdict);
-            }
+            $held[] = [
+                'grant' => $record->grant,
+                'standing' => new GrantStanding($record->state, $record->because, $record->fault, $record->watcherSignalAt, $receipts, $instruments),
+            ];
+            $records[$record->grant->id] = $record;
         }
+        $answer = StandingJudge::among($held, $call);
 
-        return $refused ?? new StandingDecision($call);
+        return $answer === null ? new StandingDecision($call) : new StandingDecision($call, $records[$answer['grant']->id], $answer['verdict']);
     }
 
     /**
@@ -350,11 +345,6 @@ final class HouseStandingJudge
         }
 
         return IdentityKey::normalize(substr($principal, 4));
-    }
-
-    private static function reached(?StandingCheck $check): int
-    {
-        return (int) array_search($check, StandingCheck::cases(), true);
     }
 
     /** @param \Closure(): mixed $write */
