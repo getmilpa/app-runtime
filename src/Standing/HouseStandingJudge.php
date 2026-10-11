@@ -411,13 +411,12 @@ final class HouseStandingJudge
             'check' => $verdict->failed?->value,
             'reason' => $verdict->reason,
         ];
-        $same = static fn (array $data): array => array_diff_key($data, ['reason' => true]);
         $run = 0;
         foreach (array_reverse($ledger->entries()) as $entry) {
             if ($entry['type'] !== StandingLedger::REFUSED) {
                 break;
             }
-            if ($same($entry['data']) == $same($line) || ++$run >= self::REFUSALS_KEPT) {
+            if ($entry['data'] == $line || ++$run >= self::REFUSALS_KEPT) {
                 return;
             }
         }

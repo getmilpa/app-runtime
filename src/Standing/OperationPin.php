@@ -54,26 +54,27 @@ final class OperationPin
         $effects = $operation->effectCeiling();
         $scopes = $operation->scopes;
         sort($scopes);
+        // What it declares, read here as the contract reads it — because the contract reads it only for an operation
+        // that says what it acts on, and a watcher has to be pinned and need not act on anything.
+        $declared = [
+            'effects' => [
+                'authority' => $effects->authority->value,
+                'externality' => $effects->externality->value,
+                'mutation' => $effects->mutation->value,
+                'reversibility' => $effects->reversibility->value,
+                'subject' => $effects->subject->value,
+            ],
+            'handler' => $handler,
+            'inputs' => $operation->inputSchema,
+            'mutating' => $operation->mutating,
+            'operation' => (new OperationId($operation->name))->canonical,
+            'permission' => $operation->permission,
+            'scopes' => $scopes,
+        ];
 
         return 'sha256:' . hash('sha256', Canonical::json([
-            // The contract's own reading, when the operation says what it acts on; without it the same declaration
-            // is read here, because a watcher has to be pinned and need not act on anything.
             'contract' => $operation->instrumentDigest(),
-            'declared' => [
-                'effects' => [
-                    'authority' => $effects->authority->value,
-                    'externality' => $effects->externality->value,
-                    'mutation' => $effects->mutation->value,
-                    'reversibility' => $effects->reversibility->value,
-                    'subject' => $effects->subject->value,
-                ],
-                'handler' => $handler,
-                'inputs' => $operation->inputSchema,
-                'mutating' => $operation->mutating,
-                'operation' => (new OperationId($operation->name))->canonical,
-                'permission' => $operation->permission,
-                'scopes' => $scopes,
-            ],
+            'declared' => $declared,
             'code' => $code,
         ]));
     }
@@ -82,7 +83,7 @@ final class OperationPin
      * The digests of the files this handler's own code is written in — never their paths: the same house moved to
      * another folder holds the same operations.
      *
-     * @return list<string>|null
+     * @return list<string>|null `null` when one of them cannot be read
      */
     private static function code(\Closure $handler): ?array
     {
@@ -106,7 +107,7 @@ final class OperationPin
         }
         sort($digests);
 
-        return $digests === [] ? null : $digests;
+        return $digests;
     }
 
     /**

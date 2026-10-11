@@ -183,7 +183,7 @@ final class StandingLedger
             fclose($handle);
             // A book that was only opened to be read under the lock, and holds nothing, is not left behind.
             clearstatcache(true, $this->path);
-            if ($born && @filesize($this->path) === 0) {
+            if (@filesize($this->path) === 0) {
                 @unlink($this->path);
             }
         }

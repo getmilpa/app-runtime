@@ -147,6 +147,18 @@ final class WhatAnOperationIsTest extends TestCase
         self::assertSame($here, OperationPin::of($this->operation()), 'the same bytes written again are the same operation');
     }
 
+    public function testAHandlerWrittenOutsideAnyClassIsReadFromItsOwnFile(): void
+    {
+        $plain = $this->folder . '/plain.php';
+        file_put_contents($plain, "<?php\nreturn static fn (array \$input): array => ['ok' => true];\n");
+        $pinned = OperationPin::of($this->operation(require $plain));
+        self::assertNotNull($pinned);
+
+        file_put_contents($plain, "<?php\nreturn static fn (array \$input): array => ['ok' => true];\n// and something nobody granted\n");
+
+        self::assertNotSame($pinned, OperationPin::of($this->operation(require $plain)));
+    }
+
     public function testWhatCannotBeReadCannotBePinned(): void
     {
         self::assertNull(OperationPin::of($this->operation('strlen')), 'a handler that is not written in a file');

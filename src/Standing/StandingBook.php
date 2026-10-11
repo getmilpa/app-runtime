@@ -268,7 +268,9 @@ final class StandingBook
                         $grants[$older]['state'] = GrantState::Superseded;
                         $grants[$older]['because'] = \sprintf('«%s» replaced it at %s', $grant->id, $entry['at']);
                         $grants[$older]['suspension'] = null;
-                    } elseif ($notTheirs !== null && $grants[$older]['state'] === GrantState::InForce) {
+                    } elseif ($notTheirs !== null) {
+                        // In force or already stopped: like a second suspension, this one is now the stop that
+                        // stands, and whoever lifts it names it — having seen it.
                         $grants[$older]['state'] = GrantState::Suspended;
                         $grants[$older]['suspension'] = $entry['hash'];
                         $grants[$older]['signal'] = null;

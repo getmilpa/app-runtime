@@ -298,6 +298,7 @@ final class AStandingGrantShrinksOnItsOwnAndGrowsOnlyByAPersonTest extends TestC
         self::assertStringContainsString('Standing grant «release-line» is suspended', $this->merge()['refused']);
         // …lifted like any stop: by a person, naming it.
         self::assertTrue($this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => $this->suspension()])['ok'] ?? false);
+        self::assertStringContainsString('has given no sign of life', $this->merge()['refused'], 'a sign of life from before the stop does not count after it');
         $this->house->as(LabHouse::SEAT, 'lab:watch');
         self::assertSame(['ok' => true], $this->merge());
 
@@ -335,6 +336,7 @@ final class AStandingGrantShrinksOnItsOwnAndGrowsOnlyByAPersonTest extends TestC
         self::assertStringContainsString('Standing grant «release-line-2» is suspended', $this->merge()['refused']);
         // …lifted like any stop: by a person, naming it.
         self::assertTrue($this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line-2', 'suspension' => (string) $second?->suspension])['ok'] ?? false);
+        self::assertStringContainsString('has given no sign of life', $this->merge()['refused'], 'a sign of life from before the stop does not count after it');
         $this->house->as(LabHouse::SEAT, 'lab:watch');
         self::assertSame(['ok' => true], $this->merge());
     }

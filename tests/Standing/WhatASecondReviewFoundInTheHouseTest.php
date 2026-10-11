@@ -126,6 +126,43 @@ final class WhatASecondReviewFoundInTheHouseTest extends TestCase
         self::assertSame(['shelf-line', 'shelf.lend', LabHouse::SEAT, $this->house->digestOf('good.txt')], [$absorbed[0]['grant'], $absorbed[0]['operation'], $absorbed[0]['seat'], $absorbed[0]['subject']]);
         self::assertCount(1, $absorbed[0]['receipts']);
         self::assertSame([hash_file('sha256', $this->house->root . '/good.txt') . ' absorbed-when-it-ran=1'], $this->shelfLog(), 'the line was there BEFORE the act ran');
+        self::assertSame(GrantState::InForce, $this->house->book()->record('shelf-line')?->state, 'an act that said what it consumed, and consumed what was judged, leaves the grant as it stood');
+    }
+
+    public function testWhatTheHouseCannotNoteAfterWorkRanIsNotToldAsNothingRan(): void
+    {
+        // The act ran, did not say what it consumed, and left the book unwritable: the suspension it earned cannot be
+        // written. That is said — and never as «nothing ran», which it did.
+        $book = $this->house->root . '/' . StandingLedger::PATH;
+        $leg = $this->shelfLine();
+
+        try {
+            $said = $leg->on->call('shelf_lend', ['path' => 'good.txt', 'quiet' => true, 'seal' => true], $leg->seat());
+        } finally {
+            chmod($book, 0o600);
+        }
+
+        if (\function_exists('posix_geteuid') && posix_geteuid() === 0) {
+            self::markTestSkipped('whoever runs as root writes a file it made read-only');
+        }
+        self::assertCount(1, $this->shelfLog(), 'control: the act ran');
+        self::assertFalse($said->success);
+        self::assertStringContainsString('could not be opened for writing', (string) $said->error);
+        self::assertStringNotContainsString('Nothing ran', (string) $said->error);
+    }
+
+    public function testWorkThatDiedWithoutAnAnswerSaysNothingAndTheHouseComparesItsOwnReadings(): void
+    {
+        // A run that gave no answer at all did not «return without saying what it consumed»: it did not return. The
+        // house compares what it read before and after, as it does for a handler that threw, and those agree.
+        $leg = $this->shelfLine();
+
+        $said = $leg->on->call('shelf_lend', ['path' => 'good.txt', 'crash' => true], $leg->seat());
+
+        self::assertFalse($said->success, 'control: the run did not succeed');
+        self::assertCount(1, $this->shelfLog(), 'control: it had acted before it died');
+        self::assertCount(1, $this->house->lines(StandingLedger::ABSORBED), 'and the house had written it down before');
+        self::assertSame(GrantState::InForce, $this->house->book()->record('shelf-line')?->state);
     }
 
     public function testWorkThatDoesNotSayWhatItConsumedSuspendsTheGrantOnALeg(): void
@@ -170,6 +207,7 @@ final class WhatASecondReviewFoundInTheHouseTest extends TestCase
         $absorbed = $this->house->lines(StandingLedger::ABSORBED);
         self::assertCount(1, $absorbed, "the house lent a word for a rehearsal and its book says nothing of it");
         self::assertSame(['shelf-line', 'shelf.label'], [$absorbed[0]['grant'], $absorbed[0]['operation']]);
+        self::assertSame(GrantState::InForce, $this->house->book()->record('shelf-line')?->state, 'a rehearsal that said what it consumed leaves the grant as it stood');
     }
 
     public function testARehearsalThatDoesNotSayWhatItConsumedSuspendsTheGrant(): void
@@ -338,6 +376,31 @@ final class WhatASecondReviewFoundInTheHouseTest extends TestCase
         self::assertCount(1, $this->house->done('merged'));
     }
 
+    public function testAReplacementThatDoesNotHoldIsTheStopThatStandsOnAGrantAlreadyStopped(): void
+    {
+        // Every stop counts, the latest included: whoever lifts a grant names the stop that stands, having seen it.
+        $this->house->granted();
+        $path = $this->measured();
+        $first = (string) ($this->house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'it needs another condition'])['suspension'] ?? '');
+        self::assertSame($first, $this->house->book()->record('release-line')?->suspension, 'control: the first stop stands');
+        // Someone asks for it to be taken out of the way, with a replacement that does not hold: signed by the seat.
+        $forged = $this->house->signature(LabHouse::SEAT, 'standing:grant', ['grant' => $this->house->document(['id' => 'release-line-2', 'supersedes' => 'release-line'])]);
+        $this->house->writtenByHand(StandingLedger::GRANTED, ['grant' => 'release-line-2', 'digest' => 'sha256:x', 'payload' => $forged->payload, 'signature' => $forged->signature, 'fingerprint' => LabHouse::SEAT]);
+
+        $record = $this->house->book()->record('release-line');
+        self::assertSame(GrantState::Suspended, $record?->state);
+        self::assertNotSame($first, $record?->suspension, 'the stop that stands is the latest one');
+        self::assertStringContainsString('«release-line-2» names it as replaced', (string) $record?->because);
+        // A signature that names the FIRST stop was made before this one was there: it lifts nothing.
+        $old = $this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => $first]);
+        self::assertArrayNotHasKey('ok', array_filter($old, static fn (mixed $value): bool => $value === true), (string) json_encode($old));
+        self::assertSame(GrantState::Suspended, $this->house->book()->record('release-line')?->state);
+        // One that names the stop that stands does.
+        self::assertTrue($this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => (string) $record?->suspension])['ok'] ?? false);
+        $this->house->as(LabHouse::SEAT, 'lab:watch');
+        self::assertSame(['ok' => true], $this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $path, 'channel' => 'stable']));
+    }
+
     // ── 3 · what the chain is worth against whoever writes the file ──────────────────────────────────────────
 
     public function testABookRewrittenByWhoeverHoldsTheFileIsNotReadAsIfNothingHappened(): void
@@ -427,6 +490,18 @@ final class WhatASecondReviewFoundInTheHouseTest extends TestCase
         $after = $this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $path, 'channel' => 'stable']);
         self::assertArrayHasKey('refused', $after, 'a watcher that cannot see the falsifier kept the grant alive');
         self::assertSame([], $this->house->done('published'));
+    }
+
+    public function testAGrantIsNotGivenOverAWatcherTheHouseCannotRead(): void
+    {
+        // A watcher has to be pinned like everything else a grant is given over; one whose handler is not written
+        // anywhere the house can read could be replaced under its name and nobody would know.
+        $this->house->offer(new Operation('lab:unreadable', 'Lab: a watcher whose handler is not written in a file', 'array_values', scopes: ['lab:watch'], effects: EffectProfile::readOnly()));
+
+        $given = $this->house->signed(LabHouse::PERSON, 'standing:grant', ['grant' => $this->house->document(['falsifier' => ['name' => 'f', 'statement' => 's', 'watcher' => ['operation' => 'lab:unreadable'], 'within_seconds' => 60]])]);
+
+        self::assertStringContainsString('whose handler this house cannot read', (string) ($given['error'] ?? 'GIVEN'));
+        self::assertFileDoesNotExist($this->house->root . '/' . StandingLedger::PATH);
     }
 
     public function testAHandlerThatDelegatesIsNotTheSameOperationWhenWhatItCallsChanges(): void

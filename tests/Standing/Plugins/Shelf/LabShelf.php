@@ -35,7 +35,9 @@ use Milpa\Command\Operation;
  *   shelf:label  a mutation that is not work — configuration — so a leg rehearses it in a copy of the house.
  *
  * Each says, in what it leaves behind, how many `absorbed` lines the book of the tree it ran in held WHEN IT RAN:
- * that is how a test reads whether the house wrote the act down before it ran.
+ * that is how a test reads whether the house wrote the act down before it ran. Three arguments make an act misbehave
+ * on purpose: `quiet` (it does not say what it consumed), `seal` (it leaves the book unwritable) and `crash` (the
+ * process that runs it dies without an answer).
  */
 final class LabShelf implements CommandProvider, DeclaresWorkState
 {
@@ -59,7 +61,7 @@ final class LabShelf implements CommandProvider, DeclaresWorkState
     {
         $root = $this->root;
         $actsOn = static fn (array $input): ?string => is_file($root . '/' . ($input['path'] ?? '')) ? 'sha256:' . hash_file('sha256', $root . '/' . $input['path']) : null;
-        $schema = ['type' => 'object', 'properties' => ['path' => ['type' => 'string'], 'quiet' => ['type' => 'boolean']], 'required' => ['path']];
+        $schema = ['type' => 'object', 'properties' => ['path' => ['type' => 'string'], 'quiet' => ['type' => 'boolean'], 'seal' => ['type' => 'boolean'], 'crash' => ['type' => 'boolean']], 'required' => ['path']];
         $act = static function (string $into, array $input) use ($root): array {
             $bytes = (string) file_get_contents($root . '/' . $input['path']);
             $absorbed = 0;
@@ -68,6 +70,15 @@ final class LabShelf implements CommandProvider, DeclaresWorkState
             }
             @mkdir(\dirname($root . '/' . $into), 0o755, true);
             file_put_contents($root . '/' . $into, hash('sha256', $bytes) . ' absorbed-when-it-ran=' . $absorbed . "\n", \FILE_APPEND);
+
+            if (($input['seal'] ?? false) === true) {
+                // `seal`: after the act, the book can no longer be written — what the house then finds, it cannot note.
+                chmod($root . '/' . StandingLedger::PATH, 0o400);
+            }
+            if (($input['crash'] ?? false) === true) {
+                // `crash`: the process that runs the act dies after acting, with no answer at all.
+                exit(3);
+            }
 
             // `quiet`: an act that does not say what it consumed — which, at the house's boundary, suspends the grant.
             return ($input['quiet'] ?? false) === true ? ['ok' => true] : ['ok' => true, 'acted_on' => 'sha256:' . hash('sha256', $bytes)];
