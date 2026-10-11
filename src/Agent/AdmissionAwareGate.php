@@ -37,12 +37,17 @@ final class AdmissionAwareGate extends PolicyGate
         parent::__construct();
     }
 
-    /** The caller as the wrapped gate is to see it for this one tool. */
-    public function contextFor(ToolContext $ctx, string $tool): ToolContext
+    /**
+     * The caller as the wrapped gate is to see it for this one tool — and, when the call's arguments are known, for
+     * this one call: a standing grant lends only to the call it names (greenhouse decisions/0615).
+     *
+     * @param array<string, mixed>|null $arguments null when only the tool is asked about
+     */
+    public function contextFor(ToolContext $ctx, string $tool, ?array $arguments = null): ToolContext
     {
         $policy = $this->inner->getCallPolicy();
 
-        return $policy instanceof PluginAuthoringPolicy ? $policy->contextFor($ctx, $tool) : $ctx;
+        return $policy instanceof PluginAuthoringPolicy ? $policy->contextFor($ctx, $tool, $arguments) : $ctx;
     }
 
     /**
@@ -52,7 +57,7 @@ final class AdmissionAwareGate extends PolicyGate
      */
     public function authorize(ToolContext $ctx, ToolDefinition $tool, array $arguments = []): AuthorizationResult
     {
-        return $this->inner->authorize($this->contextFor($ctx, $tool->name), $tool, $arguments);
+        return $this->inner->authorize($this->contextFor($ctx, $tool->name, $arguments), $tool, $arguments);
     }
 
     /**
@@ -74,7 +79,7 @@ final class AdmissionAwareGate extends PolicyGate
      */
     public function authorizeCall(ToolContext $ctx, ToolDefinition $tool, array $arguments): AuthorizationResult
     {
-        return $this->inner->authorizeCall($this->contextFor($ctx, $tool->name), $tool, $arguments);
+        return $this->inner->authorizeCall($this->contextFor($ctx, $tool->name, $arguments), $tool, $arguments);
     }
 
     /** Forwards to the wrapped gate. */

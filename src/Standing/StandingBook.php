@@ -214,7 +214,7 @@ final class StandingBook
     {
         $entries = $this->ledger->entries();
         $broken = $this->ledger->fault();
-        /** @var array<string, array{grant: StandingGrant, entry: string, at: string, by: string, fault: ?string, state: GrantState, because: ?string, suspension: ?string, signal: ?\DateTimeImmutable}> $grants */
+        /** @var array<string, array{grant: StandingGrant, entry: string, at: string, by: string, fault: ?string, state: GrantState, because: ?string, suspension: ?string, signal: ?\DateTimeImmutable, operations: array<string, string>}> $grants */
         $grants = [];
 
         foreach ($entries as $entry) {
@@ -230,14 +230,29 @@ final class StandingBook
                 if (isset($grants[$grant->id])) {
                     continue; // a second line under an id already taken is not that grant
                 }
+                $operations = [];
+                foreach (\is_array($data['operations'] ?? null) ? $data['operations'] : [] as $operation => $digest) {
+                    if (\is_string($operation) && \is_string($digest)) {
+                        $operations[$operation] = $digest;
+                    }
+                }
                 $grants[$grant->id] = [
                     'grant' => $grant, 'entry' => $entry['hash'], 'at' => $entry['at'],
                     'by' => 'key:' . (\is_string($data['fingerprint'] ?? null) ? $data['fingerprint'] : 'unknown'),
                     'fault' => $broken === null ? $fault : 'the book of standing grants does not verify (' . $broken . ')',
                     'state' => GrantState::InForce, 'because' => null, 'suspension' => null, 'signal' => null,
+                    'operations' => $operations,
                 ];
+                // TAKING ANOTHER GRANT OUT OF THE WAY IS HELD TO THE STANDARD OF REINSTATING IT (greenhouse
+                // decisions/0615, «Lo que la revisión encontró», 6). The grant that supersedes holds; whoever signed it
+                // answers for the seats of the grant it replaces, not only for its own; and when that grant is
+                // SUSPENDED it names the very suspension it lifts — so a signature made before the suspension, or one
+                // that never saw it, lifts nothing. Anything less leaves the older grant exactly where it stood.
                 $older = $grant->supersedes;
-                if ($older !== null && isset($grants[$older]) && $fault === null && $grants[$older]['state'] !== GrantState::Revoked) {
+                if ($older !== null && isset($grants[$older]) && $fault === null
+                    && !\in_array($grants[$older]['state'], [GrantState::Revoked, GrantState::Superseded], true)
+                    && $grant->lifts === $grants[$older]['suspension']
+                    && $this->notAPersonFor((string) ($data['fingerprint'] ?? ''), $grants[$older]['grant']->to) === null) {
                     $grants[$older]['state'] = GrantState::Superseded;
                     $grants[$older]['because'] = \sprintf('«%s» replaced it at %s', $grant->id, $entry['at']);
                     $grants[$older]['suspension'] = null;
@@ -247,12 +262,33 @@ final class StandingBook
             }
 
             if ($entry['type'] === StandingLedger::WATCHED) {
+                // What a watcher saw speaks only for the grants whose falsifier describes exactly that call — a run
+                // with an argument nobody described is not this falsifier being watched.
                 $at = date_create_immutable($entry['at']);
+                $fired = $data['fired'] ?? null;
                 foreach ($grants as $key => $known) {
-                    if (($data['fired'] ?? null) === false && $at !== false && $known['state'] === GrantState::InForce
-                        && $known['grant']->falsifier->watcher->matches((string) ($data['watcher'] ?? ''), \is_array($data['arguments'] ?? null) ? $data['arguments'] : [])) {
-                        $grants[$key]['signal'] = $at;
+                    if (!\is_bool($fired) || $at === false || $known['state'] !== GrantState::InForce
+                        || !$known['grant']->falsifier->watcher->matchesExactly((string) ($data['watcher'] ?? ''), \is_array($data['arguments'] ?? null) ? $data['arguments'] : [])) {
+                        continue;
                     }
+                    if ($fired === false) {
+                        $grants[$key]['signal'] = $at;
+
+                        continue;
+                    }
+                    // THE LINE THAT SAYS THE FALSIFIER FIRED IS THE SUSPENSION. Nothing else has to be written for it
+                    // to stand: a second line that failed to land would have left the grant in force.
+                    $grants[$key]['state'] = GrantState::Suspended;
+                    $grants[$key]['suspension'] = $entry['hash'];
+                    $grants[$key]['signal'] = null;
+                    $grants[$key]['because'] = \sprintf(
+                        'its falsifier «%s» fired: `%s` reported it, at %s, run by %s (suspension %s)',
+                        $known['grant']->falsifier->name,
+                        $known['grant']->falsifier->watcher->operation->forCli(),
+                        $entry['at'],
+                        \is_string($data['who'] ?? null) ? $data['who'] : 'someone',
+                        $entry['hash'],
+                    );
                 }
 
                 continue;
@@ -300,6 +336,7 @@ final class StandingBook
             $known['because'],
             $known['suspension'],
             $known['signal'],
+            $known['operations'],
         ), $grants));
     }
 

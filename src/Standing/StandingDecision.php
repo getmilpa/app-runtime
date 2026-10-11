@@ -24,6 +24,9 @@ use Milpa\Command\Standing\StandingVerdict;
  * `verdict` is `null` when a grant names the operation for this seat but none names THIS call — its
  * arguments are not the ones a grant fixes. That is not a refusal: the call goes on to be judged as it
  * was before any grant existed, with nothing lent for the asking.
+ *
+ * `stopped` is the one refusal that belongs to no grant: the book itself does not verify, so the house
+ * cannot know which grant names what, and refuses the seat rather than guess that none does.
  */
 final readonly class StandingDecision
 {
@@ -31,13 +34,20 @@ final readonly class StandingDecision
         public StandingCall $call,
         public ?GrantRecord $record = null,
         public ?StandingVerdict $verdict = null,
+        public ?string $stopped = null,
     ) {
     }
 
-    /** Whether some grant names this very call — and so governs it, whatever the seat holds on its own. */
+    /** Whether the house has a verdict of its own about this very call — whatever the seat holds on its own. */
     public function named(): bool
     {
-        return $this->verdict !== null;
+        return $this->verdict !== null || $this->stopped !== null;
+    }
+
+    /** The sentence of a refusal, for whoever reads it — or `null` when this is not one. */
+    public function refusal(): ?string
+    {
+        return $this->stopped ?? ($this->verdict !== null && !$this->verdict->passes() ? $this->verdict->sentence : null);
     }
 
     /** Whether a grant names this call and every one of its checks held. */

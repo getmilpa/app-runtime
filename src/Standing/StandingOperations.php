@@ -175,7 +175,8 @@ final class StandingOperations implements CommandProvider
         if ($book->record($grant->id) !== null) {
             return self::no("a grant «{$grant->id}» already exists in this house. What a person signed is never edited: a changed grant takes a new id and names the one it supersedes — nothing was granted");
         }
-        if ($grant->supersedes !== null && $book->record($grant->supersedes) === null) {
+        $older = $grant->supersedes === null ? null : $book->record($grant->supersedes);
+        if ($grant->supersedes !== null && $older === null) {
             return self::no("«{$grant->id}» supersedes «{$grant->supersedes}», and this house has no such grant — nothing was granted");
         }
         foreach ($grant->to as $seat) {
@@ -187,15 +188,42 @@ final class StandingOperations implements CommandProvider
         if ($notAPerson !== null) {
             return self::no($notAPerson . ' — nothing was granted');
         }
+        // TAKING A GRANT OUT OF THE WAY IS HELD TO THE STANDARD OF REINSTATING IT (greenhouse decisions/0615, «Lo que la
+        // revisión encontró», 6): whoever supersedes answers for the seats of the grant it replaces, and when that
+        // grant is suspended the new one names the very suspension it lifts.
+        if ($older !== null) {
+            if (\in_array($older->state, [GrantState::Revoked, GrantState::Superseded], true)) {
+                return self::no(\sprintf('«%s» is already %s: there is nothing to supersede — give «%s» without «supersedes» — nothing was granted', $older->grant->id, $older->state->value, $grant->id));
+            }
+            $notTheirs = $book->notAPersonFor($granted->signer->fingerprint, $older->grant->to);
+            if ($notTheirs !== null) {
+                return self::no("«{$grant->id}» supersedes «{$older->grant->id}», and {$notTheirs} — nothing was granted");
+            }
+            if ($older->state === GrantState::Suspended && $grant->lifts !== $older->suspension) {
+                return self::no(\sprintf(
+                    '«%1$s» is suspended (%2$s). A grant that supersedes it takes that suspension out of the way, which is growing back: it names the suspension it lifts — add "lifts": "%2$s" to «%3$s» — or a person lifts it first — nothing was granted',
+                    $older->grant->id,
+                    (string) $older->suspension,
+                    $grant->id,
+                ));
+            }
+            if ($older->state !== GrantState::Suspended && $grant->lifts !== null) {
+                return self::no("«{$grant->id}» says it lifts a suspension of «{$older->grant->id}», and no suspension stands on it — nothing was granted");
+            }
+        }
 
         $enrollments = new FileEnrollmentStore($root . '/storage/identity/enrollments.json');
         $warnings = [];
+        $operations = [];
         foreach ($grant->covers as $act) {
             $operation = $policy->operationNamed($act->operation);
-            $refusal = self::notGrantable($act, $operation);
+            $refusal = $operation === null ? 'this house has no operation `' . $act->operation->forCli() . '` to grant' : GrantableOperation::refusal($operation);
             if ($operation === null || $refusal !== null) {
                 return self::no($refusal . ' — nothing was granted');
             }
+            // What the operation IS today, written beside the grant: the day it is something else — an update, a
+            // plugin registered again under the same name — it is not the operation a person granted.
+            $operations[$act->operation->canonical] = (string) $operation->instrumentDigest();
             if (!$operation->effectCeiling()->isNoWiderThan($grant->ceiling)) {
                 $warnings[] = \sprintf('`%s` can do more than this grant\'s ceiling allows: only calls whose arguments bring its effect under the ceiling will pass', $act->operation->forCli());
             }
@@ -226,6 +254,7 @@ final class StandingOperations implements CommandProvider
                 'payload' => $granted->payload,
                 'signature' => $granted->signature,
                 'fingerprint' => $granted->signer->fingerprint,
+                'operations' => $operations,
             ]);
         } catch (\RuntimeException $error) {
             return self::no('nothing was granted: ' . $error->getMessage());
@@ -420,29 +449,6 @@ final class StandingOperations implements CommandProvider
             'grants' => $grants,
             'recent' => $recent,
         ] + ($book->ledger()->fault() === null ? [] : ['book' => 'DOES NOT VERIFY: ' . $book->ledger()->fault() . '. No grant in it is honoured until a person has looked.']);
-    }
-
-    /** Why this house cannot lend this operation under a grant — or `null`: it can. */
-    private static function notGrantable(NamedCall $act, ?Operation $operation): ?string
-    {
-        $name = $act->operation->forCli();
-        if ($operation === null) {
-            return "this house has no operation `{$name}` to grant";
-        }
-        if (\in_array(StandingBook::AUTHORITY, $operation->scopes, true)) {
-            return \sprintf('`%s` asks for `%s`: it is an operation that itself gives authority, and no grant lends one. It stays a person\'s act, signed each time', $name, StandingBook::AUTHORITY);
-        }
-        if ($operation->scopes === []) {
-            return "`{$name}` declares no scope, so there is nothing for a grant to lend: a seat either runs it already or is judged by something else";
-        }
-        if ($operation->actsOn === null) {
-            return "`{$name}` does not say what content a call acts on (it declares no `actsOn`), so no condition could ever be bound to one of its calls";
-        }
-        if (!$operation->effectCeiling()->isFullyClassified()) {
-            return "`{$name}` does not declare its effects, so no call of it could ever be shown to fit under a ceiling";
-        }
-
-        return null;
     }
 
     /**

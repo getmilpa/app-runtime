@@ -85,7 +85,8 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
         self::assertNotNull($fault);
         self::assertStringContainsString('line 2 does not link to the line before it', $fault);
         $refused = $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $candidate]);
-        self::assertStringContainsString('is not honoured: the book of standing grants does not verify (line 2', $refused['refused']);
+        self::assertStringContainsString('The book of standing grants does not verify (line 2', $refused['refused']);
+        self::assertStringContainsString('Nothing runs for a seat until a person has looked at it', $refused['refused']);
         self::assertSame('not honoured', $this->house->book()->record('release-line')?->standsAs($this->house->now));
 
         // Nothing is added to a book that does not verify — not even a suspension.
@@ -95,8 +96,10 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
         } catch (\RuntimeException $error) {
             self::assertStringContainsString('does not verify, so nothing is added to it', $error->getMessage());
         }
-        self::assertStringContainsString('nothing was suspended', $this->house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'x'])['error']);
-        $listed = $this->house->as(LabHouse::PERSON, 'standing:granted');
+        self::assertStringContainsString('does not verify', (string) ($this->house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'x'])['refused'] ?? 'SUSPENDED'));
+        // From the terminal — which is not a seat, and is where a person looks — the book says what is wrong with it.
+        self::assertStringContainsString('nothing was suspended', $this->house->as(null, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'x'])['error']);
+        $listed = $this->house->as(null, 'standing:granted');
         self::assertStringContainsString('DOES NOT VERIFY', $listed['book']);
         self::assertSame('not honoured', $listed['grants'][0]['stands_as']);
 
@@ -212,8 +215,8 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
         self::assertStringContainsString('measured  lab.scan on ' . $this->house->digestOf($red) . ': red', $recent);
         self::assertStringContainsString('absorbed  «release-line» lab.merge on ' . $this->house->digestOf($candidate), $recent);
         self::assertStringContainsString('refused  «release-line» lab.announce: above_ceiling', $recent);
-        self::assertStringContainsString('watched  lab.watch: FIRED', $recent);
-        self::assertStringContainsString('suspended  «release-line» by the house: its falsifier «a-published-name» fired', $recent);
+        self::assertStringContainsString('watched  lab.watch: FIRED', $recent, 'the line that says it fired is the suspension');
+        self::assertStringNotContainsString('suspended  «release-line»', $recent);
         self::assertStringContainsString('reinstated  «release-line»', $recent);
 
         // One grant by its id, and one that does not exist.

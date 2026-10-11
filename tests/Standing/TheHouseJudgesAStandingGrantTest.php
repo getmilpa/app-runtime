@@ -208,11 +208,16 @@ final class TheHouseJudgesAStandingGrantTest extends TestCase
         self::assertStringContainsString('Missing required scope', $refused['refused']);
         self::assertStringContainsString('context has: agent:run.', $refused['refused']);
 
-        // Not even for the asking: the other seat is handed nothing, the named one the operation's word.
+        // Not even for the asking: the other seat is handed nothing — for the tool or for the call — and the named
+        // one the operation's word, marked with the tool it was lent for.
+        $call = ['path' => $candidate, 'channel' => 'stable'];
         $other = new ToolContext(principal: 'key:' . LabHouse::OTHER_SEAT, channel: 'cli', scopes: ['agent:run']);
         $named = new ToolContext(principal: 'key:' . LabHouse::SEAT, channel: 'cli', scopes: LabHouse::SEAT_SCOPES);
         self::assertSame($other, $this->house->policy->contextFor($other, 'lab_publish'));
-        self::assertSame(['lab:publish'], $this->house->policy->contextFor($named, 'lab_publish')->extra[HouseStandingJudge::LENT]);
+        self::assertSame($other, $this->house->policy->contextFor($other, 'lab_publish', $call));
+        self::assertSame(['tool' => 'lab_publish', 'scopes' => ['lab:publish']], $this->house->policy->contextFor($named, 'lab_publish', $call)->extra[HouseStandingJudge::LENT]);
+        self::assertSame($named, $this->house->policy->contextFor($named, 'lab_publish', ['channel' => 'beta'] + $call), 'a call the grant does not name is handed nothing');
+        self::assertTrue($this->house->policy->contextFor($named, 'lab_publish')->hasScope('lab:publish'), 'asked only whether the tool is offered, it is');
     }
 
     public function testTheTerminalAndAKeyNoGrantNamesAreNotJudged(): void

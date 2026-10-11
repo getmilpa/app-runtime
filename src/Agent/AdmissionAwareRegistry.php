@@ -59,7 +59,7 @@ final class AdmissionAwareRegistry extends ToolRegistry
      */
     public function call(string $name, array $args, ?ToolContext $ctx = null): ToolResult
     {
-        return $this->inner->call($name, $args, $ctx === null ? null : $this->gate->contextFor($ctx, $name));
+        return $this->inner->call($name, $args, $ctx === null ? null : $this->gate->contextFor($ctx, $name, $args));
     }
 
     /** The wrapped registry's gate, asked the house's way. */

@@ -542,7 +542,7 @@ php bin/coa standing:grant --grant="$(cat release-line.json)" --sign
   "ceiling": {"mutation": "persistent", "externality": "public", "reversibility": "compensatable",
               "authority": "write_as_user", "subject": "executable"},
   "conditions": [{"name": "no-host-names", "statement": "what is published names no machine",
-                  "by": {"operation": "release:scan"}}],
+                  "by": {"operation": "release:scan", "free": ["archive"]}}],
   "undo": "withdraw the release and publish the one before it",
   "falsifier": {"name": "measured-late", "statement": "a condition was measured after the act",
                 "watcher": {"operation": "release:watch"}, "within_seconds": 86400}
@@ -551,6 +551,23 @@ php bin/coa standing:grant --grant="$(cat release-line.json)" --sign
 
 The signature covers the whole document, and the document is read back out of the signed bytes on
 every judgment — never from a copy kept beside them.
+
+**What a grant may cover.** An operation that declares a scope (never `*`, never
+`identity:enroll`), an input schema, what it acts on (`actsOn`), and its effects — with authority
+at most `write_as_user`: an operation that itself gives authority is never lent, and the axis says
+which ones are. Its handler must not be handed its caller's authority (a driver that calls other
+operations would carry a lent word on). All of this is asked when the grant is given **and at every
+call**: the house writes beside the grant what each covered operation was, and one that has changed
+since — an update, a plugin registered again under the same name — is not the operation that was
+granted.
+
+**What an instrument and an act owe the house.** Both return `acted_on`: the digest of the bytes
+they actually consumed. The house reads the content before and after a run, and those two readings
+cannot see content swapped and swapped back in between. A measurement becomes a receipt only when
+`acted_on` is the digest the house read; an act that returns without it, or with another digest,
+suspends the grant. A condition's `by` and the falsifier's `watcher` are matched closed: a run that
+carries an argument the grant did not describe (`free` lists the ones it may) is not that
+instrument.
 
 **What the house then does on every call of a seat the grant names.** It hands the seat the words
 that operation declares, for that one call, and asks the judge instead of the word. The call runs
@@ -565,8 +582,9 @@ only if all of this holds, read from the book *now*:
 6. every condition has a green receipt **on the digest of that very content**, taken by the
    measuring operation as it is today.
 
-A call whose arguments the grant does not name is judged exactly as before, with the lent word
-taken back first. A grant that names the call governs it even for a seat that holds the scope on
+A call whose arguments the grant does not name is handed nothing and judged exactly as before.
+What is lent is read by the gate's question about that one tool and by nothing else: the boundary,
+a nested call, and the house's own doors all see the caller as it is on its own. A grant that names the call governs it even for a seat that holds the scope on
 its own — every scope included. The operator's own terminal, and a key no grant names, are not
 judged: a grant governs the seats it names.
 
@@ -585,14 +603,18 @@ verdict. A house where nobody grants anything keeps no book and answers as it al
 
 | Operation | Who | What it does |
 |-----------|-----|--------------|
-| `standing:grant --sign` | a person | gives a grant; refused over an operation that itself gives authority, above a `compensatable` ceiling, or without a watched falsifier |
+| `standing:grant --sign` | a person | gives a grant; refused over an operation that itself gives authority, above a `compensatable` ceiling, or without a watched falsifier. One that supersedes a **suspended** grant names the suspension it lifts (`lifts`), and its signer answers for the seats of the grant it replaces |
 | `standing:suspend` | anyone recognized | stops a grant — no scope, no signature. Every act it covers is the person's again |
 | `standing:reinstate --sign` | a person | lifts a suspension, **naming the very suspension it lifts**; an older signature or a line written by hand lifts nothing |
 | `standing:revoke --sign` | a person | withdraws a grant for good |
 | `standing:granted` | the terminal | the grants, where each stands and why, and what happened under it |
 
-The house suspends a grant itself when a watcher reports its falsifier fired, and when the content
-an act touched is not what was judged once the act has run.
+The house suspends a grant itself when a watcher reports its falsifier fired — the line that says
+so is the suspension — and when what an act touched, or says it consumed, is not what was judged.
+
+A book that does not verify refuses **every seat**, whatever it calls: the house cannot tell what
+any grant in it names, and «nobody granted anything» is the one reading it must not fall back to.
+The operator's own terminal is not a seat; a person repairs the book from there.
 
 **What this does not do — say so before relying on it.**
 
@@ -603,7 +625,14 @@ an act touched is not what was judged once the act has run.
 - **It judges a seat, not whoever holds the operator's shell.** A key the house never recognized
   runs at the terminal with every scope, and nothing here reaches it.
 - **It detects a swap, it does not prevent one.** The digest is read before the act and again
-  after; content that changed under the act suspends the grant, and the act has already run.
+  after, and the act says what it consumed; a mismatch suspends the grant, and the act has already
+  run. An act that streams its input to something else can still be shown other bytes than the ones
+  it reports: closing that needs the house to hand the handler a snapshot it owns, which this does
+  not do.
+- **A handler that reads its caller's authority without declaring the argument is not seen.** The
+  floor looks at the handler's declared parameters.
+- **A grant is bound to the host, not to the house.** A grant signed for one house verifies in
+  another house on the same host where the same keys are recognized.
 - **The book is not tamper-proof.** The chain shows an edit in the middle; whoever holds the disk
   can still truncate it. What a forged grant or reinstatement cannot do is verify.
 - **The keyring that judges must hold the public key of whoever granted.** A seat that runs in its

@@ -198,6 +198,13 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
     {
         try {
             $name = $tool->name;
+            // WHAT WAS LENT FOR THE ASKING IS READ BY THE GATE AND BY NOTHING ELSE (greenhouse decisions/0615, «Lo que
+            // la revisión encontró», 1 and 2). Everything below asks the caller as it is on its own — whatever tool the
+            // words were lent for, and whether or not a grant passes. What was lent only tells this policy that the
+            // gate's question about a word was answered with a loan, and so has to be asked again.
+            $handed = $context;
+            $context = HouseStandingJudge::withoutLent($context);
+            $lent = $handed !== $context;
             if ($name === 'edit' && array_key_exists('source', $arguments)
                 && !$context->hasScope('agent:read') && !$context->hasScope('agent:answer')) {
                 throw new \RuntimeException('Recorded repair requires agent:read or agent:answer.');
@@ -211,7 +218,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             // about a word decided nothing; this one does. The book is read now — not when the session started, not
             // from anyone's memory — and a grant that is suspended refuses its whole class, the harmless act included.
             // A pass lends exactly this call. A grant that names the operation but not THESE arguments lends nothing:
-            // the call is judged as it was before any grant existed, with the lent words taken back first.
+            // the call is judged as it was before any grant existed.
             //
             // BEFORE the question of who holds every scope, on purpose: a grant governs the seat it names whatever
             // that seat holds on its own — a condition that a scope given separately walks around is not a condition.
@@ -221,24 +228,24 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             if ($decided?->named() === true && !$decided->passes()) {
                 $this->standing()->refused($decided);
 
-                return AuthorizationResult::denied((string) $decided->verdict?->sentence);
+                return AuthorizationResult::denied((string) $decided->refusal());
             }
             if ($context->hasScope('*')) {
                 return AuthorizationResult::allowed();
             }
-            if ($decided?->passes() !== true) {
-                $own = HouseStandingJudge::withoutLent($context);
-                if ($own !== $context) {
-                    $scoped = (new PolicyGate())->authorizeScopes($own, $name, $tool->scopes);
-                    if (!$scoped->allowed) {
-                        return $scoped;
-                    }
-                    $context = $own;
+            if ($lent && $decided?->passes() !== true) {
+                // The gate was answered with a loan and no grant passes this call: its question, asked again of what the
+                // caller holds on its own — in its own sentence, because this is the refusal it would have given.
+                $scoped = (new PolicyGate())->authorizeScopes($context, $name, $tool->scopes);
+                if (!$scoped->allowed) {
+                    return $scoped;
                 }
             }
             // ANYONE THE HOUSE RECOGNIZES MAY STOP A STANDING GRANT (decisions/0615 §4): stopping gives nobody
             // authority, so the operation asks for no word and is let through here — the one mutation that is.
-            if ($name === self::SUSPEND && $context->principal !== null) {
+            // «Recognizes» is the ledger's word: a key or a passkey it holds live, not whatever name a surface gives
+            // a client nobody authenticated.
+            if ($name === self::SUSPEND && $this->recognizes($context->principal)) {
                 return AuthorizationResult::allowed();
             }
             // A VERB OF A CAPABILITY BUILT IN THIS HOUSE RUNS FOR A SEAT ONLY IF A PERSON ADMITTED IT (greenhouse
@@ -288,33 +295,51 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
      * carries the verb's own declared words — admitted or not; the verdict is this policy's. Any other caller, and
      * any other tool, gets the context back as it came: nothing is written to the seat, and no other operation
      * that asks for the same word ever sees it.
+     *
+     * @param array<string, mixed>|null $arguments the arguments of the call, or null when only the tool is asked
+     *                                             about (is it offered to this caller)
      */
-    public function contextFor(ToolContext $context, string $tool): ToolContext
+    public function contextFor(ToolContext $context, string $tool, ?array $arguments = null): ToolContext
     {
+        // Whatever was lent to this context for ANOTHER tool — the call around this one — is taken back before this
+        // tool is asked about: a nested call starts from the caller as it is on its own (decisions/0615, review 2).
+        $context = HouseStandingJudge::withoutLent($context);
         $admissions = $context->hasScope('*') ? null : $this->admissions();
         $verb = $admissions?->seatOf($context->principal) === null ? null : $admissions->verb($tool);
         $words = $verb === null ? [] : array_values(array_diff($verb->operation->scopes, $context->scopes));
-        // THE SAME HANDING-OVER FOR AN OPERATION A STANDING GRANT NAMES FOR THIS SEAT (greenhouse decisions/0615): the
-        // words it declares, for this one call, in whatever state the grant is — so that the question that decides is
-        // this policy's judge, asked with the call's arguments, and not a word the seat lacks. What was lent is marked,
-        // so that a call no grant ends up naming has it taken back before anything else is asked.
-        $operation = $verb === null ? $this->operationNamed($tool) : null;
-        $lent = $operation === null ? [] : $this->standing()->lends($context, $operation);
-        if ($words === [] && $lent === []) {
-            return $context;
+        if ($words !== []) {
+            $context = new ToolContext(
+                principal: $context->principal,
+                channel: $context->channel,
+                scopes: [...$context->scopes, ...$words],
+                request_id: $context->request_id,
+                ip: $context->ip,
+                userAgent: $context->userAgent,
+                extra: $context->extra,
+                mode: $context->mode,
+                resultBudget: $context->resultBudget,
+            );
         }
+        // THE SAME HANDING-OVER FOR A CALL A STANDING GRANT NAMES FOR THIS SEAT (greenhouse decisions/0615): the words
+        // the operation declares, for the gate's question about this one call, in whatever state the grant is — so
+        // that the question that decides is this policy's judge and not a word the seat lacks. With the call's
+        // arguments in hand a word is lent only when a grant names THIS call; a call no grant names is handed nothing.
+        // What is lent is marked with the tool it was lent for, and every reader after the gate takes it back.
+        $operation = $verb === null ? $this->operationNamed($tool) : null;
+        $lent = $operation === null ? [] : $this->standing()->lends($context, $operation, $arguments, $this->operationNamed(...));
 
-        return new ToolContext(
-            principal: $context->principal,
-            channel: $context->channel,
-            scopes: [...$context->scopes, ...$words, ...$lent],
-            request_id: $context->request_id,
-            ip: $context->ip,
-            userAgent: $context->userAgent,
-            extra: $lent === [] ? $context->extra : [HouseStandingJudge::LENT => $lent] + $context->extra,
-            mode: $context->mode,
-            resultBudget: $context->resultBudget,
-        );
+        return $lent === [] ? $context : HouseStandingJudge::withLent($context, $tool, $lent);
+    }
+
+    /** Whether the house's ledger of identities holds this principal live: a key or a passkey it recognized. */
+    private function recognizes(?string $principal): bool
+    {
+        $key = $principal === null ? null : \Milpa\AppRuntime\Identity\EnrollmentLine::keyOf($principal);
+        try {
+            return $key !== null && (new \Milpa\AppRuntime\Identity\FileEnrollmentStore($this->root . '/storage/identity/enrollments.json'))->scopesFor($key) !== null;
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /** The judge of built verbs over this house's ledger, or null when nobody told this policy what was built. */
@@ -533,7 +558,8 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
      */
     private function governed(Operation $operation, array $input, ?ToolContext $authority, \Closure $next): mixed
     {
-        $context = $authority ?? ToolContext::cli();
+        // The boundary reads the caller as it is on its own: what was lent for the gate's question stays at the gate.
+        $context = HouseStandingJudge::withoutLent($authority ?? ToolContext::cli());
         $name = McpProjector::toolName($operation->name);
         // A PERMISSION IS JUDGED FOR THE OPERATION THAT RUNS (greenhouse decisions/0544). `Operation` holds `scopes`
         // XOR `permission`, so empty scopes are not "declares no authority" when the host's HTTP policy admitted this
@@ -555,18 +581,44 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         if (!$verdict->allowed) {
             throw new \RuntimeException((string) $verdict->reason);
         }
-        // THE ACT A STANDING GRANT COVERS IS WRITTEN DOWN BEFORE IT RUNS, AND LOOKED AT AGAIN AFTER (decisions/0615).
-        // Before: under which grant, on which content, on which receipts — and if that cannot be written, nothing runs.
-        // After: the content it acted on is read again, and if it is not what was judged, the grant is suspended. The
-        // swap is detected, not prevented; the acta says so.
-        if ($decided?->passes() === true) {
-            $this->standing()->absorbing($decided);
-            try {
-                return $next();
-            } finally {
-                $this->standing()->absorbed($decided, $operation);
-            }
+        if ($decided?->passes() !== true) {
+            return $this->carriedOut($operation, $input, $context, $name, $next);
         }
+        // THE ACT A STANDING GRANT COVERS IS WRITTEN DOWN BEFORE IT RUNS, AND LOOKED AT AGAIN AFTER (decisions/0615).
+        // Before: the judgment is asked AGAIN with the book locked, and the line that says under which grant, on which
+        // content and on which receipts is written under that same lock — a suspension that landed after the first
+        // reading stops the act, and if the line cannot be written nothing runs. Then the act goes the way any call of
+        // that operation goes: a build call still runs in its trial. After: what it acted on is read again, and the
+        // act says what it consumed; if either is not what was judged, the grant is suspended.
+        $standing = $this->standing();
+        $absorbed = $standing->absorbing($context, $operation, $input, $this->operationNamed(...));
+        if ($absorbed?->passes() !== true) {
+            if ($absorbed !== null) {
+                $standing->refused($absorbed);
+            }
+            throw new \RuntimeException($absorbed?->refusal() ?? "No standing grant names this call of «{$operation->name}» any more: the one it was judged under is gone. Nothing ran.");
+        }
+        $result = null;
+        $returned = false;
+        try {
+            $result = $this->carriedOut($operation, $input, $context, $name, $next);
+            $returned = true;
+
+            return $result;
+        } finally {
+            $standing->absorbed($absorbed, $operation, $result, $returned);
+        }
+    }
+
+    /**
+     * The run itself, once the call is allowed: straight through, or — for an authoring call of a finite caller —
+     * in a write-confined trial whose result says how to apply it.
+     *
+     * @param array<string, mixed> $input
+     * @param \Closure(): mixed    $next
+     */
+    private function carriedOut(Operation $operation, array $input, ToolContext $context, string $name, \Closure $next): mixed
+    {
         $recorded = RecordedEdit::usesSource($operation, $input);
         if (($context->hasScope('*') && !$recorded) || !in_array($name, self::BUILD, true)) {
             return $next();

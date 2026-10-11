@@ -20,13 +20,8 @@ use Milpa\AppRuntime\Operations\TrialOperations;
 use Milpa\AppRuntime\Standing\HouseStandingJudge;
 use Milpa\AppRuntime\Standing\StandingDecision;
 use Milpa\AppRuntime\Standing\StandingLedger;
-use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\EffectProfile;
-use Milpa\Command\Effect\Externality;
-use Milpa\Command\Effect\Mutation;
-use Milpa\Command\Effect\Reversibility;
 use Milpa\Command\Effect\Subject;
-use Milpa\Command\Operation;
 use Milpa\Command\Standing\StandingCall;
 use Milpa\Container\DIContainer;
 use Milpa\ToolRuntime\Contracts\ToolContext;
@@ -116,38 +111,26 @@ final class WhatTheJudgeCannotReadItDoesNotLendTest extends TestCase
         self::assertSame('in force', $this->house->book()->record('release-line')?->standsAs($this->house->now));
     }
 
-    public function testAWordLentForTheAskingIsTakenBackAndTheSeatKeepsOnlyWhatItHolds(): void
+    public function testWhatWasLentIsMarkedWithItsToolAndTakenBackWhole(): void
     {
-        // An operation that asks for one of two words. The seat holds one; a grant names the operation for it with
-        // other arguments, so the second word is lent for the asking — and must not survive the judgment.
-        $twoWords = new Operation(
-            'lab:tag',
-            'Lab: an operation that asks for one of two words',
-            static fn (array $input): array => ['ok' => true],
-            ['type' => 'object', 'properties' => ['path' => ['type' => 'string'], 'line' => ['type' => 'string']]],
-            mutating: true,
-            scopes: ['lab:scan', 'lab:tag'],
-            effects: new EffectProfile(Mutation::Persistent, Externality::None, Reversibility::Compensatable, Authority::WriteAsUser, subject: Subject::Data),
-            actsOn: fn (array $input): ?string => $this->house->digestOf((string) $input['path']),
-        );
-        PluginAuthoringPolicy::catalogue($this->house->container, [$twoWords]);
-        $this->house->granted(['covers' => [['operation' => 'lab:tag', 'arguments' => ['line' => 'stable']]]]);
+        $this->house->granted();
         $candidate = $this->house->candidate('a.tar', 'candidate a');
+        $context = new ToolContext(principal: 'key:' . LabHouse::SEAT, channel: 'cli', scopes: LabHouse::SEAT_SCOPES, extra: ['consent.grants' => []]);
 
-        $context = new ToolContext(principal: 'key:' . LabHouse::SEAT, channel: 'cli', scopes: LabHouse::SEAT_SCOPES);
-        $lent = $this->house->policy->contextFor($context, 'lab_tag');
-        self::assertSame(['lab:tag'], $lent->extra[HouseStandingJudge::LENT]);
-        self::assertTrue($lent->hasScope('lab:tag'));
+        $lent = $this->house->policy->contextFor($context, 'lab_merge', ['path' => $candidate]);
 
-        // Another line: no grant names this call. The seat holds `lab:scan`, which the operation accepts, so it runs
-        // — as itself, with the lent word gone before anything else could read it.
-        $result = $this->house->policy->execute($twoWords, ['path' => $candidate, 'line' => 'beta'], $lent, static fn (): array => ['ok' => true]);
-        self::assertSame(['ok' => true], $result);
-        self::assertSame([], $this->house->lines(StandingLedger::REFUSED));
-        self::assertSame([], $this->house->lines(StandingLedger::ABSORBED));
-        self::assertSame($context->scopes, HouseStandingJudge::withoutLent($lent)->scopes);
-        self::assertArrayNotHasKey(HouseStandingJudge::LENT, HouseStandingJudge::withoutLent($lent)->extra);
+        self::assertSame([...LabHouse::SEAT_SCOPES, 'lab:merge'], $lent->scopes);
+        self::assertSame(['tool' => 'lab_merge', 'scopes' => ['lab:merge']], $lent->extra[HouseStandingJudge::LENT]);
+        self::assertSame([], $lent->extra['consent.grants'], 'what the context already carried stays');
+        $own = HouseStandingJudge::withoutLent($lent);
+        self::assertSame(LabHouse::SEAT_SCOPES, $own->scopes);
+        self::assertArrayNotHasKey(HouseStandingJudge::LENT, $own->extra);
+        self::assertSame([], $own->extra['consent.grants']);
         self::assertSame($context, HouseStandingJudge::withoutLent($context), 'a context nothing was lent to comes back as it is');
+        // A mark that is not one — whatever wrote it — takes nothing away and lends nothing.
+        $odd = new ToolContext(principal: 'key:' . LabHouse::SEAT, channel: 'cli', scopes: LabHouse::SEAT_SCOPES, extra: [HouseStandingJudge::LENT => 'lab:scan']);
+        self::assertSame(LabHouse::SEAT_SCOPES, HouseStandingJudge::withoutLent($odd)->scopes);
+        self::assertSame(LabHouse::SEAT_SCOPES, HouseStandingJudge::withoutLent(new ToolContext(principal: 'key:' . LabHouse::SEAT, channel: 'cli', scopes: LabHouse::SEAT_SCOPES, extra: [HouseStandingJudge::LENT => ['tool' => 'x']]))->scopes);
     }
 
     public function testAGrantForAnotherSeatHasNothingToSayAboutThisOne(): void
@@ -170,8 +153,7 @@ final class WhatTheJudgeCannotReadItDoesNotLendTest extends TestCase
         $unnamed = new StandingDecision(new StandingCall('lab:publish', [], LabHouse::SEAT, null, EffectProfile::readOnly(), $this->house->now));
         $before = \count($this->house->ledger()->entries());
 
-        $judge->absorbing($unnamed);
-        $judge->absorbed($unnamed, $this->house->operation('lab:publish'));
+        $judge->absorbed($unnamed, $this->house->operation('lab:publish'), ['ok' => true], true);
         $judge->refused($unnamed);
 
         self::assertFalse($unnamed->named());

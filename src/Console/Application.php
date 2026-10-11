@@ -693,7 +693,7 @@ final class Application
             renderer: $renderer,
             verifier: $this->verificador,
             callerAuthority: $caller,
-            signerAuthority: fn (VerifiedSigner $signer): ?ToolContext => $this->autoridadDelFirmante($signer, $identity, $operacion),
+            signerAuthority: fn (VerifiedSigner $signer): ?ToolContext => $this->autoridadDelFirmante($signer, $identity, $operacion, $tokens),
             // El despachador del kernel viaja al runner: sin él, un listener que audita operaciones
             // las vería por MCP y no por la terminal — que es el hueco que el runner vino a cerrar.
             dispatcher: $this->kernel()->dispatcher(),
@@ -1822,8 +1822,10 @@ final class Application
      * The enrollment ledger and the policy file are read from disk, never from the kernel: the same
      * judgment has to hold when the kernel does not boot ({@see recuperarSinKernel()}), and two copies
      * of it would disagree the day it matters.
+     *
+     * @param list<string> $tokens the call's own tokens, so that the house knows WHICH call of `$for` this is
      */
-    private function autoridadDelFirmante(VerifiedSigner $signer, ?\Milpa\Auth\AuthContext $identity, ?Operation $for = null): ?ToolContext
+    private function autoridadDelFirmante(VerifiedSigner $signer, ?\Milpa\Auth\AuthContext $identity, ?Operation $for = null, array $tokens = []): ?ToolContext
     {
         $signed = (new SignerAuthority(
             new FileEnrollmentStore($this->root . '/storage/identity/enrollments.json'),
@@ -1849,9 +1851,19 @@ final class Application
         $policy = $this->kernel()->container()->has(\Milpa\ToolRuntime\Contracts\CallPolicy::class)
             ? $this->kernel()->container()->get(\Milpa\ToolRuntime\Contracts\CallPolicy::class) : null;
 
-        return $policy instanceof \Milpa\AppRuntime\Agent\PluginAuthoringPolicy
-            ? $policy->contextFor($context, McpProjector::toolName($for->name))
-            : $context;
+        if (!$policy instanceof \Milpa\AppRuntime\Agent\PluginAuthoringPolicy) {
+            return $context;
+        }
+        // A STANDING GRANT LENDS TO THE CALL IT NAMES, so the policy is told which call this process is about to make
+        // (greenhouse decisions/0615, «Lo que la revisión encontró», 1): the same input the runner derives from the
+        // same tokens. A call whose input cannot be derived runs nothing, and is lent nothing.
+        try {
+            $arguments = $for->inputSchema !== null ? (new CliRunner())->deriveInput($for, $tokens) : [];
+        } catch (\Throwable) {
+            $arguments = [];
+        }
+
+        return $policy->contextFor($context, McpProjector::toolName($for->name), $arguments);
     }
 
     /** The shell's screen, as `coa shell` opens it: its catalogue behind the door ({@see operacionesDelShell()}). */

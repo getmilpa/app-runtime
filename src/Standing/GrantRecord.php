@@ -34,6 +34,9 @@ final readonly class GrantRecord
      * @param string|null             $because         for a state other than in force: what put it there, in words
      * @param string|null             $suspension      the digest of the suspension that stands, which a reinstatement must name
      * @param \DateTimeImmutable|null $watcherSignalAt the watcher's last sign of life since it was granted or last reinstated
+     * @param array<string, string>   $operations      what each covered operation WAS when the grant was given: its
+     *                                                 identity => the digest that pins it. An operation that is no
+     *                                                 longer that one is not the operation a person granted
      */
     public function __construct(
         public StandingGrant $grant,
@@ -45,6 +48,7 @@ final readonly class GrantRecord
         public ?string $because = null,
         public ?string $suspension = null,
         public ?\DateTimeImmutable $watcherSignalAt = null,
+        public array $operations = [],
     ) {
     }
 

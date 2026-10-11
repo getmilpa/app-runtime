@@ -229,11 +229,12 @@ final class OnlyAPersonGivesAStandingGrantTest extends TestCase
     {
         $this->house->granted();
         $path = $this->house->root . '/' . StandingLedger::PATH;
-        file_put_contents($path, str_replace('release-line', 'release-lime', (string) file_get_contents($path)));
+        $broken = str_replace('release-line', 'release-lime', (string) file_get_contents($path));
+        file_put_contents($path, $broken);
 
+        // By a key: refused before anything is read of the document — a book that does not verify stops every key.
         $given = $this->house->signed(LabHouse::PERSON, 'standing:grant', ['grant' => $this->house->document(['id' => 'another'])]);
-
-        self::assertStringContainsString('the book of standing grants does not verify', $given['error']);
-        self::assertStringContainsString('nothing was granted', $given['error']);
+        self::assertStringContainsString('The book of standing grants does not verify', (string) ($given['refused'] ?? 'GIVEN'));
+        self::assertSame($broken, (string) file_get_contents($path), 'nothing was added to it');
     }
 }

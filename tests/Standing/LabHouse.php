@@ -68,11 +68,20 @@ final class LabHouse implements SignatureVerifier
     /** What the scanner answers, so a test can replace the instrument without touching the candidate. */
     public \Closure $scanner;
 
+    /** Whether the lab's scanner says which bytes it read. An instrument that does not, measures nothing. */
+    public bool $scannerSaysWhatItRead = true;
+
     /** Whether the falsifier of the lab grant has fired — or something that is not an answer at all. */
     public mixed $fired = false;
 
     /** Called by `lab:publish` while it runs, so a test can change what it acts on under it. */
     public ?\Closure $whilePublishing = null;
+
+    /** What a handler of this house was handed as its caller's authority, when a test asked it to keep it. */
+    public ?ToolContext $seen = null;
+
+    /** What `lab:publish` says it consumed instead of what it read — a test's way of swapping the bytes under an act. */
+    public ?string $consumed = null;
 
     /** @var list<string> keys this keyring no longer verifies */
     private array $gone = [];
@@ -80,7 +89,7 @@ final class LabHouse implements SignatureVerifier
     /** @var list<Operation> */
     private array $operations;
 
-    public function __construct()
+    public function __construct(?\Milpa\AppRuntime\Agent\TrialRunner $runner = null)
     {
         $this->root = sys_get_temp_dir() . '/milpa-standing-' . bin2hex(random_bytes(6));
         mkdir($this->root . '/storage/identity', 0o755, true);
@@ -92,7 +101,7 @@ final class LabHouse implements SignatureVerifier
         $this->enroll(self::OTHER_SEAT, ['agent:run'], self::PERSON);
 
         $this->container = new DIContainer();
-        $this->policy = new PluginAuthoringPolicy($this->root, standing: new HouseStandingJudge($this->root, $this, fn (): \DateTimeImmutable => $this->now));
+        $this->policy = new PluginAuthoringPolicy($this->root, ...($runner === null ? [] : ['runner' => $runner]), standing: new HouseStandingJudge($this->root, $this, fn (): \DateTimeImmutable => $this->now));
         $this->container->registerService(OperationBoundary::class, $this->policy);
         $this->operations = PluginAuthoringPolicy::catalogue($this->container, [
             ...$this->releaseLine(),
@@ -145,7 +154,7 @@ final class LabHouse implements SignatureVerifier
             'to' => [self::SEAT],
             'covers' => [['operation' => 'lab:publish', 'arguments' => ['channel' => 'stable']], ['operation' => 'lab:merge'], ['operation' => 'lab:announce']],
             'ceiling' => ['mutation' => 'persistent', 'externality' => 'public', 'reversibility' => 'compensatable', 'authority' => 'write_as_user', 'subject' => 'executable'],
-            'conditions' => [['name' => 'no-host-names', 'statement' => 'what is published names no machine', 'by' => ['operation' => 'lab:scan']]],
+            'conditions' => [['name' => 'no-host-names', 'statement' => 'what is published names no machine', 'by' => ['operation' => 'lab:scan', 'free' => ['path']]]],
             'undo' => 'withdraw the release and publish the one before it',
             'falsifier' => ['name' => 'a-published-name', 'statement' => 'a published release names a machine', 'watcher' => ['operation' => 'lab:watch'], 'within_seconds' => 3600],
         ]);
@@ -176,16 +185,34 @@ final class LabHouse implements SignatureVerifier
      */
     public function as(?string $key, string $name, array $input = [], ?GrantedAuthorization $signature = null): array
     {
-        $operation = $this->operation($name);
-        $tool = McpProjector::toolName($name);
-        $context = $key === null
+        return $this->through($this->contextOf($key), $name, $input, $signature);
+    }
+
+    /** Who a key is in this house right now: what the ledger says it holds, or the terminal's own authority. */
+    public function contextOf(?string $key): ToolContext
+    {
+        return $key === null
             ? ToolContext::cli()
             : new ToolContext(
                 principal: 'key:' . $key,
                 channel: 'cli',
                 scopes: (new FileEnrollmentStore($this->root . '/storage/identity/enrollments.json'))->scopesFor($key) ?? ($key === self::STRANGER ? ['*'] : []),
             );
-        $context = $this->policy->contextFor($context, $tool);
+    }
+
+    /**
+     * One call through the whole door with THIS context, the way every surface makes one: the caller as it is to be
+     * seen for this tool and these arguments, the gate's question about a word, the house's policy, the boundary.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed> what the handler returned, or `['refused' => sentence]`
+     */
+    public function through(ToolContext $context, string $name, array $input = [], ?GrantedAuthorization $signature = null): array
+    {
+        $operation = $this->operation($name);
+        $tool = McpProjector::toolName($name);
+        $context = $this->policy->contextFor($context, $tool, $input);
 
         $gate = new PolicyGate();
         $gate->setCallPolicy($this->policy);
@@ -197,15 +224,53 @@ final class LabHouse implements SignatureVerifier
         if ($signature !== null) {
             $this->container->replaceService(GrantedAuthorization::class, $signature);
         }
+        $outer = $this->atTheBoundary;
+        $this->atTheBoundary = true;
         try {
             $result = $this->policy->execute($operation, $input, $context, fn (): mixed => ($operation->handler)($input, null, $context));
         } catch (\RuntimeException $refused) {
             return ['refused' => $refused->getMessage()];
         } finally {
+            $this->atTheBoundary = $outer;
             $this->container->replaceService(GrantedAuthorization::class, new \stdClass());
         }
 
+        // What the caller reads back, without the digest an operation reports for the HOUSE to read (`acted_on`): the
+        // boundary has already read it, and these tests assert on what a caller sees.
+        if (\is_array($result)) {
+            unset($result['acted_on']);
+        }
+
         return \is_array($result) ? $result : ['result' => $result];
+    }
+
+    /** Operations added to this house's catalogue after it was built. */
+    public function offer(Operation ...$operations): void
+    {
+        PluginAuthoringPolicy::catalogue($this->container, array_values($operations));
+        $names = array_map(static fn (Operation $operation): string => $operation->name, $operations);
+        $this->operations = [...array_values(array_filter($this->operations, static fn (Operation $known): bool => !\in_array($known->name, $names, true))), ...array_values($operations)];
+    }
+
+    /**
+     * A grant as it stands in the book when it did NOT come through `standing:grant`: genuinely signed by this key,
+     * appended by whoever holds the disk. What `standing:grant` refuses to write is what this lets a test write.
+     *
+     * @param array<string, mixed> $change
+     * @param array<string, mixed> $line   what the line says besides the signed bytes
+     */
+    public function grantedByHand(array $change = [], string $signer = self::PERSON, array $line = []): void
+    {
+        $document = $this->document($change);
+        $grant = \Milpa\Command\Standing\StandingGrant::fromJson($document);
+        $signed = $this->signature($signer, 'standing:grant', ['grant' => $document]);
+        $this->writtenByHand(StandingLedger::GRANTED, $line + [
+            'grant' => $grant->id,
+            'digest' => $grant->digest(),
+            'payload' => $signed->payload,
+            'signature' => $signed->signature,
+            'fingerprint' => $signer,
+        ]);
     }
 
     /**
@@ -228,8 +293,17 @@ final class LabHouse implements SignatureVerifier
         return new GrantedAuthorization($authorization, new VerifiedSigner($key, 'Lab <lab@example.invalid>'), $authorization->canonical(), self::sign($key, $authorization->canonical()));
     }
 
+    /** Called every time this keyring is asked to verify — a test's way of doing something while the book is being read. */
+    public ?\Closure $whileVerifying = null;
+
+    /** True while a call is inside the boundary — past the gate's question, where the act is decided and run. */
+    public bool $atTheBoundary = false;
+
     public function verify(string $payload, string $signature): ?VerifiedSigner
     {
+        if ($this->whileVerifying !== null) {
+            ($this->whileVerifying)();
+        }
         foreach ([self::PERSON, self::SEAT, self::OTHER_SEAT, self::STRANGER] as $key) {
             if (!\in_array($key, $this->gone, true) && hash_equals(self::sign($key, $payload), $signature)) {
                 return new VerifiedSigner($key);
@@ -289,7 +363,11 @@ final class LabHouse implements SignatureVerifier
         $hardened = new Operation(
             'lab:scan',
             $old->description,
-            fn (array $input): array => ['ok' => !preg_match('/machine-name:|host:/', (string) file_get_contents($this->root . '/' . $input['path']))],
+            function (array $input): array {
+                $bytes = (string) file_get_contents($this->root . '/' . $input['path']);
+
+                return ['ok' => !preg_match('/machine-name:|host:/', $bytes), 'acted_on' => 'sha256:' . hash('sha256', $bytes)];
+            },
             $old->inputSchema,
             scopes: $old->scopes,
             effects: $old->effects,
@@ -309,6 +387,19 @@ final class LabHouse implements SignatureVerifier
         throw new \LogicException("{$name} is not offered");
     }
 
+    /**
+     * What the lab's scanner answers: whatever the test's scanner says, and — unless that scanner says otherwise —
+     * the digest of the very bytes it was handed.
+     *
+     * @return array<string, mixed>
+     */
+    private function scan(string $bytes): array
+    {
+        $said = ($this->scanner)($bytes);
+
+        return $this->scannerSaysWhatItRead ? $said + ['acted_on' => 'sha256:' . hash('sha256', $bytes)] : $said;
+    }
+
     private static function sign(string $key, string $payload): string
     {
         return 'lab-signature:' . $key . ':' . hash('sha256', $payload);
@@ -323,15 +414,16 @@ final class LabHouse implements SignatureVerifier
                 ($this->whilePublishing)($input);
             }
             @mkdir($this->root . '/var', 0o755, true);
-            file_put_contents($this->root . '/var/lab-' . $what . '.log', hash_file('sha256', $this->root . '/' . $input['path']) . "\n", \FILE_APPEND);
+            $consumed = (string) hash_file('sha256', $this->root . '/' . $input['path']);
+            file_put_contents($this->root . '/var/lab-' . $what . '.log', $consumed . "\n", \FILE_APPEND);
 
-            return ['ok' => true];
+            return ['ok' => true, 'acted_on' => $what === 'published' && $this->consumed !== null ? $this->consumed : 'sha256:' . $consumed];
         };
         $path = ['type' => 'object', 'properties' => ['path' => ['type' => 'string']], 'required' => ['path']];
         $effect = static fn (Reversibility $reversibility, Subject $subject): EffectProfile => new EffectProfile(Mutation::Persistent, Externality::Public, $reversibility, Authority::WriteAsUser, subject: $subject);
 
         return [
-            new Operation('lab:scan', 'Lab: measure a candidate', fn (array $input): array => ($this->scanner)((string) file_get_contents($this->root . '/' . $input['path'])), $path, scopes: ['lab:scan'], effects: EffectProfile::readOnly(), actsOn: $actsOn),
+            new Operation('lab:scan', 'Lab: measure a candidate', fn (array $input): array => $this->scan((string) file_get_contents($this->root . '/' . $input['path'])), $path, scopes: ['lab:scan'], effects: EffectProfile::readOnly(), actsOn: $actsOn),
             new Operation('lab:watch', 'Lab: watch the falsifier', fn (array $input): mixed => \is_bool($this->fired) ? ['ok' => true, 'fired' => $this->fired] : $this->fired, scopes: ['lab:watch'], effects: EffectProfile::readOnly()),
             new Operation('lab:publish', 'Lab: publish a candidate', fn (array $input): array => $act('published', $input), $path, mutating: true, requiresConfirmation: true, scopes: ['lab:publish'], effects: $effect(Reversibility::Compensatable, Subject::Executable), actsOn: $actsOn),
             new Operation('lab:merge', 'Lab: merge a change that only adds evidence', fn (array $input): array => $act('merged', $input), $path, mutating: true, requiresConfirmation: true, scopes: ['lab:merge'], effects: $effect(Reversibility::Compensatable, Subject::Data), actsOn: $actsOn),

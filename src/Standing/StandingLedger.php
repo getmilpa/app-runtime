@@ -53,6 +53,9 @@ final class StandingLedger
     /** @var array{entries: list<array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}>, fault: ?string}|null */
     private ?array $read = null;
 
+    /** @var resource|null the book, open and locked for one reading-and-writing ({@see self::exclusively()}) */
+    private $held = null;
+
     public function __construct(private readonly string $path)
     {
     }
@@ -101,6 +104,33 @@ final class StandingLedger
      */
     public function append(string $type, array $data, ?\DateTimeImmutable $at = null): array
     {
+        if ($this->held !== null) {
+            return $this->write($this->held, $type, $data, $at);
+        }
+
+        return $this->exclusively(fn (): array => $this->append($type, $data, $at));
+    }
+
+    /**
+     * Run something with the book locked: what it reads of the book and the line it then adds are one step, and
+     * nobody else's line lands between them.
+     *
+     * A judgment that reads the book and writes «this act passes» afterwards would otherwise have a moment in which
+     * someone suspends the grant: the act would be written, and run, under a state that no longer held.
+     *
+     * @template T
+     *
+     * @param \Closure(): T $do
+     *
+     * @return T
+     *
+     * @throws \RuntimeException when the book cannot be opened
+     */
+    public function exclusively(\Closure $do): mixed
+    {
+        if ($this->held !== null) {
+            return $do();
+        }
         $dir = \dirname($this->path);
         if (!is_dir($dir) && !@mkdir($dir, 0o700, true) && !is_dir($dir)) {
             throw new \RuntimeException('The house has nowhere to keep its standing grants: ' . $dir);
@@ -109,27 +139,47 @@ final class StandingLedger
         if ($handle === false || !flock($handle, \LOCK_EX)) {
             throw new \RuntimeException('The book of standing grants could not be opened for writing: ' . $this->path);
         }
+        $this->held = $handle;
+        $this->read = null;
         try {
-            // Read under the lock: two writers must not both link to the same last line.
-            $this->read = null;
-            $state = $this->parse((string) stream_get_contents($handle));
-            if ($state['fault'] !== null) {
-                throw new \RuntimeException('The book of standing grants does not verify, so nothing is added to it: ' . $state['fault']);
-            }
-            $last = $state['entries'] === [] ? null : $state['entries'][\count($state['entries']) - 1]['hash'];
-            $entry = ['type' => $type, 'at' => ($at ?? new \DateTimeImmutable())->format(\DATE_ATOM), 'prev' => $last, 'data' => $data];
-            $entry['hash'] = self::hashOf($entry);
-            fseek($handle, 0, \SEEK_END);
-            if (fwrite($handle, Canonical::json($entry) . "\n") === false || !fflush($handle)) {
-                throw new \RuntimeException('The book of standing grants could not be written: ' . $this->path);
-            }
-            $this->read = null;
-
-            return $entry;
+            return $do();
         } finally {
+            $this->held = null;
+            $this->read = null;
             flock($handle, \LOCK_UN);
             fclose($handle);
+            // A book that was only opened to be read under the lock, and holds nothing, is not left behind.
+            clearstatcache(true, $this->path);
+            if (@filesize($this->path) === 0) {
+                @unlink($this->path);
+            }
         }
+    }
+
+    /**
+     * @param resource             $handle the book, open and locked
+     * @param array<string, mixed> $data
+     *
+     * @return array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}
+     */
+    private function write($handle, string $type, array $data, ?\DateTimeImmutable $at): array
+    {
+        // Read under the lock: two writers must not both link to the same last line.
+        rewind($handle);
+        $state = $this->parse((string) stream_get_contents($handle));
+        if ($state['fault'] !== null) {
+            throw new \RuntimeException('The book of standing grants does not verify, so nothing is added to it: ' . $state['fault']);
+        }
+        $last = $state['entries'] === [] ? null : $state['entries'][\count($state['entries']) - 1]['hash'];
+        $entry = ['type' => $type, 'at' => ($at ?? new \DateTimeImmutable())->format(\DATE_ATOM), 'prev' => $last, 'data' => $data];
+        $entry['hash'] = self::hashOf($entry);
+        fseek($handle, 0, \SEEK_END);
+        if (fwrite($handle, Canonical::json($entry) . "\n") === false || !fflush($handle)) {
+            throw new \RuntimeException('The book of standing grants could not be written: ' . $this->path);
+        }
+        $this->read = null;
+
+        return $entry;
     }
 
     /**

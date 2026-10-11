@@ -113,12 +113,15 @@ final class AStandingGrantShrinksOnItsOwnAndGrowsOnlyByAPersonTest extends TestC
         $this->house->fired = true;
         self::assertSame(['ok' => true, 'fired' => true], $this->house->as(LabHouse::SEAT, 'lab:watch'));
 
-        $suspended = $this->house->lines(StandingLedger::SUSPENDED);
-        self::assertCount(1, $suspended);
-        self::assertSame('release-line', $suspended[0]['grant']);
-        self::assertSame('the house', $suspended[0]['by']);
-        self::assertStringContainsString('its falsifier «a-published-name» fired: `lab:watch` reported it', $suspended[0]['reason']);
-        self::assertArrayHasKey('watched', $suspended[0], 'the suspension cites what the watcher saw');
+        // The line that says the falsifier fired IS the suspension: nothing else is written for it, and a person
+        // lifts it by the digest of that very line.
+        self::assertSame([], $this->house->lines(StandingLedger::SUSPENDED));
+        $watched = $this->house->lines(StandingLedger::WATCHED);
+        self::assertTrue(end($watched)['fired']);
+        $record = $this->house->book()->record('release-line');
+        self::assertSame('suspended', $record?->standsAs($this->house->now));
+        self::assertStringContainsString('its falsifier «a-published-name» fired: `lab:watch` reported it', (string) $record?->because);
+        self::assertSame($this->house->ledger()->entries()[\count($this->house->ledger()->entries()) - 1]['hash'], $record?->suspension);
 
         // The same session, the next call: nothing about the act changed — only the grant's state, read now.
         $refused = $this->merge();
@@ -306,9 +309,9 @@ final class AStandingGrantShrinksOnItsOwnAndGrowsOnlyByAPersonTest extends TestC
 
     public function testAGrantThatReplacesAnotherTakesOverAndTheOldOneLendsNothing(): void
     {
-        // Suspended, and replaced by a person with one that asks for a second condition.
+        // Suspended, and replaced by a person with a grant that names the suspension it takes out of the way.
         $this->house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'it needs another condition']);
-        $this->house->granted(['id' => 'release-line-2', 'supersedes' => 'release-line']);
+        $this->house->granted(['id' => 'release-line-2', 'supersedes' => 'release-line', 'lifts' => $this->suspension()]);
 
         self::assertSame(['ok' => true], $this->merge(), 'the new grant lends; the old one\'s suspension is not its own');
         self::assertSame('release-line-2', $this->house->lines(StandingLedger::ABSORBED)[0]['grant']);
@@ -341,8 +344,8 @@ final class AStandingGrantShrinksOnItsOwnAndGrowsOnlyByAPersonTest extends TestC
         // Giving yet another grant beside it does not take it out of the way…
         $this->house->granted(['id' => 'third-line']);
         self::assertStringContainsString('Standing grant «release-line» is suspended', $this->merge()['refused']);
-        // …a person's act that NAMES it does: here, a grant that supersedes it.
-        $this->house->granted(['id' => 'fourth-line', 'supersedes' => 'release-line']);
+        // …a person's act that NAMES it does: here, a grant that supersedes it and says which suspension it lifts.
+        $this->house->granted(['id' => 'fourth-line', 'supersedes' => 'release-line', 'lifts' => $this->suspension()]);
         self::assertSame(['ok' => true], $this->merge());
         self::assertSame('superseded', $this->house->book()->record('release-line')?->standsAs($this->house->now));
     }
@@ -376,7 +379,7 @@ final class AStandingGrantShrinksOnItsOwnAndGrowsOnlyByAPersonTest extends TestC
         // will never fit under. The refusal the caller reads is the one it can do something about.
         $other = new LabHouse();
         try {
-            $other->granted(['conditions' => [['name' => 'builds', 'statement' => 'it builds', 'by' => ['operation' => 'lab:scan', 'arguments' => ['strict' => true]]]]]);
+            $other->granted(['conditions' => [['name' => 'builds', 'statement' => 'it builds', 'by' => ['operation' => 'lab:scan', 'arguments' => ['strict' => true], 'free' => ['path']]]]]);
             $other->granted(['id' => 'second-line', 'ceiling' => ['mutation' => 'persistent', 'externality' => 'same_principal', 'reversibility' => 'compensatable', 'authority' => 'write_as_user', 'subject' => 'executable']]);
             $candidate = $other->candidate('evidence.diff', 'an acta and nothing else');
             $other->as(LabHouse::SEAT, 'lab:scan', ['path' => $candidate]);
