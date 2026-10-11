@@ -341,7 +341,7 @@ final class AgentEndpoint
     /**
      * WHERE THE ENDPOINT'S VALUE CAME FROM — the only honest thing to show beside an unreachable one.
      *
-     * «unreachable: http://llama.local:11438» sends a person to fix a machine when the value was
+     * «unreachable: http://model.example:11438» sends a person to fix a machine when the value was
      * never theirs: it was a package's fallback, or a stray variable in a shell they forgot. Saying
      * WHICH of the three answered turns the same red into an instruction — declare it, or unset the
      * variable that is winning, or start the host you actually named.

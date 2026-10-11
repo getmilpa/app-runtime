@@ -105,7 +105,7 @@ final class OllamaReasoningWiringTest extends TestCase
     {
         $container = new DIContainer();
         $container->registerService(Config::class, new Config(['agent' => [
-            'baseUrl' => 'http://llama.local:11438/v1',
+            'baseUrl' => 'http://model.example:11438/v1',
             'model' => 'qwen3.8-27b',
             'outputTokens' => 8192,
             'ollamaReasoningEffort' => 'low',
@@ -130,7 +130,7 @@ final class OllamaReasoningWiringTest extends TestCase
             'qwen3.8-27b',
             'openai',
             httpClient: $http,
-            baseUrl: 'http://llama.local:11438/v1'
+            baseUrl: 'http://model.example:11438/v1'
         );
         $tools = $this->createMock(McpClientService::class);
         $tools->method('getToolSummaries')->willReturn([]);

@@ -35,7 +35,7 @@ final class IntakeObserverTest extends TestCase
         $almacen = new SessionStore($eventos);
         $almacen->start('s1', 'listar plugins');
 
-        (new IntakeObserver($almacen, 's1'))->observe('https://llama.local/v1/chat/completions', [
+        (new IntakeObserver($almacen, 's1'))->observe('https://model.example/v1/chat/completions', [
             'model' => 'qwen3-coder:30b',
             'messages' => [['role' => 'system', 'content' => 'eres un agente'], ['role' => 'user', 'content' => 'hola']],
             'tools' => [['name' => 'plugins_list'], ['name' => 'config_set']],
@@ -56,7 +56,7 @@ final class IntakeObserverTest extends TestCase
 
         // The same observer that records the request is the one the gateway reports the return to:
         // one wire, both halves. The gateway already normalized the usage across providers.
-        (new IntakeObserver($almacen, 's1'))->observeReturn('https://llama.local/v1/chat/completions', [
+        (new IntakeObserver($almacen, 's1'))->observeReturn('https://model.example/v1/chat/completions', [
             'model' => 'qwen3-coder:30b',
             'usage' => ['prompt_tokens' => 17, 'completion_tokens' => 16, 'total_tokens' => 33],
         ]);
@@ -82,7 +82,7 @@ final class IntakeObserverTest extends TestCase
         // The same wire carries reasoning: the gateway reports the provider's reasoning_content and
         // this lands it on the stream as its own event, verbatim, beside the intake and the cost.
         (new IntakeObserver($almacen, 's1'))->observeReasoning(
-            'https://llama.local/v1/chat/completions',
+            'https://model.example/v1/chat/completions',
             'The user asked for the plugins; I will call plugins_list.',
         );
 
@@ -109,7 +109,7 @@ final class IntakeObserverTest extends TestCase
         $almacen->start('s1', 'x');
 
         (new IntakeObserver($almacen, 's1', null, $root))->observeReasoning(
-            'https://llama.local/v1/chat/completions',
+            'https://model.example/v1/chat/completions',
             'the key is canary-intake-7f3a9c2e1b8d and I will use it',
         );
 
@@ -137,7 +137,7 @@ final class IntakeObserverTest extends TestCase
         $almacen = new SessionStore($eventos);
         $almacen->start('s1', 'x');
 
-        (new IntakeObserver($almacen, 's1', null, $root))->observeReturn('https://llama.local/v1/chat/completions', [
+        (new IntakeObserver($almacen, 's1', null, $root))->observeReturn('https://model.example/v1/chat/completions', [
             'model' => 'qwen3-coder:30b',
             'content' => 'here it is: canary-intake-7f3a9c2e1b8d',
         ]);
@@ -178,7 +178,7 @@ final class IntakeObserverTest extends TestCase
         }
 
         (new IntakeObserver($store, 's1', $declaredWindow))->observe(
-            'https://llama.local/v1/chat/completions',
+            'https://model.example/v1/chat/completions',
             $providerPayload,
         );
 

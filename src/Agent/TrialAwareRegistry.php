@@ -355,7 +355,7 @@ final class TrialAwareRegistry extends ToolRegistry
         }
 
         // THE RESULT IS SELF-DESCRIBING, and that is not decoration — it is the difference between a
-        // trial that gets promoted and one silently dropped. Measured on llama.local (greenhouse
+        // trial that gets promoted and one silently dropped. Measured on a lab machine (greenhouse
         // evidence/0274): given the bare operation output, the agent reported «done» and never
         // promoted, so nothing reached the host. The result now TELLS the agent it ran in a trial,
         // WHAT it changed, and the exact call that applies it — the house guides the flow, the model

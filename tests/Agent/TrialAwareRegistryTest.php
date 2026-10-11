@@ -76,7 +76,7 @@ final class TrialAwareRegistryTest extends TestCase
         self::assertIsArray($result->data);
         // THE RESULT TELLS THE AGENT IT RAN IN A TRIAL AND HOW TO APPLY IT — else the agent reports
         // false success and the human's intent is silently dropped into a disposable copy (measured
-        // on llama.local, greenhouse evidence/0274).
+        // on a lab machine, greenhouse evidence/0274).
         self::assertTrue($result->data['ran_in_trial'] ?? null);
         self::assertFalse($result->data['applied'] ?? null, 'a trial is not applied until it is promoted');
         self::assertSame('added', $result->data['changed']['touched.txt'] ?? null, 'the agent sees WHAT the trial changed');
