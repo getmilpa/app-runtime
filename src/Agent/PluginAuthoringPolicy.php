@@ -214,8 +214,8 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
                 return AuthorizationResult::allowed();
             }
             // A CALL THAT A STANDING GRANT NAMES IS JUDGED BY THAT GRANT, AT THIS MOMENT (greenhouse decisions/0615).
-            // The seat was handed the operation's words for the asking ({@see contextFor()}), so the gate's question
-            // about a word decided nothing; this one does. The book is read now — not when the session started, not
+            // When the grant stands, the seat was handed the operation's words for the asking ({@see contextFor()}),
+            // so the gate's question about a word decided nothing; this one does. The book is read now — not when the session started, not
             // from anyone's memory — and a grant that is suspended refuses its whole class, the harmless act included.
             // A pass lends exactly this call. A grant that names the operation but not THESE arguments lends nothing:
             // the call is judged as it was before any grant existed.
@@ -321,14 +321,64 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             );
         }
         // THE SAME HANDING-OVER FOR A CALL A STANDING GRANT NAMES FOR THIS SEAT (greenhouse decisions/0615): the words
-        // the operation declares, for the gate's question about this one call, in whatever state the grant is — so
-        // that the question that decides is this policy's judge and not a word the seat lacks. With the call's
-        // arguments in hand a word is lent only when a grant names THIS call; a call no grant names is handed nothing.
-        // What is lent is marked with the tool it was lent for, and every reader after the gate takes it back.
+        // the operation declares, for the gate's question about this one call — so that the question that decides is
+        // this policy's judge and not a word the seat lacks. With the call's arguments in hand a word is lent only
+        // when a grant names THIS call; a call no grant names is handed nothing. What is lent is marked with the tool
+        // it was lent for, and every reader after the gate takes it back.
+        //
+        // ONLY ON A GRANT THAT IS IN FORCE AND VERIFIED. One that is suspended, superseded, revoked, expired or not
+        // honoured lends nothing, even for the asking, and the context goes on as it came: the gate refuses the seat
+        // for the word it lacks, and the door that asked has that refusal cite the judge ({@see refusalAtTheGate()}).
         $operation = $verb === null ? $this->operationNamed($tool) : null;
-        $lent = $operation === null ? [] : $this->standing()->lends($context, $operation, $arguments, $this->operationNamed(...));
+        if ($operation === null) {
+            return $context;
+        }
+        $standing = $this->standing();
+        if ($arguments === null) {
+            $lent = $standing->offers($context, $operation);
+
+            return $lent === [] ? $context : HouseStandingJudge::withLent($context, $tool, $lent);
+        }
+        $lent = $standing->lends($context, $operation, $standing->decide($context, $operation, $arguments, $this->operationNamed(...)));
 
         return $lent === [] ? $context : HouseStandingJudge::withLent($context, $tool, $lent);
+    }
+
+    /**
+     * What the house adds to the gate's refusal of a call for a word the caller lacks — or null: it adds nothing,
+     * and the gate's own answer stands (greenhouse decisions/0615, sent back by the coordinator on 2026-10-11).
+     *
+     * A seat whose call a standing grant names, when that grant does not stand, is lent nothing and is refused for
+     * the word. That refusal alone would name the wrong thing to fix — the seat was never meant to hold the word —
+     * so the house's doors follow it with the judge's reason. Nothing rides in the context for this: the judge is
+     * asked again, about the caller as it is on its own.
+     *
+     * @param ToolContext          $seen      the caller as {@see contextFor()} returned it for this call
+     * @param list<string>         $scopes    the words the tool declares
+     * @param array<string, mixed> $arguments the arguments of the call
+     * @param string|null          $said      what the gate answered, when the door has it: only its refusal for the
+     *                                        missing word is added to
+     * @param bool                 $written   whether this is the call itself — whose refusal the house writes down —
+     *                                        or only a question about it
+     */
+    public function refusalAtTheGate(ToolContext $seen, string $tool, array $scopes, array $arguments, ?string $said = null, bool $written = true): ?string
+    {
+        $scoped = (new PolicyGate())->authorizeScopes($seen, $tool, $scopes);
+        if ($scoped->allowed || ($said !== null && $said !== $scoped->reason)) {
+            return null;
+        }
+        $operation = $this->operationNamed($tool);
+        $standing = $this->standing();
+        $decided = $operation === null ? null : $standing->decide(HouseStandingJudge::withoutLent($seen), $operation, $arguments, $this->operationNamed(...));
+        $because = $decided?->refusal();
+        if ($decided === null || $because === null) {
+            return null;
+        }
+        if ($written) {
+            $standing->refused($decided);
+        }
+
+        return $scoped->reason . ' ' . $because;
     }
 
     /** Whether the house's ledger of identities holds this principal live: a key or a passkey it recognized. */

@@ -58,10 +58,16 @@ final readonly class GrantRecord
         if ($this->fault !== null) {
             return 'not honoured';
         }
-        if ($this->state === GrantState::InForce && $this->grant->expiresAt !== null && $now >= $this->grant->expiresAt) {
+        if ($this->state === GrantState::InForce && !$this->inForceAt($now)) {
             return 'expired';
         }
 
         return str_replace('_', ' ', $this->state->value);
+    }
+
+    /** Whether the book has this grant in force at this moment: nothing took it back, and it is not past its own date. */
+    public function inForceAt(\DateTimeImmutable $now): bool
+    {
+        return $this->state === GrantState::InForce && ($this->grant->expiresAt === null || $now < $this->grant->expiresAt);
     }
 }

@@ -57,7 +57,9 @@ final class AdmissionAwareGate extends PolicyGate
      */
     public function authorize(ToolContext $ctx, ToolDefinition $tool, array $arguments = []): AuthorizationResult
     {
-        return $this->inner->authorize($this->contextFor($ctx, $tool->name, $arguments), $tool, $arguments);
+        $seen = $this->contextFor($ctx, $tool->name, $arguments);
+
+        return $this->citing($seen, $tool, $arguments, $this->inner->authorize($seen, $tool, $arguments));
     }
 
     /**
@@ -79,7 +81,27 @@ final class AdmissionAwareGate extends PolicyGate
      */
     public function authorizeCall(ToolContext $ctx, ToolDefinition $tool, array $arguments): AuthorizationResult
     {
-        return $this->inner->authorizeCall($this->contextFor($ctx, $tool->name, $arguments), $tool, $arguments);
+        $seen = $this->contextFor($ctx, $tool->name, $arguments);
+
+        return $this->citing($seen, $tool, $arguments, $this->inner->authorizeCall($seen, $tool, $arguments));
+    }
+
+    /**
+     * A refusal for the word a seat lacks, followed by why the standing grant that names the call lends nothing —
+     * when the house has that to say (greenhouse decisions/0615). This is a QUESTION about the call, so nothing is
+     * written down; the door that makes the call does that.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function citing(ToolContext $seen, ToolDefinition $tool, array $arguments, AuthorizationResult $result): AuthorizationResult
+    {
+        if ($result->allowed) {
+            return $result;
+        }
+        $policy = $this->inner->getCallPolicy();
+        $refusal = $policy instanceof PluginAuthoringPolicy ? $policy->refusalAtTheGate($seen, $tool->name, $tool->scopes, $arguments, $result->reason, written: false) : null;
+
+        return $refusal === null ? $result : AuthorizationResult::denied($refusal);
     }
 
     /** Forwards to the wrapped gate. */

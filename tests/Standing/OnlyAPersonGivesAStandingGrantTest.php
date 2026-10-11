@@ -232,9 +232,12 @@ final class OnlyAPersonGivesAStandingGrantTest extends TestCase
         $broken = str_replace('release-line', 'release-lime', (string) file_get_contents($path));
         file_put_contents($path, $broken);
 
-        // By a key: refused before anything is read of the document — a book that does not verify stops every key.
+        // The person's signed call is not stopped at the door — a broken book stops seats, and the person is how it
+        // gets repaired — and the act itself refuses to add to a book that does not verify.
         $given = $this->house->signed(LabHouse::PERSON, 'standing:grant', ['grant' => $this->house->document(['id' => 'another'])]);
-        self::assertStringContainsString('The book of standing grants does not verify', (string) ($given['refused'] ?? 'GIVEN'));
+        self::assertFalse($given['ok'] ?? null);
+        self::assertStringStartsWith('the book of standing grants does not verify (line 1', (string) ($given['error'] ?? ''));
+        self::assertStringEndsWith('— nothing was granted', (string) $given['error']);
         self::assertSame($broken, (string) file_get_contents($path), 'nothing was added to it');
     }
 }

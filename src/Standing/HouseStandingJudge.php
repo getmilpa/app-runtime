@@ -20,6 +20,7 @@ use Milpa\Command\Operation;
 use Milpa\Command\Standing\ConditionReceipt;
 use Milpa\Command\Standing\GrantStanding;
 use Milpa\Command\Standing\StandingCall;
+use Milpa\Command\Standing\StandingCheck;
 use Milpa\Command\Standing\StandingJudge;
 use Milpa\ToolRuntime\Contracts\ToolContext;
 use Milpa\ToolRuntime\Identity\SignatureVerifier;
@@ -39,11 +40,15 @@ use Milpa\ToolRuntime\Identity\SignatureVerifier;
  *
  * ── WHAT IT DOES, AND ONLY THIS ─────────────────────────────────────────────────────────────────
  *
- *   · LENDS, for the asking: a seat making a call some grant names is seen, BY THE GATE AND BY NOTHING
- *     ELSE, holding the words that operation declares ({@see self::lends()}) — so the question that
- *     decides is this judge's, not a word the seat lacks. Nothing is written to the seat; what was
- *     lent is marked with the tool it was lent for and taken back before any other tool is asked
- *     about, before the boundary reads the caller, and before one of the house's own doors calls on.
+ *   · LENDS, for the asking — and ONLY ON A GRANT THAT IS IN FORCE AND VERIFIED: a seat making a call
+ *     such a grant names is seen, BY THE GATE AND BY NOTHING ELSE, holding the words that operation
+ *     declares ({@see self::lends()}), so that the question that decides is this judge's and not a word
+ *     the seat lacks. Nothing is written to the seat; what was lent is marked with the tool it was
+ *     lent for and taken back before any other tool is asked about, before the boundary reads the
+ *     caller, and before one of the house's own doors calls on. A grant that is suspended, superseded,
+ *     revoked, expired or not honoured lends nothing, and neither does any grant while a suspended one
+ *     stops the call: the gate refuses for the missing word, and the house's doors have that refusal
+ *     cite this judge's reason — one that named only the word would name the wrong thing to fix.
  *   · JUDGES: gathers the facts — who the signer is today, where the book says each grant stands, what
  *     the call acts on, what it would do, what was measured on that very content — and hands them to
  *     the pure judgment in milpa/command ({@see StandingJudge}). It adds no criterion of its own, for
@@ -83,34 +88,64 @@ final class HouseStandingJudge
     /**
      * The words of this operation a seat lacks and is lent FOR THE GATE'S QUESTION about one call.
      *
-     * With the call's arguments, a word is lent only when some grant of the book names THIS call — admitted or not:
-     * the verdict is {@see self::decide()}'s, and a call no grant names is handed nothing at all. Without them the
-     * question is only whether the tool is offered to this seat, and it is whenever a grant names the operation.
-     * The words that are authority themselves — every scope, the word that recognizes identities — are never lent.
-     *
-     * @param array<string, mixed>|null                $arguments      the arguments of the call, or `null` when only the tool is asked about
-     * @param \Closure(OperationId|string): ?Operation $operationNamed the catalogue
+     * Only on a grant that is in force and verified: `$decision` is this judge's answer about the call, and a word
+     * is lent when it says such a grant names it — whatever the judge then finds about the candidate. Any other
+     * answer lends nothing. The words that are authority themselves — every scope, the word that recognizes
+     * identities — are never lent.
      *
      * @return list<string>
      */
-    public function lends(ToolContext $context, Operation $operation, ?array $arguments, \Closure $operationNamed): array
+    public function lends(ToolContext $context, Operation $operation, ?StandingDecision $decision): array
     {
-        $seat = self::seatOf($context);
-        if ($seat === null || $context->hasScope('*')) {
-            return []; // nobody to lend to, or nothing it lacks
-        }
-        if ($arguments === null) {
-            $named = false;
-            foreach ($this->book()?->documents() ?? [] as $grant) {
-                $named = $named || ($grant->lendsTo($seat) && $grant->namesOperation($operation->name));
-            }
-        } else {
-            // Named by a grant — or stopped by the book itself: either way the refusal is this judge's to give, in
-            // its own sentence, and the gate's «missing scope» would name the wrong thing to fix.
-            $named = $this->decide($context, $operation, $arguments, $operationNamed)?->named() === true;
+        if ($decision?->lendable !== true || $context->hasScope('*')) {
+            return [];
         }
 
-        return $named ? array_values(array_diff(GrantableOperation::lendable($operation), $context->scopes)) : [];
+        return self::words($context, $operation);
+    }
+
+    /**
+     * Whether this tool is OFFERED to a seat for the asking: some grant in force and verified lends to it and names
+     * the operation. Asked without a call in hand, so nothing can be said of arguments; the house answers for the
+     * tool, and a call that arrives is judged as a call.
+     *
+     * @return list<string>
+     */
+    public function offers(ToolContext $context, Operation $operation): array
+    {
+        $seat = self::seatOf($context);
+        $book = $seat === null || $context->hasScope('*') ? null : $this->book();
+        if ($seat === null || $book === null) {
+            return [];
+        }
+        // Read without verifying first, so that the many tools no grant names cost nothing; whatever a document
+        // names is then asked of the verified book.
+        $named = false;
+        foreach ($book->documents() as $grant) {
+            $named = $named || ($grant->lendsTo($seat) && $grant->namesOperation($operation->name));
+        }
+        if (!$named) {
+            return [];
+        }
+        // A book that does not verify honours no grant in it, so every record of one carries that fault.
+        $now = $this->now();
+        foreach ($book->records() as $record) {
+            if ($record->grant->lendsTo($seat) && $record->grant->namesOperation($operation->name) && $this->faultOf($record, $operation) === null && $record->inForceAt($now)) {
+                return self::words($context, $operation);
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * The words of an operation this caller lacks, as far as they can be lent at all.
+     *
+     * @return list<string>
+     */
+    private static function words(ToolContext $context, Operation $operation): array
+    {
+        return array_values(array_diff(GrantableOperation::lendable($operation), $context->scopes));
     }
 
     /**
@@ -134,13 +169,21 @@ final class HouseStandingJudge
             $operation->ceilingForCall($arguments),
             $this->now(),
         );
-        // A BOOK THAT DOES NOT VERIFY REFUSES EVERY SEAT (greenhouse decisions/0615 §5, «una cadena rota niega todo»).
-        // What it holds cannot be told from what was put there, so the house cannot know which grant names what —
-        // and «nobody granted anything» is the one reading it must not fall back to: the suspensions would vanish
-        // with the book for whoever holds a scope on its own. A person repairs it; the terminal's own operator is not
-        // a seat and is not stopped.
+        // A BOOK THAT DOES NOT VERIFY REFUSES EVERY ENROLLED SEAT (greenhouse decisions/0615 §5). What it holds cannot
+        // be told from what was put there, so the house cannot know which grant names what — and «nobody granted
+        // anything» is the one reading it must not fall back to: the suspensions would vanish with the book for a
+        // seat that holds a scope on its own.
         $fault = $book->ledger()->fault();
         if ($fault !== null) {
+            // …and it stops SEATS. A key that holds the word that recognizes identities is a person acting for
+            // themselves: stopping their signed call would close the way to repair the book and protect nothing —
+            // it runs as it does in a house that keeps no book. That is read from the ledger of identities, which
+            // does not depend on this book. (A key that holds that word AND that a grant names as a seat goes through
+            // here too: whoever recognizes identities can make a seat no grant names, so no grant ever bound it.)
+            if ($context->hasScope(StandingBook::AUTHORITY)) {
+                return null;
+            }
+
             return new StandingDecision($call, stopped: \sprintf(
                 'The book of standing grants does not verify (%s), so this house cannot tell what any grant in it names. Nothing runs for a seat until a person has looked at it and repaired it.',
                 $fault,
@@ -153,13 +196,6 @@ final class HouseStandingJudge
         if (!$concerned) {
             return null;
         }
-
-        // THE FLOORS, AND WHAT THE OPERATION IS, ARE ASKED AGAIN NOW (review, 4). An operation is code and code is
-        // replaced: one that has become ungrantable, or that is no longer the operation the grant was given over,
-        // is not what a person granted — whatever its name still says.
-        $ungrantable = GrantableOperation::refusal($operation);
-        $identity = (new OperationId($operation->name))->canonical;
-        $digest = $operation->instrumentDigest();
 
         // Every grant that may concern this call is judged alone, and the contract says how their answers combine
         // ({@see StandingJudge::among()}): a suspended grant that names the call refuses it whatever another would
@@ -178,23 +214,50 @@ final class HouseStandingJudge
                     $instruments[$condition->by->operation->canonical] = $instrument;
                 }
             }
-            $fault = $record->fault ?? match (true) {
-                $ungrantable !== null => $ungrantable . ' — it is not an operation a grant may lend any more',
-                ($record->operations[$identity] ?? null) !== $digest => \sprintf(
-                    '`%s` is not the operation it was when this grant was given: its declaration or its handler changed since',
-                    $call->operation->forCli(),
-                ),
-                default => null,
-            };
             $held[] = [
                 'grant' => $record->grant,
-                'standing' => new GrantStanding($record->state, $record->because, $fault, $record->watcherSignalAt, $receipts, $instruments),
+                'standing' => new GrantStanding($record->state, $record->because, $this->faultOf($record, $operation), $record->watcherSignalAt, $receipts, $instruments),
             ];
             $records[$record->grant->id] = $record;
         }
         $answer = StandingJudge::among($held, $call);
 
-        return $answer === null ? new StandingDecision($call) : new StandingDecision($call, $records[$answer['grant']->id], $answer['verdict']);
+        if ($answer === null) {
+            return new StandingDecision($call);
+        }
+        // A WORD IS LENT ONLY ON A GRANT THAT IS IN FORCE AND VERIFIED, and the contract's judge is who says so: the
+        // grant that answers for this call got past its questions about the signature and about being in force —
+        // whatever it found afterwards. When a suspended grant stops the call it is that grant that answers, so
+        // nothing is lent then either, however many others name the call.
+        $verdict = $answer['verdict'];
+        $stands = $verdict->passes() || !\in_array($verdict->failed, [StandingCheck::Signature, StandingCheck::InForce], true);
+
+        return new StandingDecision($call, $records[$answer['grant']->id], $verdict, lendable: $stands);
+    }
+
+    /**
+     * Why a grant is not honoured for this operation right now — its own signature, or the operation it covers — or
+     * `null`: it is.
+     *
+     * THE FLOORS, AND WHAT THE OPERATION IS, ARE ASKED AGAIN NOW (review, 4). An operation is code and code is
+     * replaced: one that has become ungrantable, or that is no longer the operation the grant was given over, is not
+     * what a person granted — whatever its name still says.
+     */
+    private function faultOf(GrantRecord $record, Operation $operation): ?string
+    {
+        if ($record->fault !== null) {
+            return $record->fault;
+        }
+        $ungrantable = GrantableOperation::refusal($operation);
+        if ($ungrantable !== null) {
+            return $ungrantable . ' — it is not an operation a grant may lend any more';
+        }
+        $identity = new OperationId($operation->name);
+        if (($record->operations[$identity->canonical] ?? null) !== $operation->instrumentDigest()) {
+            return \sprintf('`%s` is not the operation it was when this grant was given: its declaration or its handler changed since', $identity->forCli());
+        }
+
+        return null;
     }
 
     /**

@@ -569,9 +569,9 @@ suspends the grant. A condition's `by` and the falsifier's `watcher` are matched
 carries an argument the grant did not describe (`free` lists the ones it may) is not that
 instrument.
 
-**What the house then does on every call of a seat the grant names.** It hands the seat the words
-that operation declares, for that one call, and asks the judge instead of the word. The call runs
-only if all of this holds, read from the book *now*:
+**What the house then does on every call of a seat the grant names.** While the grant is in force
+and verified, it hands the seat the words that operation declares, for that one call, and asks the
+judge instead of the word. The call runs only if all of this holds, read from the book *now*:
 
 1. the grant's signature still verifies, and its signer still holds `identity:enroll`, still answers
    for the seat, and is not the seat;
@@ -584,9 +584,23 @@ only if all of this holds, read from the book *now*:
 
 A call whose arguments the grant does not name is handed nothing and judged exactly as before.
 What is lent is read by the gate's question about that one tool and by nothing else: the boundary,
-a nested call, and the house's own doors all see the caller as it is on its own. A grant that names the call governs it even for a seat that holds the scope on
-its own — every scope included. The operator's own terminal, and a key no grant names, are not
-judged: a grant governs the seats it names.
+a nested call, and the house's own doors all see the caller as it is on its own. A grant that names
+the call governs it even for a seat that holds the scope on its own — every scope included. The
+operator's own terminal, and a key no grant names, are not judged: a grant governs the seats it
+names.
+
+**A grant that does not stand lends nothing, not even for the asking.** Suspended, superseded,
+revoked, past its date, or not honoured — and likewise any grant while a suspended one stops the
+call. The seat is then refused for the word it lacks, and the house's doors follow that refusal
+with the judge's reason, because the word alone would name the wrong thing to fix:
+
+```text
+Missing required scope for tool 'release_publish'. Need one of: release:publish — context has: agent:run.
+Standing grant «release-line» is suspended — … While it is, every act it covers is the person's again.
+```
+
+Nothing rides in the caller's context for this: the door asks the judge again. A surface that asks
+tool-runtime's gate on its own, without the house's doors, reads the first sentence only.
 
 When several grants name the same call, **shrinking wins**: a suspended one refuses the call
 whatever another would lend, until a person lifts that suspension or gives a grant that supersedes
@@ -612,9 +626,13 @@ verdict. A house where nobody grants anything keeps no book and answers as it al
 The house suspends a grant itself when a watcher reports its falsifier fired — the line that says
 so is the suspension — and when what an act touched, or says it consumed, is not what was judged.
 
-A book that does not verify refuses **every seat**, whatever it calls: the house cannot tell what
-any grant in it names, and «nobody granted anything» is the one reading it must not fall back to.
-The operator's own terminal is not a seat; a person repairs the book from there.
+A book that does not verify refuses **every enrolled seat**, whatever it calls: the house cannot
+tell what any grant in it names, and «nobody granted anything» is the one reading it must not fall
+back to. It also takes no line from anyone — not a grant, not a reinstatement, not a withdrawal,
+not a suspension — and says so in those words. A person's own signed call and the operator's
+terminal run as they do in a house with no book: that is how it gets repaired. «A person» here is
+a key that holds `identity:enroll`, read from the ledger of identities, which does not depend on
+the book.
 
 **What this does not do — say so before relying on it.**
 
@@ -633,6 +651,10 @@ The operator's own terminal is not a seat; a person repairs the book from there.
   floor looks at the handler's declared parameters.
 - **A grant is bound to the host, not to the house.** A grant signed for one house verifies in
   another house on the same host where the same keys are recognized.
+- **A key that holds `identity:enroll` is never a seat to a broken book.** A grant may name such a
+  key as its seat, and while the book verifies it governs that key like any other. Broken, the key
+  goes through on what it holds on its own. Whoever recognizes identities can make a seat no grant
+  names, so the grant never bound it — but do not name such a key as a seat and count on the grant.
 - **The book is not tamper-proof.** The chain shows an edit in the middle; whoever holds the disk
   can still truncate it. What a forged grant or reinstatement cannot do is verify.
 - **The keyring that judges must hold the public key of whoever granted.** A seat that runs in its

@@ -213,6 +213,11 @@ final class LabHouse implements SignatureVerifier
         $operation = $this->operation($name);
         $tool = McpProjector::toolName($name);
         $context = $this->policy->contextFor($context, $tool, $input);
+        // As the terminal does before its runner asks the gate: a seat lent nothing reads why, in the gate's refusal.
+        $cited = $this->policy->refusalAtTheGate($context, $tool, $operation->scopes, $input);
+        if ($cited !== null) {
+            return ['refused' => $cited];
+        }
 
         $gate = new PolicyGate();
         $gate->setCallPolicy($this->policy);

@@ -169,8 +169,9 @@ final class StandingOperations implements CommandProvider
         }
 
         $book = StandingBook::forRoot($root, $this->verifier);
-        if ($book->ledger()->fault() !== null) {
-            return self::no('the book of standing grants does not verify (' . $book->ledger()->fault() . '); a person looks at it before anything is added — nothing was granted');
+        $unverified = self::unverified($book);
+        if ($unverified !== null) {
+            return self::no($unverified . ' — nothing was granted');
         }
         if ($book->record($grant->id) !== null) {
             return self::no("a grant «{$grant->id}» already exists in this house. What a person signed is never edited: a changed grant takes a new id and names the one it supersedes — nothing was granted");
@@ -297,6 +298,10 @@ final class StandingOperations implements CommandProvider
         }
         $root = $this->root();
         $book = $root === null ? null : StandingBook::forRoot($root, $this->verifier);
+        $unverified = self::unverified($book);
+        if ($unverified !== null) {
+            return self::no($unverified . $nothing);
+        }
         $record = $book?->record($id);
         if ($book === null || $record === null) {
             return self::no("this house has no standing grant «{$id}»{$nothing}");
@@ -358,6 +363,10 @@ final class StandingOperations implements CommandProvider
         }
         $root = $this->root();
         $book = $root === null ? null : StandingBook::forRoot($root, $this->verifier);
+        $unverified = self::unverified($book);
+        if ($unverified !== null) {
+            return self::no($unverified . ' — nothing was suspended');
+        }
         $record = $book?->record($id);
         if ($book === null || $record === null) {
             return self::no("this house has no standing grant «{$id}» — nothing was suspended");
@@ -499,6 +508,20 @@ final class StandingOperations implements CommandProvider
         }
 
         return $call->operation->forCli() . ($arguments === [] ? '' : ' (' . implode(', ', $arguments) . ')');
+    }
+
+    /**
+     * Why nothing is added to this book — or `null`: it verifies.
+     *
+     * A BOOK THAT DOES NOT VERIFY TAKES NO LINE, FROM ANYONE: not a grant, not a reinstatement, not a withdrawal, not
+     * even a suspension. And it is said in those words, before any grant is looked up in it — a book broken at its
+     * first line holds no grant at all, and «this house has no such grant» would name the wrong thing to fix.
+     */
+    private static function unverified(?StandingBook $book): ?string
+    {
+        $fault = $book?->ledger()->fault();
+
+        return $fault === null ? null : 'the book of standing grants does not verify (' . $fault . '); a person looks at it before anything is added';
     }
 
     /** @return array{ok: false, error: string} */

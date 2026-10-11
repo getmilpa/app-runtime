@@ -27,6 +27,12 @@ use Milpa\Command\Standing\StandingVerdict;
  *
  * `stopped` is the one refusal that belongs to no grant: the book itself does not verify, so the house
  * cannot know which grant names what, and refuses the seat rather than guess that none does.
+ *
+ * `lendable` says whether the grant that answers for this call is IN FORCE AND VERIFIED: it got past the
+ * judge's questions about its signature and about being in force, whatever was found afterwards. Only then
+ * is the seat handed the operation's words for the gate's question. A grant that is suspended, superseded,
+ * revoked, expired or not honoured lends nothing, even for the asking — and while a suspended grant stops
+ * the call, neither does any other.
  */
 final readonly class StandingDecision
 {
@@ -35,6 +41,7 @@ final readonly class StandingDecision
         public ?GrantRecord $record = null,
         public ?StandingVerdict $verdict = null,
         public ?string $stopped = null,
+        public bool $lendable = false,
     ) {
     }
 

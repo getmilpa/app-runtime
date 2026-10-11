@@ -1863,7 +1863,17 @@ final class Application
             $arguments = [];
         }
 
-        return $policy->contextFor($context, McpProjector::toolName($for->name), $arguments);
+        $tool = McpProjector::toolName($for->name);
+        $context = $policy->contextFor($context, $tool, $arguments);
+        // A GRANT THAT DOES NOT STAND LENDS NOTHING, and the runner's gate would refuse this seat for the word it
+        // lacks without a word about why. The house says it here, in the refusal the runner prints: the gate's own
+        // sentence, then the judge's reason — and writes that refusal down.
+        $refusal = $policy->refusalAtTheGate($context, $tool, $for->scopes, $arguments);
+        if ($refusal !== null) {
+            throw new \RuntimeException($refusal);
+        }
+
+        return $context;
     }
 
     /** The shell's screen, as `coa shell` opens it: its catalogue behind the door ({@see operacionesDelShell()}). */
