@@ -31,12 +31,19 @@ use Milpa\Command\Operation;
  * Only a mutation whose blast radius stays inside a copy: it changes something (a read has nothing
  * to confine), it touches no third party (a disposable copy does not make an email disposable), it
  * asks no signature (a signed consent is never pre-empted by a trial), and it is not one of the
- * house's own operations — spawning, sessions, capabilities, the sandbox itself, founding — which
- * are the acts that MOVE the house rather than run inside it.
+ * house's own operations — spawning, sessions, capabilities, the sandbox itself, founding, who the
+ * house recognizes and what it has granted — which are the acts that MOVE the house rather than run
+ * inside it.
+ *
+ * WHAT MOVES AUTHORITY IS NEVER REHEARSED (greenhouse decisions/0615, «Lo que la segunda revisión
+ * encontró», 1). A copy carries the house's ledgers, so an act on one of them «succeeds» there: a
+ * seat that stopped a standing grant on a leg was told it had, the line went to the copy's book, and
+ * the house went on lending. Stopping a grant, like recognizing a key, happens in the house or not
+ * at all.
  */
 final class TrialRouter
 {
-    private const HOUSE_PREFIXES = ['agent:', 'session:', 'capabilities:', 'sandbox:', 'foundation:'];
+    private const HOUSE_PREFIXES = ['agent:', 'session:', 'capabilities:', 'sandbox:', 'foundation:', 'identity:', 'standing:'];
 
     // Screen revisions own their draft/compare-and-swap lifecycle. Rehearsing these operations in a
     // file copy loses the host baseline and leaves their var/ records outside the promotable diff

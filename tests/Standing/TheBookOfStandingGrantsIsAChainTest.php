@@ -117,7 +117,9 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
         self::assertStringContainsString('line 3 does not link', (string) StandingLedger::forRoot($this->house->root)->fault());
         self::assertCount(1, StandingLedger::forRoot($this->house->root)->entries(), 'what verified before the fault is still read');
 
-        // A line that is well formed and claims a link it does not have.
+        // A line that is well formed and claims a link it does not have. (This asks the CHAIN alone: the head the
+        // house keeps beside the book would say at once that the file was rewritten, and it has its own tests.)
+        unlink($this->path() . StandingLedger::HEAD);
         $orphan = ['type' => StandingLedger::REINSTATED, 'at' => '2026-10-11T12:00:00+00:00', 'prev' => null, 'data' => ['grant' => 'a']];
         $orphan['hash'] = StandingLedger::hashOf($orphan);
         file_put_contents($this->path(), json_encode($orphan) . "\n");
@@ -141,6 +143,194 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
         } catch (\RuntimeException $error) {
             self::assertStringContainsString('could not be opened for writing', $error->getMessage());
         }
+    }
+
+    // ── the head the house keeps beside its book (decisions/0615, «Lo que la segunda revisión encontró», 3) ──
+
+    /** Three lines, and the book as it stood after each: what whoever holds the file can put back. */
+    private function threeLines(): array
+    {
+        $ledger = $this->house->ledger();
+        $copies = [];
+        foreach (['first', 'second', 'third'] as $reason) {
+            $ledger->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => $reason]);
+            $copies[] = (string) file_get_contents($this->path());
+        }
+
+        return $copies;
+    }
+
+    private function fault(): ?string
+    {
+        return StandingLedger::forRoot($this->house->root)->fault();
+    }
+
+    public function testTheHouseKeepsTheHeadOfItsBookForItselfAlone(): void
+    {
+        $umask = umask(0o022);
+        try {
+            $this->threeLines();
+        } finally {
+            umask($umask);
+        }
+        clearstatcache();
+        $entries = $this->house->ledger()->entries();
+
+        self::assertSame(['head' => $entries[2]['hash'], 'lines' => 3], json_decode((string) file_get_contents($this->path() . StandingLedger::HEAD), true));
+        self::assertSame(['600', '600'], [decoct(fileperms($this->path()) & 0o777), decoct(fileperms($this->path() . StandingLedger::HEAD) & 0o777)]);
+        self::assertSame([], glob($this->path() . StandingLedger::HEAD . '.*') ?: [], 'the head is put in its place whole, and nothing is left beside it');
+    }
+
+    /** @return iterable<string, array{\Closure(string, list<string>): void, string}> */
+    public static function howABookStopsBeingTheOneTheHouseWrote(): iterable
+    {
+        yield 'truncated to a prefix that verifies' => [static fn (string $book, array $copies) => file_put_contents($book, $copies[1]), 'this house wrote 3 line(s) in it and 2 are there'];
+        yield 'put back from an older copy' => [static fn (string $book, array $copies) => file_put_contents($book, $copies[0]), 'this house wrote 3 line(s) in it and 1 is there'];
+        yield 'emptied' => [static fn (string $book, array $copies) => file_put_contents($book, ''), 'this house wrote 3 line(s) in it and 0 are there'];
+        yield 'deleted' => [static fn (string $book, array $copies) => unlink($book), 'this house wrote 3 line(s) in it and 0 are there'];
+        yield 'its last line rewritten, with its digest computed again' => [static function (string $book, array $copies): void {
+            $second = json_decode(explode("\n", $copies[1])[1], true);
+            $forged = ['type' => StandingLedger::REINSTATED, 'at' => '2026-10-11T12:00:00+00:00', 'prev' => $second['hash'], 'data' => ['grant' => 'a']];
+            file_put_contents($book, $copies[1] . json_encode($forged + ['hash' => StandingLedger::hashOf($forged)]) . "\n");
+        }, 'line 3 is not the line this house wrote there'];
+    }
+
+    /** @param \Closure(string, list<string>): void $done */
+    #[\PHPUnit\Framework\Attributes\DataProvider('howABookStopsBeingTheOneTheHouseWrote')]
+    public function testABookThatIsNotTheOneTheHouseLastWroteDoesNotVerify(\Closure $done, string $says): void
+    {
+        $copies = $this->threeLines();
+        self::assertNull($this->fault(), 'control: as the house wrote it, it verifies');
+
+        $done($this->path(), $copies);
+
+        self::assertStringContainsString($says, (string) $this->fault());
+        self::assertTrue(StandingLedger::forRoot($this->house->root)->exists(), 'a house that kept a book has one, whatever became of its file');
+        try {
+            StandingLedger::forRoot($this->house->root)->append(StandingLedger::REINSTATED, ['grant' => 'a']);
+            self::fail('a line was added to a book that is not the one the house wrote');
+        } catch (\RuntimeException $error) {
+            self::assertStringContainsString('does not verify, so nothing is added to it', $error->getMessage());
+        }
+        // …and put back as it was, it is the house's book again.
+        file_put_contents($this->path(), $copies[2]);
+        self::assertNull($this->fault());
+    }
+
+    public function testAHeadThatCannotBeReadIsAFault(): void
+    {
+        $this->threeLines();
+        $head = $this->path() . StandingLedger::HEAD;
+        $whole = (string) file_get_contents($head);
+
+        foreach (['not json', '[]', '{"lines":3}', '{"head":"sha256:x","lines":"3"}', '{"head":"sha256:x","lines":0}', '{"head":7,"lines":3}'] as $broken) {
+            file_put_contents($head, $broken);
+            self::assertStringContainsString('its head cannot be read', (string) $this->fault(), $broken);
+        }
+        file_put_contents($head, $whole);
+        self::assertNull($this->fault());
+    }
+
+    public function testAHeadOneLineBehindIsABookThatHoldsMoreAndTheNextLinePutsItRight(): void
+    {
+        // What a house that was stopped between writing a line and keeping its head leaves behind.
+        $ledger = $this->house->ledger();
+        $ledger->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'first']);
+        $behind = (string) file_get_contents($this->path() . StandingLedger::HEAD);
+        $ledger->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'second']);
+        file_put_contents($this->path() . StandingLedger::HEAD, $behind);
+
+        self::assertNull($this->fault());
+        self::assertCount(2, StandingLedger::forRoot($this->house->root)->entries());
+        $third = StandingLedger::forRoot($this->house->root)->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'third']);
+        self::assertSame(['head' => $third['hash'], 'lines' => 3], json_decode((string) file_get_contents($this->path() . StandingLedger::HEAD), true));
+    }
+
+    public function testTheHeadIsNotASealWhoeverRewritesBothFilesIsNotStopped(): void
+    {
+        // WHAT THIS DOES NOT STOP, measured so that nobody reads more into it. The head is on the same disk and is the
+        // same user's: three ways whoever writes the book gets past it.
+        $copies = $this->threeLines();
+        $head = $this->path() . StandingLedger::HEAD;
+        $first = json_decode(explode("\n", $copies[0])[0], true);
+        $forged = ['type' => StandingLedger::REINSTATED, 'at' => '2026-10-11T12:00:00+00:00', 'prev' => $first['hash'], 'data' => ['grant' => 'a']];
+        $forged += ['hash' => StandingLedger::hashOf($forged)];
+        $rewritten = $copies[0] . json_encode($forged) . "\n";
+
+        // 1 · the book rewritten, and the head rewritten to agree with it.
+        file_put_contents($this->path(), $rewritten);
+        self::assertNotNull($this->fault(), 'control: the book alone, rewritten, does not verify');
+        file_put_contents($head, json_encode(['head' => $forged['hash'], 'lines' => 2]));
+        self::assertNull($this->fault());
+
+        // 2 · the head deleted: a book with no head is a book from before there were heads.
+        file_put_contents($this->path(), $copies[0]);
+        self::assertNotNull($this->fault());
+        unlink($head);
+        self::assertNull($this->fault());
+
+        // 3 · a line added by hand after the last one the house wrote, with a link that verifies.
+        $ledger = $this->house->ledger();
+        $ledger->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'again']);
+        $last = $ledger->entries()[1];
+        $added = ['type' => StandingLedger::REINSTATED, 'at' => '2026-10-11T12:00:00+00:00', 'prev' => $last['hash'], 'data' => ['grant' => 'a']];
+        file_put_contents($this->path(), json_encode($added + ['hash' => StandingLedger::hashOf($added)]) . "\n", \FILE_APPEND);
+        self::assertNull($this->fault());
+        self::assertCount(3, StandingLedger::forRoot($this->house->root)->entries());
+    }
+
+    public function testALineIsWrittenWholeOrNotAtAll(): void
+    {
+        FillingDisk::mount();
+        $book = 'filling://house/storage/identity/standing.jsonl';
+        $ledger = new StandingLedger($book);
+        $ledger->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'a whole line']);
+        $whole = FillingDisk::$files[$book];
+
+        // The disk fills twenty bytes into the next line.
+        FillingDisk::$room = 20;
+        try {
+            $ledger->append(StandingLedger::ABSORBED, ['grant' => 'a', 'operation' => 'lab.publish']);
+            self::fail('the house was told a line was written of which twenty bytes were');
+        } catch (\RuntimeException $error) {
+            self::assertStringContainsString('could not be written', $error->getMessage());
+        }
+
+        self::assertSame($whole, FillingDisk::$files[$book], 'what the disk took of the line was given back');
+        self::assertNull((new StandingLedger($book))->fault());
+        self::assertSame(['head' => (new StandingLedger($book))->entries()[0]['hash'], 'lines' => 1], json_decode(FillingDisk::$files[$book . StandingLedger::HEAD], true), 'the head still says what the book holds');
+        // …and with room again, the book goes on.
+        FillingDisk::$room = \PHP_INT_MAX;
+        (new StandingLedger($book))->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'room again']);
+        self::assertCount(2, (new StandingLedger($book))->entries());
+        self::assertNull((new StandingLedger($book))->fault());
+    }
+
+    public function testAHeadTheHouseCannotKeepDoesNotUndoTheLine(): void
+    {
+        FillingDisk::mount();
+        $book = 'filling://house/storage/identity/standing.jsonl';
+        $ledger = new StandingLedger($book);
+        $ledger->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'first']);
+        $kept = FillingDisk::$files[$book . StandingLedger::HEAD];
+
+        // The line is written, and the head cannot even be started…
+        FillingDisk::$closed = StandingLedger::HEAD . '.';
+        $entry = $ledger->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'second']);
+        self::assertSame('second', $entry['data']['reason']);
+        // …or it is written beside its place and cannot be put there.
+        FillingDisk::$closed = null;
+        FillingDisk::$renames = false;
+        $ledger->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'third']);
+
+        self::assertCount(3, (new StandingLedger($book))->entries(), 'the lines are in the book');
+        self::assertNull((new StandingLedger($book))->fault(), 'and a book that holds more than its head says verifies');
+        self::assertSame($kept, FillingDisk::$files[$book . StandingLedger::HEAD], 'the head stands behind');
+        self::assertSame([$book, $book . StandingLedger::HEAD], array_keys(FillingDisk::$files), 'nothing half written is left beside it');
+        // The next line the house can keep the head of puts it right.
+        FillingDisk::$renames = true;
+        $fourth = $ledger->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'fourth']);
+        self::assertSame(['head' => $fourth['hash'], 'lines' => 4], json_decode(FillingDisk::$files[$book . StandingLedger::HEAD], true));
     }
 
     public function testAHouseWithNowhereToKeepItsBookSaysSo(): void

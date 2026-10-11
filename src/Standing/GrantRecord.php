@@ -37,6 +37,8 @@ final readonly class GrantRecord
      * @param array<string, string>   $operations      what each covered operation WAS when the grant was given: its
      *                                                 identity => the digest that pins it. An operation that is no
      *                                                 longer that one is not the operation a person granted
+     * @param array<string, string>   $instruments     the same, for what the grant is MEASURED and WATCHED by: the
+     *                                                 operation of each condition and of its falsifier
      */
     public function __construct(
         public StandingGrant $grant,
@@ -49,6 +51,7 @@ final readonly class GrantRecord
         public ?string $suspension = null,
         public ?\DateTimeImmutable $watcherSignalAt = null,
         public array $operations = [],
+        public array $instruments = [],
     ) {
     }
 

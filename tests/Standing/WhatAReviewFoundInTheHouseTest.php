@@ -104,7 +104,7 @@ final class WhatAReviewFoundInTheHouseTest extends TestCase
             actsOn: $this->actsOnThePath(),
         ));
         // Signed by the person and written into the book by whoever holds the disk: what `standing:grant` would refuse.
-        $house->grantedByHand(['covers' => [['operation' => 'lab:drive']]], line: ['operations' => ['lab.drive' => $house->operation('lab:drive')->instrumentDigest()]]);
+        $house->grantedByHand(['covers' => [['operation' => 'lab:drive']]]);
         $house->as(LabHouse::SEAT, 'lab:watch');
         $measured = $house->candidate('a.tar', 'candidate a');
         $unmeasured = $house->candidate('b.tar', 'candidate b');
@@ -155,7 +155,7 @@ final class WhatAReviewFoundInTheHouseTest extends TestCase
             effects: $this->effect(),
             actsOn: $this->actsOnThePath(),
         ));
-        $house->grantedByHand(['covers' => [['operation' => 'lab:tag', 'arguments' => ['line' => 'stable']]]], line: ['operations' => ['lab.tag' => $house->operation('lab:tag')->instrumentDigest()]]);
+        $house->grantedByHand(['covers' => [['operation' => 'lab:tag', 'arguments' => ['line' => 'stable']]]]);
         $candidate = $house->candidate('a.tar', 'candidate a');
 
         self::assertSame(['ok' => true], $house->as(LabHouse::SEAT, 'lab:tag', ['path' => $candidate, 'line' => 'beta']));
@@ -324,7 +324,7 @@ final class WhatAReviewFoundInTheHouseTest extends TestCase
 
         // And written into the book by hand, signed: at the moment of the call the floor is asked again, and `*` is
         // never among what is lent.
-        $house->grantedByHand(['covers' => [['operation' => 'lab:everything']]], line: ['operations' => ['lab.everything' => $house->operation('lab:everything')->instrumentDigest()]]);
+        $house->grantedByHand(['covers' => [['operation' => 'lab:everything']]]);
         $candidate = $house->candidate('a.tar', 'candidate a');
         self::assertFalse($house->policy->contextFor($house->contextOf(LabHouse::SEAT), 'lab_everything', ['path' => $candidate])->hasScope('*'));
         self::assertArrayHasKey('refused', $house->as(LabHouse::SEAT, 'lab:everything', ['path' => $candidate]));
@@ -350,7 +350,7 @@ final class WhatAReviewFoundInTheHouseTest extends TestCase
 
         // Written into the book by hand — a genuine signature that names no suspension, say one made before it: the
         // suspended grant stays suspended, and under it the call stays refused.
-        $house->grantedByHand(['id' => 'second', 'supersedes' => 'release-line'], line: ['operations' => $this->digestsOfTheLabGrant()]);
+        $house->grantedByHand(['id' => 'second', 'supersedes' => 'release-line']);
         $house->as(LabHouse::SEAT, 'lab:watch');
         self::assertSame('suspended', $house->book()->record('release-line')?->standsAs($house->now));
         self::assertStringContainsString('Standing grant «release-line» is suspended', (string) ($house->as(LabHouse::SEAT, 'lab:merge', ['path' => $candidate])['refused'] ?? 'RAN'));
@@ -374,8 +374,15 @@ final class WhatAReviewFoundInTheHouseTest extends TestCase
         $given = $house->signed(LabHouse::STRANGER, 'standing:grant', ['grant' => $house->document(['id' => 'theirs', 'to' => [LabHouse::OTHER_SEAT], 'supersedes' => 'release-line'])]);
         self::assertStringContainsString('does not answer for seat', (string) ($given['error'] ?? 'GIVEN'));
 
-        $house->grantedByHand(['id' => 'theirs', 'to' => [LabHouse::OTHER_SEAT], 'supersedes' => 'release-line'], LabHouse::STRANGER, ['operations' => $this->digestsOfTheLabGrant()]);
-        self::assertSame('in force', $house->book()->record('release-line')?->standsAs($house->now), 'a key that does not answer for a grant\'s seats took that grant away');
+        $house->grantedByHand(['id' => 'theirs', 'to' => [LabHouse::OTHER_SEAT], 'supersedes' => 'release-line'], LabHouse::STRANGER);
+        // It did not take the grant away — and it stopped it, which anyone the house recognizes may do: a replacement
+        // that does not hold is read as a stop, never as nothing (decisions/0615, «Lo que la segunda revisión
+        // encontró», 2). What it cannot do is what only a person who answers for those seats can: put another in its place.
+        $record = $house->book()->record('release-line');
+        self::assertSame('suspended', $record?->standsAs($house->now), 'a key that does not answer for a grant\'s seats took that grant away');
+        self::assertStringContainsString('does not answer for seat', (string) $record?->because);
+        self::assertTrue($house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => (string) $record?->suspension])['ok'] ?? false, 'the person who answers for the seat lifts it, naming it');
+        self::assertSame('in force', $house->book()->record('release-line')?->standsAs($house->now));
     }
 
     public function testAGrantWhoseOwnLineDoesNotHoldSupersedesNothing(): void
@@ -384,21 +391,13 @@ final class WhatAReviewFoundInTheHouseTest extends TestCase
         $house->granted();
 
         // Signed by the person, who answers for the seat — and its line records another digest than what was signed.
-        $house->grantedByHand(['id' => 'second', 'supersedes' => 'release-line'], line: ['digest' => 'sha256:of-something-else', 'operations' => $this->digestsOfTheLabGrant()]);
+        $house->grantedByHand(['id' => 'second', 'supersedes' => 'release-line'], line: ['digest' => 'sha256:of-something-else']);
 
         self::assertNotNull($house->book()->record('second')?->fault);
-        self::assertSame('in force', $house->book()->record('release-line')?->standsAs($house->now));
-    }
-
-    /** @return array<string, string> */
-    private function digestsOfTheLabGrant(): array
-    {
-        $digests = [];
-        foreach (['lab:publish', 'lab:merge', 'lab:announce'] as $name) {
-            $digests[str_replace(':', '.', $name)] = (string) $this->house->operation($name)->instrumentDigest();
-        }
-
-        return $digests;
+        // Superseded it is not; stopped it is, until a person lifts that stop by name (second review, 2).
+        $record = $house->book()->record('release-line');
+        self::assertSame('suspended', $record?->standsAs($house->now));
+        self::assertStringContainsString('«second» names it as replaced', (string) $record?->because);
     }
 
     // ── 7 · a fired falsifier suspends by the line that says so ─────────────────────────────────────────────

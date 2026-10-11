@@ -18,6 +18,7 @@ use Milpa\AppRuntime\Identity\IdentityKey;
 use Milpa\Command\Consent\OperationId;
 use Milpa\Command\Operation;
 use Milpa\Command\Standing\ConditionReceipt;
+use Milpa\Command\Standing\GrantCondition;
 use Milpa\Command\Standing\GrantStanding;
 use Milpa\Command\Standing\StandingCall;
 use Milpa\Command\Standing\StandingCheck;
@@ -69,6 +70,9 @@ final class HouseStandingJudge
     /** Where a context says what was lent to it for the asking, and for which tool — so it can be taken back. */
     public const LENT = 'standing.lent';
 
+    /** How many refusals the book keeps in a row, with nothing else written between them ({@see self::refused()}). */
+    public const REFUSALS_KEPT = 32;
+
     /**
      * @param (\Closure(): \DateTimeImmutable)|null $clock the moment of the act; the wall clock when none is handed in
      */
@@ -109,9 +113,11 @@ final class HouseStandingJudge
      * the operation. Asked without a call in hand, so nothing can be said of arguments; the house answers for the
      * tool, and a call that arrives is judged as a call.
      *
+     * @param \Closure(OperationId|string): ?Operation $operationNamed the catalogue, asked for the instruments a grant names
+     *
      * @return list<string>
      */
-    public function offers(ToolContext $context, Operation $operation): array
+    public function offers(ToolContext $context, Operation $operation, \Closure $operationNamed): array
     {
         $seat = self::seatOf($context);
         $book = $seat === null || $context->hasScope('*') ? null : $this->book();
@@ -130,7 +136,7 @@ final class HouseStandingJudge
         // A book that does not verify honours no grant in it, so every record of one carries that fault.
         $now = $this->now();
         foreach ($book->records() as $record) {
-            if ($record->grant->lendsTo($seat) && $record->grant->namesOperation($operation->name) && $this->faultOf($record, $operation) === null && $record->inForceAt($now)) {
+            if ($record->grant->lendsTo($seat) && $record->grant->namesOperation($operation->name) && $this->faultOf($record, $operation, $operationNamed) === null && $record->inForceAt($now)) {
                 return self::words($context, $operation);
             }
         }
@@ -169,25 +175,12 @@ final class HouseStandingJudge
             $operation->ceilingForCall($arguments),
             $this->now(),
         );
-        // A BOOK THAT DOES NOT VERIFY REFUSES EVERY ENROLLED SEAT (greenhouse decisions/0615 §5). What it holds cannot
-        // be told from what was put there, so the house cannot know which grant names what — and «nobody granted
-        // anything» is the one reading it must not fall back to: the suspensions would vanish with the book for a
-        // seat that holds a scope on its own.
+        // A book that does not verify: the house's refusal of a seat, or nothing at all for a person acting for
+        // themselves ({@see self::stops()}, which asks the same of a caller with no call in hand). Either way no
+        // grant in it is read.
         $fault = $book->ledger()->fault();
         if ($fault !== null) {
-            // …and it stops SEATS. A key that holds the word that recognizes identities is a person acting for
-            // themselves: stopping their signed call would close the way to repair the book and protect nothing —
-            // it runs as it does in a house that keeps no book. That is read from the ledger of identities, which
-            // does not depend on this book. (A key that holds that word AND that a grant names as a seat goes through
-            // here too: whoever recognizes identities can make a seat no grant names, so no grant ever bound it.)
-            if ($context->hasScope(StandingBook::AUTHORITY)) {
-                return null;
-            }
-
-            return new StandingDecision($call, stopped: \sprintf(
-                'The book of standing grants does not verify (%s), so this house cannot tell what any grant in it names. Nothing runs for a seat until a person has looked at it and repaired it.',
-                $fault,
-            ));
+            return $context->hasScope(StandingBook::AUTHORITY) ? null : new StandingDecision($call, stopped: self::unverified($fault));
         }
         $concerned = false;
         foreach ($book->documents() as $grant) {
@@ -216,7 +209,7 @@ final class HouseStandingJudge
             }
             $held[] = [
                 'grant' => $record->grant,
-                'standing' => new GrantStanding($record->state, $record->because, $this->faultOf($record, $operation), $record->watcherSignalAt, $receipts, $instruments),
+                'standing' => new GrantStanding($record->state, $record->because, $this->faultOf($record, $operation, $operationNamed), $record->watcherSignalAt, $receipts, $instruments),
             ];
             $records[$record->grant->id] = $record;
         }
@@ -236,14 +229,53 @@ final class HouseStandingJudge
     }
 
     /**
+     * The house's refusal of this caller because of THE BOOK ITSELF — it does not verify, and the caller is a seat —
+     * or `null`: the book is whole, there is none, or the caller is not one it stops.
+     *
+     * A BOOK THAT DOES NOT VERIFY REFUSES EVERY ENROLLED SEAT, WHATEVER IT CALLS (greenhouse decisions/0615 §5). What
+     * it holds cannot be told from what was put there, so the house cannot know which grant names what — and «nobody
+     * granted anything» is the one reading it must not fall back to: the suspensions would vanish with the book for a
+     * seat that holds a scope on its own.
+     *
+     * So this is a question about the caller and the book, with no call in it, and whoever decides anything for a
+     * seat asks it FIRST: two doors answered before asking — promoting a trial, and a run the host's HTTP policy had
+     * admitted — and a seat went through them with the book broken («Lo que la segunda revisión encontró», 5).
+     *
+     * It stops SEATS. A key that holds the word that recognizes identities is a person acting for themselves:
+     * stopping their signed call would close the way to repair the book and protect nothing — it runs as it does in
+     * a house that keeps no book. That is read from the ledger of identities, which does not depend on this book. (A
+     * key that holds that word AND that a grant names as a seat goes through here too: whoever recognizes identities
+     * can make a seat no grant names, so no grant ever bound it.)
+     */
+    public function stops(ToolContext $context): ?string
+    {
+        if (self::seatOf($context) === null || $context->hasScope(StandingBook::AUTHORITY)) {
+            return null;
+        }
+        $fault = $this->book()?->ledger()->fault();
+
+        return $fault === null ? null : self::unverified($fault);
+    }
+
+    private static function unverified(string $fault): string
+    {
+        return \sprintf(
+            'The book of standing grants does not verify (%s), so this house cannot tell what any grant in it names. Nothing runs for a seat until a person has looked at it and repaired it.',
+            $fault,
+        );
+    }
+
+    /**
      * Why a grant is not honoured for this operation right now — its own signature, or the operation it covers — or
      * `null`: it is.
      *
      * THE FLOORS, AND WHAT THE OPERATION IS, ARE ASKED AGAIN NOW (review, 4). An operation is code and code is
      * replaced: one that has become ungrantable, or that is no longer the operation the grant was given over, is not
      * what a person granted — whatever its name still says.
+     *
+     * @param \Closure(OperationId|string): ?Operation $operationNamed the catalogue, asked for the instruments a grant names
      */
-    private function faultOf(GrantRecord $record, Operation $operation): ?string
+    private function faultOf(GrantRecord $record, Operation $operation, \Closure $operationNamed): ?string
     {
         if ($record->fault !== null) {
             return $record->fault;
@@ -253,8 +285,25 @@ final class HouseStandingJudge
             return $ungrantable . ' — it is not an operation a grant may lend any more';
         }
         $identity = new OperationId($operation->name);
-        if (($record->operations[$identity->canonical] ?? null) !== $operation->instrumentDigest()) {
-            return \sprintf('`%s` is not the operation it was when this grant was given: its declaration or its handler changed since', $identity->forCli());
+        if (($record->operations[$identity->canonical] ?? null) !== OperationPin::of($operation)) {
+            return \sprintf('`%s` is not the operation it was when this grant was given: its declaration or its code changed since', $identity->forCli());
+        }
+        // …AND SO ARE WHAT IT IS MEASURED BY AND WHAT WATCHES IT (review, second, 4). An instrument or a watcher that
+        // was replaced under its name is not the one a person granted over: until a person grants again, over what is
+        // there now, the grant is not honoured — a softer instrument measures nothing for it.
+        $watched = $record->grant->falsifier;
+        $asked = array_map(static fn (GrantCondition $condition): array => [$condition->by->operation, \sprintf('which measures condition «%s»', $condition->name)], $record->grant->conditions);
+        $asked[] = [$watched->watcher->operation, \sprintf('which watches falsifier «%s»', $watched->name)];
+        foreach ($asked as [$named, $role]) {
+            $today = $operationNamed($named);
+            if ($today === null || ($record->instruments[$named->canonical] ?? null) !== OperationPin::of($today)) {
+                return \sprintf(
+                    '`%s`, %s, %s — what a grant is measured and watched by is the operation it was given over, never whatever holds its name today',
+                    $named->forCli(),
+                    $role,
+                    $today === null ? 'is not in this house any more' : 'is not the operation it was when this grant was given: its declaration or its code changed since',
+                );
+            }
         }
 
         return null;
@@ -335,7 +384,16 @@ final class HouseStandingJudge
         }
     }
 
-    /** Write down a refusal of a call that a grant names. A book that cannot be written does not turn a refusal into a pass. */
+    /**
+     * Write down a refusal of a call that a grant names. A book that cannot be written does not turn a refusal into a pass.
+     *
+     * ONCE, AND NOT WITHOUT END (greenhouse decisions/0615, «Lo que la segunda revisión encontró», 8). Every call of
+     * every seat reads the whole book, and a refused call used to add a line each time: a seat grew it for everyone by
+     * asking again. So among the refusals the book ENDS with — nothing else written since — the same one is not
+     * written twice, and no more than {@see self::REFUSALS_KEPT} are kept in a row. The refusal itself is given every
+     * time; what stops is the line. Whatever else is written — a measurement, a watcher's sign, an act, a stop —
+     * ends that run, and what is refused after it is a new fact.
+     */
     public function refused(StandingDecision $decision): void
     {
         $record = $decision->record;
@@ -343,16 +401,28 @@ final class HouseStandingJudge
         if ($record === null || $verdict === null || $verdict->passes()) {
             return;
         }
+        $ledger = StandingLedger::forRoot($this->root);
+        $line = [
+            'grant' => $record->grant->id,
+            'operation' => $decision->call->operation->canonical,
+            'arguments' => $decision->call->arguments,
+            'seat' => $decision->call->seat,
+            'subject' => $decision->call->subject,
+            'check' => $verdict->failed?->value,
+            'reason' => $verdict->reason,
+        ];
+        $same = static fn (array $data): array => array_diff_key($data, ['reason' => true]);
+        $run = 0;
+        foreach (array_reverse($ledger->entries()) as $entry) {
+            if ($entry['type'] !== StandingLedger::REFUSED) {
+                break;
+            }
+            if ($same($entry['data']) == $same($line) || ++$run >= self::REFUSALS_KEPT) {
+                return;
+            }
+        }
         try {
-            StandingLedger::forRoot($this->root)->append(StandingLedger::REFUSED, [
-                'grant' => $record->grant->id,
-                'operation' => $decision->call->operation->canonical,
-                'arguments' => $decision->call->arguments,
-                'seat' => $decision->call->seat,
-                'subject' => $decision->call->subject,
-                'check' => $verdict->failed?->value,
-                'reason' => $verdict->reason,
-            ], $this->now());
+            $ledger->append(StandingLedger::REFUSED, $line, $this->now());
         } catch (\RuntimeException) {
             // The refusal stands without its line: a book that cannot be written does not turn a no into a yes.
         }

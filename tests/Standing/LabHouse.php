@@ -269,12 +269,16 @@ final class LabHouse implements SignatureVerifier
         $document = $this->document($change);
         $grant = \Milpa\Command\Standing\StandingGrant::fromJson($document);
         $signed = $this->signature($signer, 'standing:grant', ['grant' => $document]);
+        // What the door writes beside a grant: what each operation it is given over IS, that day.
+        $pin = fn (\Milpa\Command\Standing\NamedCall $named): array => [$named->operation->canonical => (string) \Milpa\AppRuntime\Standing\OperationPin::of($this->operation($named->operation->forCli()))];
         $this->writtenByHand(StandingLedger::GRANTED, $line + [
             'grant' => $grant->id,
             'digest' => $grant->digest(),
             'payload' => $signed->payload,
             'signature' => $signed->signature,
             'fingerprint' => $signer,
+            'operations' => array_merge(...array_map($pin, $grant->covers)),
+            'instruments' => array_merge(...array_map($pin, [...array_map(static fn (\Milpa\Command\Standing\GrantCondition $condition): \Milpa\Command\Standing\NamedCall => $condition->by, $grant->conditions), $grant->falsifier->watcher])),
         ]);
     }
 

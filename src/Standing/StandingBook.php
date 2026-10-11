@@ -40,7 +40,11 @@ use Milpa\ToolRuntime\Identity\VerifiedSigner;
  *   · a suspension stands the moment it is written, by anyone: shrinking gives nobody authority;
  *   · a reinstatement counts only when a person's signature covers exactly that grant AND the very
  *     suspension it lifts, so an old signature, a line written by hand, or a seat's own key lift nothing;
- *   · a grant is superseded only by a later grant that itself holds.
+ *   · a grant is superseded only by a later grant that itself holds;
+ *   · and WHAT SHRINKS NEVER STOPS APPLYING. Everything here is read against who each key is today, so
+ *     a withdrawal or a replacement that held when it was written can stop holding for a reason that
+ *     names no grant: its signer left, a key expired. It then stands as a suspension — never as
+ *     nothing. A reinstatement that stops holding decays the safe way; these would decay the other.
  *
  * WHO IS «A PERSON» HERE — and what this cannot know. The house does not know whether a key is held by
  * a person. It knows the key holds `identity:enroll` now, answers for every seat the grant lends to, and
@@ -214,7 +218,7 @@ final class StandingBook
     {
         $entries = $this->ledger->entries();
         $broken = $this->ledger->fault();
-        /** @var array<string, array{grant: StandingGrant, entry: string, at: string, by: string, fault: ?string, state: GrantState, because: ?string, suspension: ?string, signal: ?\DateTimeImmutable, operations: array<string, string>}> $grants */
+        /** @var array<string, array{grant: StandingGrant, entry: string, at: string, by: string, fault: ?string, state: GrantState, because: ?string, suspension: ?string, signal: ?\DateTimeImmutable, operations: array<string, string>, instruments: array<string, string>}> $grants */
         $grants = [];
 
         foreach ($entries as $entry) {
@@ -230,10 +234,12 @@ final class StandingBook
                 if (isset($grants[$grant->id])) {
                     continue; // a second line under an id already taken is not that grant
                 }
-                $operations = [];
-                foreach (\is_array($data['operations'] ?? null) ? $data['operations'] : [] as $operation => $digest) {
-                    if (\is_string($operation) && \is_string($digest)) {
-                        $operations[$operation] = $digest;
+                $pins = ['operations' => [], 'instruments' => []];
+                foreach (array_keys($pins) as $kind) {
+                    foreach (\is_array($data[$kind] ?? null) ? $data[$kind] : [] as $operation => $digest) {
+                        if (\is_string($operation) && \is_string($digest)) {
+                            $pins[$kind][$operation] = $digest;
+                        }
                     }
                 }
                 $grants[$grant->id] = [
@@ -241,21 +247,39 @@ final class StandingBook
                     'by' => 'key:' . (\is_string($data['fingerprint'] ?? null) ? $data['fingerprint'] : 'unknown'),
                     'fault' => $broken === null ? $fault : 'the book of standing grants does not verify (' . $broken . ')',
                     'state' => GrantState::InForce, 'because' => null, 'suspension' => null, 'signal' => null,
-                    'operations' => $operations,
+                    'operations' => $pins['operations'], 'instruments' => $pins['instruments'],
                 ];
                 // TAKING ANOTHER GRANT OUT OF THE WAY IS HELD TO THE STANDARD OF REINSTATING IT (greenhouse
                 // decisions/0615, «Lo que la revisión encontró», 6). The grant that supersedes holds; whoever signed it
                 // answers for the seats of the grant it replaces, not only for its own; and when that grant is
                 // SUSPENDED it names the very suspension it lifts — so a signature made before the suspension, or one
                 // that never saw it, lifts nothing. Anything less leaves the older grant exactly where it stood.
+                //
+                // …AND A REPLACEMENT THAT DOES NOT HOLD STOPS WHAT IT NAMES; IT NEVER RESTORES IT («Lo que la segunda
+                // revisión encontró», 2). All of this is read against who everyone is TODAY, so a replacement that held
+                // yesterday can stop holding — the person who signed it is no longer one, a seat it lends to left the
+                // house — with no act that names either grant. The older grant must not come back in force for that:
+                // a line that took authority away is at least a stop, lifted like any other, by a person who names it.
                 $older = $grant->supersedes;
-                if ($older !== null && isset($grants[$older]) && $fault === null
-                    && !\in_array($grants[$older]['state'], [GrantState::Revoked, GrantState::Superseded], true)
-                    && $grant->lifts === $grants[$older]['suspension']
-                    && $this->notAPersonFor((string) ($data['fingerprint'] ?? ''), $grants[$older]['grant']->to) === null) {
-                    $grants[$older]['state'] = GrantState::Superseded;
-                    $grants[$older]['because'] = \sprintf('«%s» replaced it at %s', $grant->id, $entry['at']);
-                    $grants[$older]['suspension'] = null;
+                if ($older !== null && isset($grants[$older])
+                    && !\in_array($grants[$older]['state'], [GrantState::Revoked, GrantState::Superseded], true)) {
+                    $notTheirs = $fault ?? $this->notAPersonFor((string) ($data['fingerprint'] ?? ''), $grants[$older]['grant']->to);
+                    if ($notTheirs === null && $grant->lifts === $grants[$older]['suspension']) {
+                        $grants[$older]['state'] = GrantState::Superseded;
+                        $grants[$older]['because'] = \sprintf('«%s» replaced it at %s', $grant->id, $entry['at']);
+                        $grants[$older]['suspension'] = null;
+                    } elseif ($notTheirs !== null && $grants[$older]['state'] === GrantState::InForce) {
+                        $grants[$older]['state'] = GrantState::Suspended;
+                        $grants[$older]['suspension'] = $entry['hash'];
+                        $grants[$older]['signal'] = null;
+                        $grants[$older]['because'] = \sprintf(
+                            '«%s» names it as replaced, at %s, and that replacement does not hold today (%s) — which stops this grant; it does not bring it back (suspension %s)',
+                            $grant->id,
+                            $entry['at'],
+                            $notTheirs,
+                            $entry['hash'],
+                        );
+                    }
                 }
 
                 continue;
@@ -322,6 +346,19 @@ final class StandingBook
                     $grants[$id]['state'] = GrantState::Revoked;
                     $grants[$id]['suspension'] = null;
                     $grants[$id]['because'] = \sprintf('withdrawn at %s by key:%s', $entry['at'], (string) $data['fingerprint']);
+                } else {
+                    // A WITHDRAWAL THAT IS NOT A PERSON'S TODAY IS STILL A STOP (review, second, 2). Whoever signed it
+                    // may have left the house since, or their key may no longer verify here: that is no reason for
+                    // what they took back to return. Stopping is open to anyone, so a withdrawal the house cannot
+                    // read as a person's stands as a suspension — and only a person, naming it, lifts it.
+                    $grants[$id]['state'] = GrantState::Suspended;
+                    $grants[$id]['suspension'] = $entry['hash'];
+                    $grants[$id]['signal'] = null;
+                    $grants[$id]['because'] = \sprintf(
+                        'a withdrawal was written at %s that this house cannot read today as a person\'s — which stops this grant; it does not bring it back (suspension %s)',
+                        $entry['at'],
+                        $entry['hash'],
+                    );
                 }
             }
         }
@@ -337,6 +374,7 @@ final class StandingBook
             $known['suspension'],
             $known['signal'],
             $known['operations'],
+            $known['instruments'],
         ), $grants));
     }
 

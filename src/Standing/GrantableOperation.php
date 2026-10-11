@@ -65,7 +65,7 @@ final class GrantableOperation
         if (self::isHandedItsCallersAuthority($operation)) {
             return "`{$name}` is handed its caller's authority and may carry it on to other calls: a word lent for one call must reach no other, so no grant lends to it";
         }
-        if ($operation->instrumentDigest() === null) {
+        if ($operation->instrumentDigest() === null || OperationPin::of($operation) === null) {
             return "`{$name}` cannot be pinned: its handler cannot be read, so the house could not tell the day it stops being the operation that was granted";
         }
 

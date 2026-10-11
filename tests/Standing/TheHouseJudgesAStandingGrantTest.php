@@ -146,13 +146,32 @@ final class TheHouseJudgesAStandingGrantTest extends TestCase
         $candidate = $this->house->candidate('a.tar', "candidate a\nhost: somewhere\n");
         $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $candidate]);
 
+        $asGranted = $this->house->operation('lab:scan');
         $this->house->hardenScanner();
 
+        // THE GRANT WAS GIVEN OVER THE INSTRUMENT AS IT WAS (decisions/0615, «Lo que la segunda revisión encontró», 4):
+        // with another under its name — a stricter one here; a softer one would look the same from outside — the
+        // grant is not honoured, and what the first one found does not count for what is there now.
         $refused = $this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $candidate, 'channel' => 'stable']);
-        self::assertStringContainsString('it is not that instrument any more', $refused['refused']);
-        // And the instrument as it is today finds what the old one did not see.
+        self::assertStringContainsString('`lab:scan`, which measures condition «no-host-names», is not the operation it was when this grant was given', $refused['refused']);
+        // The instrument as it is today finds what the old one did not see…
         self::assertSame(['ok' => false], $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $candidate]));
+        // …and a person who grants again, over what is there now, has it read: the candidate is red.
+        $this->house->granted(['id' => 'release-line-2', 'supersedes' => 'release-line']);
         self::assertStringContainsString('does not hold on this candidate', $this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $candidate, 'channel' => 'stable'])['refused']);
+
+        // The other way round: the instrument the first grant was given over is put back. That grant is honoured again
+        // — and what another instrument measured meanwhile is not a measurement of this one.
+        $this->house->offer($asGranted);
+        $clean = $this->house->candidate('b.tar', "candidate b\n");
+        $this->house->hardenScanner();
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $clean]);
+        $this->house->offer($asGranted);
+        $this->house->signed(LabHouse::PERSON, 'standing:revoke', ['grant' => 'release-line-2']);
+        $first = $this->house->signed(LabHouse::PERSON, 'standing:grant', ['grant' => $this->house->document(['id' => 'release-line-3'])]);
+        self::assertTrue($first['ok'] ?? false, (string) ($first['error'] ?? ''));
+        $this->house->as(LabHouse::SEAT, 'lab:watch');
+        self::assertStringContainsString('it is not that instrument any more', $this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $clean, 'channel' => 'stable'])['refused']);
     }
 
     public function testAnEffectAboveTheCeilingIsRefusedWithEveryConditionGreen(): void

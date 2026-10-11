@@ -557,9 +557,16 @@ every judgment — never from a copy kept beside them.
 at most `write_as_user`: an operation that itself gives authority is never lent, and the axis says
 which ones are. Its handler must not be handed its caller's authority (a driver that calls other
 operations would carry a lent word on). All of this is asked when the grant is given **and at every
-call**: the house writes beside the grant what each covered operation was, and one that has changed
-since — an update, a plugin registered again under the same name — is not the operation that was
-granted.
+call**: the house writes beside the grant what each operation it was given over **is** — the ones it
+covers, the one that measures each condition, the one that watches its falsifier — and when any of
+them has changed since, the grant is not honoured until a person gives it again. A softer instrument
+registered under the same name measures nothing for it.
+
+«What an operation is» is its declaration, the lines of its handler, **and the bytes of the files
+its handler's code is written in**: the file of the closure and of the class it belongs to, with
+its parents and its traits. A handler is nearly always one line that calls a method of its class,
+and that line does not change when the method does. This errs on one side on purpose: any change to
+one of those files — a comment included — stops every grant over an operation it defines.
 
 **What an instrument and an act owe the house.** Both return `acted_on`: the digest of the bytes
 they actually consumed. The house reads the content before and after a run, and those two readings
@@ -584,10 +591,18 @@ judge instead of the word. The call runs only if all of this holds, read from th
 
 A call whose arguments the grant does not name is handed nothing and judged exactly as before.
 What is lent is read by the gate's question about that one tool and by nothing else: the boundary,
-a nested call, and the house's own doors all see the caller as it is on its own. A grant that names
-the call governs it even for a seat that holds the scope on its own — every scope included. The
-operator's own terminal, and a key no grant names, are not judged: a grant governs the seats it
-names.
+a nested call, and the house's own doors all see the caller as it is on its own — and a boundary
+that is handed a caller carrying a loan asks for the word again when no grant passes that very
+call. A grant that names the call governs it even for a seat that holds the scope on its own —
+every scope included. The operator's own terminal, and a key no grant names, are not judged: a
+grant governs the seats it names.
+
+**On an agent's leg the act may not run in this process — and it crosses the judge all the same.**
+With trials on, a leg rehearses a mutation in a copy of the house and runs work in the domain in the
+house, confined, in another process; neither reaches the handler the registry holds. An act a grant
+covers is judged again with the book locked, written down, run there, and looked at again — in the
+house's book, never the copy's. And what moves authority is never rehearsed at all: `standing:*`
+and `identity:*` run in the house or not at all, so a seat that stops a grant on a leg stops it.
 
 **A grant that does not stand lends nothing, not even for the asking.** Suspended, superseded,
 revoked, past its date, or not honoured — and likewise any grant while a suspended one stops the
@@ -608,12 +623,19 @@ it by name. Expired, revoked and superseded grants stop nobody; otherwise one gr
 enough.
 
 **The house writes its own receipts**, in `storage/identity/standing.jsonl` — append-only, each
-line carrying the digest of the one before it. What a measuring operation answered (its `ok`), what
-a watcher saw (its `fired`), every act it let pass (written *before* the act runs, with the
-receipts it ran on) and every refusal of a call a grant names. Nothing lets a caller hand in a
-verdict. A house where nobody grants anything keeps no book and answers as it always did.
+line carrying the digest of the one before it, written whole or not at all, and readable only by
+whoever runs the house. What a measuring operation answered (its `ok`), what a watcher saw (its
+`fired`), every act it let pass (written *before* the act runs, with the receipts it ran on) and
+the refusals of calls a grant names: the same one once, and no more than 32 in a row with nothing
+else written between them — a seat does not grow the book by asking again. Nothing lets a caller
+hand in a verdict. A house where nobody grants anything keeps no book and answers as it always did.
 
-**Shrinking is automatic and anyone's; growing back is a person's signature.**
+**Shrinking is automatic and anyone's; growing back is a person's signature.** And what shrinks
+never stops applying: everything is read against who each key is *today*, so a withdrawal or a
+replacement that held when it was written can stop holding because its signer left the house or a
+key expired. It then stands as a **suspension** — never as nothing — and a person lifts it by name.
+The same goes for a `revoked` line nobody signed and for a grant that names another as replaced
+without being honoured itself: they do not do what they ask, and they stop what they name.
 
 | Operation | Who | What it does |
 |-----------|-----|--------------|
@@ -655,15 +677,29 @@ the book.
   key as its seat, and while the book verifies it governs that key like any other. Broken, the key
   goes through on what it holds on its own. Whoever recognizes identities can make a seat no grant
   names, so the grant never bound it — but do not name such a key as a seat and count on the grant.
-- **The book is not tamper-proof.** The chain shows an edit in the middle; whoever holds the disk
-  can still truncate it. What a forged grant or reinstatement cannot do is verify.
+- **The book is not a seal.** Its digests carry no key: whoever can write the file can drop lines,
+  change them, add them, and compute every digest again. What such a writer cannot make is a grant,
+  a reinstatement or a withdrawal — those carry a person's signature. Everything else in it — what
+  was measured, what a watcher saw, what was absorbed or refused, a suspension, and what each
+  operation was when a grant was given — is the house's own word, unsigned. Beside the book the
+  house keeps its **head** (how many lines, and the last digest), so a book that was emptied,
+  truncated, deleted or put back from an older copy does not verify instead of reading «nobody
+  granted anything». The head is on the same disk and is the same user's: rewriting both files gets
+  past it. Keep the house's files out of reach of whoever its seats run as.
 - **The keyring that judges must hold the public key of whoever granted.** A seat that runs in its
   own keyring needs that public key imported, or the grant is not honoured there.
 - **A suspension is cheap.** Any recognized principal can hand every absorbed act back to the
   person. Nothing widens.
-- **A measuring operation is pinned by its declaration and its handler's body.** One that
-  delegates changes behaviour without changing that pin; one whose own argument weakens it must
-  have that argument fixed in the condition's `by`.
+- **An operation is pinned as far as the files its own code is written in.** Code in another class
+  that its handler reaches — a service, a helper, a package — can change without the grant
+  noticing. An instrument whose own argument weakens it must have that argument fixed in the
+  condition's `by`.
+- **The book grows with what the grant asks for.** Every measurement, every sign of a watcher and
+  every act absorbed is a line, and every call of every seat reads all of them. Only the refusals
+  are bounded.
+- **On a leg, an act that fails without saying what it consumed suspends the grant.** In the
+  process that ran it, a handler that threw and one that answered a refusal look the same from
+  outside, so both are read as an act that returned and did not say `acted_on`.
 - A grant is bound to the host it was signed on.
 
 ## Install

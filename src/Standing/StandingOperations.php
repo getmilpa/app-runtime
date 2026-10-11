@@ -224,7 +224,7 @@ final class StandingOperations implements CommandProvider
             }
             // What the operation IS today, written beside the grant: the day it is something else — an update, a
             // plugin registered again under the same name — it is not the operation a person granted.
-            $operations[$act->operation->canonical] = (string) $operation->instrumentDigest();
+            $operations[$act->operation->canonical] = (string) OperationPin::of($operation);
             if (!$operation->effectCeiling()->isNoWiderThan($grant->ceiling)) {
                 $warnings[] = \sprintf('`%s` can do more than this grant\'s ceiling allows: only calls whose arguments bring its effect under the ceiling will pass', $act->operation->forCli());
             }
@@ -235,18 +235,32 @@ final class StandingOperations implements CommandProvider
                 }
             }
         }
+        // THE INSTRUMENTS AND THE WATCHER ARE WRITTEN DOWN TOO (greenhouse decisions/0615, «Lo que la segunda revisión
+        // encontró», 4). A grant asks that something be MEASURED by an operation and WATCHED by another; under their
+        // names alone, a softer one registered later measures green what the first measured red. So what each of them
+        // is today is kept beside the grant, like the operations it covers.
+        $instruments = [];
         foreach ($grant->conditions as $condition) {
-            if ($policy->operationNamed($condition->by->operation)?->instrumentDigest() === null) {
+            $instrument = $policy->operationNamed($condition->by->operation);
+            $pin = $instrument?->instrumentDigest() === null ? null : OperationPin::of($instrument);
+            if ($pin === null) {
                 return self::no(\sprintf(
                     'condition «%s» is measured by `%s`, and this house cannot use it as an instrument: it does not exist here, it does not say what it acts on, or its handler cannot be read. A condition nothing can measure does not fit in a grant — nothing was granted',
                     $condition->name,
                     $condition->by->operation->forCli(),
                 ));
             }
+            $instruments[$condition->by->operation->canonical] = $pin;
         }
-        if ($policy->operationNamed($grant->falsifier->watcher->operation) === null) {
+        $watcher = $policy->operationNamed($grant->falsifier->watcher->operation);
+        if ($watcher === null) {
             return self::no(\sprintf('falsifier «%s» is watched by `%s`, which this house does not have. A position nothing watches is not granted — nothing was granted', $grant->falsifier->name, $grant->falsifier->watcher->operation->forCli()));
         }
+        $pin = OperationPin::of($watcher);
+        if ($pin === null) {
+            return self::no(\sprintf('falsifier «%s» is watched by `%s`, whose handler this house cannot read: it could not tell the day another watcher took its name — nothing was granted', $grant->falsifier->name, $grant->falsifier->watcher->operation->forCli()));
+        }
+        $instruments[$grant->falsifier->watcher->operation->canonical] = $pin;
 
         try {
             $entry = $book->ledger()->append(StandingLedger::GRANTED, [
@@ -256,6 +270,7 @@ final class StandingOperations implements CommandProvider
                 'signature' => $granted->signature,
                 'fingerprint' => $granted->signer->fingerprint,
                 'operations' => $operations,
+                'instruments' => $instruments,
             ]);
         } catch (\RuntimeException $error) {
             return self::no('nothing was granted: ' . $error->getMessage());

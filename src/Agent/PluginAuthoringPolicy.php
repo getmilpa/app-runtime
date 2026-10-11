@@ -18,6 +18,7 @@ use Milpa\Command\Consent\OperationId;
 use Milpa\Command\Operation;
 use Milpa\AppRuntime\Auth\HostPermissionPolicy;
 use Milpa\AppRuntime\Standing\HouseStandingJudge;
+use Milpa\AppRuntime\Standing\NotAbsorbed;
 use Milpa\AppRuntime\Standing\StandingDecision;
 use Milpa\Console\McpProjector;
 use Milpa\Console\OperationBoundary;
@@ -205,6 +206,13 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             $handed = $context;
             $context = HouseStandingJudge::withoutLent($context);
             $lent = $handed !== $context;
+            // THE BOOK IS ASKED BEFORE ANYTHING ELSE ANSWERS (greenhouse decisions/0615 §5; «Lo que la segunda revisión
+            // encontró», 5). A book that does not verify refuses every enrolled seat whatever it calls — and a door
+            // that answered before asking let a seat promote a trial with the book broken.
+            $stopped = $this->standing()->stops($context);
+            if ($stopped !== null) {
+                return AuthorizationResult::denied($stopped);
+            }
             if ($name === 'edit' && array_key_exists('source', $arguments)
                 && !$context->hasScope('agent:read') && !$context->hasScope('agent:answer')) {
                 throw new \RuntimeException('Recorded repair requires agent:read or agent:answer.');
@@ -335,7 +343,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         }
         $standing = $this->standing();
         if ($arguments === null) {
-            $lent = $standing->offers($context, $operation);
+            $lent = $standing->offers($context, $operation, $this->operationNamed(...));
 
             return $lent === [] ? $context : HouseStandingJudge::withLent($context, $tool, $lent);
         }
@@ -609,8 +617,14 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
     private function governed(Operation $operation, array $input, ?ToolContext $authority, \Closure $next): mixed
     {
         // The boundary reads the caller as it is on its own: what was lent for the gate's question stays at the gate.
-        $context = HouseStandingJudge::withoutLent($authority ?? ToolContext::cli());
+        $handed = $authority ?? ToolContext::cli();
+        $context = HouseStandingJudge::withoutLent($handed);
         $name = McpProjector::toolName($operation->name);
+        // …and it asks the book before the one door below that answers without a verdict (review, second, 5).
+        $stopped = $this->standing()->stops($context);
+        if ($stopped !== null) {
+            throw new \RuntimeException($stopped);
+        }
         // A PERMISSION IS JUDGED FOR THE OPERATION THAT RUNS (greenhouse decisions/0544). `Operation` holds `scopes`
         // XOR `permission`, so empty scopes are not "declares no authority" when the host's HTTP policy admitted this
         // very run. Asked on every run, so a verdict never waits for a later one; authoring and sandbox calls keep
@@ -626,37 +640,97 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             scopes: $operation->scopes,
             mutating: $operation->mutating
         );
+        // THE VERDICT IS ASKED OF THE CALLER AS IT WAS HANDED, so that this policy knows whether the gate's question
+        // about a word was answered with a loan — and asks it again, of what the caller holds on its own, when no grant
+        // passes THIS call. A word lent for one call does not open the boundary for another (review, second, 7).
         $decided = null;
-        $verdict = $this->verdict($context, $tool, $input, $operation->permission !== null ? $operation : null, $decided);
+        $verdict = $this->verdict($handed, $tool, $input, $operation->permission !== null ? $operation : null, $decided);
         if (!$verdict->allowed) {
             throw new \RuntimeException((string) $verdict->reason);
         }
         if ($decided?->passes() !== true) {
             return $this->carriedOut($operation, $input, $context, $name, $next);
         }
-        // THE ACT A STANDING GRANT COVERS IS WRITTEN DOWN BEFORE IT RUNS, AND LOOKED AT AGAIN AFTER (decisions/0615).
-        // Before: the judgment is asked AGAIN with the book locked, and the line that says under which grant, on which
-        // content and on which receipts is written under that same lock — a suspension that landed after the first
-        // reading stops the act, and if the line cannot be written nothing runs. Then the act goes the way any call of
-        // that operation goes: a build call still runs in its trial. After: what it acted on is read again, and the
-        // act says what it consumed; if either is not what was judged, the grant is suspended.
+
+        // Then the act goes the way any call of that operation goes: a build call still runs in its trial.
+        return $this->underAGrant($context, $operation, $input, fn (): mixed => $this->carriedOut($operation, $input, $context, $name, $next));
+    }
+
+    /**
+     * The judge's boundary for a run that does NOT pass through {@see execute()} in this process (greenhouse
+     * decisions/0615, «Lo que la segunda revisión encontró», 1).
+     *
+     * A leg rehearses a mutation in a copy of the house and runs work in the domain in another process; neither
+     * reaches the handler its registry holds, and the process that does run it is handed no caller. So an act a
+     * standing grant covers ran on a leg with nothing written before it, no judgment under the lock and no look
+     * afterwards — the three things this house says of every act it lets pass. Whoever starts such a run asks here,
+     * with the run in hand: a call no grant has to do with runs as it always did; one a grant names is judged again
+     * with the book locked, written down, run, and looked at again.
+     *
+     * @template T
+     *
+     * @param array<string, mixed> $input
+     * @param \Closure(): T        $run      the run, wherever it happens
+     * @param \Closure(T): mixed   $answered what the act itself answered, read out of what the run gave back — or
+     *                                       `null` when it gave no answer at all
+     *
+     * @return T
+     *
+     * @throws NotAbsorbed the judge's refusal: nothing ran
+     */
+    public function crossing(?ToolContext $authority, Operation $operation, array $input, \Closure $run, \Closure $answered): mixed
+    {
+        $context = HouseStandingJudge::withoutLent($authority ?? ToolContext::cli());
+        if ($this->standing()->decide($context, $operation, $input, $this->operationNamed(...))?->named() !== true) {
+            return $run();
+        }
+
+        return $this->underAGrant($context, $operation, $input, $run, $answered);
+    }
+
+    /**
+     * THE ACT A STANDING GRANT COVERS IS WRITTEN DOWN BEFORE IT RUNS, AND LOOKED AT AGAIN AFTER (decisions/0615).
+     *
+     * Before: the judgment is asked AGAIN with the book locked, and the line that says under which grant, on which
+     * content and on which receipts is written under that same lock — a suspension that landed after the first
+     * reading stops the act, and if the line cannot be written nothing runs. After: what it acted on is read again,
+     * and the act says what it consumed; if either is not what was judged, the grant is suspended.
+     *
+     * @template T
+     *
+     * @param array<string, mixed>      $input
+     * @param \Closure(): T             $run
+     * @param (\Closure(T): mixed)|null $answered how to read the act's own answer out of what the run gave back, when
+     *                                            the run is not the act itself; an act that gave none did not return
+     *
+     * @return T
+     *
+     * @throws NotAbsorbed when the grant does not stand any more, or the line could not be written: nothing ran
+     */
+    private function underAGrant(ToolContext $context, Operation $operation, array $input, \Closure $run, ?\Closure $answered = null): mixed
+    {
         $standing = $this->standing();
-        $absorbed = $standing->absorbing($context, $operation, $input, $this->operationNamed(...));
+        try {
+            $absorbed = $standing->absorbing($context, $operation, $input, $this->operationNamed(...));
+        } catch (\RuntimeException $unwritten) {
+            throw new NotAbsorbed($unwritten->getMessage(), previous: $unwritten);
+        }
         if ($absorbed?->passes() !== true) {
             if ($absorbed !== null) {
                 $standing->refused($absorbed);
             }
-            throw new \RuntimeException($absorbed?->refusal() ?? "No standing grant names this call of «{$operation->name}» any more: the one it was judged under is gone. Nothing ran.");
+            throw new NotAbsorbed($absorbed?->refusal() ?? "No standing grant names this call of «{$operation->name}» any more: the one it was judged under is gone. Nothing ran.");
         }
         $result = null;
         $returned = false;
         try {
-            $result = $this->carriedOut($operation, $input, $context, $name, $next);
+            $result = $run();
             $returned = true;
 
             return $result;
         } finally {
-            $standing->absorbed($absorbed, $operation, $result, $returned);
+            $said = $returned && $answered !== null ? $answered($result) : $result;
+            $standing->absorbed($absorbed, $operation, $said, $returned && ($answered === null || $said !== null));
         }
     }
 
