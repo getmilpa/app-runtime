@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.220.2](https://github.com/getmilpa/app-runtime/compare/v0.220.1...v0.220.2) (2026-10-11)
+
+
+### Bug Fixes
+
+* no comment or fixture carries a user name, a private address or a lab key (greenhouse evidence/1192) ([#796](https://github.com/getmilpa/app-runtime/issues/796)) ([8f65b3f](https://github.com/getmilpa/app-runtime/commit/8f65b3f8590914737c515bc11609aa450f636fb9))
+* no comment or fixture names a lab machine (greenhouse evidence/1144) ([#794](https://github.com/getmilpa/app-runtime/issues/794)) ([cd85806](https://github.com/getmilpa/app-runtime/commit/cd858062c6a7c16a2d68d14f40defa208e5776f0))
+
 ## [0.220.1](https://github.com/getmilpa/app-runtime/compare/v0.220.0...v0.220.1) (2026-10-10)
 
 
