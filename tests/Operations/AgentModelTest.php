@@ -99,7 +99,7 @@ final class AgentModelTest extends TestCase
     /**
      * THE PROVENANCE IS THE HALF NOBODY ASKS FOR AND EVERYBODY NEEDS.
      *
-     * «unreachable: http://llama.local:11438» reads as «start that machine» when the value was never
+     * «unreachable: http://model.example:11438» reads as «start that machine» when the value was never
      * the reader's. Saying which of the three answered turns the same red into an instruction.
      */
     public function testItSaysWhereTheEndpointAndTheModelCameFrom(): void

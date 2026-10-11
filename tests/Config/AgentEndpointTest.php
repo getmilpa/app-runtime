@@ -45,7 +45,7 @@ final class AgentEndpointTest extends TestCase
     /**
      * 🚨 WHERE THE VALUE CAME FROM, because «unreachable» without it sends a person to the wrong fix.
      *
-     * `unreachable: http://llama.local:11438` reads as «start that machine» when the value was never
+     * `unreachable: http://model.example:11438` reads as «start that machine» when the value was never
      * theirs — it was a package's fallback, or a stray variable in a shell they forgot. Saying WHICH
      * of the three answered turns the same red into an instruction (greenhouse decisions/0266).
      *
@@ -219,7 +219,7 @@ final class AgentEndpointTest extends TestCase
             return '{"data":[{"id":"qwen3.8-27b"}]}';
         });
 
-        $banner = AgentEndpoint::describe(new Config(['agent' => ['baseUrl' => 'https://llama.local']]));
+        $banner = AgentEndpoint::describe(new Config(['agent' => ['baseUrl' => 'https://model.example']]));
 
         self::assertSame('local · (model not declared)', $banner);
         self::assertStringNotContainsString('qwen3-coder', $banner);
@@ -271,7 +271,7 @@ final class AgentEndpointTest extends TestCase
      */
     public function testADeclaredEndpointIsNotReportedAsUnconfigured(): void
     {
-        $config = new Config(['agent' => ['baseUrl' => 'https://llama.local']]);
+        $config = new Config(['agent' => ['baseUrl' => 'https://model.example']]);
 
         self::assertStringNotContainsString('sin credencial', AgentEndpoint::describe($config));
         self::assertStringStartsWith('local · ', AgentEndpoint::describe($config));

@@ -980,7 +980,7 @@ class AgentOperations implements CommandProvider
      * host that had stopped resolving (greenhouse decisions/0266).
      *
      * THE PROVENANCE IS THE HALF NOBODY ASKS FOR AND EVERYBODY NEEDS. «unreachable:
-     * http://llama.local:11438» reads as «start that machine» when the value was never the reader's:
+     * http://model.example:11438» reads as «start that machine» when the value was never the reader's:
      * it was a package's fallback, or a stray variable in a shell they forgot. `endpoint_from` turns
      * the same red into an instruction — declare it, unset the variable that is winning, or start
      * the host you actually named.

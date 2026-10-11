@@ -43,7 +43,7 @@ final class ObserveOperationTest extends TestCase
     {
         $almacen = new SessionStore($eventos);
         $almacen->start('s1', 'listar los plugins');
-        (new IntakeObserver($almacen, 's1'))->observe('https://llama.local/v1/chat/completions', [
+        (new IntakeObserver($almacen, 's1'))->observe('https://model.example/v1/chat/completions', [
             'model' => 'qwen3-coder:30b',
             'system' => 'eres un agente de milpa',
             'messages' => [['role' => 'user', 'content' => 'listar los plugins']],
