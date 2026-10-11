@@ -137,7 +137,7 @@ final class APersonsSessionIsToldWhoseDecisionItIsTest extends TestCase
     {
         // The terminal of someone the house did not verify; a verified key no one enrolled; a verified principal that is
         // neither a key nor a passkey; and a person the house did NOT verify.
-        $others = ['cli:rod@host' => false, 'key:' . self::HUMAN => true, 'actor:service:ci' => true, self::PERSON => false];
+        $others = ['cli:operator@example.com' => false, 'key:' . self::HUMAN => true, 'actor:service:ci' => true, self::PERSON => false];
         foreach ($others as $principal => $verified) {
             $session = 's' . substr(hash('sha256', $principal . (int) $verified), 0, 8);
             $this->sessions->start($session, self::GOAL, by: new Principal($principal, $verified));
@@ -242,7 +242,7 @@ final class APersonsSessionIsToldWhoseDecisionItIsTest extends TestCase
     public function testItIsReadOnlyOfASessionAPersonOpened(): void
     {
         $make = ['what' => 'plugin', 'plugin' => 'Blog', 'name' => 'Blog'];
-        foreach (['seats' => new Principal('key:' . self::SEAT, true), 'anon' => new Principal('cli:rod@host', false), 'unverified' => new Principal(self::PERSON, false)] as $session => $by) {
+        foreach (['seats' => new Principal('key:' . self::SEAT, true), 'anon' => new Principal('cli:operator@example.com', false), 'unverified' => new Principal(self::PERSON, false)] as $session => $by) {
             $this->sessions->start($session, self::GOAL, by: $by);
             $this->sessions->recordToolCall($session, 'make', $make, self::BARE, false, true);
 

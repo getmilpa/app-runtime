@@ -94,7 +94,7 @@ final class ALegOfAPersonsSessionSaysItHasNoFrontierTest extends TestCase
     public function testASeatsTurnDoesNotCarryIt(): void
     {
         self::assertArrayNotHasKey('no_frontier', $this->turn(new Principal('key:' . self::SEAT, true), refused: true));
-        self::assertArrayNotHasKey('no_frontier', $this->turn(new Principal('cli:rod@host', false), refused: true));
+        self::assertArrayNotHasKey('no_frontier', $this->turn(new Principal('cli:operator@example.com', false), refused: true));
     }
 
     /**

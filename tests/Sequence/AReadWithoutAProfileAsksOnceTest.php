@@ -190,7 +190,7 @@ final class AReadWithoutAProfileAsksOnceTest extends TestCase
         $session = $this->store->load('recipe:demo');
         self::assertInstanceOf(Session::class, $session);
         self::assertNotNull($session->question, 'a question is open');
-        $this->store->answer('recipe:demo', $session->question->id, 'sí', new Principal('actor:passkey:test', true), 'rod@desktop');
+        $this->store->answer('recipe:demo', $session->question->id, 'sí', new Principal('actor:passkey:test', true), 'operator@example.com');
         $this->store->grant('recipe:demo', $operation);
     }
 

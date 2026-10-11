@@ -59,7 +59,7 @@ final class AModelIsNotHandedAWholeCredentialTest extends TestCase
 
     public function testAPrincipalOfAnotherKindIsNotSaidAsItCame(): void
     {
-        foreach (['actor:service:ci-runner-7f3a', 'cli:rod@host', 'someone', ''] as $principal) {
+        foreach (['actor:service:ci-runner-7f3a', 'cli:operator@example.com', 'someone', ''] as $principal) {
             self::assertSame('a person', WhoDecided::said($principal), $principal);
         }
     }

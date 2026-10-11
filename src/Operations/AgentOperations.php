@@ -3773,7 +3773,7 @@ class AgentOperations implements CommandProvider
             executions: $gate instanceof ExecutionRecorder ? $gate : null,
             // WHO IS RUNNING, OBSERVED HERE AND WRITTEN ONCE — read from the invocation that called the
             // turn, not from the environment. A turn over HTTP with a passkey session used to write the
-            // process user as the executor of every tool (greenhouse evidence/0561: `cli:rod@…` beside an
+            // process user as the executor of every tool (greenhouse evidence/0561: `cli:operator@…` beside an
             // `authorized_by` that named the passkey); the terminal is the answer only when a terminal
             // called. Same derivation the sequence door makes (greenhouse evidence/0209, decisions/0037).
             executor: ObservedExecutor::fromContext($this->contextoDeLaVuelta),

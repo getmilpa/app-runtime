@@ -104,7 +104,7 @@ final class TheAskAgainBranchLeavesTheRestAloneTest extends TestCase
             null,
             'permission',
         ));
-        $store->answer(self::SID, 'perm:' . $operation, 'sí', new Principal('actor:passkey:test', true), 'rod@desktop');
+        $store->answer(self::SID, 'perm:' . $operation, 'sí', new Principal('actor:passkey:test', true), 'operator@example.com');
         if ($grant) {
             $store->grant(self::SID, $operation);
         }

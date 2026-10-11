@@ -70,7 +70,7 @@ final class ConsentBridgeTest extends TestCase
     {
         return new ConsentGrant(
             operation: new OperationId($operacion),
-            principal: 'cli:rod@casa',
+            principal: 'cli:operator@example.com',
             session: 's1',
             grantedAt: new \DateTimeImmutable('2026-08-13 12:00:00'),
             provenance: 'session.question_answered',
@@ -178,7 +178,7 @@ final class ConsentBridgeTest extends TestCase
 
         $cadena = $puente->consentChain();
         self::assertCount(1, $cadena);
-        self::assertSame('cli:rod@casa', $cadena[0]['principal']);
+        self::assertSame('cli:operator@example.com', $cadena[0]['principal']);
         self::assertSame('config.set', $cadena[0]['operation']);
         self::assertSame('config_set', $cadena[0]['tool']);
         self::assertNotSame('', $cadena[0]['confirm_token'], 'qué token concreto se consumió');
