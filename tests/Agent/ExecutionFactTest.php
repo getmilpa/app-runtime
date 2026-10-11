@@ -136,7 +136,7 @@ final class ExecutionFactTest extends TestCase
     {
         return new ConsentGrant(
             operation: new OperationId($operacion),
-            principal: 'cli:rod@casa',
+            principal: 'cli:operator@example.com',
             session: 's1',
             grantedAt: new \DateTimeImmutable('2026-08-16 12:00:00'),
             provenance: 'session.question_answered',
@@ -158,7 +158,7 @@ final class ExecutionFactTest extends TestCase
         self::assertCount(1, $this->hechos, 'one effect, one fact');
         self::assertSame('config.set', $this->hechos[0]['operation'], 'the canonical identity, not the tool spelling');
         self::assertSame('cli:impostor@workstation', $this->hechos[0]['executedBy']);
-        self::assertSame('cli:rod@casa', $this->hechos[0]['authorizedBy']['principal']);
+        self::assertSame('cli:operator@example.com', $this->hechos[0]['authorizedBy']['principal']);
         self::assertSame('session.question_answered', $this->hechos[0]['authorizedBy']['provenance']);
         self::assertSame('terminal-environment', $this->hechos[0]['source']);
     }
@@ -282,7 +282,7 @@ final class ExecutionFactTest extends TestCase
             $sinToken['authorizedBy'],
             'the effect profile may change the enforcement, never the provenance of the consent',
         );
-        self::assertSame('cli:rod@casa', $sinToken['authorizedBy']['principal'] ?? null);
+        self::assertSame('cli:operator@example.com', $sinToken['authorizedBy']['principal'] ?? null);
     }
 
     /**
@@ -304,7 +304,7 @@ final class ExecutionFactTest extends TestCase
         $puente->callTool('capabilities_refresh', []);
 
         self::assertCount(1, $this->hechos);
-        self::assertSame('cli:rod@casa', $this->hechos[0]['authorizedBy']['principal'] ?? null, 'A said yes');
+        self::assertSame('cli:operator@example.com', $this->hechos[0]['authorizedBy']['principal'] ?? null, 'A said yes');
         self::assertSame('cli:otro@otra-maquina', $this->hechos[0]['executedBy'], 'B did it');
     }
 

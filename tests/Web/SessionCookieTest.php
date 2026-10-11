@@ -30,7 +30,7 @@ final class SessionCookieTest extends TestCase
         yield 'plain http on localhost' => ['http://localhost:8080/milpa/admin', false];
         yield 'plain http on 127.0.0.1' => ['http://127.0.0.1:8080/milpa/admin', false];
         yield 'https on localhost' => ['https://localhost/milpa/admin', true];
-        yield 'plain http on a LAN host' => ['http://192.168.1.47:8080/milpa/admin', true];
+        yield 'plain http on a LAN host' => ['http://192.0.2.47:8080/milpa/admin', true];
         yield 'https on a real host' => ['https://panel.example.test/milpa/admin', true];
     }
 

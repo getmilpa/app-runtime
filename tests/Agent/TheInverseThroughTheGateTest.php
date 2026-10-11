@@ -291,7 +291,7 @@ final class TheInverseThroughTheGateTest extends TestCase
     {
         return new ConsentGrant(
             operation: new OperationId($operation),
-            principal: 'cli:rod@casa',
+            principal: 'cli:operator@example.com',
             session: 's1',
             grantedAt: new \DateTimeImmutable('2026-09-07 12:00:00'),
             provenance: 'session.question_answered',

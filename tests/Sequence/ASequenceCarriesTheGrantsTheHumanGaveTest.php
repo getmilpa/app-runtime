@@ -84,7 +84,7 @@ final class ASequenceCarriesTheGrantsTheHumanGaveTest extends TestCase
             'permission',
         ));
         // What the Desktop's Approve posts, through `agent:answer`, with the passkey session as principal.
-        $store->answer($sid, 'perm:' . $granted, 'sí', new Principal('actor:passkey:test', true), 'rod@desktop');
+        $store->answer($sid, 'perm:' . $granted, 'sí', new Principal('actor:passkey:test', true), 'operator@example.com');
         $store->grant($sid, $granted);
 
         $session = $store->load($sid);

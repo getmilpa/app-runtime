@@ -704,7 +704,7 @@ final class SessionOperationsTest extends TestCase
 
         foreach ($this->proveedor()->operations() as $op) {
             if ($op->name === 'agent:answer') {
-                ($op->handler)(['session' => 's1', 'answer' => 'sí'], InvocationContext::cli('rod@laptop'));
+                ($op->handler)(['session' => 's1', 'answer' => 'sí'], InvocationContext::cli('operator@example.com'));
             }
         }
 
@@ -712,7 +712,7 @@ final class SessionOperationsTest extends TestCase
 
         self::assertStringStartsWith('cli:', (string) $decision['by']->id);
         self::assertFalse($decision['by']->verified);
-        self::assertSame('rod@laptop', $decision['executor']);
+        self::assertSame('operator@example.com', $decision['executor']);
     }
 
     /**

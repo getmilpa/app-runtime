@@ -125,7 +125,7 @@ final class LaunchGrantsTest extends TestCase
             's1',
             $entries,
             [$this->operacion('plugins:register')],
-            new Principal('cli:rod@lab'),
+            new Principal('cli:operator@example.com'),
         );
 
         self::assertSame(['plugins:register'], $out['seeded'] ?? null);
@@ -141,7 +141,7 @@ final class LaunchGrantsTest extends TestCase
         self::assertSame('yes', $decision['answer'] ?? null, 'the launch grant records the answer the wire speaks (decisions/0518)');
         self::assertSame(LaunchGrants::EXECUTOR, $decision['executor'], 'an auditor tells a launch grant from a mid-session yes');
         self::assertInstanceOf(Principal::class, $decision['by']);
-        self::assertSame('cli:rod@lab', $decision['by']->id);
+        self::assertSame('cli:operator@example.com', $decision['by']->id);
 
         $why = json_decode((string) $decision['why'], true);
         self::assertSame('plugins:register', $why['operation'] ?? null);
@@ -157,7 +157,7 @@ final class LaunchGrantsTest extends TestCase
         self::assertTrue($grants[0]->operation->is('plugins_register'), 'identity, never spelling');
         self::assertSame(['plugin' => 'Tareas'], $grants[0]->arguments);
         self::assertSame(LaunchGrants::EXECUTOR, $grants[0]->provenance, 'the gate judge can name where the yes came from');
-        self::assertSame('cli:rod@lab', $grants[0]->principal);
+        self::assertSame('cli:operator@example.com', $grants[0]->principal);
         self::assertSame('s1', $grants[0]->session);
     }
 
@@ -211,7 +211,7 @@ final class LaunchGrantsTest extends TestCase
                 // what makes it signature-class under the two-axis rule.
                 $this->operacion('capabilities:enable', Authority::Privileged, false, Externality::ThirdParty, Subject::Executable),
             ],
-            new Principal('cli:rod@lab'),
+            new Principal('cli:operator@example.com'),
         );
 
         self::assertArrayHasKey('error', $out);
@@ -243,7 +243,7 @@ final class LaunchGrantsTest extends TestCase
         $store->start('s1', 'register the Tareas plugin', AutonomyMode::Ask);
         $entries = LaunchGrants::parse('plugins_register:plugin=Tareas');
         self::assertIsArray($entries);
-        (new LaunchGrants())->seed($store, 's1', $entries, [$this->operacion('plugins:register')], new Principal('cli:rod@lab'));
+        (new LaunchGrants())->seed($store, 's1', $entries, [$this->operacion('plugins:register')], new Principal('cli:operator@example.com'));
 
         $sesion = $store->load('s1');
         self::assertNotNull($sesion);
@@ -309,7 +309,7 @@ final class LaunchGrantsTest extends TestCase
         $store->start('s1', 'register the Tareas plugin', AutonomyMode::Ask);
         $entries = LaunchGrants::parse('plugins_register:plugin=Tareas');
         self::assertIsArray($entries);
-        (new LaunchGrants())->seed($store, 's1', $entries, [$this->operacion('plugins:register')], new Principal('cli:rod@lab'));
+        (new LaunchGrants())->seed($store, 's1', $entries, [$this->operacion('plugins:register')], new Principal('cli:operator@example.com'));
 
         $sesion = $store->load('s1');
         self::assertNotNull($sesion);
@@ -368,7 +368,7 @@ final class LaunchGrantsTest extends TestCase
             's1',
             [['operation' => 'identity:rotate', 'arguments' => []]],
             [$this->operacion('identity:rotate', Authority::Privileged, true, Externality::None, Subject::Configuration)],
-            new Principal('cli:rod@lab'),
+            new Principal('cli:operator@example.com'),
         );
 
         self::assertArrayHasKey('error', $out);
@@ -385,7 +385,7 @@ final class LaunchGrantsTest extends TestCase
             's1',
             [['operation' => 'plugins_register', 'arguments' => ['plugin' => 'Tareas']]],
             [$this->operacion('plugins:register', Authority::Privileged, true, Externality::None, Subject::Executable)],
-            new Principal('cli:rod@lab'),
+            new Principal('cli:operator@example.com'),
         );
 
         self::assertArrayNotHasKey('error', $out, 'a local executable-wiring act is consentable: the product already accepted a mid-session yes for it');

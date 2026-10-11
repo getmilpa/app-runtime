@@ -24,7 +24,7 @@ use Psr\Http\Message\ServerRequestInterface;
  * `Path=/`. `Secure` is added whenever the request came over `https`, OR whenever the host is not a
  * loopback name — `localhost`, `127.0.0.1`, `::1` — because those are the only origins a browser treats
  * as a secure context over plain `http`. The consequence is deliberate: on a plain-http LAN host
- * (`http://192.168.1.24:8080`) the ceremony still answers 200, but the browser refuses to store a
+ * (`http://192.0.2.24:8080`) the ceremony still answers 200, but the browser refuses to store a
  * `Secure` cookie from an insecure origin, so the panel keeps sending the human to sign in. A session
  * that would travel in clear across a network is not one this door is willing to mint; serve `https`
  * or use the loopback name.

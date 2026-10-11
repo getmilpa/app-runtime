@@ -12,7 +12,7 @@ use PHPUnit\Framework\TestCase;
  * WHO MATERIALISES AN EFFECT IS WHOEVER CALLED THE TURN — one derivation for every door.
  *
  * Measured in the browser ceremony (greenhouse evidence/0561): a turn that arrived over HTTP with a passkey
- * session ran `sequence:run` and the ledger wrote `executed_by {principal: cli:rod@…, source:
+ * session ran `sequence:run` and the ledger wrote `executed_by {principal: cli:operator@…, source:
  * terminal-environment, verified: false}` beside an `authorized_by` that named the passkey. The agent's
  * door wrote the terminal regardless of the door the turn came through; the sequence door already read the
  * invocation. This is that reading, shared.

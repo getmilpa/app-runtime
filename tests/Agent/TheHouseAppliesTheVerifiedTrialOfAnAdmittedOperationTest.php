@@ -69,7 +69,7 @@ final class TheHouseAppliesTheVerifiedTrialOfAnAdmittedOperationTest extends Tes
 {
     private const PERSON = 'key:1111111111111111111111111111111111111111';
 
-    private const SEAT = '95A3AC7B96F8BC6AA7044F2C09082971DEBAAA50';
+    private const SEAT = 'CCCC3333DDDD4444EEEE5555FFFF6666AAAA7777';
 
     private string $root;
     private string $bwrap;
