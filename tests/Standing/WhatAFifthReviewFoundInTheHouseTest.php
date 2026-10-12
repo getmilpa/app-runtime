@@ -8,8 +8,16 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tests\Standing;
 
+use Milpa\AppRuntime\Agent\PluginAuthoringPolicy;
 use Milpa\AppRuntime\Standing\StandingLedger;
+use Milpa\AppRuntime\Tests\Standing\Plugins\Shelf\LabShelf;
+use Milpa\Command\Operation;
 use Milpa\Command\Standing\GrantState;
+use Milpa\Console\McpProjector;
+use Milpa\ToolRuntime\Contracts\CallPolicy;
+use Milpa\ToolRuntime\Contracts\ToolContext;
+use Milpa\ToolRuntime\Policy\AuthorizationResult;
+use Milpa\ToolRuntime\ToolResult;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -31,6 +39,7 @@ final class WhatAFifthReviewFoundInTheHouseTest extends TestCase
 
     protected function tearDown(): void
     {
+        $this->leg?->destroy();
         $this->house->destroy();
     }
 
@@ -279,6 +288,262 @@ final class WhatAFifthReviewFoundInTheHouseTest extends TestCase
         self::assertInstanceOf(\Milpa\AppRuntime\Agent\PluginAuthoringPolicy::class, $boundary);
         self::assertNotSame([], $declared, 'control: the provider declared its operations');
         self::assertNotNull($boundary->operationNamed($declared[0]->name), 'the boundary of a web process was never told the operations it will be asked to run');
+    }
+
+    // ── 5-M4 and the sweep: «ARE YOU THE HOUSE'S POLICY?» × WHAT CAN BE THERE ────────────────────────────────────
+    //
+    // Every door of a leg asked an identity question of whatever its gate holds, and went on as if there were no
+    // judge when the answer was no. There is one: the house's boundary. The answer wanted is ONE question with ONE
+    // answer — and where it is «I do not know» with a book in the house, a seat stops.
+
+    /** @return iterable<string, array{0: \Closure(PluginAuthoringPolicy): (CallPolicy|false)}> what an app left as the container's call policy */
+    public static function whatTheGateOfALegCanHold(): iterable
+    {
+        yield 'the app\'s own policy' => [static fn (PluginAuthoringPolicy $house): CallPolicy => new class () implements CallPolicy {
+            public function authorize(ToolContext $context, \Milpa\ToolRuntime\ToolDefinition $tool, array $arguments): AuthorizationResult
+            {
+                return AuthorizationResult::allowed();
+            }
+        }];
+        yield 'a decorator of the app around the house\'s' => [static fn (PluginAuthoringPolicy $house): CallPolicy => new class ($house) implements CallPolicy {
+            public function __construct(private readonly CallPolicy $inner)
+            {
+            }
+
+            public function authorize(ToolContext $context, \Milpa\ToolRuntime\ToolDefinition $tool, array $arguments): AuthorizationResult
+            {
+                return $this->inner->authorize($context, $tool, $arguments);
+            }
+        }];
+        yield 'nothing at all' => [static fn (PluginAuthoringPolicy $house): bool => false];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('whatTheGateOfALegCanHold')]
+    public function testAFiredRunAsWorkIsHeardWhateverTheGateOfTheLegHolds(\Closure $onTheGate): void
+    {
+        $leg = $this->shelfLine('shelf:patrol', onTheGate: $onTheGate);
+        touch($this->house->root . '/shelf-fired');
+
+        $said = $leg->on->call('shelf_patrol', [], $leg->seat());
+
+        self::assertTrue(self::answered($said)['fired'] ?? null, 'control: the seat was handed «fired»: ' . $said->error);
+        self::assertSame(GrantState::Suspended, $this->house->book()->record('shelf-line')?->state, 'a falsifier fired on a leg and the grant stayed in force: the leg found no judge behind its gate, and went on as if there were none');
+    }
+
+    /** @return iterable<string, array{0: \Closure, 1: string}> */
+    public static function whatTheGateCanHoldByEachActThatLeavesTheProcess(): iterable
+    {
+        foreach (self::whatTheGateOfALegCanHold() as $held => [$onTheGate]) {
+            yield "{$held} · work confined in the house" => [$onTheGate, 'shelf:lend'];
+            yield "{$held} · a rehearsal in a copy" => [$onTheGate, 'shelf:label'];
+        }
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('whatTheGateCanHoldByEachActThatLeavesTheProcess')]
+    public function testAStoppedGrantStopsASeatWithTheWordOfItsOwnWhateverTheGateOfTheLegHolds(\Closure $onTheGate, string $act): void
+    {
+        $this->coveredShelf();
+        $this->house->signed(LabHouse::PERSON, 'standing:suspend', ['grant' => 'shelf-line', 'reason' => 'stopped by a person']);
+        $leg = $this->leg = new LabLeg($this->house, $this->shelf->operations(), $this->shelf, onTheGate: $onTheGate);
+
+        $said = $leg->on->call(McpProjector::toolName($act), ['path' => 'good.txt'], $leg->seat());
+
+        self::assertFalse($said->success, 'a stopped grant did not stop a seat that holds the word of its own: ' . json_encode($said->data));
+        self::assertSame([], $this->house->lines(StandingLedger::ABSORBED));
+        self::assertFileDoesNotExist($this->house->root . '/storage/shelf/log.txt');
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('whatTheGateOfALegCanHold')]
+    public function testNoGrantIsGivenInAHouseWhoseGateDoesNotHoldTheHousesPolicy(\Closure $onTheGate): void
+    {
+        // The door that gives a grant asked only whether the BOUNDARY is the house's. With another call policy in
+        // the container nothing is lent by any gate — the terminal's included — so the grant would be a sentence
+        // that lends nothing. Measured before the fix: it was given, and its answer warned of nothing.
+        $held = $onTheGate($this->house->policy);
+        if ($held instanceof CallPolicy) {
+            $this->house->container->registerService(CallPolicy::class, $held);
+        }
+
+        $said = $this->house->signed(LabHouse::PERSON, 'standing:grant', ['grant' => $this->house->document()]);
+
+        if ($held === false) {
+            self::assertTrue($said['ok'] ?? null, 'control: with no call policy registered, the house\'s is the one every gate is given: ' . json_encode($said));
+
+            return;
+        }
+        self::assertFalse($said['ok'] ?? null, 'a grant was given in a house whose gates hold a policy that is not the house\'s: ' . json_encode($said['warnings'] ?? 'no warning'));
+        self::assertStringContainsString('call policy', (string) ($said['error'] ?? ''));
+        self::assertSame([], $this->house->lines(StandingLedger::GRANTED));
+    }
+
+    public function testTheHousesPolicyIsFoundBehindAnyNumberOfTheConsolesWrappers(): void
+    {
+        // `behind()` looked behind ONE wrapper. What it finds, by what can be there.
+        $house = $this->house->policy;
+        $judge = new class () implements \Milpa\Console\OperationPermissionPolicy {
+            public function enforce(Operation $op, ToolContext $caller, array $arguments): AuthorizationResult
+            {
+                return AuthorizationResult::allowed();
+            }
+        };
+        $wrapped = new \Milpa\Console\PermissionCallPolicy($judge, $house);
+        $other = new class () implements CallPolicy {
+            public function authorize(ToolContext $context, \Milpa\ToolRuntime\ToolDefinition $tool, array $arguments): AuthorizationResult
+            {
+                return AuthorizationResult::allowed();
+            }
+        };
+
+        self::assertSame($house, PluginAuthoringPolicy::behind($house));
+        self::assertSame($house, PluginAuthoringPolicy::behind($wrapped));
+        self::assertSame($house, PluginAuthoringPolicy::behind(new \Milpa\Console\PermissionCallPolicy($judge, $wrapped)), 'the house\'s policy two wrappers deep was not found');
+        self::assertNull(PluginAuthoringPolicy::behind(new \Milpa\Console\PermissionCallPolicy($judge, null)));
+        self::assertNull(PluginAuthoringPolicy::behind(new \Milpa\Console\PermissionCallPolicy($judge, $other)));
+        self::assertNull(PluginAuthoringPolicy::behind($other));
+        self::assertNull(PluginAuthoringPolicy::behind(null));
+    }
+
+    public function testALegHandedNoJudgeAndWithNoneBehindItsGateDoesNotGoOnForASeatInAHouseThatKeepsABook(): void
+    {
+        // «A leg that cannot find the judge does not go on as if there were none.» Built as it was before the fifth
+        // review — nobody hands it the judge — over a gate that holds an app's own policy.
+        $this->coveredShelf();
+        $app = iterator_to_array(self::whatTheGateOfALegCanHold())['the app\'s own policy'][0];
+        $leg = $this->leg = new LabLeg($this->house, $this->shelf->operations(), $this->shelf, onTheGate: $app);
+        $unhanded = new \Milpa\AppRuntime\Agent\TrialAwareRegistry($leg->off, $leg->router, $this->shelf->operations());
+
+        $said = $unhanded->call('shelf_label', ['path' => 'good.txt'], $leg->seat());
+
+        self::assertFalse($said->success, 'a run left the process for a seat with no judge asked, in a house that keeps a book: ' . json_encode($said->data));
+        self::assertStringContainsString('found no judge of standing grants', (string) $said->error);
+        // …and the operator's own terminal, which no grant names, goes as it always did.
+        self::assertTrue($unhanded->call('shelf_label', ['path' => 'good.txt'], ToolContext::cli())->success);
+    }
+
+    public function testInAHouseWithNoBookALegWithNoJudgeGoesAsItAlwaysDid(): void
+    {
+        // The guard: a house that never gave a grant behaves as the published runtime, whatever its gates hold.
+        $this->shelf = new LabShelf($this->house->root);
+        $this->house->offer(...$this->shelf->operations());
+        $this->house->enroll(LabHouse::SEAT, [...LabHouse::SEAT_SCOPES, 'shelf:write'], LabHouse::PERSON);
+        $this->house->candidate('good.txt', "clean release\n");
+        $app = iterator_to_array(self::whatTheGateOfALegCanHold())['the app\'s own policy'][0];
+        $leg = $this->leg = new LabLeg($this->house, $this->shelf->operations(), $this->shelf, onTheGate: $app);
+        $unhanded = new \Milpa\AppRuntime\Agent\TrialAwareRegistry($leg->off, $leg->router, $this->shelf->operations());
+
+        self::assertTrue($unhanded->call('shelf_label', ['path' => 'good.txt'], $leg->seat())->success);
+        self::assertFileDoesNotExist($this->house->root . '/' . StandingLedger::PATH);
+    }
+
+    public function testAHouseThatKeepsABookAndWhoseBoundaryIsNotTheHousesLetsNoSeatAct(): void
+    {
+        // The other half of the one question. An app registered ITS OWN boundary: the house's policy is then asked
+        // only at the gates, never told a catalogue, and no act is written before it runs. A grant given while the
+        // house judged — or a book put there — would be read by nobody: so where the house's policy IS asked, with a
+        // book in the house and no boundary of its own, a seat is refused and told why.
+        $this->house->enroll(LabHouse::SEAT, [...LabHouse::SEAT_SCOPES, 'lab:merge'], LabHouse::PERSON);
+        $this->house->granted();
+        $container = new \Milpa\Container\DIContainer();
+        $container->registerService(\Milpa\Console\OperationBoundary::class, new class () implements \Milpa\Console\OperationBoundary {
+            public function execute(Operation $operation, array $input, ?ToolContext $authority, \Closure $next): mixed
+            {
+                return $next();
+            }
+        });
+        PluginAuthoringPolicy::install($container, $this->house->root);
+        $policy = $container->get(CallPolicy::class);
+        self::assertInstanceOf(PluginAuthoringPolicy::class, $policy, 'control: the house\'s policy is what the gates are given');
+        $merge = $this->house->operation('lab:merge');
+        $tool = new \Milpa\ToolRuntime\ToolDefinition('lab_merge', $merge->description, $merge->inputSchema ?? [], $merge->handler, scopes: $merge->scopes, mutating: true);
+
+        $said = $policy->authorize($this->house->contextOf(LabHouse::SEAT), $tool, ['path' => 'good.txt']);
+
+        self::assertFalse($said->allowed, 'a seat was let through by the house\'s policy in a house that keeps a book it does not judge by its boundary');
+        self::assertStringContainsString('does not judge', (string) $said->reason);
+        // …and whoever no grant can name is answered as before.
+        self::assertTrue($policy->authorize(ToolContext::cli(), $tool, ['path' => 'good.txt'])->allowed);
+    }
+
+    public function testNoGrantIsGivenOverAnOperationTypedByAPermission(): void
+    {
+        // The guard of a door the sweep found (it held): a grant lends WORDS, and such an operation asks for none.
+        // Over HTTP a run the host's judge of permissions admitted reaches the handler with no verdict of this
+        // policy (greenhouse decisions/0544) — so a grant over it would name a call this judge is not asked about.
+        $this->house->offer(new Operation('lab:census', 'Lab: an operation typed by a permission', static fn (array $input): array => ['ok' => true], effects: \Milpa\Command\Effect\EffectProfile::readOnly(), permission: 'lab.census'));
+
+        $said = $this->house->signed(LabHouse::PERSON, 'standing:grant', ['grant' => $this->house->document(['covers' => [['operation' => 'lab:census']]])]);
+
+        self::assertFalse($said['ok'] ?? null, 'a grant was given over an operation that asks for a permission, not for a word: ' . json_encode($said));
+        self::assertStringContainsString('declares no scope, so there is nothing for a grant to lend', (string) ($said['error'] ?? ''));
+    }
+
+    public function testARunTheHttpPolicyAdmittedIsNotLetPastAGrantThatNamesIt(): void
+    {
+        // The guard behind that door: a line written by hand, or an operation that came to ask for a permission after
+        // a grant named it. The shortcut for a run the HTTP policy judged runs the handler with no verdict.
+        $census = new Operation('lab:census', 'Lab: an operation typed by a permission', static fn (array $input): array => ['ok' => true, 'ran' => true], effects: \Milpa\Command\Effect\EffectProfile::readOnly(), permission: 'lab.census');
+        $this->house->offer($census);
+        $this->house->grantedByHand(['covers' => [['operation' => 'lab:census']]]);
+        $mark = new \Milpa\AppRuntime\Agent\JudgedPermission();
+        $policy = new PluginAuthoringPolicy($this->house->root, judged: $mark, standing: new \Milpa\AppRuntime\Standing\HouseStandingJudge($this->house->root, $this->house, fn (): \DateTimeImmutable => $this->house->now));
+        (function () use ($census): void {
+            $this->catalogued['lab_census'] = $census;
+        })->call($policy);
+        $mark->executing('operation.executing', ['event' => new \Milpa\Console\Events\OperationExecutingEvent($census, [], 'http')]);
+
+        $ran = null;
+        try {
+            $ran = $policy->execute($census, [], $this->house->contextOf(LabHouse::SEAT), static fn (): array => ['ok' => true, 'ran' => true]);
+        } catch (\RuntimeException $refused) {
+            self::assertStringContainsString('lab:census', $refused->getMessage());
+        }
+
+        self::assertNull($ran, 'a call a grant names ran with no verdict of the judge of standing grants: the HTTP policy had admitted it');
+    }
+
+    private LabShelf $shelf;
+
+    private ?LabLeg $leg = null;
+
+    /** A grant over `lab:merge`, watched by one operation of the shelf — and a leg over the shelf's operations. */
+    private function shelfLine(string $watcher, ?\Closure $onTheGate = null): LabLeg
+    {
+        $this->shelf = new LabShelf($this->house->root);
+        $this->house->offer(...$this->shelf->operations());
+        $this->house->enroll(LabHouse::SEAT, [...LabHouse::SEAT_SCOPES, 'shelf:write'], LabHouse::PERSON);
+        $this->house->granted([
+            'id' => 'shelf-line',
+            'covers' => [['operation' => 'lab:merge']],
+            'falsifier' => ['name' => 'a-shelf-out-of-place', 'statement' => 'the shelf is out of place', 'watcher' => ['operation' => $watcher], 'within_seconds' => 3600],
+        ], watched: false);
+
+        return $this->leg = new LabLeg($this->house, [...$this->shelf->operations(), $this->house->operation('lab:merge')], $this->shelf, onTheGate: $onTheGate);
+    }
+
+    /** A grant over the shelf's two acts that leave a leg's process, for a seat that holds their word on its own. */
+    private function coveredShelf(): void
+    {
+        $this->shelf = new LabShelf($this->house->root);
+        $this->house->offer(...$this->shelf->operations());
+        $this->house->enroll(LabHouse::SEAT, [...LabHouse::SEAT_SCOPES, 'shelf:write'], LabHouse::PERSON);
+        $this->house->granted(['id' => 'shelf-line', 'covers' => [['operation' => 'shelf:lend'], ['operation' => 'shelf:label']]]);
+        $this->house->candidate('good.txt', "clean release\n");
+        self::assertTrue($this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => 'good.txt'])['ok'] ?? false);
+    }
+
+    /** @return array<string, mixed> what the act itself answered, read out of what the leg handed back */
+    private static function answered(ToolResult $said): array
+    {
+        $data = \is_array($said->data) ? $said->data : [];
+        if (\is_array($data['output'] ?? null)) {
+            return $data['output'];
+        }
+        if ($data !== []) {
+            return $data;
+        }
+        $error = json_decode((string) $said->error, true);
+
+        return \is_array($error) ? $error : [];
     }
 
     private function state(): ?\Milpa\AppRuntime\Standing\GrantRecord

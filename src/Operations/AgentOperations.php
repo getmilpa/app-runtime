@@ -2855,6 +2855,9 @@ class AgentOperations implements CommandProvider
                 $store,
                 $sessionId !== '' ? $sessionId : null,
                 fn (): ?ScreenDrafts => $this->container->has(ScreenDrafts::class) ? $this->container->get(ScreenDrafts::class) : null,
+                // The judge of standing grants, handed over: what leaves this leg's process does not pass through
+                // the house's boundary, and is not to ask its gate who judges it (greenhouse decisions/0615).
+                \Milpa\AppRuntime\Agent\PluginAuthoringPolicy::judgeOf($kernel->container()),
             );
             // WORK IN THE DOMAIN RUNS IN THE HOUSE, NOT IN A COPY (greenhouse decisions/0588) — the SAME work layer
             // the gate judges the call with, so the plan the gate judged is the plan this registry runs.

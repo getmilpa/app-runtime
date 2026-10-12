@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Agent;
 use Milpa\Agent\SessionStore;
 use Milpa\Agent\EffectObservation;
 use Milpa\AppRuntime\Standing\NotAbsorbed;
+use Milpa\AppRuntime\Standing\StandingLedger;
 use Milpa\AppRuntime\Web\ScreenDrafts;
 use Milpa\Command\Operation;
 use Milpa\ToolRuntime\ConfirmationTokenStore;
@@ -145,8 +146,16 @@ final class TrialAwareRegistry extends ToolRegistry
      *
      * The process that runs it is handed no caller, so its own boundary says nothing: without this, an act a grant
      * covers ran on a leg with nothing written before it, no judgment under the lock and no look afterwards. The
-     * house's policy is asked with the run in hand ({@see PluginAuthoringPolicy::crossing()}); under any other
-     * policy there is no judge and nothing was lent, so the run goes as it always did.
+     * house's policy is asked with the run in hand ({@see PluginAuthoringPolicy::crossing()}).
+     *
+     * THE JUDGE IS THE ONE THIS LEG WAS HANDED, NOT WHATEVER ITS GATE HOLDS (the fifth review, 5-M4). This asked «is
+     * the gate's policy the house's?» — and with an app's own call policy there, a decorator, or none, the answer
+     * was no and the run went «as it always did»: a falsifier that fired was not heard and a stopped grant did not
+     * stop a seat that holds the word of its own, while the house's boundary went on judging every call that stayed
+     * in the process. So whoever builds a leg hands it the house's judge ({@see PluginAuthoringPolicy::judgeOf()}).
+     * AND A LEG THAT CANNOT FIND THE JUDGE DOES NOT GO ON AS IF THERE WERE NONE: with no judge in hand and none
+     * behind its gate, in a house that keeps a book of standing grants, a run that leaves the process is not made
+     * for a key. In a house with no book, and for the operator's own terminal, it goes as it always did.
      *
      * @template T
      *
@@ -160,11 +169,18 @@ final class TrialAwareRegistry extends ToolRegistry
      */
     private function acrossTheJudge(?ToolContext $ctx, Operation $operation, array $args, \Closure $run, \Closure $answered): mixed
     {
-        // The house's policy, behind whatever the gate holds: a guard of permissions wraps it the moment one operation
-        // typed by `permission` is told to this registry, and asked of the wrapper this door let every run through.
-        $policy = PluginAuthoringPolicy::behind($this->inner->getPolicyGate()->getCallPolicy());
+        $policy = $this->judge ?? PluginAuthoringPolicy::behind($this->inner->getPolicyGate()->getCallPolicy());
+        if ($policy !== null) {
+            return $policy->crossing($ctx, $operation, $args, $run, $answered);
+        }
+        if (str_starts_with((string) $ctx?->principal, 'key:') && StandingLedger::forRoot($this->router->root())->exists()) {
+            throw new NotAbsorbed(\sprintf(
+                'This leg found no judge of standing grants to ask about `%s` — its house does not run every operation through the house\'s own boundary — and this house keeps a book of them: a run that leaves the process is not made for a seat it cannot be judged for.',
+                (new \Milpa\Command\Consent\OperationId($operation->name))->forCli(),
+            ));
+        }
 
-        return $policy !== null ? $policy->crossing($ctx, $operation, $args, $run, $answered) : $run();
+        return $run();
     }
 
     /** The house's list, when this leg's loop plays the promotion of an admitted operation's trial ({@see houseApplies()}). */
@@ -233,6 +249,7 @@ final class TrialAwareRegistry extends ToolRegistry
         private readonly ?SessionStore $sessions = null,
         private readonly ?string $sessionId = null,
         private readonly ?\Closure $screenDrafts = null,
+        private readonly ?PluginAuthoringPolicy $judge = null,
     ) {
         parent::__construct(new NullLogger());
         $this->pendingMultipartPromotion = $this->recordedMultipartPromotion();

@@ -336,6 +336,15 @@ final class HouseStandingJudge
         return $fault === null ? null : self::unverified($fault);
     }
 
+    /**
+     * Whether this caller is one a grant can name, in a house that keeps a book: an enrolled key that is not a
+     * person. The operator's own terminal and a person are not this judge's to stop.
+     */
+    public function couldName(ToolContext $context): bool
+    {
+        return self::seatOf($context) !== null && !$context->hasScope(StandingBook::AUTHORITY) && $this->book() !== null;
+    }
+
     private static function unverified(string $fault): string
     {
         return \sprintf(

@@ -116,6 +116,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         private readonly ?\Closure $permissions = null,
         private readonly ?\Closure $capabilities = null,
         private readonly ?HouseStandingJudge $standing = null,
+        private readonly ?\Closure $judges = null,
     ) {
         $this->permissioned = new \ArrayObject();
         $this->catalogued = new \ArrayObject();
@@ -153,6 +154,8 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             judged: $events instanceof MilpaEventDispatcherInterface ? JudgedPermission::listen($events) : null,
             permissions: static fn (): mixed => $container->has(OperationPermissionPolicy::class) ? $container->get(OperationPermissionPolicy::class) : null,
             capabilities: static fn (): ?BuiltCapabilities => BuiltCapabilities::ofContainer($container),
+            // Whether THIS house's boundary is the house's own: asked when a seat is judged, never kept.
+            judges: static fn (): bool => self::judgeOf($container) !== null,
         );
         // THE JUDGE MCP AND A FINITE TERMINAL CALLER ANSWER TO (GHSA-xj7j-99jx-52hh, greenhouse decisions/0545): the
         // host's own resolver, the one its HTTP policy asks. A host that brought its own judge keeps it.
@@ -304,14 +307,58 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
      * guard that keeps it elsewhere one day makes this THROW: a leg that cannot find the house's judge does not go
      * on as if there were none.
      */
+    /**
+     * THE JUDGE OF THIS HOUSE, FOR WHOEVER HAS TO ASK IT — or `null`: this house has none (greenhouse
+     * decisions/0615, the fifth review, 5-M4).
+     *
+     * «Is what I hold the house's policy?» was asked of whatever each door happened to hold — the gate of a leg, the
+     * gate behind one wrapper — and every door that heard «no» went on as if there were no judge. There is one, and
+     * it does not depend on what a gate holds: the house's policy AS THE BOUNDARY every operation of this house runs
+     * through. A door whose run does not pass through that boundary — one that leaves the process — is handed this.
+     */
+    public static function judgeOf(\Milpa\Interfaces\Di\DIContainerInterface $container): ?self
+    {
+        $boundary = $container->has(OperationBoundary::class) ? $container->get(OperationBoundary::class) : null;
+
+        return $boundary instanceof self ? $boundary : null;
+    }
+
+    /**
+     * Why this house does not judge standing grants BY EVERY DOOR — or `null`: it does.
+     *
+     * ONE QUESTION, ONE ANSWER (the fifth review, 5-M4). The door that gives a grant asked only whether the boundary
+     * is the house's. A grant is also LENT at a gate — a leg's, the terminal's — and those ask the call policy the
+     * container holds: with an app's own there, or a decorator around the house's, nothing is lent by any of them,
+     * and a grant was given all the same, with no word of it. So it is asked of both, here, and of nothing else.
+     */
+    public static function whyItDoesNotJudge(\Milpa\Interfaces\Di\DIContainerInterface $container): ?string
+    {
+        if (self::judgeOf($container) === null) {
+            return 'its boundary is not the one that reads them, so a grant here would be a sentence nobody enforces';
+        }
+        $held = $container->has(CallPolicy::class) ? $container->get(CallPolicy::class) : null;
+
+        return $held instanceof CallPolicy && self::behind($held) === null
+            ? 'the call policy this house registered is not the house\'s own — an app\'s, or one around it that this house cannot see through — so no gate of it, a leg\'s or the terminal\'s, would lend what a grant lends'
+            : null;
+    }
+
+    /**
+     * The house's policy behind what a gate holds: itself, or the one the console's guard of permissions wraps —
+     * however many of those guards there are — or `null`.
+     *
+     * The projector wraps a gate's policy the moment one operation typed by `permission` is told to a registry, and
+     * the guard keeps what it wraps private: it is read by reflection, and that THROWS the day the guard keeps it
+     * elsewhere. It looked behind ONE guard; what a container holds may itself be one (the fifth review). Anything
+     * else — an app's own policy, a decorator of the app's — is not the house's, and this says so: `null`.
+     */
     public static function behind(?CallPolicy $held): ?self
     {
-        if ($held instanceof self || !$held instanceof PermissionCallPolicy) {
-            return $held instanceof self ? $held : null;
+        for ($deep = 0; $held instanceof PermissionCallPolicy && $deep < 8; ++$deep) {
+            $held = (new \ReflectionProperty(PermissionCallPolicy::class, 'host'))->getValue($held);
         }
-        $host = (new \ReflectionProperty(PermissionCallPolicy::class, 'host'))->getValue($held);
 
-        return $host instanceof self ? $host : null;
+        return $held instanceof self ? $held : null;
     }
 
     /** Where an operation's handler is written — which tells one operation from another that took its name. */
@@ -376,6 +423,14 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             $stopped = $this->standing()->stops($context);
             if ($stopped !== null) {
                 return AuthorizationResult::denied($stopped);
+            }
+            // A HOUSE THAT KEEPS A BOOK AND DOES NOT RUN ITS OPERATIONS THROUGH ITS OWN BOUNDARY LETS NO SEAT ACT (the
+            // fifth review, 5-M4 — the other half of the one question). An app that registered its own boundary
+            // leaves this policy at the gates only: it is told no catalogue and no act is written down before it
+            // runs, so a grant in that book would be judged by nobody — and this went on as if no grant named the
+            // call. Where the answer is «I do not know» and there is a book, a seat stops.
+            if ($this->judges !== null && !($this->judges)() && $this->standing()->couldName($context)) {
+                return AuthorizationResult::denied('This house keeps a book of standing grants and does not judge them: the boundary its operations run through is not the house\'s own, so nothing would be written before an act and no grant would be read. Nothing runs for a seat until whoever runs this house puts its own boundary back, or keeps that book somewhere else.');
             }
             if ($name === 'edit' && array_key_exists('source', $arguments)
                 && !$context->hasScope('agent:read') && !$context->hasScope('agent:answer')) {
@@ -809,6 +864,19 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         // very run. Asked on every run, so a verdict never waits for a later one; authoring and sandbox calls keep
         // their own checks.
         if ($this->judged?->take($operation) === true && !in_array($name, [...self::BUILD, ...self::SANDBOX], true)) {
+            // …UNLESS A STANDING GRANT NAMES THE CALL (the sweep of «are you the house's policy?», beside the fifth
+            // review's 5-M3). The HTTP policy answered for a permission; whether a grant lets a call pass is this
+            // judge's, and this door ran the handler with no verdict of it. No grant is given over an operation
+            // that asks for a permission and not for a word — the door refuses — so this is the line written by
+            // hand, or the operation that came to ask for one after a grant named it: it is refused, not run.
+            $named = $this->standing()->decide($context, $operation, $input, $this->operationNamed(...), $this->answeredTwice(...));
+            if ($named?->named() === true) {
+                throw new \RuntimeException(\sprintf(
+                    'A standing grant names this call of `%s`, and this door — a run the house\'s judge of permissions admitted over HTTP — does not ask the judge of standing grants. Nothing ran. A grant lends words, and this operation asks for a permission: a person gives the grant again over what the operation is now, or makes the call.',
+                    (new OperationId($operation->name))->forCli(),
+                ));
+            }
+
             return $next();
         }
         $tool = new ToolDefinition(

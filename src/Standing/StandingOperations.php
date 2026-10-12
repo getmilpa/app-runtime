@@ -165,8 +165,9 @@ final class StandingOperations implements CommandProvider
         }
         $root = $this->root();
         $policy = $this->policy();
-        if ($root === null || $policy === null) {
-            return self::no('this house does not judge standing grants: its boundary is not the one that reads them, so a grant here would be a sentence nobody enforces — nothing was granted');
+        $unjudged = PluginAuthoringPolicy::whyItDoesNotJudge($this->container);
+        if ($root === null || $policy === null || $unjudged !== null) {
+            return self::no('this house does not judge standing grants by every door: ' . ($unjudged ?? 'it has no place to keep them') . ' — nothing was granted');
         }
 
         $book = StandingBook::forRoot($root, $this->verifier);

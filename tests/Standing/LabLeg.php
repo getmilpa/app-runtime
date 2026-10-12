@@ -71,8 +71,11 @@ final class LabLeg
      * @param LabShelf|null   $plugin     the plugin whose work runs in the house, when the leg has a work layer
      * @param \Closure|null   $between    called after the gate judged a call and before it runs: a test's way of doing
      *                                    something in that moment
+     * @param \Closure|null   $onTheGate  what the container holds as its `CallPolicy` when this leg boots, given the
+     *                                    house's own — an app may register one of its own, a decorator, or none
+     *                                    (`false`); with no closure it is the house's, as `install()` leaves it
      */
-    public function __construct(private readonly LabHouse $house, array $operations, ?LabShelf $plugin = null, ?\Closure $between = null)
+    public function __construct(private readonly LabHouse $house, array $operations, ?LabShelf $plugin = null, ?\Closure $between = null, ?\Closure $onTheGate = null)
     {
         $bwrap = $this->file('bwrap', "#!/bin/sh\nwhile [ \"$1\" != \"--\" ] && [ $# -gt 0 ]; do shift; done\nshift\nexec \"$@\"\n");
         chmod($bwrap, 0o755);
@@ -82,7 +85,10 @@ final class LabLeg
         $trial = $this->file('trial-run.php', "<?php\nrequire {$autoload};\nexit({$runs}(__DIR__, \$argv[1] ?? '', \$argv[2] ?? '{}', 'trial'));\n");
         $work = $this->file('work-run.php', "<?php\nrequire {$autoload};\nexit({$runs}(\$argv[1] ?? '', \$argv[2] ?? '', \$argv[3] ?? '{}', 'work'));\n");
 
-        $house->container->registerService(CallPolicy::class, $house->policy);
+        $held = $onTheGate === null ? $house->policy : $onTheGate($house->policy);
+        if ($held instanceof CallPolicy) {
+            $house->container->has(CallPolicy::class) ? $house->container->replaceService(CallPolicy::class, $held) : $house->container->registerService(CallPolicy::class, $held);
+        }
         // A leg is ONE process for all its calls, and it boots here: what it loaded is what the disk held now.
         $house->boots();
         $registry = new ToolRegistry(new NullLogger());
@@ -90,7 +96,8 @@ final class LabLeg
         $this->off = new AdmissionAwareRegistry($registry);
         $runner = new TrialRunner(bwrap: $bwrap);
         $this->router = new TrialRouter($house->root, $runner, $trial);
-        $this->on = new TrialAwareRegistry($this->off, $this->router, $operations);
+        // As `AgentOperations` builds it: the leaving doors are handed the house's judge, whatever the gate holds.
+        $this->on = new TrialAwareRegistry($this->off, $this->router, $operations, judge: \Milpa\AppRuntime\Agent\PluginAuthoringPolicy::judgeOf($house->container));
         if ($plugin !== null) {
             $plugin->between = $between;
             $this->on->runsWorkInTheHouse(new HouseWork($house->root, [$plugin], null, $runner), new ConfinedWork($house->root, $runner, $work));
