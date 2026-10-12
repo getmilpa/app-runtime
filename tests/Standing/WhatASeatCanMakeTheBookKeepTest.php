@@ -425,6 +425,48 @@ final class WhatASeatCanMakeTheBookKeepTest extends TestCase
         self::assertCount(HouseStandingJudge::REFUSALS_KEPT + 1, $this->house->lines(StandingLedger::REFUSED), 'a refusal after the grant was stopped was not written');
     }
 
+    /** @return iterable<string, array{0: \Closure(LabHouse): void, 1: string}> what changes the standing of a grant, and what a seat is then refused for */
+    public static function whatChangesTheStandingOfAGrant(): iterable
+    {
+        yield 'its falsifier fires' => [static function (LabHouse $house): void {
+            $house->fired = true;
+            $house->as(LabHouse::OTHER_SEAT, 'lab:watch');
+            $house->fired = false;
+        }, 'suspended'];
+        yield 'a person lifts a stop' => [static function (LabHouse $house): void {
+            $house->signed(LabHouse::OTHER_SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'seen']);
+            $house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => (string) $house->book()->record('release-line')?->suspension]);
+            $house->as(LabHouse::OTHER_SEAT, 'lab:watch');
+        }, 'never measured'];
+        yield 'a person gives another grant' => [static function (LabHouse $house): void {
+            $house->granted(['id' => 'second-line', 'covers' => [['operation' => 'lab:announce']]], watched: false);
+        }, 'never measured'];
+        yield 'a person withdraws it' => [static function (LabHouse $house): void {
+            $house->signed(LabHouse::PERSON, 'standing:revoke', ['grant' => 'release-line']);
+            $house->granted(['id' => 'given-again']);
+        }, 'never measured'];
+    }
+
+    /** @param \Closure(LabHouse): void $changes */
+    #[DataProvider('whatChangesTheStandingOfAGrant')]
+    public function testASeatsRefusalsAreCountedAgainAfterEachThingThatChangesTheStandingOfAGrant(\Closure $changes, string $refusedFor): void
+    {
+        $this->house->granted();
+        $this->house->enroll(LabHouse::OTHER_SEAT, ['agent:run', 'lab:watch'], LabHouse::PERSON);
+        $path = $this->house->candidate('never-measured.txt', "nobody measured this\n");
+        for ($n = 0; $n < 40; ++$n) {
+            $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $path, 'note' => 'a' . $n]);
+        }
+        $kept = \count($this->house->lines(StandingLedger::REFUSED));
+        self::assertSame(HouseStandingJudge::REFUSALS_KEPT, $kept, 'control: the cap');
+
+        $changes($this->house);
+        $said = $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $path, 'note' => 'after']);
+
+        self::assertStringContainsString($refusedFor, (string) ($said['refused'] ?? 'RAN'), 'control: the seat is refused, for what stands now');
+        self::assertCount($kept + 1, $this->house->lines(StandingLedger::REFUSED), 'a refusal after the standing of the grant changed was not written');
+    }
+
     // ── how long the book is ─────────────────────────────────────────────────────────────────────────────────
 
     public function testABookLongerThanTheHouseReadsIsAFaultAndNoSeatActs(): void

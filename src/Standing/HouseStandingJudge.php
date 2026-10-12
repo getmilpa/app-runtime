@@ -904,10 +904,9 @@ final class HouseStandingJudge
      *
      * The book stops, on a «fired», every grant whose falsifier names the operation and that is in force, or
      * stopped by something a person could lift that is not itself a «fired» — and reads nothing else into that line
-     * ({@see StandingBook}). So while there is one, the line is what stops it, and it is always written. With none,
-     * the same key saying so again changes nothing the book says — unless a
-     * grant was given or a stop was lifted since it last did, which is read from the end of the book and means
-     * «write».
+     * ({@see StandingBook}). So while there is one, the line is what stops it, and it is always written — a grant
+     * given, or a stop a person lifted, since this key last said so is one of those. With none, the same key
+     * saying so again changes nothing the book says.
      *
      * @param list<array{type: string, data: array<string, mixed>}> $entries
      */
@@ -921,12 +920,11 @@ final class HouseStandingJudge
                 return false;
             }
         }
-        for ($at = \count($entries) - 1; $at >= 0; --$at) {
-            $data = $entries[$at]['data'];
-            if (\in_array($entries[$at]['type'], [StandingLedger::GRANTED, StandingLedger::REINSTATED], true)) {
-                return false;
-            }
-            if ($entries[$at]['type'] === StandingLedger::WATCHED && ($data['fired'] ?? null) === true && ($data['watcher'] ?? null) === $watcher && ($data['who'] ?? null) === $who) {
+        // Nothing there for it to stop: a grant given or lifted since would be one of those. What is left is this
+        // key saying so again — or for the first time, which is written: who saw a falsifier fire is in the book.
+        foreach ($entries as $entry) {
+            $data = $entry['data'];
+            if ($entry['type'] === StandingLedger::WATCHED && ($data['fired'] ?? null) === true && ($data['watcher'] ?? null) === $watcher && ($data['who'] ?? null) === $who) {
                 return true;
             }
         }

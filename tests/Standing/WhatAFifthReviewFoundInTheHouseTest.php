@@ -541,6 +541,10 @@ final class WhatAFifthReviewFoundInTheHouseTest extends TestCase
         self::assertCount(1, $this->house->lines(StandingLedger::SUSPENDED), 'control: the pause is in the book');
         $this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => $fired]);
         self::assertSame(GrantState::InForce, $this->state()?->state, 'control: a person lifts the stop the watcher wrote, by name');
+        // …and once it is lifted, a stop is a stop again: nothing of the «fired» is left standing over it.
+        $this->house->signed(LabHouse::OTHER_SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'a real fault']);
+        self::assertSame(GrantState::Suspended, $this->state()?->state, 'a stop written after a «fired» was lifted stopped nothing');
+        self::assertStringContainsString('a real fault', (string) $this->state()?->because);
     }
 
     // ── 5-L1 · a stop is never refused for its reason — not by the terminal's signature either ─────────────────
