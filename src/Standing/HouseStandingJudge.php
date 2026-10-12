@@ -902,9 +902,10 @@ final class HouseStandingJudge
     /**
      * Whether this key's «fired» would stop nothing it has not already said stopped (a proposal, not decided).
      *
-     * The book stops, on a «fired», every grant IN FORCE whose falsifier names the operation — and reads nothing
-     * else into that line ({@see StandingBook}). So while one is in force the line is what stops it, and it is
-     * always written. With none in force, the same key saying so again changes nothing the book says — unless a
+     * The book stops, on a «fired», every grant whose falsifier names the operation and that is in force, or
+     * stopped by something a person could lift that is not itself a «fired» — and reads nothing else into that line
+     * ({@see StandingBook}). So while there is one, the line is what stops it, and it is always written. With none,
+     * the same key saying so again changes nothing the book says — unless a
      * grant was given or a stop was lifted since it last did, which is read from the end of the book and means
      * «write».
      *
@@ -913,7 +914,10 @@ final class HouseStandingJudge
     private function saidFiredAlready(array $entries, Operation $operation, string $watcher, string $who): bool
     {
         foreach ($this->book()?->records() ?? [] as $record) {
-            if ($record->state === GrantState::InForce && $record->grant->falsifier->watcher->operation->is($operation->name)) {
+            // …or one stopped by something a person could lift by name that is not a «fired»: this line takes its
+            // place, so it is what stops it (the fifth review, 5-L2).
+            $itStops = $record->state === GrantState::InForce || ($record->state === GrantState::Suspended && !$record->stopped && !$record->fired);
+            if ($itStops && $record->grant->falsifier->watcher->operation->is($operation->name)) {
                 return false;
             }
         }

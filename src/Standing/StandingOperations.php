@@ -533,7 +533,35 @@ final class StandingOperations implements CommandProvider
         }
         $cut = rtrim(mb_substr($text, 0, self::REASON_KEPT));
 
-        return [Canonical::oneLine($cut) ? $cut : Canonical::shown($cut), \sprintf('the first %d of the %d characters of the reason are kept, and the line says which reason that was by its digest', self::REASON_KEPT, mb_strlen($text)), $was];
+        return [Canonical::oneLine($cut) ? $cut : Canonical::shown($cut), \sprintf('the first %d of the %d characters of the reason are kept, and the line says which reason that was by its digest', mb_strlen($cut), mb_strlen($text)), $was];
+    }
+
+    /**
+     * The tokens of a call as the house's terminal hands them to whoever signs it: for a stop, with a reason that is
+     * not text SPELLED (the fifth review, 5-L1).
+     *
+     * D15: a stop is always heard and never refused for its reason. The terminal signs a call before it runs, and
+     * what it signs is JSON: a reason carrying bytes that are not text was refused there — «Malformed UTF-8» —
+     * before this door was asked, and the grant stayed in force. A stop cannot be made unsigned, so there was no way
+     * around it. The reason is spelled here, the way this door spells one ({@see self::reasonKept()}): what is
+     * signed is what is kept. Every other call, and a reason that is text, pass as they were typed.
+     *
+     * @param list<string> $tokens the tokens after the command
+     *
+     * @return list<string>
+     */
+    public static function atATerminal(string $operation, array $tokens): array
+    {
+        if (\Milpa\Console\McpProjector::toolName($operation) !== 'standing_suspend') {
+            return $tokens;
+        }
+
+        return array_map(
+            static fn (string $token): string => str_starts_with($token, '--reason=') && !mb_check_encoding($token, 'UTF-8')
+                ? '--reason=' . Canonical::shown(substr($token, 9))
+                : $token,
+            $tokens,
+        );
     }
 
     /**

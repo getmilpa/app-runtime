@@ -688,6 +688,10 @@ final class Application
             }
         }
 
+        // A STOP IS NEVER REFUSED FOR ITS REASON — NOT BY THE SIGNATURE EITHER (greenhouse decisions/0615, D15; the
+        // fifth review, 5-L1): a reason that is not text is spelled before anybody is asked to sign the call.
+        $tokens = \Milpa\AppRuntime\Standing\StandingOperations::atATerminal($operacion->name, $tokens);
+
         return (new CliRunner(
             signer: $this->firmanteEfectivo(),
             renderer: $renderer,

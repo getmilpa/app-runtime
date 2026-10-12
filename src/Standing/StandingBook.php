@@ -255,7 +255,7 @@ final class StandingBook
                     'by' => 'key:' . (\is_string($data['fingerprint'] ?? null) ? $data['fingerprint'] : 'unknown'),
                     'fault' => $broken === null ? $fault : 'the book of standing grants does not verify (' . $broken . ')',
                     'state' => GrantState::InForce, 'because' => null, 'suspension' => null, 'signal' => null,
-                    'operations' => $pins['operations'], 'instruments' => $pins['instruments'], 'stopped' => false, 'stoppers' => [],
+                    'operations' => $pins['operations'], 'instruments' => $pins['instruments'], 'stopped' => false, 'stoppers' => [], 'fired' => false,
                 ];
                 // TAKING ANOTHER GRANT OUT OF THE WAY IS HELD TO THE STANDARD OF REINSTATING IT (greenhouse
                 // decisions/0615, «Lo que la revisión encontró», 6). The grant that supersedes holds; whoever signed it
@@ -312,7 +312,14 @@ final class StandingBook
                 $arguments = \is_array($data['arguments'] ?? null) ? $data['arguments'] : [];
                 foreach ($grants as $key => $known) {
                     $named = $known['grant']->falsifier->watcher;
-                    if (!\is_bool($fired) || $at === false || $known['state'] !== GrantState::InForce || !$named->operation->is($watcher)) {
+                    // A «FIRED» IS A STOP OF ITS OWN, WHATEVER OTHER STOP STANDS (the fifth review, 5-L2; «a watcher that
+                    // says it fired ALWAYS stops»). It was read only for a grant in force at that point: written while
+                    // a seat's routine pause stood, it stopped nothing — and the person who lifted the pause brought
+                    // the grant back with no signature that named the «fired». So it takes the place of any stop a
+                    // person could lift by name; the first one stands, and one that only a new grant lifts is left.
+                    $standsIn = $known['state'] === GrantState::InForce
+                        || ($fired === true && $known['state'] === GrantState::Suspended && !$known['stopped'] && !$known['fired']);
+                    if (!\is_bool($fired) || $at === false || !$standsIn || !$named->operation->is($watcher)) {
                         continue;
                     }
                     if ($fired === false) {
@@ -328,6 +335,7 @@ final class StandingBook
                     $grants[$key]['state'] = GrantState::Suspended;
                     $grants[$key]['suspension'] = $entry['hash'];
                     $grants[$key]['signal'] = null;
+                    $grants[$key]['fired'] = true;
                     $grants[$key]['because'] = \sprintf(
                         'its falsifier «%s» fired: `%s` reported it, at %s, run by %s (suspension %s)',
                         $known['grant']->falsifier->name,
@@ -349,6 +357,13 @@ final class StandingBook
                 if ($grants[$id]['stopped']) {
                     // Already stopped by what only a new grant lifts. A suspension written on top of it is one a
                     // person could lift by name — and it must not take the place of the stop that stands.
+                    continue;
+                }
+                if ($grants[$id]['fired']) {
+                    // …NOR THE PLACE OF A «FIRED» (the fifth review, 5-L2). Any key the house recognizes can stop a
+                    // grant, with no word: written over the stop its watcher wrote, «routine pause» became what the
+                    // listing said and what a person lifted. Whoever stopped it is still remembered as having.
+                    $grants[$id]['stoppers'][] = \is_string($data['by'] ?? null) ? $data['by'] : '';
                     continue;
                 }
                 $grants[$id]['state'] = GrantState::Suspended;
@@ -387,6 +402,7 @@ final class StandingBook
                     $grants[$id]['because'] = null;
                     $grants[$id]['suspension'] = null;
                     $grants[$id]['stoppers'] = [];
+                    $grants[$id]['fired'] = false;
                 }
             } elseif ($entry['type'] === StandingLedger::REVOKED) {
                 if ($this->personSigned($data, 'standing:revoke', $grants[$id]['grant'], ['grant' => $id])) {
@@ -427,6 +443,7 @@ final class StandingBook
             $known['instruments'],
             $known['stopped'],
             array_values(array_unique($known['stoppers'])),
+            $known['fired'],
         ), $grants));
     }
 

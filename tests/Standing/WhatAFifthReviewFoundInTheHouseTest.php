@@ -501,6 +501,95 @@ final class WhatAFifthReviewFoundInTheHouseTest extends TestCase
         self::assertNull($ran, 'a call a grant names ran with no verdict of the judge of standing grants: the HTTP policy had admitted it');
     }
 
+    // ── 5-L2 · a «fired» is a stop of its own, and a seat's stop does not hide it ────────────────────────────────
+
+    public function testAFiredWrittenWhileASeatsStopStandsIsTheStopAPersonHasToLift(): void
+    {
+        // A seat stops the grant for a routine pause; the falsifier fires and the watcher's line is written; a person
+        // lifts the SEAT's stop by name. The grant was in force, with no signature that named the «fired».
+        $this->house->granted();
+        $this->house->signed(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'routine pause, nothing wrong']);
+        $pause = (string) $this->state()?->suspension;
+        $this->house->fired = true;
+        $this->house->as(LabHouse::SEAT, 'lab:watch');
+        $this->house->fired = false;
+
+        $this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => $pause]);
+
+        self::assertSame(GrantState::Suspended, $this->state()?->state, 'a person lifted a routine pause and the grant was in force again, its falsifier having fired meanwhile');
+        self::assertStringContainsString('fired', (string) $this->state()?->because);
+        // …and lifting the «fired» by name is what brings it back.
+        $this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => (string) $this->state()?->suspension]);
+        self::assertSame(GrantState::InForce, $this->state()?->state);
+    }
+
+    public function testASeatsStopWrittenOverAFiredDoesNotTakeItsPlace(): void
+    {
+        // The other order: the falsifier fired, then any key the house recognizes stopped the grant «for a pause».
+        // The listing said only the pause, and lifting the pause brought the grant back.
+        $this->house->granted();
+        $this->house->fired = true;
+        $this->house->as(LabHouse::SEAT, 'lab:watch');
+        $this->house->fired = false;
+        $fired = (string) $this->state()?->suspension;
+
+        $this->house->signed(LabHouse::OTHER_SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'routine pause, nothing wrong']);
+
+        self::assertSame($fired, $this->state()?->suspension, 'a stop written by any key took the place of the stop the watcher wrote');
+        self::assertStringContainsString('fired', (string) $this->state()?->because);
+        self::assertCount(1, $this->house->lines(StandingLedger::SUSPENDED), 'control: the pause is in the book');
+        $this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => $fired]);
+        self::assertSame(GrantState::InForce, $this->state()?->state, 'control: a person lifts the stop the watcher wrote, by name');
+    }
+
+    // ── 5-L1 · a stop is never refused for its reason — not by the terminal's signature either ─────────────────
+
+    /** @return iterable<string, array{string}> */
+    public static function reasonsThatAreNotText(): iterable
+    {
+        yield 'two bytes that are no character' => ["\xff\xfe"];
+        yield 'a lone continuation byte' => ["seen \x80 here"];
+        yield 'an overlong slash' => ["\xc0\xaf"];
+        yield 'half a character' => ["caf\xc3"];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('reasonsThatAreNotText')]
+    public function testAReasonThatIsNotTextIsSpelledBeforeTheTerminalSignsTheStop(string $reason): void
+    {
+        // The terminal signs a call before it runs, and what it signs is JSON: a reason carrying bytes that are not
+        // text was refused THERE — «Malformed UTF-8» — before the house was asked, and the grant stayed in force.
+        // So the house's terminal hands the signer the spelling of such a reason: what is signed is what is kept.
+        $tokens = \Milpa\AppRuntime\Standing\StandingOperations::atATerminal('standing:suspend', ['--grant=release-line', '--reason=' . $reason, '--sign']);
+
+        self::assertSame(['--grant=release-line', '--sign'], [$tokens[0], $tokens[2]]);
+        self::assertTrue(mb_check_encoding($tokens[1], 'UTF-8'), 'the reason the signer is handed is still not text');
+        self::assertNotFalse(json_encode(['reason' => substr($tokens[1], 9)]), 'the signer could not spell the call it is asked to sign');
+        // …and the door takes that spelling as it takes any reason: the stop lands.
+        $this->house->granted();
+        $said = $this->house->signed(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => substr($tokens[1], 9)]);
+        self::assertTrue($said['ok'] ?? null);
+        self::assertSame(GrantState::Suspended, $this->state()?->state);
+    }
+
+    public function testAReasonThatIsTextAndEveryOtherCallReachTheSignerAsTheyWereTyped(): void
+    {
+        $typed = ['--grant=release-line', '--reason=seen: ñ 字', '--sign'];
+        self::assertSame($typed, \Milpa\AppRuntime\Standing\StandingOperations::atATerminal('standing:suspend', $typed));
+        $other = ['--path=' . "\xff", '--reason=' . "\xff"];
+        self::assertSame($other, \Milpa\AppRuntime\Standing\StandingOperations::atATerminal('lab:scan', $other), 'another operation\'s tokens were rewritten');
+    }
+
+    public function testTheDoorSaysHowManyCharactersOfAReasonItKeptWhenTheCutEndsInASpace(): void
+    {
+        // A nit of the fifth review: 255 letters, a space, and more — the door said 256 were kept and 255 are.
+        $this->house->granted();
+
+        $said = $this->house->signed(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => str_repeat('a', 255) . ' ' . str_repeat('b', 50)]);
+
+        self::assertSame(255, mb_strlen((string) $this->house->lines(StandingLedger::SUSPENDED)[0]['reason']));
+        self::assertStringContainsString('the first 255 of the 306 characters', json_encode($said));
+    }
+
     private LabShelf $shelf;
 
     private ?LabLeg $leg = null;
