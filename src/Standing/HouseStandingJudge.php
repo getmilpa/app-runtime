@@ -24,8 +24,10 @@ use Milpa\Command\Standing\GrantStanding;
 use Milpa\Command\Standing\StandingCall;
 use Milpa\Command\Standing\StandingCheck;
 use Milpa\Command\Standing\StandingJudge;
+use Milpa\Command\Standing\StandingVerdict;
 use Milpa\ToolRuntime\Contracts\ToolContext;
 use Milpa\ToolRuntime\Identity\SignatureVerifier;
+use Milpa\ToolRuntime\PolicyGate;
 
 /**
  * THE HOUSE'S JUDGE OF STANDING GRANTS: before a seat's act, it reads the book at that moment and
@@ -236,7 +238,7 @@ final class HouseStandingJudge
         $answer = StandingJudge::among($held, $call, $fault);
 
         if ($answer === null) {
-            return new StandingDecision($call);
+            return $this->governedUnderDoubt($context, $operation, $call, $held, $records) ?? new StandingDecision($call);
         }
         if ($answer['grant'] === null) {
             // The judge speaks with no grant only for a record that does not read whole, and this house refused for
@@ -251,6 +253,52 @@ final class HouseStandingJudge
         $stands = $verdict->passes() || !\in_array($verdict->failed, [StandingCheck::Signature, StandingCheck::InForce], true);
 
         return new StandingDecision($call, $records[$answer['grant']->id], $verdict, lendable: $stands);
+    }
+
+    /**
+     * PROPOSED WITH THE CONTRACT'S «UNDER DOUBT, A STOP STOPS» — NOT DECIDED (greenhouse decisions/0615). The house's
+     * refusal of a call NO grant names exactly, made by a seat that holds the word on its own, while a grant IN FORCE
+     * may be the one that names it — or `null`: there is no such grant, or the seat's own word would not decide.
+     *
+     * THE RULE OF THIS HOUSE, AND IT IS NARROW. A grant governs the seat it names whatever that seat holds on its
+     * own: a condition that a word given separately walks around is not a condition. That held for a call said
+     * exactly as the grant says it. Said another way — the argument the grant fixes left out, or empty, or in another
+     * kind — the call was «nobody's», the seat's own word decided, and the conditions were left behind by not
+     * saying one argument. The contract hands a house the question ({@see StandingJudge::mayBeNaming()}) and leaves
+     * the answer to it. THIS HOUSE REFUSES, and says how the call is said so that it is one thing or the other.
+     *
+     *   · ONLY A GRANT IN FORCE AND HONOURED NOW — the one a word would be lent on ({@see self::offers()}). A grant
+     *     that is revoked, superseded, past its date or not honoured governs nothing; a stopped one has already
+     *     spoken through the judge.
+     *   · ONLY WHERE THE SEAT'S OWN WORD WOULD DECIDE. A seat that lacks the word is refused at the gate as it
+     *     always was, in the gate's own sentence: nothing could be walked around there.
+     *   · NOTHING IS LENT ON IT, and nothing passes on it: it is a refusal, written down as the refusals of a grant
+     *     are.
+     *
+     * To take it out with the proposal: this method, and the one line of {@see self::decide()} that calls it.
+     *
+     * @param list<array{grant: \Milpa\Command\Standing\StandingGrant, standing: GrantStanding}> $held
+     * @param array<string, GrantRecord>                                                         $records
+     */
+    private function governedUnderDoubt(ToolContext $context, Operation $operation, StandingCall $call, array $held, array $records): ?StandingDecision
+    {
+        // The gate's own question about a word, asked of the caller as it is on its own.
+        if (!(new PolicyGate())->authorizeScopes(self::withoutLent($context), $operation->name, $operation->scopes)->allowed) {
+            return null;
+        }
+        foreach ($held as ['grant' => $grant, 'standing' => $standing]) {
+            if ($standing->signatureFault !== null || !$records[$grant->id]->inForceAt($call->at) || !StandingJudge::mayBeNaming($grant, $call)) {
+                continue;
+            }
+
+            return new StandingDecision($call, $records[$grant->id], StandingVerdict::refuse(StandingCheck::Named, 'named_under_doubt', \sprintf(
+                'Standing grant «%1$s» is in force and may be the one that names this call: it lends to this seat and covers `%2$s`, and the call does not say, beyond doubt, another value for what it fixes. What a grant may be naming is not done on a seat\'s own word: its conditions would be left behind. Say each argument «%1$s» fixes as it fixes it, and the call is judged under that grant; or say another value for one of them — of the same kind, spelled as a grant spells it — and the call is this seat\'s own.',
+                $grant->id,
+                Canonical::short($call->operation->forCli()),
+            )));
+        }
+
+        return null;
     }
 
     /**
