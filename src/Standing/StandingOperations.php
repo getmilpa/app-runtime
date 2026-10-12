@@ -334,7 +334,7 @@ final class StandingOperations implements CommandProvider
                 'instruments' => $instruments,
                 // …and WHICH RECOGNITION of each seat, and of whoever signs, it is given over: a key that leaves the
                 // house and is recognized again is not the one this grant lent to ({@see StandingBook}).
-                'recognized' => $book->recognitions([...$grant->to, $granted->signer->fingerprint]),
+                'recognized' => $book->recognitions($book->givenOver($grant->to, $granted->signer->fingerprint)),
             ]);
         } catch (\RuntimeException $error) {
             return self::no('nothing was granted: ' . $error->getMessage());

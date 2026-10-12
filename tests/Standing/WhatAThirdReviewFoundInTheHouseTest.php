@@ -808,10 +808,12 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
         // …or one that says them of other keys, or says another count than the ledger's.
         $other = new LabHouse();
         try {
+            // (Since the fifth review a line names the STATE of each key's entry it was given over, not how many
+            // times the key had left: one that names none for its signer, or one the key never had, is not it.)
             $other->grantedByHand(line: ['recognized' => [LabHouse::SEAT => 0]]);
-            self::assertStringContainsString('the key that signed it left this house and was recognized again', (string) $other->book()->record('release-line')?->fault);
+            self::assertStringContainsString('the key that signed it is not at a recognition the ledger holds for it', (string) $other->book()->record('release-line')?->fault);
             $other->grantedByHand(['id' => 'second-line'], line: ['recognized' => [LabHouse::SEAT => 1, LabHouse::PERSON => 0]]);
-            self::assertStringContainsString('seat …' . substr(LabHouse::SEAT, -16) . ' left this house', (string) $other->book()->record('second-line')?->fault);
+            self::assertStringContainsString('seat …' . substr(LabHouse::SEAT, -16) . ' is not at a recognition the ledger holds for it', (string) $other->book()->record('second-line')?->fault);
             $other->grantedByHand(['id' => 'third-line']);
             self::assertNull($other->book()->record('third-line')?->fault, 'control: with the recognitions that stand, it is honoured');
         } finally {

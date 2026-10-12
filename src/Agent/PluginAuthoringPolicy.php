@@ -356,8 +356,10 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
      * @param array<string, mixed>  $arguments
      * @param StandingDecision|null $decided   set to what the judge of standing grants answered about this call, when
      *                                         some grant has to do with it
+     * @param Operation|null        $inHand    the operation that is about to run, when whoever asks holds it — the
+     *                                         boundary does; the gate holds only a tool's name
      */
-    private function verdict(ToolContext $context, ToolDefinition $tool, array $arguments, ?Operation $permissioned, ?StandingDecision &$decided = null): AuthorizationResult
+    private function verdict(ToolContext $context, ToolDefinition $tool, array $arguments, ?Operation $permissioned, ?StandingDecision &$decided = null, ?Operation $inHand = null): AuthorizationResult
     {
         try {
             $name = $tool->name;
@@ -393,8 +395,23 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             // BEFORE the question of who holds every scope, on purpose: a grant governs the seat it names whatever
             // that seat holds on its own — a condition that a scope given separately walks around is not a condition.
             // The operator's own terminal and a key no grant names are not this judge's: it says nothing of them.
-            $operation = $this->operationNamed($name);
+            //
+            // THE OPERATION IN HAND IS THE ONE THAT IS JUDGED (the fifth review, 5-M3). This looked the operation up by
+            // name in what this process had been TOLD — and the web kernel installs the boundary and, by the call the
+            // HTTP surface makes to build its routes, was told nothing: the judge was not asked, and a covered act of a
+            // seat that holds the word of its own ran under a grant that was stopped, with nothing written before it.
+            // The boundary has the operation; it is judged whether or not anybody told this process of it. And a
+            // process that was not told cannot say which operation measures or watches a grant: where a grant names
+            // the call, it does not go on as if none did.
+            $told = $this->operationNamed($name);
+            $operation = $inHand ?? $told;
             $decided = $operation === null ? null : $this->standing()->decide($context, $operation, $arguments, $this->operationNamed(...), $this->answeredTwice(...));
+            if ($decided?->named() === true && $told === null) {
+                return AuthorizationResult::denied(\sprintf(
+                    'A standing grant names this call of `%s`, and this process was never told which operations this house has — so it cannot say which one measures or watches that grant, and it does not judge what it cannot read. Nothing ran. Make the call where the house tells its catalogue: a terminal, a leg — or start this process again once it does.',
+                    (new OperationId($operation->name))->forCli(),
+                ));
+            }
             if ($decided?->named() === true && !$decided->passes()) {
                 $this->standing()->refused($decided);
 
@@ -806,7 +823,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         // about a word was answered with a loan — and asks it again, of what the caller holds on its own, when no grant
         // passes THIS call. A word lent for one call does not open the boundary for another (review, second, 7).
         $decided = null;
-        $verdict = $this->verdict($handed, $tool, $input, $operation->permission !== null ? $operation : null, $decided);
+        $verdict = $this->verdict($handed, $tool, $input, $operation->permission !== null ? $operation : null, $decided, $operation);
         if (!$verdict->allowed) {
             throw new \RuntimeException((string) $verdict->reason);
         }

@@ -87,7 +87,10 @@ final class Operations
             }
         }
 
-        return array_map(\Milpa\AppRuntime\Agent\RecordedEdit::operation(...), $operaciones);
+        // THE BOUNDARY IS TOLD WHAT IT WILL BE ASKED TO RUN (greenhouse decisions/0615, the fifth review, 5-M3). This
+        // installed it and returned: only the terminal and the agent's catalogue told it anything, so the boundary
+        // of a web process knew no operation by name — and its judge of standing grants was not asked.
+        return \Milpa\AppRuntime\Agent\PluginAuthoringPolicy::catalogue($container, array_map(\Milpa\AppRuntime\Agent\RecordedEdit::operation(...), $operaciones));
     }
 
     /**

@@ -370,9 +370,17 @@ final class StandingBook
                 // and the grant was in force with no signature that named it written since. So the line says which
                 // recognition of its signer it was signed over, as a `granted` line does, and one that is not that
                 // recognition any more — or that does not say — lifts nothing: a person lifts the suspension again.
-                if ($grants[$id]['state'] === GrantState::Suspended && !$grants[$id]['stopped']
+                //
+                // AND WHOEVER STOPPED IT BEFORE A LIFT WAS WRITTEN HAS NOT «ALREADY STOPPED» IT, WHETHER OR NOT THAT
+                // LIFT HOLDS TODAY (the fifth review, 5-M1). A key's second stop of what it already stopped writes no
+                // line (D15) — and «already» was read from this very derivation, which depends on today's
+                // identities: while a grant was stopped only because its lift did not hold, a second fault a seat
+                // saw left nothing in the book.
+                $lifts = $grants[$id]['state'] === GrantState::Suspended && !$grants[$id]['stopped']
                     && $this->personSigned($data, 'standing:reinstate', $grants[$id]['grant'], ['grant' => $id, 'suspension' => $grants[$id]['suspension']])
-                    && $this->isTheRecognitionItWasSignedOver($data)) {
+                    && $this->isTheRecognitionItWasSignedOver($data);
+                $grants[$id]['stoppers'] = [];
+                if ($lifts) {
                     // In force again, and unwatched: the watcher's sign was forgotten when the suspension was written,
                     // and none is taken while a grant is suspended. It has to speak again.
                     $grants[$id]['state'] = GrantState::InForce;
@@ -448,8 +456,8 @@ final class StandingBook
     }
 
     /**
-     * How many times each of these keys had left the house, as a `granted` line keeps it — which names the
-     * recognition of each seat, and of the signer, that the grant is given over.
+     * Which state of the ledger's entry each of these keys stands in, as a line a person signed keeps it — which
+     * names the recognition of each key that the line was written over.
      *
      * @param list<string> $keys
      *
@@ -460,19 +468,44 @@ final class StandingBook
         $enrollments = new FileEnrollmentStore($this->root . '/storage/identity/enrollments.json');
         $recognized = [];
         foreach ($keys as $key) {
-            $recognized[IdentityKey::normalize($key)] = $enrollments->departuresOf($key);
+            $recognized[IdentityKey::normalize($key)] = $enrollments->stateOf($key);
         }
 
         return $recognized;
     }
 
     /**
+     * Every key a grant to these seats, signed by this key, is given over: each seat, the signer, and every key on
+     * the line of who recognized each seat — the keys through which the signer answers for it.
+     *
+     * @param list<string> $seats
+     *
+     * @return list<string>
+     */
+    public function givenOver(array $seats, string $signer): array
+    {
+        $line = new EnrollmentLine(new FileEnrollmentStore($this->root . '/storage/identity/enrollments.json'));
+        $keys = [...$seats, $signer];
+        foreach ($seats as $seat) {
+            foreach ($line->chainOf($seat) as $principal) {
+                $key = EnrollmentLine::keyOf($principal);
+                if ($key !== null) {
+                    $keys[] = $key;
+                }
+            }
+        }
+
+        return array_values(array_unique(array_map(IdentityKey::normalize(...), $keys)));
+    }
+
+    /**
      * Why the recognitions a grant was given over are not the ones that stand today — or `null`: they are.
      *
-     * A GRANT IS HONOURED ONLY WHILE THE RECOGNITION OF EACH OF ITS SEATS, AND OF ITS SIGNER, IS OLDER THAN ITS LINE
-     * (third review, L4; decided by Rod 2026-10-12). The ledger of identities keeps no clock, so the grant's line
-     * says which recognition of each key it was given over — by how many times that key had left — and a key that
-     * left and was recognized again, by whoever, is another one. Recognizing a key names no grant.
+     * A GRANT IS HONOURED ONLY WHILE THE RECOGNITION OF EACH OF ITS SEATS, AND OF ITS SIGNER, IS THE ONE ITS LINE WAS
+     * WRITTEN OVER (third review, L4; decided by Rod 2026-10-12: what shrinks does not come back on its own). The
+     * ledger of identities keeps no clock, so the grant's line says which state of each key's entry it was given
+     * over, and the ledger keeps every state a key has had since ({@see self::notTheRecognitionItWas()}).
+     * Recognizing a key names no grant.
      *
      * @param array<string, mixed> $data the `granted` line
      */
@@ -483,12 +516,13 @@ final class StandingBook
             return 'its line does not say which recognition of each seat, and of its signer, it was given over';
         }
         $signer = IdentityKey::normalize($signer);
-        foreach ($this->recognitions([...$grant->to, $signer]) as $key => $today) {
-            $key = (string) $key;
-            if (!\array_key_exists($key, $kept) || $kept[$key] !== $today) {
+        foreach ([...array_map(IdentityKey::normalize(...), $grant->to), $signer, ...array_map(strval(...), array_keys($kept))] as $key) {
+            $why = $this->notTheRecognitionItWas($key, $kept[$key] ?? null, $key === $signer);
+            if ($why !== null) {
                 return \sprintf(
-                    '%s left this house and was recognized again since this grant was given — recognizing a key names no grant, so this one is not honoured until a person gives it again',
-                    $key === $signer ? 'the key that signed it' : 'seat ' . self::short($key),
+                    '%s %s since this grant was given — recognizing a key names no grant, so this one is not honoured until a person gives it again',
+                    $key === $signer ? 'the key that signed it' : (\in_array($key, array_map(IdentityKey::normalize(...), $grant->to), true) ? 'seat ' : 'the key ') . self::short($key),
+                    $why,
                 );
             }
         }
@@ -497,8 +531,7 @@ final class StandingBook
     }
 
     /**
-     * Whether whoever signed this line is still the recognition of that key the line was signed over: it says how
-     * many times the key had left the house, and the key has not left since.
+     * Whether whoever signed this line is still the recognition of that key the line was signed over.
      *
      * @param array<string, mixed> $data a line a person signed
      */
@@ -507,7 +540,52 @@ final class StandingBook
         $kept = \is_array($data['recognized'] ?? null) ? $data['recognized'] : null;
         $signer = \is_string($data['fingerprint'] ?? null) ? IdentityKey::normalize($data['fingerprint']) : '';
 
-        return $kept !== null && $signer !== '' && \array_key_exists($signer, $kept) && $kept[$signer] === ($this->recognitions([$signer])[$signer] ?? null);
+        return $kept !== null && $signer !== '' && $this->notTheRecognitionItWas($signer, $kept[$signer] ?? null, true) === null;
+    }
+
+    /**
+     * What a key did since the state a line was written over that makes it another recognition — or `null`: it is
+     * still that one.
+     *
+     * WHAT SHRINKS DOES NOT COME BACK ON ITS OWN — BY ANY WAY OF SHRINKING THE LEDGER KEEPS (the fifth review, 5-M1).
+     * This counted how many times a key had LEFT the house, and `identity:enroll` over a live key replaces its state
+     * in place: a signer whose word was taken that way and given back, and a seat that somebody else recognized in
+     * place and its first enroller then recognized again, were «the same recognition» — a lift and a grant came
+     * back with no signature that named them written since. The ledger keeps every state a key has had, in order.
+     * So a line holds only while EVERY state of the key since the one it was written over is one in which the key
+     * was still what the line needs:
+     *
+     *  - in the house: not withdrawn, and a state the ledger can read;
+     *  - recognized by whoever had recognized it — the line of who answers for whom is read through that;
+     *  - and, for the key that signed, a person: it held the word that recognizes identities.
+     *
+     * Words typed again by the same enroller, a scope more, an admission: none of those is ceasing to be it.
+     */
+    private function notTheRecognitionItWas(string $key, mixed $state, bool $asSigner): ?string
+    {
+        $never = 'is not at a recognition the ledger holds for it — its line does not say which one it was given over, or says one that key never had —';
+        if (!\is_int($state)) {
+            return $never;
+        }
+        $since = (new FileEnrollmentStore($this->root . '/storage/identity/enrollments.json'))->statesSince($key, $state);
+        if ($since === null) {
+            return $never;
+        }
+        $by = \is_array($since[0]) ? ($since[0]['authorized_by'] ?? null) : null;
+        foreach ($since as $then) {
+            if (!\is_array($then) || \array_key_exists('raw', $then) || ($then['revoked_by'] ?? null) !== null) {
+                return 'left this house and was recognized again';
+            }
+            if (($then['authorized_by'] ?? null) !== $by) {
+                return 'was recognized again by somebody else';
+            }
+            $scopes = \is_array($then['scopes'] ?? null) ? $then['scopes'] : [];
+            if ($asSigner && !\in_array(self::AUTHORITY, $scopes, true) && !\in_array('*', $scopes, true)) {
+                return 'stopped holding the word that makes it a person, and holding it again names nothing it signed';
+            }
+        }
+
+        return null;
     }
 
     /**

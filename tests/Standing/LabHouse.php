@@ -147,6 +147,12 @@ final class LabHouse implements SignatureVerifier
         $this->gone[] = $key;
     }
 
+    /** A key this house's keyring had lost verifies here again. */
+    public function verifiesAgain(string $key): void
+    {
+        $this->gone = array_values(array_diff($this->gone, [$key]));
+    }
+
     public function candidate(string $name, string $bytes): string
     {
         file_put_contents($this->root . '/' . $name, $bytes);
@@ -285,6 +291,20 @@ final class LabHouse implements SignatureVerifier
             $this->booted->exchangeArray([]);
         })->call($this->policy);
         PluginAuthoringPolicy::catalogue($this->container, $this->operations);
+    }
+
+    /**
+     * A process of this house that installed its boundary and was NEVER told its catalogue — the web kernel, as the
+     * HTTP surface left it (the fifth review, 5-M3). Calls made after this go through that process.
+     */
+    public function bootsUntold(): void
+    {
+        $this->aProcessPerCall = false;
+        (function (): void {
+            foreach ([$this->loaded, $this->booted, $this->catalogued, $this->permissioned, $this->twice] as $told) {
+                $told->exchangeArray([]);
+            }
+        })->call($this->policy);
     }
 
     /** Operations added to this house's catalogue after it was built. */

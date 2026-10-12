@@ -246,8 +246,14 @@ final class AStandingGrantShrinksOnItsOwnAndGrowsOnlyByAPersonTest extends TestC
         self::assertSame('signature', $this->house->lines(StandingLedger::REFUSED)[0]['check']);
         self::assertSame('not honoured', $this->house->book()->record('release-line')?->standsAs($this->house->now));
 
-        // And back: the same bytes are honoured again the moment the signer may give them again.
+        // And NOT back (the fifth review, 5-M1 — D1: what shrinks does not come back on its own). This test said
+        // «the same bytes are honoured again the moment the signer may give them again», and that is the sibling of
+        // the fourth review's M2: authority back with no signature that names the grant written since. The key that
+        // signed it stopped being a person; holding the word again names nothing it signed.
         $this->house->enroll(LabHouse::PERSON, LabHouse::PERSON_SCOPES, LabHouse::PERSON);
+        self::assertStringContainsString('stopped holding the word that makes it a person', (string) ($this->merge()['refused'] ?? 'RAN'));
+        // …until a person gives it again.
+        $this->house->granted(['id' => 'given-again', 'supersedes' => 'release-line']);
         self::assertSame(['ok' => true], $this->merge());
     }
 
