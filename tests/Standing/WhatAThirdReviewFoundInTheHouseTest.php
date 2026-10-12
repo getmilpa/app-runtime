@@ -1028,7 +1028,9 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
 
         $receipts = $this->house->lines(StandingLedger::MEASURED);
         self::assertCount(2, $receipts, 'the instrument said no of this content, and the house wrote nothing');
-        self::assertSame([false, ['deep' => true, 'path' => $bad]], [$receipts[1]['ok'], $receipts[1]['arguments']]);
+        // What the line keeps of that run (a proposal, not decided — the sibling of the fourth review's M3): the
+        // argument the grant describes as it came, and the spelling of the one nobody described.
+        self::assertSame([false, [\Milpa\AppRuntime\Standing\HouseStandingJudge::NOT_KEPT => '{"deep":true}', 'path' => $bad]], [$receipts[1]['ok'], $receipts[1]['arguments']]);
         self::assertStringContainsString('does not hold on this candidate', (string) ($this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $bad, 'channel' => 'stable'])['refused'] ?? 'RAN'));
         self::assertCount(1, $this->house->done('published'));
         // …until the run the condition describes measures it again.

@@ -21,6 +21,8 @@ use Milpa\Command\Standing\Canonical;
 use Milpa\Command\Standing\ConditionReceipt;
 use Milpa\Command\Standing\GrantCondition;
 use Milpa\Command\Standing\GrantStanding;
+use Milpa\Command\Standing\GrantState;
+use Milpa\Command\Standing\NamedCall;
 use Milpa\Command\Standing\StandingCall;
 use Milpa\Command\Standing\StandingCheck;
 use Milpa\Command\Standing\StandingJudge;
@@ -448,6 +450,20 @@ final class HouseStandingJudge
             if ($decision === null || $record === null || $verdict === null || !$verdict->passes()) {
                 return $decision;
             }
+            // WHAT THE HOUSE WILL NOT WRITE DOWN, IT DOES NOT LET PASS (a proposal, not decided). The line of an act
+            // carries what it was called with, a seat chooses that, and every command reads every line: one act with
+            // four megabytes of an argument the grant does not fix left a line of four megabytes. A call that long
+            // is a person's to make.
+            $carried = self::given($decision->call->arguments)['bytes'] ?? 0;
+            if ($carried > self::ACT_ARGUMENTS_KEPT) {
+                throw new \RuntimeException(\sprintf(
+                    'Standing grant «%s» lends nothing to this call of `%s`: it carries %d bytes of arguments, and the house writes an act down, with what it was called with, before it runs — at most %d. A person makes a call that long. Nothing ran.',
+                    $record->grant->id,
+                    $decision->call->operation->forCli(),
+                    $carried,
+                    self::ACT_ARGUMENTS_KEPT,
+                ));
+            }
             $ledger->append(StandingLedger::ABSORBED, [
                 'grant' => $record->grant->id,
                 'operation' => $decision->call->operation->canonical,
@@ -534,6 +550,14 @@ final class HouseStandingJudge
             'check' => $verdict->failed?->value,
             'reason' => $verdict->reason,
         ];
+        // A REFUSAL IS A LINE LONG TOO (a proposal, not decided): arguments longer than the house writes down of an
+        // act are kept as their spelling, with how long they were and their digest. Two refusals that differ past
+        // what a line keeps still differ by that digest — they are two lines, as they were.
+        $given = self::given($line['arguments']);
+        if (($given['bytes'] ?? 0) > self::ACT_ARGUMENTS_KEPT) {
+            $line['arguments'] = [self::NOT_KEPT => Canonical::shown($line['arguments'])];
+            $line['arguments_given'] = $given;
+        }
         try {
             $same = Canonical::json($line);
         } catch (\JsonException) {
@@ -584,7 +608,11 @@ final class HouseStandingJudge
      *
      * @param array<string, mixed> $arguments
      *
-     * @return array{measures: bool, refutes: bool, watches: bool, stops: bool, subject: ?string}|null
+     * AND WHICH ARGUMENTS SOME GRANT DESCRIBES FOR IT (`described`): the names a condition or a falsifier fixes or
+     * leaves free for this operation. A line that only narrows keeps those, and the spelling of the rest
+     * ({@see self::narrowing()} — a proposal, not decided).
+     *
+     * @return array{measures: bool, refutes: bool, watches: bool, stops: bool, subject: ?string, described: list<string>}|null
      */
     public function witnessing(Operation $operation, array $arguments): ?array
     {
@@ -592,7 +620,13 @@ final class HouseStandingJudge
         $refutes = false;
         $watches = false;
         $stops = false;
+        $described = [];
         foreach ($this->book()?->documents() ?? [] as $grant) {
+            foreach ([...array_map(static fn (GrantCondition $condition): NamedCall => $condition->by, $grant->conditions), $grant->falsifier->watcher] as $named) {
+                if ($named->operation->is($operation->name)) {
+                    $described = [...$described, ...array_map(strval(...), array_keys($named->arguments)), ...$named->free];
+                }
+            }
             foreach ($grant->conditions as $condition) {
                 $measures = $measures || $condition->by->matchesExactly($operation->name, $arguments);
                 $refutes = $refutes || $condition->by->operation->is($operation->name);
@@ -602,7 +636,7 @@ final class HouseStandingJudge
         }
 
         return $refutes || $stops
-            ? ['measures' => $measures, 'refutes' => $refutes, 'watches' => $watches, 'stops' => $stops, 'subject' => $refutes ? $operation->actsOnDigest($arguments) : null]
+            ? ['measures' => $measures, 'refutes' => $refutes, 'watches' => $watches, 'stops' => $stops, 'subject' => $refutes ? $operation->actsOnDigest($arguments) : null, 'described' => array_values(array_unique($described))]
             : null;
     }
 
@@ -635,16 +669,50 @@ final class HouseStandingJudge
      * red receipt, and its yes and its sign of calm are never written: for a green, a candidate is measured in the
      * house.
      *
-     * @param array{measures: bool, refutes: bool, watches: bool, stops: bool, subject: ?string} $noted     what {@see self::witnessing()} noted before the run
-     * @param array<string, mixed>                                                               $arguments
-     * @param string|null                                                                        $loaded    the pin of the operation as the process that ran it read it when it was told of it — or `null`: it has none to give, or the run left this process
+     * AND WHAT A SEAT CAN MAKE THE BOOK KEEP IS BOUNDED (A PROPOSAL, NOT DECIDED — the sibling of the fourth review's
+     * M3, found by sweeping every kind of line by who can make the house write it). Every call of every seat reads
+     * the whole book, and a receipt or a sign carried the arguments of its run whole — one «no» with four megabytes
+     * of an argument nobody described left a line of four megabytes — and was written at every run, the same answer
+     * of the same key over the same thing included. So:
+     *
+     *  - a line that only narrows keeps the arguments a grant describes, each as long as a line keeps
+     *    ({@see self::ARGUMENT_KEPT}), and the spelling of the rest, with how long they were and their digest
+     *    ({@see self::narrowing()});
+     *  - a no of a key that already said no of that content, with that instrument, and no yes since, is answered
+     *    and not written; so is a «fired» of a key that already said so, while no grant that operation watches is in
+     *    force and none was given or lifted since. Red, green, red writes: what the book says changed;
+     *  - a yes is the run a condition describes, so it needs its arguments whole: it is the ARGUMENT that is
+     *    bounded, and over the bound there is no green.
+     *
+     * None of it loses a stop or a red: what would have stopped something is written, and what is not written
+     * would have changed nothing the book says. What is read and what is then written are one step, with the book
+     * locked — a yes that lands between the two must not be followed by a no that was taken for the one before it.
+     *
+     * @param array{measures: bool, refutes: bool, watches: bool, stops: bool, subject: ?string, described?: list<string>} $noted     what {@see self::witnessing()} noted before the run
+     * @param array<string, mixed>                                                                                         $arguments
+     * @param string|null                                                                                                  $loaded    the pin of the operation as the process that ran it read it when it was told of it — or `null`: it has none to give, or the run left this process
      *
      * @throws \RuntimeException when the house saw something and could not write it down
      */
     public function witnessed(array $noted, Operation $operation, array $arguments, mixed $result, ?ToolContext $context, ?string $loaded): void
     {
         $ledger = StandingLedger::forRoot($this->root);
+        $ledger->exclusively(function () use ($ledger, $noted, $operation, $arguments, $result, $context, $loaded): void {
+            $this->written($ledger, $noted, $operation, $arguments, $result, $context, $loaded);
+        });
+    }
+
+    /**
+     * {@see self::witnessed()}, with the book locked.
+     *
+     * @param array{measures: bool, refutes: bool, watches: bool, stops: bool, subject: ?string, described?: list<string>} $noted
+     * @param array<string, mixed>                                                                                         $arguments
+     */
+    private function written(StandingLedger $ledger, array $noted, Operation $operation, array $arguments, mixed $result, ?ToolContext $context, ?string $loaded): void
+    {
         $now = $this->now();
+        $described = $noted['described'] ?? [];
+        $name = (new OperationId($operation->name))->canonical;
         $who = $context === null ? 'local-shell' : ($context->principal ?? 'unknown');
         $pin = OperationPin::of($operation, $this->root);
         $subject = $noted['subject'];
@@ -662,32 +730,167 @@ final class HouseStandingJudge
             // agree, which is what a YES owes, and not for the instrument to be pinned — a receipt of an instrument
             // that is not the grant's refuses the act all the same. It can never turn anything green. When the house
             // reads no content for the call and the run names none, there is no candidate to stop, and no receipt.
-            $about = array_filter([$subject, $operation->actsOnDigest($arguments), $said], static fn (?string $content): bool => $content !== null && trim($content) !== '' && Canonical::oneLine($content));
+            //
+            // What a RUN says it read is one digest, a line long: an answer longer than a line keeps names no
+            // content the house could ever hold a candidate of, and is not written.
+            $about = array_filter([$subject, $operation->actsOnDigest($arguments), $said], static fn (?string $content): bool => $content !== null && trim($content) !== '' && Canonical::oneLine($content) && \strlen($content) <= self::ARGUMENT_KEPT);
             foreach (array_values(array_unique($about)) as $content) {
-                self::narrowing($ledger, StandingLedger::MEASURED, $receipt($content, false, $pin ?? self::NOT_PINNED), $arguments, $now);
+                if (!self::saidNoAlready($ledger->entries(), $name, $content, $who, $pin ?? self::NOT_PINNED)) {
+                    self::narrowing($ledger, StandingLedger::MEASURED, $receipt($content, false, $pin ?? self::NOT_PINNED), $arguments, $described, $now);
+                }
             }
-        } elseif (!$no && $noted['measures'] && $mine !== null && $subject !== null
+        } elseif (!$no && $noted['measures'] && $mine !== null && $subject !== null && self::aLineKeeps($arguments)
             && $operation->actsOnDigest($arguments) === $subject && $said === $subject) {
             // A YES is a receipt only from the run a condition describes, made in this process by the code it loaded,
-            // over content that is the same before and after, which the instrument says are the bytes it read. The
+            // over content that is the same before and after, which the instrument says are the bytes it read — and
+            // (a proposal, not decided) with every argument as long as a line keeps: a yes needs its arguments whole
+            // to be the run a condition describes, so over that bound there is no green. The
             // receipt is given the NAME, as the catalogue spells it: the contract makes the identity from the text
             // after looking at it, and takes no identity built elsewhere (its seventh review).
             $ledger->append(StandingLedger::MEASURED, $receipt($subject, true, $mine)($arguments), $now);
         }
 
         $fired = \is_array($result) ? ($result['fired'] ?? null) : null;
-        if ($fired === true ? $noted['stops'] : ($fired === false && $noted['watches'] && $mine !== null)) {
+        // «All is calm» speaks FOR a grant, as a yes does: from this process, by the run the falsifier describes —
+        // and (a proposal, not decided) with every argument as long as a line keeps.
+        if ($fired === true ? $noted['stops'] && !$this->saidFiredAlready($ledger->entries(), $operation, $name, $who) : ($fired === false && $noted['watches'] && $mine !== null && self::aLineKeeps($arguments))) {
             $sign = static fn (array $carried): array => [
-                'watcher' => (new OperationId($operation->name))->canonical,
+                'watcher' => $name,
                 'arguments' => $carried,
                 'fired' => $fired,
                 'who' => $who,
                 'pin' => $pin,
             ];
             $fired
-                ? self::narrowing($ledger, StandingLedger::WATCHED, $sign, $arguments, $now)
+                ? self::narrowing($ledger, StandingLedger::WATCHED, $sign, $arguments, $described, $now)
                 : $ledger->append(StandingLedger::WATCHED, $sign($arguments), $now);
         }
+    }
+
+    /**
+     * Whether this key already said no of this content, with this instrument, and nobody said yes of it since
+     * (a proposal, not decided).
+     *
+     * Read from the end of the book: the first yes found for that operation and that content means what the book
+     * says of it changed since — and a no after a yes is a new fact, to be written. Another key's no, or the same
+     * key's with another instrument, is another witness: it does not stand for this one.
+     *
+     * @param list<array{type: string, data: array<string, mixed>}> $entries
+     */
+    private static function saidNoAlready(array $entries, string $by, string $content, string $who, string $instrument): bool
+    {
+        for ($at = \count($entries) - 1; $at >= 0; --$at) {
+            $data = $entries[$at]['data'];
+            if ($entries[$at]['type'] !== StandingLedger::MEASURED || ($data['by'] ?? null) !== $by || ($data['subject'] ?? null) !== $content) {
+                continue;
+            }
+            if (($data['ok'] ?? null) !== false) {
+                return false;
+            }
+            if (($data['who'] ?? null) === $who && ($data['instrument'] ?? null) === $instrument) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether this key's «fired» would stop nothing it has not already said stopped (a proposal, not decided).
+     *
+     * The book stops, on a «fired», every grant IN FORCE whose falsifier names the operation — and reads nothing
+     * else into that line ({@see StandingBook}). So while one is in force the line is what stops it, and it is
+     * always written. With none in force, the same key saying so again changes nothing the book says — unless a
+     * grant was given or a stop was lifted since it last did, which is read from the end of the book and means
+     * «write».
+     *
+     * @param list<array{type: string, data: array<string, mixed>}> $entries
+     */
+    private function saidFiredAlready(array $entries, Operation $operation, string $watcher, string $who): bool
+    {
+        foreach ($this->book()?->records() ?? [] as $record) {
+            if ($record->state === GrantState::InForce && $record->grant->falsifier->watcher->operation->is($operation->name)) {
+                return false;
+            }
+        }
+        for ($at = \count($entries) - 1; $at >= 0; --$at) {
+            $data = $entries[$at]['data'];
+            if (\in_array($entries[$at]['type'], [StandingLedger::GRANTED, StandingLedger::REINSTATED], true)) {
+                return false;
+            }
+            if ($entries[$at]['type'] === StandingLedger::WATCHED && ($data['fired'] ?? null) === true && ($data['watcher'] ?? null) === $watcher && ($data['who'] ?? null) === $who) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** How many bytes of ONE argument, as the book spells it, a receipt or a sign keeps as it came (a proposal, not decided). */
+    public const ARGUMENT_KEPT = 256;
+
+    /** How many bytes of arguments, as the book spells them, the house writes down of an act before it runs — and of a refusal (a proposal, not decided). */
+    public const ACT_ARGUMENTS_KEPT = 4096;
+
+    /**
+     * What a receipt or a sign keeps of the arguments of its run: the ones a grant describes, each as long as a line
+     * keeps — and, when that is not all of them, the spelling of the rest with how long the arguments were and their
+     * digest, so whoever holds them can show they are the ones (a proposal, not decided).
+     *
+     * @param array<string, mixed> $arguments what the run carried
+     * @param list<string>         $described the names some grant fixes or leaves free for the operation
+     *
+     * @return array{0: array<string, mixed>, 1: array{bytes: int, sha256: string}|array{}|null} what is kept, and — `null` when that is everything — what it was kept from (empty when the arguments cannot be spelled at all)
+     */
+    private static function keptOf(array $arguments, array $described): array
+    {
+        $kept = [];
+        $rest = [];
+        foreach ($arguments as $argument => $value) {
+            $fits = false;
+            if (\in_array((string) $argument, $described, true)) {
+                try {
+                    $fits = \strlen(Canonical::json([$value])) - 2 <= self::ARGUMENT_KEPT;
+                } catch (\JsonException) {
+                    // a value a line cannot hold is not kept as it came
+                }
+            }
+            $fits ? $kept[$argument] = $value : $rest[$argument] = $value;
+        }
+        if ($rest === []) {
+            return [$arguments, null];
+        }
+
+        return [$kept + [self::NOT_KEPT => Canonical::shown($rest)], self::given($arguments)];
+    }
+
+    /**
+     * Whether every argument of a run is as long as a line keeps: what a yes and a sign of calm are asked for, since
+     * they need their arguments whole to be the run a grant describes (a proposal, not decided).
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private static function aLineKeeps(array $arguments): bool
+    {
+        return self::keptOf($arguments, array_map(strval(...), array_keys($arguments)))[1] === null;
+    }
+
+    /**
+     * How long a call's arguments were, and their digest, as the book spells them — empty when they cannot be spelled.
+     *
+     * @param array<string, mixed> $arguments
+     *
+     * @return array{bytes: int, sha256: string}|array{}
+     */
+    private static function given(array $arguments): array
+    {
+        try {
+            $spelled = Canonical::json($arguments);
+        } catch (\JsonException) {
+            return [];
+        }
+
+        return ['bytes' => \strlen($spelled), 'sha256' => 'sha256:' . hash('sha256', $spelled)];
     }
 
     /** What a red receipt says measured it when the house could not pin the operation that did: no pin is this. */
@@ -707,15 +910,21 @@ final class HouseStandingJudge
      * with their SPELLING in their place — the house's own, a line long ({@see Canonical::shown()}) — and only if
      * that cannot be written either does this throw.
      *
+     * AND IT IS A LINE LONG WHATEVER ITS RUN CARRIED (a proposal, not decided). It keeps the arguments some grant
+     * describes for the operation, each as long as a line keeps, and the spelling of the rest ({@see self::keptOf()}):
+     * a caller chooses how much it carries, and every command of the house reads every line.
+     *
      * @param \Closure(array<string, mixed>): array<string, mixed> $line      the line, given the arguments it keeps
      * @param array<string, mixed>                                 $arguments what the run carried
+     * @param list<string>                                         $described the names some grant describes for the operation
      *
      * @throws \RuntimeException when the book cannot be written at all
      */
-    private static function narrowing(StandingLedger $ledger, string $type, \Closure $line, array $arguments, \DateTimeImmutable $now): void
+    private static function narrowing(StandingLedger $ledger, string $type, \Closure $line, array $arguments, array $described, \DateTimeImmutable $now): void
     {
+        [$kept, $given] = self::keptOf($arguments, $described);
         try {
-            $ledger->append($type, $line($arguments), $now);
+            $ledger->append($type, $line($kept) + ($given === null || $given === [] ? [] : ['arguments_given' => $given]), $now);
         } catch (\RuntimeException) {
             $ledger->append($type, $line([self::NOT_KEPT => Canonical::shown($arguments)]), $now);
         }
