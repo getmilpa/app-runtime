@@ -198,6 +198,23 @@ final class WhatAFourthReviewFoundInTheHouseTest extends TestCase
         self::assertSame(GrantState::Suspended, $this->house->book()->record('shelf-line')?->state, 'the house did not look at the act again');
     }
 
+    public function testAGrantStillLendsOnALegWhoseCatalogueHoldsAnOperationTypedByAPermission(): void
+    {
+        // The other face of the same question: asked of the wrapper, a leg lent nothing — a seat that holds no word
+        // of its own was refused for the word, under a grant in force with everything measured.
+        $plugin = new LabShelf($this->house->root);
+        $this->house->offer(...$plugin->operations());
+        $this->house->granted(['id' => 'shelf-line', 'covers' => [['operation' => 'shelf:lend']]]);
+        $this->house->candidate('good.txt', "clean release\n");
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => 'good.txt']);
+        $leg = $this->leg = $this->legOver([...$plugin->operations(), self::permissioned()], $plugin);
+
+        $said = $leg->on->call('shelf_lend', ['path' => 'good.txt'], $leg->seat());
+
+        self::assertTrue($said->success, 'a grant in force lent nothing on this leg: ' . $said->error);
+        self::assertCount(1, $this->house->lines(StandingLedger::ABSORBED));
+    }
+
     public function testControlWithNoOperationTypedByAPermissionTheSameLegCrossesTheJudge(): void
     {
         $leg = $this->coveredShelf();
