@@ -662,6 +662,16 @@ whatever another would lend, until a person lifts that suspension or gives a gra
 it by name. Expired, revoked and superseded grants stop nobody; otherwise one grant that passes is
 enough.
 
+*Proposed in milpa/command, not decided (greenhouse decisions/0615): under doubt, a stop stops.* A
+grant that fixes an argument names only the calls that say it. So a stopped grant that fixes
+`channel` to `stable` did not stop a call that says no channel at all, and a wider grant lent it.
+With the proposal in, the house refuses that call too — «release-line» is suspended, *and it may be
+the one that names this call* — unless the call says another value for what the stopped grant
+fixes. Not another: the argument is not there, or is `null`; a number and the text of its digits; a
+boolean and the texts PHP and JSON write it as. Capitals and a space around a value still say
+another. The house adds nothing of its own to this; if the proposal leaves the contract,
+`tests/Standing/AStopUnderDoubtIsAProposalTest.php` goes with it.
+
 **The house writes its own receipts**, in `storage/identity/standing.jsonl` — append-only, each
 line carrying the digest of the one before it, written whole or not at all, **read back before it
 is written** (a line carries the arguments of a call, and a value a line cannot hold — `-0.0`, a

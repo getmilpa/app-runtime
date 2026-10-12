@@ -574,8 +574,10 @@ final class HouseStandingJudge
         if ($speaks && $subject !== null && $instrument !== null
             && $operation->actsOnDigest($arguments) === $subject
             && \is_array($result) && ($result['acted_on'] ?? null) === $subject) {
+            // The receipt is given the NAME, as the catalogue spells it: the contract makes the identity from the text
+            // after looking at it, and takes no identity built elsewhere (its seventh review).
             $ledger->append(StandingLedger::MEASURED, (new ConditionReceipt(
-                new OperationId($operation->name),
+                $operation->name,
                 $arguments,
                 $subject,
                 ($result['ok'] ?? null) === true,
