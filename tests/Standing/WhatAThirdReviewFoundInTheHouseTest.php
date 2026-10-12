@@ -928,7 +928,6 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
     public static function linesWrittenByHandThatCarryWhatATerminalObeys(): iterable
     {
         $esc = "\x1b[2K\rall is well\x1b[8m";
-        yield 'a receipt, by the content it names' => [StandingLedger::MEASURED, ['by' => 'lab.scan', 'arguments' => [], 'subject' => 'sha256:x' . $esc, 'ok' => true, 'instrument' => 'sha256:y', 'at' => '2026-10-11T12:00:00+00:00']];
         yield 'a sign, by its watcher' => [StandingLedger::WATCHED, ['watcher' => 'lab.other' . $esc, 'arguments' => [], 'fired' => false]];
         yield 'an act, by its grant' => [StandingLedger::ABSORBED, ['grant' => 'g' . $esc, 'operation' => 'lab.publish', 'seat' => LabHouse::SEAT]];
         yield 'an act, by its operation' => [StandingLedger::ABSORBED, ['grant' => 'g', 'operation' => 'lab.publish' . $esc, 'seat' => LabHouse::SEAT]];
@@ -962,8 +961,23 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
         // the fault says where, never what the line held.
         $this->house->granted();
         $this->house->writtenByHand(StandingLedger::MEASURED, ['by' => "lab.scan\x1b[2K\rall is well\x1b[8m", 'arguments' => [], 'subject' => 'sha256:x', 'ok' => false, 'instrument' => 'sha256:y', 'at' => '2026-10-11T12:00:00+00:00']);
+        // The same for a receipt whose CONTENT is named with what a terminal obeys, or with a line break after it (the
+        // contract's sixth review: nothing is trimmed from the digests of a receipt). It was listed, spelled out.
+        foreach (["sha256:x\x1b[2K\rall is well\x1b[8m", "sha256:x\n"] as $digest) {
+            $other = new LabHouse();
+            $other->granted();
+            $other->writtenByHand(StandingLedger::MEASURED, ['by' => 'lab.scan', 'arguments' => [], 'subject' => $digest, 'ok' => false, 'instrument' => 'sha256:y', 'at' => '2026-10-11T12:00:00+00:00']);
+            self::assertStringContainsString('is a «measured» line this house cannot read today', (string) $other->ledger()->fault());
+            $other->destroy();
+        }
 
         $fault = (string) $this->house->ledger()->fault();
+
+        // …and the listing still shows that line to whoever comes to look at the book — spelled out, never as it came.
+        $listed = $this->house->as(null, 'standing:granted');
+        $recent = implode(' | ', $listed['recent'] ?? []);
+        self::assertStringContainsString('\\u001b[2K\\rall is well\\u001b[8m', $recent, 'control: the line that cannot be read is listed');
+        self::assertSame(0, preg_match('/[\x00-\x1F\x7F]/', $recent), 'the listing prints a byte a terminal obeys');
 
         self::assertStringContainsString('is a «measured» line this house cannot read today', $fault);
         self::assertSame(0, preg_match('/[\x00-\x1F\x7F]/', $fault));
@@ -1066,11 +1080,11 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
 
     public function testTheListingShowsAFixedValueAsItIsSpelledSoThatTrueAndTheWordTrueAreTwo(): void
     {
-        $this->house->granted(['conditions' => [['name' => 'no-host-names', 'statement' => 'what is published names no machine', 'by' => ['operation' => 'lab:scan', 'arguments' => ['strict' => true, 'mode' => 'true', 'level' => 7, 'tag' => ''], 'free' => ['path']]]]]);
+        $this->house->granted(['conditions' => [['name' => 'no-host-names', 'statement' => 'what is published names no machine', 'by' => ['operation' => 'lab:scan', 'arguments' => ['strict' => true, 'mode' => 'true', 'level' => 7, 'tag' => '7'], 'free' => ['path']]]]]);
 
         $listed = $this->house->as(null, 'standing:granted')['grants'][0];
 
-        self::assertStringEndsWith('measured by lab:scan (level=7, mode="true", strict=true, tag="")', $listed['conditions'][0]);
+        self::assertStringEndsWith('measured by lab:scan (level=7, mode="true", strict=true, tag="7")', $listed['conditions'][0]);
         self::assertSame('lab:publish (channel="stable")', $listed['covers'][0]);
     }
 

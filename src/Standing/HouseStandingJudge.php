@@ -228,10 +228,20 @@ final class HouseStandingJudge
             ];
             $records[$record->grant->id] = $record;
         }
-        $answer = StandingJudge::among($held, $call);
+        // THE HOUSE SAYS WHETHER ITS WHOLE RECORD READS, AND IT HAS TO (the contract's sixth review, M1). A document
+        // it kept and can no longer read is no grant it could have put in this list, and it may be the one that names
+        // this call, stopped. The contract's door for several grants asks for it with no default; this house answers
+        // from what it asked of its book above — where a book that does not read already refused the seat, before
+        // any grant in it was read.
+        $answer = StandingJudge::among($held, $call, $fault);
 
         if ($answer === null) {
             return new StandingDecision($call);
+        }
+        if ($answer['grant'] === null) {
+            // The judge speaks with no grant only for a record that does not read whole, and this house refused for
+            // that before it asked. Should it ever be said here, it stops the seat as a book that does not verify does.
+            return new StandingDecision($call, stopped: $answer['verdict']->sentence);
         }
         // A WORD IS LENT ONLY ON A GRANT THAT IS IN FORCE AND VERIFIED, and the contract's judge is who says so: the
         // grant that answers for this call got past its questions about the signature and about being in force —

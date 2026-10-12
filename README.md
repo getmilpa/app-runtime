@@ -556,7 +556,9 @@ line that says a grant was given and can no longer be read as one is **a fault o
 «no grant»: what it had replaced or stopped must not come back because a reader got stricter. So is
 any other line the house cannot read today as what it says it is — a receipt, a sign of the watcher,
 a stop: a red receipt skipped would leave the green one before it speaking. The house tells the
-judge its record reads whole, from that same answer, or nothing is lent.
+judge its record reads whole, from that same answer, or nothing is lent — of each grant, and of the
+book as a whole: a document it kept and can no longer read is no grant it could hand the judge, and
+it may be the one that names the call, stopped.
 
 **What a grant may cover.** An operation that declares a scope (never `*`, never
 `identity:enroll`), an input schema, what it acts on (`actsOn`), and its effects — with authority
