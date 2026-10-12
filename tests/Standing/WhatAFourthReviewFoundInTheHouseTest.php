@@ -347,6 +347,9 @@ final class WhatAFourthReviewFoundInTheHouseTest extends TestCase
         $this->aProcessThatLivesBoots();
         $this->onDisk($guard, "!str_contains(\$bytes, 'machine-name:')");
         $this->house->granted($measured + ['id' => 'release-line-2', 'supersedes' => 'release-line']);
+        // …and a process that is told its catalogue AGAIN while it lives — a server does, at every request — has
+        // not loaded anything again: what it loaded is what it read the first time.
+        $this->house->offer($guard['scan']);
         $bad = $this->house->candidate('bad.txt', "machine-name: build-host-7\n");
 
         self::assertSame(['ok' => true], $this->house->as(LabHouse::SEAT, 'guard:scan', ['path' => $bad]), 'control: the process that outlived the update still runs the code that does not see');
@@ -407,6 +410,8 @@ final class WhatAFourthReviewFoundInTheHouseTest extends TestCase
         $this->house->aProcessPerCall = false;
         $this->house->granted(watched: false);
         $path = $this->house->candidate('good.txt', "clean release\n");
+        // Told its catalogue again after the house got its book, it still has not read what it loaded WHEN it loaded it.
+        $this->house->offer($this->house->operation('lab:watch'), $this->house->operation('lab:scan'), $this->house->operation('lab:merge'));
 
         self::assertSame(['ok' => true, 'fired' => false], $this->house->as(LabHouse::SEAT, 'lab:watch'));
         self::assertSame(['ok' => true], $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $path]));
@@ -508,6 +513,16 @@ final class WhatAFourthReviewFoundInTheHouseTest extends TestCase
         $because = (string) $this->house->book()->record('release-line')?->because;
         self::assertTrue(\Milpa\Command\Standing\Canonical::oneLine($because), 'what the house says of the stop is not one line of plain text');
         self::assertStringNotContainsString("\x1b", (string) json_encode($this->house->as(null, 'standing:granted'), \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES));
+    }
+
+    public function testTheDoorOfAStopDoesNotAskForAReasonBeforeTheHouseIsAsked(): void
+    {
+        // Found on cattle, at the real terminal: the operation declared `reason` as required, so a stop with none
+        // was sent back by the surface's own check of the input — before the house had a say.
+        $schema = (array) $this->house->operation('standing:suspend')->inputSchema;
+
+        self::assertSame(['grant'], $schema['required'] ?? null, 'a surface refuses a stop that carries no reason');
+        self::assertArrayHasKey('reason', (array) ($schema['properties'] ?? []), 'control: a reason is still what a person reads, and is taken');
     }
 
     public function testASecondStopByTheSameKeyOnAGrantItAlreadyStoppedWritesNoLine(): void

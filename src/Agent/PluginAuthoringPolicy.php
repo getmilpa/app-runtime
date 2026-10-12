@@ -867,7 +867,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         $noted = $standing->witnessing($operation, $input);
         $heard = static function (mixed $result) use ($standing, $noted, $operation, $input, $answered, $authority): mixed {
             if ($noted !== null) {
-                $standing->witnessed($noted, $operation, $input, $answered($result), $authority, null, elsewhere: true);
+                $standing->witnessed($noted, $operation, $input, $answered($result), $authority, null);
             }
 
             return $result;

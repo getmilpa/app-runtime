@@ -630,18 +630,18 @@ final class HouseStandingJudge
      * A no and a «fired» stay as they were: they only narrow.
      *
      * AND FROM A RUN THAT LEFT THIS PROCESS, ONLY WHAT NARROWS (fourth review, H1 — a PROPOSAL, not decided): work a
-     * leg ran confined in the house, a rehearsal in a copy (`$elsewhere`). The house did not run that code and cannot
-     * say what it was; its «fired» stops, its no — of the content the house itself reads, before and after — is a
-     * red receipt, and its yes and its sign of calm are never written.
+     * leg ran confined in the house, a rehearsal in a copy. The house did not run that code and has no pin of what
+     * was loaded to give for it — whoever hands such a run in says so with `null` — so its «fired» stops, its no — of
+     * the content the house itself reads, before and after — is a red receipt, and its yes and its sign of calm are
+     * never written.
      *
      * @param array{measures: bool, refutes: bool, watches: bool, stops: bool, subject: ?string} $noted     what {@see self::witnessing()} noted before the run
      * @param array<string, mixed>                                                               $arguments
-     * @param string|null                                                                        $loaded    the pin of the operation as the process that ran it read it when it was told of it — or `null`: it has none to give
-     * @param bool                                                                               $elsewhere the run left the process the house judges in
+     * @param string|null                                                                        $loaded    the pin of the operation as the process that ran it read it when it was told of it — or `null`: it has none to give, or the run left this process
      *
      * @throws \RuntimeException when the house saw something and could not write it down
      */
-    public function witnessed(array $noted, Operation $operation, array $arguments, mixed $result, ?ToolContext $context, ?string $loaded, bool $elsewhere = false): void
+    public function witnessed(array $noted, Operation $operation, array $arguments, mixed $result, ?ToolContext $context, ?string $loaded): void
     {
         $ledger = StandingLedger::forRoot($this->root);
         $now = $this->now();
@@ -650,7 +650,7 @@ final class HouseStandingJudge
         $instrument = $operation->instrumentDigest() === null ? null : $pin;
         $subject = $noted['subject'];
         // What speaks FOR a grant — a yes, a sign of calm — is taken from this process, as the code it loaded.
-        $vouched = !$elsewhere && $pin !== null && $pin === $loaded;
+        $vouched = $pin !== null && $pin === $loaded;
         // A run that is exactly the one a condition describes leaves its receipt, green or red. Any other run of
         // that instrument leaves one when it says NO, and never when it says yes.
         $no = \is_array($result) && ($result['ok'] ?? null) !== true;

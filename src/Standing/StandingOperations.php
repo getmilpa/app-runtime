@@ -126,8 +126,8 @@ final class StandingOperations implements CommandProvider
                 handler: fn (array $input, ?InvocationContext $invocation = null, ?ToolContext $authority = null): array => $this->suspend($input, $authority),
                 inputSchema: ['type' => 'object', 'properties' => [
                     'grant' => $id,
-                    'reason' => ['type' => 'string', 'description' => 'What was seen, in words — it is what the person reads before lifting it'],
-                ], 'required' => ['grant', 'reason']],
+                    'reason' => ['type' => 'string', 'description' => 'What was seen, in words — it is what the person reads before lifting it. A stop lands without one, and the house keeps at most 256 characters of it'],
+                ], 'required' => ['grant']],
                 mutating: true,
                 surfaces: ['cli', 'mcp'],
                 effects: new EffectProfile(Mutation::Persistent, Externality::None, Reversibility::Compensatable, Authority::WriteAsUser, subject: Subject::Configuration),
