@@ -558,9 +558,11 @@ final class WhatAFourthReviewFoundInTheHouseTest extends TestCase
         self::assertSame($lines + 1, \count($this->house->ledger()->entries()), 'control: a stop by another key is written');
         $standing = (string) $this->house->book()->record('release-line')?->suspension;
         self::assertTrue($this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => $standing])['ok'] ?? false);
+        // After the lift nobody has stopped it: whoever stops it next is written, and so is the first key after them.
+        self::assertTrue($this->house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'seen by another, after the lift'])['ok'] ?? false);
         self::assertTrue($this->house->as(LabHouse::OTHER_SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'seen once more'])['ok'] ?? false);
-        self::assertSame(GrantState::Suspended, $this->house->book()->record('release-line')?->state, 'control: after a person lifted it, the same key stops it again');
-        self::assertSame($lines + 3, \count($this->house->ledger()->entries()));
+        self::assertSame(GrantState::Suspended, $this->house->book()->record('release-line')?->state);
+        self::assertSame($lines + 4, \count($this->house->ledger()->entries()), 'a key that had stopped the grant before a person lifted it was still counted as having stopped it');
     }
 
     // ── M4 · a house with no grant behaves as the published runtime, with two operations under one identity too ─

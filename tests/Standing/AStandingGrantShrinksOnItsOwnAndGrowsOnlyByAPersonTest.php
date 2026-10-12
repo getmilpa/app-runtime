@@ -210,17 +210,20 @@ final class AStandingGrantShrinksOnItsOwnAndGrowsOnlyByAPersonTest extends TestC
         $second = $this->suspension();
         self::assertNotSame($first, $second);
 
-        // Whoever holds the disk appends a line with a link that verifies — the chain does not stop that.
-        $this->house->writtenByHand(StandingLedger::REINSTATED, ['grant' => 'release-line', 'suspension' => $second, 'fingerprint' => LabHouse::PERSON]);
-        $this->house->writtenByHand(StandingLedger::REINSTATED, ['grant' => 'release-line', 'suspension' => $second, 'fingerprint' => LabHouse::PERSON, 'payload' => '{"made":"up"}', 'signature' => 'made up']);
+        // Whoever holds the disk appends a line with a link that verifies — the chain does not stop that. Each line
+        // says which recognition of its signer it stands over, as a line the door writes does (the fourth review, M2):
+        // what keeps each of them from lifting is the one thing it lacks, and nothing else.
+        $over = fn (string $key): array => ['recognized' => $this->house->book()->recognitions([$key])];
+        $this->house->writtenByHand(StandingLedger::REINSTATED, ['grant' => 'release-line', 'suspension' => $second, 'fingerprint' => LabHouse::PERSON] + $over(LabHouse::PERSON));
+        $this->house->writtenByHand(StandingLedger::REINSTATED, ['grant' => 'release-line', 'suspension' => $second, 'fingerprint' => LabHouse::PERSON, 'payload' => '{"made":"up"}', 'signature' => 'made up'] + $over(LabHouse::PERSON));
         // …the seat signs one itself, and it is a real signature — of a key that may not lift…
         $own = $this->house->signature(LabHouse::SEAT, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => $second]);
-        $this->house->writtenByHand(StandingLedger::REINSTATED, ['grant' => 'release-line', 'suspension' => $second, 'fingerprint' => LabHouse::SEAT, 'payload' => $own->payload, 'signature' => $own->signature]);
+        $this->house->writtenByHand(StandingLedger::REINSTATED, ['grant' => 'release-line', 'suspension' => $second, 'fingerprint' => LabHouse::SEAT, 'payload' => $own->payload, 'signature' => $own->signature] + $over(LabHouse::SEAT));
         // …and the person's OLD signature is replayed: genuine, and it names the first suspension, not this one.
         $this->house->writtenByHand(StandingLedger::REINSTATED, ['suspension' => $second] + $old);
         // A signed revocation replayed as a reinstatement is not one either.
         $revoke = $this->house->signature(LabHouse::PERSON, 'standing:revoke', ['grant' => 'release-line']);
-        $this->house->writtenByHand(StandingLedger::REINSTATED, ['grant' => 'release-line', 'suspension' => $second, 'fingerprint' => LabHouse::PERSON, 'payload' => $revoke->payload, 'signature' => $revoke->signature]);
+        $this->house->writtenByHand(StandingLedger::REINSTATED, ['grant' => 'release-line', 'suspension' => $second, 'fingerprint' => LabHouse::PERSON, 'payload' => $revoke->payload, 'signature' => $revoke->signature] + $over(LabHouse::PERSON));
 
         self::assertNull($this->house->ledger()->fault(), 'the book verifies: every line links to the one before it');
         self::assertSame($second, $this->suspension());

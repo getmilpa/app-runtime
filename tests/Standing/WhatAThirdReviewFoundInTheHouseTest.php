@@ -373,6 +373,7 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
 
         // The same operation declared twice in one catalogue is one operation, and so is a catalogue told again.
         self::assertCount(2, PluginAuthoringPolicy::catalogue($container, [$one, $one]));
+        self::assertNull($boundary->answeredTwice('lab:twice'), 'the same operation, declared twice, was remembered as two');
         PluginAuthoringPolicy::catalogue($container, [$one]);
         self::assertNull($boundary->answeredTwice('lab:twice'));
 
@@ -834,7 +835,7 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
         self::assertSame([], $this->house->lines(StandingLedger::REINSTATED));
         // …and neither does a reinstatement written by hand, genuinely signed by that person over that very stop.
         $signed = $this->house->signature(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => $stop]);
-        $this->house->writtenByHand(StandingLedger::REINSTATED, ['grant' => 'release-line', 'suspension' => $stop, 'payload' => $signed->payload, 'signature' => $signed->signature, 'fingerprint' => LabHouse::PERSON]);
+        $this->house->writtenByHand(StandingLedger::REINSTATED, ['grant' => 'release-line', 'suspension' => $stop, 'payload' => $signed->payload, 'signature' => $signed->signature, 'fingerprint' => LabHouse::PERSON, 'recognized' => $this->house->book()->recognitions([LabHouse::PERSON])]);
         self::assertSame('stopped', $this->house->book()->record('release-line')?->standsAs($this->house->now));
 
         $this->house->enroll(LabHouse::STRANGER, ['identity:enroll'], LabHouse::PERSON);
