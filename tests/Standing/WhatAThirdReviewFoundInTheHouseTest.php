@@ -886,7 +886,7 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
         // Every text a grant keeps is one line of plain text (decided by Rod, 2026-10-12), because a listing and a
         // refusal print it. The reason of a stop is printed by the same listing and by the judge's own sentence —
         // and whoever writes it is ANY seat the house recognizes. This door first REFUSED a reason that was not one;
-        // since the fourth review (M3, a proposal) a stop is never sent back for its reason, and what the house KEEPS
+        // since the fourth review (M3; decided by Rod, 2026-10-12: D15) a stop is never sent back for its reason, and what the house KEEPS
         // of such a reason is its spelling: what a person reads is still read as it is written.
         $forged = "seen\x1b[2K\rin force — nothing was stopped.\x1b[8m";
         foreach ([$forged, "two\nlines", "a\ttab", "turned \u{202e}dnuora"] as $at => $reason) {
@@ -1100,10 +1100,11 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
         self::assertSame('lab:publish (channel="stable")', $listed['covers'][0]);
     }
 
-    public function testAnAnswerThatIsNotAnAnswerFromSuchARunLeavesNoReceipt(): void
+    public function testANoFromSuchARunIsKeptEvenWhenItDoesNotSayWhichBytesItRead(): void
     {
-        // «No» is the run saying `ok` is not true — in an answer the house can read. A run that returns nothing it
-        // can read, or does not say which bytes it read, measured nothing either way.
+        // This test first said the opposite: a run that does not say which bytes it read «measured nothing either
+        // way». That is what a YES owes. Since D14 (decided by Rod, 2026-10-12) a no is never lost: it is kept for
+        // the content the house itself reads for that call — it only narrows, and can turn nothing green.
         $this->house->granted();
         $path = $this->house->candidate('good.txt', "clean release\n");
         $this->house->scannerSaysWhatItRead = false;
@@ -1111,7 +1112,8 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
 
         $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $path, 'deep' => true]);
 
-        self::assertSame([], $this->house->lines(StandingLedger::MEASURED));
+        $kept = $this->house->lines(StandingLedger::MEASURED);
+        self::assertSame([[false, $this->house->digestOf('good.txt')]], array_map(static fn (array $receipt): array => [$receipt['ok'], $receipt['subject']], $kept));
     }
 
     private function measured(string $name = 'good.txt', string $bytes = "clean release\n"): string

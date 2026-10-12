@@ -857,13 +857,14 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
     {
         $context = HouseStandingJudge::withoutLent($authority ?? ToolContext::cli());
         $standing = $this->standing();
-        // WHAT SPEAKS ABOUT AN ACT IS HEARD ON THIS DOOR TOO — AND ONLY WHAT STOPS (fourth review, H1; WHAT is heard
-        // is a PROPOSAL, not decided). The judge was put on this door for the act a grant covers, and not for what
+        // WHAT SPEAKS ABOUT AN ACT IS HEARD ON THIS DOOR TOO — AND ONLY WHAT STOPS (fourth review, H1; decided by Rod,
+        // 2026-10-12: D14). The judge was put on this door for the act a grant covers, and not for what
         // speaks about it: a watcher or an instrument that a leg runs as work, or rehearses, answered the seat «fired»
         // or «no», the process that ran it saw no book, and the house wrote nothing — the grant stayed in force and
         // the next covered act ran. So the run is noted before and read after, here, as {@see self::execute()} does
-        // for a run in this process. From a run that left it only what NARROWS is taken: a «fired», and a no said of
-        // the content the house itself reads. A yes and a sign of calm are not — the house did not run that code.
+        // for a run in this process. From a run that left it only what NARROWS is taken: a «fired» and a no, whatever
+        // content that run read. A yes and a sign of calm are not — the house did not run that code, and for a green
+        // a candidate is measured in the house.
         $noted = $standing->witnessing($operation, $input);
         $heard = static function (mixed $result) use ($standing, $noted, $operation, $input, $answered, $authority): mixed {
             if ($noted !== null) {

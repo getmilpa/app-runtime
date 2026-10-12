@@ -309,8 +309,8 @@ final class StandingOperations implements CommandProvider
             return self::no(\sprintf('falsifier «%s» is watched by `%s`, which this house cannot pin: %s. It could not tell the day another watcher took its name — nothing was granted', $grant->falsifier->name, $grant->falsifier->watcher->operation->forCli(), (string) OperationPin::whyNot($watcher, $root)));
         }
         $instruments[$grant->falsifier->watcher->operation->canonical] = $pin;
-        // WHERE A LEG RUNS WHAT SPEAKS FOR THIS GRANT IS SAID WHEN IT IS GIVEN (fourth review, H1 — a PROPOSAL, not
-        // decided). An operation that mutates and lets nothing out of the house is run by a leg with trials on in
+        // WHERE A LEG RUNS WHAT SPEAKS FOR THIS GRANT IS SAID WHEN IT IS GIVEN (fourth review, H1; decided by Rod,
+        // 2026-10-12: D14). An operation that mutates and lets nothing out of the house is run by a leg with trials on in
         // another process — confined in the house, or rehearsed in a copy — and from there this house takes only what
         // narrows. A person who names such an operation to measure or to watch is told what that means.
         foreach ($grant->conditions as $condition) {
@@ -446,7 +446,7 @@ final class StandingOperations implements CommandProvider
     private function suspend(array $input, ?ToolContext $authority): array
     {
         $id = \is_string($input['grant'] ?? null) ? trim($input['grant']) : '';
-        [$reason, $kept] = self::reasonKept($input['reason'] ?? null);
+        [$reason, $kept, $given] = self::reasonKept($input['reason'] ?? null);
         $root = $this->root();
         $book = $root === null ? null : StandingBook::forRoot($root, $this->verifier);
         $unverified = self::unverified($book);
@@ -476,7 +476,7 @@ final class StandingOperations implements CommandProvider
             ];
         }
         try {
-            $entry = $book->ledger()->append(StandingLedger::SUSPENDED, ['grant' => $id, 'by' => $by, 'reason' => $reason]);
+            $entry = $book->ledger()->append(StandingLedger::SUSPENDED, ['grant' => $id, 'by' => $by, 'reason' => $reason] + ($given === null ? [] : ['reason_given' => $given]));
         } catch (\RuntimeException $error) {
             return self::no('nothing was suspended: ' . $error->getMessage());
         }
@@ -498,7 +498,7 @@ final class StandingOperations implements CommandProvider
      * What the book keeps of the reason of a stop, and — when that is not the reason as it came — what to tell
      * whoever stopped.
      *
-     * A STOP IS NEVER REFUSED FOR ITS REASON (fourth review, M3 — a PROPOSAL, not decided; it takes back two
+     * A STOP IS NEVER REFUSED FOR ITS REASON (fourth review, M3; decided by Rod, 2026-10-12: D15 — it takes back two
      * refusals this door made: of a stop with no reason, and of one whose reason was not one line of plain text).
      * Stopping is the one thing open to anyone the house recognizes, and a door that sends a stop back to be worded
      * again is a door that did not stop. So the stop always lands, and it is what the HOUSE keeps that is bounded and
@@ -506,23 +506,33 @@ final class StandingOperations implements CommandProvider
      * anything else ({@see Canonical::shown()}) — so that what the listing and the judge print of it is still read as
      * it is written; and nothing, when nothing was said.
      *
-     * @return array{string, ?string}
+     * «CHARACTERS» ARE THE CODE POINTS OF THE TEXT, never its bytes: 256 letters of two or three bytes each are 256.
+     * A cut may fall between a letter and a mark written over it; what is kept is still text.
+     *
+     * AND THE LINE SAYS WHICH REASON IT KEEPS A LENGTH OF. A stop keeps no signature — stopping asks for none — so
+     * nothing a reader verifies depends on the reason: the digest of the line is of the line as it is written, and
+     * that is what a reinstatement names. But whoever holds the reason as it was given can show that it is the one:
+     * beside a reason that is not kept as it came, the line keeps how many characters it had and the SHA-256 of its
+     * bytes as they came.
+     *
+     * @return array{string, ?string, array{characters: int, sha256: string}|null}
      */
     private static function reasonKept(mixed $given): array
     {
         if ($given === null || (\is_string($given) && trim($given) === '')) {
-            return ['', 'no reason was given: the stop stands, and the listing says so'];
+            return ['', 'no reason was given: the stop stands, and the listing says so', null];
         }
         $text = \is_string($given) ? trim($given) : null;
+        $was = \is_string($given) ? ['characters' => mb_strlen($given), 'sha256' => 'sha256:' . hash('sha256', $given)] : null;
         if ($text === null || !Canonical::oneLine($text)) {
-            return [Canonical::shown($given), 'the reason was not one line of plain text: the house keeps its spelling, a line long'];
+            return [Canonical::shown($given), 'the reason was not one line of plain text: the house keeps its spelling, a line long', $was];
         }
         if (mb_strlen($text) <= self::REASON_KEPT) {
-            return [$text, null];
+            return [$text, null, null];
         }
         $cut = rtrim(mb_substr($text, 0, self::REASON_KEPT));
 
-        return [Canonical::oneLine($cut) ? $cut : Canonical::shown($cut), \sprintf('the first %d of the %d characters of the reason are kept', self::REASON_KEPT, mb_strlen($text))];
+        return [Canonical::oneLine($cut) ? $cut : Canonical::shown($cut), \sprintf('the first %d of the %d characters of the reason are kept, and the line says which reason that was by its digest', self::REASON_KEPT, mb_strlen($text)), $was];
     }
 
     /**

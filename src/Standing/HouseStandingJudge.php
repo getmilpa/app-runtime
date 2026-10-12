@@ -629,11 +629,11 @@ final class HouseStandingJudge
      * (`$loaded`) — a process that has none to give, because it started before its house kept a book, writes neither.
      * A no and a «fired» stay as they were: they only narrow.
      *
-     * AND FROM A RUN THAT LEFT THIS PROCESS, ONLY WHAT NARROWS (fourth review, H1 — a PROPOSAL, not decided): work a
+     * AND FROM A RUN THAT LEFT THIS PROCESS, ONLY WHAT NARROWS (fourth review, H1; decided by Rod, 2026-10-12: D14): work a
      * leg ran confined in the house, a rehearsal in a copy. The house did not run that code and has no pin of what
-     * was loaded to give for it — whoever hands such a run in says so with `null` — so its «fired» stops, its no — of
-     * the content the house itself reads, before and after — is a red receipt, and its yes and its sign of calm are
-     * never written.
+     * was loaded to give for it — whoever hands such a run in says so with `null` — so its «fired» stops, its no is a
+     * red receipt, and its yes and its sign of calm are never written: for a green, a candidate is measured in the
+     * house.
      *
      * @param array{measures: bool, refutes: bool, watches: bool, stops: bool, subject: ?string} $noted     what {@see self::witnessing()} noted before the run
      * @param array<string, mixed>                                                               $arguments
@@ -647,28 +647,36 @@ final class HouseStandingJudge
         $now = $this->now();
         $who = $context === null ? 'local-shell' : ($context->principal ?? 'unknown');
         $pin = OperationPin::of($operation, $this->root);
-        $instrument = $operation->instrumentDigest() === null ? null : $pin;
         $subject = $noted['subject'];
-        // What speaks FOR a grant — a yes, a sign of calm — is taken from this process, as the code it loaded.
-        $vouched = $pin !== null && $pin === $loaded;
-        // A run that is exactly the one a condition describes leaves its receipt, green or red. Any other run of
-        // that instrument leaves one when it says NO, and never when it says yes.
+        // What speaks FOR a grant — a yes, a sign of calm — is taken from this process, as the code it loaded: the
+        // pin this process answers for, or none.
+        $mine = $pin !== null && $pin === $loaded ? $pin : null;
         $no = \is_array($result) && ($result['ok'] ?? null) !== true;
-        $speaks = $no ? $noted['refutes'] : ($noted['measures'] && $vouched);
-        if ($speaks && $subject !== null && $instrument !== null
-            && $operation->actsOnDigest($arguments) === $subject
-            && \is_array($result) && ($result['acted_on'] ?? null) === $subject) {
-            // The receipt is given the NAME, as the catalogue spells it: the contract makes the identity from the text
+        $said = \is_array($result) && \is_string($result['acted_on'] ?? null) ? $result['acted_on'] : null;
+        $receipt = static fn (string $content, bool $green, string $by): \Closure => static fn (array $carried): array => (new ConditionReceipt($operation->name, $carried, $content, $green, $by, $who, $now))->toArray();
+        if ($no && $noted['refutes']) {
+            // A NO IS NEVER LOST (decided by Rod, 2026-10-12: D14 — «a no is heard and stops, whatever run it comes
+            // from»). It is kept for every content it can be about: the one the HOUSE read for this call before the
+            // run, the one it reads after it, and the one the run says it read — a rehearsal measures a copy, and a
+            // copy may hold other bytes than the house. A no asks for nothing else: not for the run's `acted_on` to
+            // agree, which is what a YES owes, and not for the instrument to be pinned — a receipt of an instrument
+            // that is not the grant's refuses the act all the same. It can never turn anything green. When the house
+            // reads no content for the call and the run names none, there is no candidate to stop, and no receipt.
+            $about = array_filter([$subject, $operation->actsOnDigest($arguments), $said], static fn (?string $content): bool => $content !== null && trim($content) !== '' && Canonical::oneLine($content));
+            foreach (array_values(array_unique($about)) as $content) {
+                self::narrowing($ledger, StandingLedger::MEASURED, $receipt($content, false, $pin ?? self::NOT_PINNED), $arguments, $now);
+            }
+        } elseif (!$no && $noted['measures'] && $mine !== null && $subject !== null
+            && $operation->actsOnDigest($arguments) === $subject && $said === $subject) {
+            // A YES is a receipt only from the run a condition describes, made in this process by the code it loaded,
+            // over content that is the same before and after, which the instrument says are the bytes it read. The
+            // receipt is given the NAME, as the catalogue spells it: the contract makes the identity from the text
             // after looking at it, and takes no identity built elsewhere (its seventh review).
-            $green = ($result['ok'] ?? null) === true;
-            $receipt = static fn (array $carried): array => (new ConditionReceipt($operation->name, $carried, $subject, $green, $instrument, $who, $now))->toArray();
-            $green
-                ? $ledger->append(StandingLedger::MEASURED, $receipt($arguments), $now)
-                : self::narrowing($ledger, StandingLedger::MEASURED, $receipt, $arguments, $now);
+            $ledger->append(StandingLedger::MEASURED, $receipt($subject, true, $mine)($arguments), $now);
         }
 
         $fired = \is_array($result) ? ($result['fired'] ?? null) : null;
-        if ($fired === true ? $noted['stops'] : ($fired === false && $noted['watches'] && $vouched)) {
+        if ($fired === true ? $noted['stops'] : ($fired === false && $noted['watches'] && $mine !== null)) {
             $sign = static fn (array $carried): array => [
                 'watcher' => (new OperationId($operation->name))->canonical,
                 'arguments' => $carried,
@@ -681,6 +689,9 @@ final class HouseStandingJudge
                 : $ledger->append(StandingLedger::WATCHED, $sign($arguments), $now);
         }
     }
+
+    /** What a red receipt says measured it when the house could not pin the operation that did: no pin is this. */
+    public const NOT_PINNED = 'not pinned';
 
     /** Under which name a line keeps the arguments of a run when it cannot keep them as they came: no argument is named so. */
     public const NOT_KEPT = 'not kept as it came';

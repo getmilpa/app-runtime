@@ -162,7 +162,7 @@ final class AStandingGrantShrinksOnItsOwnAndGrowsOnlyByAPersonTest extends TestC
         // The terminal's own operator may stop one too, and is written down as what it is.
         self::assertTrue($this->house->as(null, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'seen from the terminal'])['ok']);
         self::assertSame('local-shell', $this->house->lines(StandingLedger::SUSPENDED)[0]['by']);
-        // A stop with no reason is a stop (the fourth review, M3 — a proposal): this door used to send it back.
+        // A stop with no reason is a stop (the fourth review, M3; decided by Rod: D15): this door used to send it back.
         $bare = $this->house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => ' ']);
         self::assertTrue($bare['ok'] ?? false, (string) json_encode($bare));
         self::assertStringContainsString('no reason was given', (string) $this->house->book()->record('release-line')?->because);

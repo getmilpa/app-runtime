@@ -404,8 +404,8 @@ final class StandingLedger
      */
     private function verified(string $raw, array|string|null $kept): array
     {
-        // A BOOK THAT HOLDS SOMETHING ENDS IN A LINE BREAK, OR IT IS A FAULT (fourth review, L2 — a PROPOSAL, not
-        // decided). Every line this house writes ends in one, so a book that does not was cut or edited by hand —
+        // A BOOK THAT HOLDS SOMETHING ENDS IN A LINE BREAK, OR IT IS A FAULT (fourth review, L2; decided by Rod,
+        // 2026-10-12: D16). Every line this house writes ends in one, so a book that does not was cut or edited by hand —
         // an editor that saves without the last line break is enough. Read as whole, the next line was written ONTO
         // its last one: the act that line let pass ran, and from then on the book was broken for everyone. The house
         // does not repair its own book, so it does not write the break either: a person looks.

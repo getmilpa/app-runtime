@@ -672,13 +672,16 @@ covers is judged again with the book locked, written down, run there, and looked
 house's book, never the copy's. And what moves authority is never rehearsed at all: `standing:*`
 and `identity:*` run in the house or not at all, so a seat that stops a grant on a leg stops it.
 
-**And what speaks about an act is heard there too — only when it narrows** (a proposal, not
-decided). A watcher or an instrument that declares a mutation which leaves nothing out of the house
+**And what speaks about an act is heard there too — only when it narrows** (decided by Rod,
+2026-10-12: D14). A watcher or an instrument that declares a mutation which leaves nothing out of the house
 is run by a leg in that other process, where the book is masked: the seat was handed «fired» and
 the house wrote nothing. The run is now noted before and read after, in the house, on that door as
-on every other. From a run that left the process the house takes a **«fired»** and a **no** — of
-the content it reads itself, before and after — and never a yes or a sign of life: it did not run
-that code. `standing:grant` says so when a grant names such an operation, and a grant watched by
+on every other. From a run that left the process the house takes a **«fired»** and a **no**, and
+never a yes or a sign of life: it did not run that code, and for a green a candidate is measured in
+the house. **A no is never lost**, from any run: it is kept for the content the house reads for
+that call — before the run and after it — and for the content the run says it read, since a
+rehearsal measures a copy and a copy may hold other bytes. It asks for nothing more — not that the
+run say which bytes it read, which is what a yes owes — and it can turn nothing green. `standing:grant` says so when a grant names such an operation, and a grant watched by
 one lends only while its watcher is also run in the house's own process, at a terminal.
 
 A leg finds the house's policy **behind** whatever its gate holds: the projector wraps a gate's
@@ -736,7 +739,7 @@ with the receipts it ran on) and the refusals of calls a grant names: the same o
 line, byte for byte — and no more than 32 of one seat under one grant in a row, the last of which
 says the rest are not written. A seat does not grow the book by asking again, and one seat's
 refusals never keep the book from saying another was refused. **A book that holds something ends in
-a line break, or it is a fault** (a proposal): a book saved by hand without its last one read as
+a line break, or it is a fault** (decided by Rod, 2026-10-12: D16): a book saved by hand without its last one read as
 whole, and the next line was written onto its last. Nothing lets a caller hand in a
 verdict. A house where nobody grants anything keeps no book and answers as it always did.
 
@@ -826,10 +829,13 @@ the book.
   a book that stays without its last line break is a fault.
 - **The keyring that judges must hold the public key of whoever granted.** A seat that runs in its
   own keyring needs that public key imported, or the grant is not honoured there.
-- **A suspension is cheap, and bounded** (a proposal, not decided). Any recognized principal can
+- **A suspension is cheap, and bounded** (decided by Rod, 2026-10-12: D15). Any recognized principal can
   hand every absorbed act back to the person. Nothing widens. A stop is **never refused for its
   reason**: the book keeps at most 256 characters of a line of plain text, the spelling of anything
-  else, and nothing when nothing was said. And a key's second stop of a grant it already stopped is
+  else, and nothing when nothing was said. Characters are the code points of the text, never its
+  bytes; and beside a reason it does not keep as it came, the line keeps how many characters it had
+  and the SHA-256 of its bytes, so whoever holds that reason can show it is the one. A stop's line
+  keeps no signature — stopping asks for none. And a key's second stop of a grant it already stopped is
   answered and **not written** — every call of every seat reads the whole book, and a few hundred
   stops with long reasons made every command of the house die of its size.
 - **An operation is pinned as far as its unit.** Code in ANOTHER unit that its handler reaches — a

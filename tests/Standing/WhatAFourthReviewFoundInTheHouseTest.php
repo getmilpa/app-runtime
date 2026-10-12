@@ -236,6 +236,86 @@ final class WhatAFourthReviewFoundInTheHouseTest extends TestCase
         self::assertSame(GrantState::Suspended, $this->house->book()->record('shelf-line')?->state);
     }
 
+    // ── D14, its edge: a no is never lost, whatever content the run that said it had read ────────────────────
+
+    public function testANoFromARunThatReadOtherContentThanTheHouseHoldsStillStopsTheHousesCandidate(): void
+    {
+        // A rehearsal measures a COPY, and a copy can hold other bytes than the house: the run says no, and says it
+        // read something else. A no only narrows — it is kept for the content the house itself reads for that call,
+        // AND for the content the run says it read.
+        $this->shelfLine('shelf:glance', 'shelf:audit');
+        $audit = $this->house->operation('shelf:audit');
+        $elsewhere = 'sha256:' . hash('sha256', "what the copy held\n");
+        $seat = $this->house->contextOf(LabHouse::SEAT);
+
+        $this->house->policy->crossing($seat, $audit, ['path' => 'good.txt'], static fn (): array => ['ok' => false, 'acted_on' => $elsewhere], static fn (array $answer): array => $answer);
+
+        $red = array_values(array_filter($this->house->lines(StandingLedger::MEASURED), static fn (array $receipt): bool => $receipt['ok'] === false));
+        self::assertEqualsCanonicalizing([$this->house->digestOf('good.txt'), $elsewhere], array_column($red, 'subject'), 'a no said of other content than the house holds was lost');
+        self::assertStringContainsString('does not hold on this candidate', (string) ($this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => 'good.txt'])['refused'] ?? 'RAN'));
+        self::assertSame([], $this->house->done('merged'));
+    }
+
+    public function testANoThatDoesNotSayWhatItReadStillStopsTheCandidateTheHouseHolds(): void
+    {
+        $this->house->granted();
+        $path = $this->house->candidate('good.txt', "clean release\n");
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $path]);
+        $this->house->scanner = static fn (string $bytes): array => ['ok' => false];
+        $this->house->scannerSaysWhatItRead = false;
+
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $path]);
+
+        self::assertSame([true, false], array_column($this->house->lines(StandingLedger::MEASURED), 'ok'), 'the instrument said no without saying which bytes it read, and the no was lost');
+        self::assertArrayHasKey('refused', $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $path]));
+    }
+
+    public function testANoFromAnInstrumentTheHouseCannotPinTodayIsKeptAllTheSame(): void
+    {
+        // Stopping asks for nobody's pin: a receipt of an instrument that is not the grant's refuses the act too.
+        $this->house->granted();
+        $path = $this->house->candidate('good.txt', "clean release\n");
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $path]);
+        $this->house->installed(null);
+        $this->house->scanner = static fn (string $bytes): array => ['ok' => false];
+
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $path]);
+
+        $kept = $this->house->lines(StandingLedger::MEASURED);
+        self::assertSame([true, false], array_column($kept, 'ok'), 'a no was dropped because the house could not say which code said it');
+        self::assertSame(\Milpa\AppRuntime\Standing\HouseStandingJudge::NOT_PINNED, $kept[1]['instrument']);
+        $this->house->installed();
+        $this->house->as(LabHouse::SEAT, 'lab:watch');
+        self::assertArrayHasKey('refused', $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $path]));
+        self::assertNull($this->house->ledger()->fault());
+    }
+
+    public function testAYesThatDoesNotSayWhatItReadIsStillNoReceipt(): void
+    {
+        // The guard of that edge: what turns a candidate green is asked for everything, as it always was.
+        $this->house->granted();
+        $path = $this->house->candidate('good.txt', "clean release\n");
+        $this->house->scannerSaysWhatItRead = false;
+
+        self::assertSame(['ok' => true], $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $path]));
+        $this->house->policy->crossing($this->house->contextOf(LabHouse::SEAT), $this->house->operation('lab:scan'), ['path' => $path], fn (): array => ['ok' => true, 'acted_on' => $this->house->digestOf('good.txt')], static fn (array $answer): array => $answer);
+
+        self::assertSame([], $this->house->lines(StandingLedger::MEASURED));
+    }
+
+    public function testANoThatNamesNoContentWhereTheHouseReadsNoneLeavesNoReceipt(): void
+    {
+        // What is said, and stays so: a receipt is about a content, and here there is none to stop.
+        $this->house->granted();
+        $this->house->scanner = static fn (string $bytes): array => ['ok' => false];
+        $this->house->scannerSaysWhatItRead = false;
+
+        $this->house->policy->crossing($this->house->contextOf(LabHouse::SEAT), $this->house->operation('lab:scan'), ['path' => 'not-in-the-house.txt'], static fn (): array => ['ok' => false], static fn (array $answer): array => $answer);
+
+        self::assertSame([], $this->house->lines(StandingLedger::MEASURED));
+        self::assertNull($this->house->ledger()->fault());
+    }
+
     // ── every other door a call reaches a handler by, asked the same (the sweep made before H1 was fixed) ─────
 
     /** @return iterable<string, array{string, ?ToolContext}> the surface, and the caller it hands the runner */
@@ -506,6 +586,43 @@ final class WhatAFourthReviewFoundInTheHouseTest extends TestCase
         self::assertLessThanOrEqual(256, mb_strlen($kept), 'the book keeps a reason of any length, and every call of every seat reads the whole book');
         self::assertStringStartsWith('seen it seen it', $kept);
         self::assertStringContainsString('256', (string) json_encode($stopped), 'the answer does not say that only a length of the reason was kept');
+    }
+
+    /** @return iterable<string, array{string, int}> the reason, and how many bytes of it the book is to keep */
+    public static function longReasonsThatAreNotAscii(): iterable
+    {
+        yield 'a letter two bytes long' => [str_repeat('ñ', 300), 512];
+        yield 'a letter three bytes long' => [str_repeat('字', 300), 768];
+        yield 'a cut that falls between a letter and the mark over it' => ['a' . str_repeat("e\u{0301}", 200), 1 + 127 * 3 + 1];
+    }
+
+    #[DataProvider('longReasonsThatAreNotAscii')]
+    public function testWhatTheBookKeepsOfAReasonIsCountedInCharactersAndSaysWhatItWasCutFrom(string $reason, int $bytes): void
+    {
+        // D15, its edge: «256 characters» are code points of the text, never bytes — and a line that keeps only a
+        // length of a reason says, by its digest, which reason that was.
+        $this->house->granted();
+
+        $stopped = $this->house->as(LabHouse::OTHER_SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => $reason]);
+
+        $line = $this->house->lines(StandingLedger::SUSPENDED)[0];
+        self::assertSame(256, mb_strlen((string) $line['reason']), 'the reason is not counted in characters');
+        self::assertSame($bytes, \strlen((string) $line['reason']));
+        self::assertTrue(mb_check_encoding((string) $line['reason'], 'UTF-8') && \Milpa\Command\Standing\Canonical::oneLine((string) $line['reason']), 'what was kept is not text a person reads');
+        self::assertSame(['characters' => mb_strlen($reason), 'sha256' => 'sha256:' . hash('sha256', $reason)], $line['reason_given'] ?? null, 'the line does not say which reason it keeps a length of');
+        self::assertNull($this->house->ledger()->fault(), 'the book does not verify');
+        // …and the line reads and verifies as any other: a person lifts that very stop by name.
+        self::assertTrue($this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => (string) $stopped['suspension']])['ok'] ?? false);
+        self::assertSame(GrantState::InForce, $this->house->book()->record('release-line')?->state);
+    }
+
+    public function testAReasonKeptAsItCameSaysNothingMore(): void
+    {
+        $this->house->granted();
+
+        $this->house->as(LabHouse::OTHER_SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => str_repeat('ñ', 256)]);
+
+        self::assertSame(['by', 'grant', 'reason'], array_keys($this->house->lines(StandingLedger::SUSPENDED)[0]), 'a reason that fits is the whole of what the line says of it');
     }
 
     /** @return iterable<string, array{mixed}> */
