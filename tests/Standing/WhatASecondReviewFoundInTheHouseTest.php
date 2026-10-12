@@ -601,7 +601,8 @@ final class WhatASecondReviewFoundInTheHouseTest extends TestCase
         $policy = new PluginAuthoringPolicy($this->house->root, judged: $judged, standing: new HouseStandingJudge($this->house->root, $this->house, fn (): \DateTimeImmutable => $this->house->now));
         $operation = new Operation('reports:export', 'Lab: an operation typed by permission', static fn (array $input): array => ['ok' => true], ['type' => 'object'], mutating: true, permission: 'reports.export');
         $seat = $this->house->contextOf(LabHouse::SEAT);
-        $admitted = static function () use ($policy, $judged, $operation, $seat): bool {
+        $why = null;
+        $admitted = static function () use ($policy, $judged, $operation, $seat, &$why): bool {
             $judged->executing('console.executing', ['event' => new OperationExecutingEvent($operation, [], 'http')]);
             $ran = false;
             try {
@@ -610,7 +611,8 @@ final class WhatASecondReviewFoundInTheHouseTest extends TestCase
 
                     return ['ok' => true];
                 });
-            } catch (\RuntimeException) {
+            } catch (\RuntimeException $refused) {
+                $why = $refused->getMessage();
             }
 
             return $ran;
@@ -621,6 +623,9 @@ final class WhatASecondReviewFoundInTheHouseTest extends TestCase
         file_put_contents($file, substr_replace((string) file_get_contents($file), 'X', 60, 1));
 
         self::assertFalse($admitted(), 'a run the HTTP policy admitted went through for a seat while the book does not verify');
+        // …and for THAT reason. Since the fifth review that door also refuses a call a grant names, and a book that
+        // does not verify answers for every seat: two checks stop this run, and only the reason tells which one did.
+        self::assertStringContainsString('does not verify', (string) $why, 'the seat was refused, and not told that the book does not verify');
     }
 
     public function testABookThatDoesNotVerifyStillStopsNoPersonAndNobodyWhoIsNotASeat(): void

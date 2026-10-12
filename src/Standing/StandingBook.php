@@ -401,7 +401,6 @@ final class StandingBook
                     $grants[$id]['state'] = GrantState::InForce;
                     $grants[$id]['because'] = null;
                     $grants[$id]['suspension'] = null;
-                    $grants[$id]['stoppers'] = [];
                     $grants[$id]['fired'] = false;
                 }
             } elseif ($entry['type'] === StandingLedger::REVOKED) {
