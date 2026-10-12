@@ -121,7 +121,7 @@ final class AStandingGrantShrinksOnItsOwnAndGrowsOnlyByAPersonTest extends TestC
         $record = $this->house->book()->record('release-line');
         self::assertSame('suspended', $record?->standsAs($this->house->now));
         self::assertStringContainsString('its falsifier «a-published-name» fired: `lab:watch` reported it', (string) $record?->because);
-        self::assertSame($this->house->ledger()->entries()[\count($this->house->ledger()->entries()) - 1]['hash'], $record?->suspension);
+        self::assertSame($this->house->everyLine()[\count($this->house->everyLine()) - 1]['hash'], $record?->suspension);
 
         // The same session, the next call: nothing about the act changed — only the grant's state, read now.
         $refused = $this->merge();

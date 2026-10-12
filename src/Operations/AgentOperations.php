@@ -2146,6 +2146,13 @@ class AgentOperations implements CommandProvider
         // the passkey the door verified, and every effect the agent materialises on this turn is his.
         $this->contextoDeLaVuelta = $context;
         $this->toolAuthority = $authority;
+        // THE ONE QUESTION, where a leg is made (greenhouse decisions/0615, the sixth review, 6-M4): in a house that
+        // keeps a book of standing grants and does not judge them, none is made for a key that is not a person.
+        $house = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        $closed = $authority === null || !$house instanceof Kernel ? null : \Milpa\AppRuntime\Agent\PluginAuthoringPolicy::closedTo($this->container, $house->root(), $authority);
+        if ($closed !== null) {
+            return ['ok' => false, 'error' => $closed];
+        }
         // THE LEG'S MEMORY IS THE HOUSE'S, declared before the first read of its session (greenhouse decisions/0511):
         // every surface that runs a leg passes here, and php.ini's 128 MB is where 1036's session died.
         $this->memoriaDeLaPierna = LegMemory::declare();

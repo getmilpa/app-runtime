@@ -52,11 +52,38 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
         return $this->house->root . '/' . StandingLedger::PATH;
     }
 
+    /** @return iterable<string, array{mixed}> */
+    public static function valuesALineCannotHold(): iterable
+    {
+        yield 'a number JSON writes as -0 and reads as 0' => [-0.0];
+        yield 'text that is not text' => ["\xB1\x31"];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('valuesALineCannotHold')]
+    public function testALineThatWouldNotReadBackAsItWasWrittenIsNotWritten(mixed $value): void
+    {
+        // The book's own guard, asked of the book: whoever writes a line hands it values a caller chose, and since
+        // the sixth review the judge turns the arguments of a call into their digest before they get here.
+        $ledger = $this->house->ledger();
+        $ledger->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'first']);
+        $bytes = (string) file_get_contents($this->path());
+
+        try {
+            $ledger->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'second', 'carried' => $value]);
+            self::fail('a line the house cannot read back as it was written was written');
+        } catch (\RuntimeException $refused) {
+            self::assertStringContainsString('could not be written', $refused->getMessage());
+        }
+
+        self::assertSame($bytes, (string) file_get_contents($this->path()), 'and something of it was left in the book');
+        self::assertNull($this->house->ledger()->fault());
+    }
+
     public function testEveryLineCarriesTheDigestOfTheOneBeforeIt(): void
     {
         $ledger = $this->house->ledger();
         self::assertFalse($ledger->exists());
-        self::assertSame([], $ledger->entries());
+        self::assertSame([], $this->house->everyLine());
         self::assertNull($ledger->fault());
 
         $first = $ledger->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'reason' => 'one'], $this->house->now);
@@ -66,8 +93,8 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
         self::assertNull($first['prev']);
         self::assertSame($first['hash'], $second['prev']);
         self::assertSame(StandingLedger::hashOf($second), $second['hash']);
-        self::assertEquals([$first, $second], $ledger->entries());
-        self::assertEquals([$first, $second], StandingLedger::forRoot($this->house->root)->entries(), 'and it reads back from disk');
+        self::assertEquals([$first, $second], $this->house->everyLine());
+        self::assertEquals([$first, $second], $this->house->everyLine(), 'and it reads back from disk');
         self::assertSame('2026-10-11T12:00:00+00:00', $first['at']);
     }
 
@@ -116,7 +143,7 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
 
         file_put_contents($this->path(), "\nnot json at all\n", \FILE_APPEND);
         self::assertStringContainsString('line 3 does not link', (string) StandingLedger::forRoot($this->house->root)->fault());
-        self::assertCount(1, StandingLedger::forRoot($this->house->root)->entries(), 'what verified before the fault is still read');
+        self::assertCount(1, $this->house->everyLine(), 'what verified before the fault is still read');
 
         // A line that is well formed and claims a link it does not have. (This asks the CHAIN alone: the head the
         // house keeps beside the book would say at once that the file was rewritten, and it has its own tests.)
@@ -175,7 +202,7 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
             umask($umask);
         }
         clearstatcache();
-        $entries = $this->house->ledger()->entries();
+        $entries = $this->house->everyLine();
 
         self::assertSame(['head' => $entries[2]['hash'], 'lines' => 3], json_decode((string) file_get_contents($this->path() . StandingLedger::HEAD), true));
         self::assertSame(['600', '600'], [decoct(fileperms($this->path()) & 0o777), decoct(fileperms($this->path() . StandingLedger::HEAD) & 0o777)]);
@@ -242,7 +269,7 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
         file_put_contents($this->path() . StandingLedger::HEAD, $behind);
 
         self::assertNull($this->fault());
-        self::assertCount(2, StandingLedger::forRoot($this->house->root)->entries());
+        self::assertCount(2, $this->house->everyLine());
         $third = StandingLedger::forRoot($this->house->root)->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'third']);
         self::assertSame(['head' => $third['hash'], 'lines' => 3], json_decode((string) file_get_contents($this->path() . StandingLedger::HEAD), true));
     }
@@ -273,11 +300,11 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
         // 3 · a line added by hand after the last one the house wrote, with a link that verifies.
         $ledger = $this->house->ledger();
         $ledger->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'again']);
-        $last = $ledger->entries()[1];
+        $last = $this->house->everyLine()[1];
         $added = ['type' => StandingLedger::REINSTATED, 'at' => '2026-10-11T12:00:00+00:00', 'prev' => $last['hash'], 'data' => ['grant' => 'a', 'suspension' => 'sha256:the-one-it-names']];
         file_put_contents($this->path(), json_encode($added + ['hash' => StandingLedger::hashOf($added)]) . "\n", \FILE_APPEND);
         self::assertNull($this->fault());
-        self::assertCount(3, StandingLedger::forRoot($this->house->root)->entries());
+        self::assertCount(3, $this->house->everyLine());
     }
 
     public function testALineIsWrittenWholeOrNotAtAll(): void
@@ -299,11 +326,11 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
 
         self::assertSame($whole, FillingDisk::$files[$book], 'what the disk took of the line was given back');
         self::assertNull((new StandingLedger($book))->fault());
-        self::assertSame(['head' => (new StandingLedger($book))->entries()[0]['hash'], 'lines' => 1], json_decode(FillingDisk::$files[$book . StandingLedger::HEAD], true), 'the head still says what the book holds');
+        self::assertSame(['head' => LabHouse::everyLineOf($book)[0]['hash'], 'lines' => 1], json_decode(FillingDisk::$files[$book . StandingLedger::HEAD], true), 'the head still says what the book holds');
         // …and with room again, the book goes on.
         FillingDisk::$room = \PHP_INT_MAX;
         (new StandingLedger($book))->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'room again']);
-        self::assertCount(2, (new StandingLedger($book))->entries());
+        self::assertCount(2, LabHouse::everyLineOf($book));
         self::assertNull((new StandingLedger($book))->fault());
     }
 
@@ -324,7 +351,7 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
         FillingDisk::$renames = false;
         $ledger->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'third']);
 
-        self::assertCount(3, (new StandingLedger($book))->entries(), 'the lines are in the book');
+        self::assertCount(3, LabHouse::everyLineOf($book), 'the lines are in the book');
         self::assertNull((new StandingLedger($book))->fault(), 'and a book that holds more than its head says verifies');
         self::assertSame($kept, FillingDisk::$files[$book . StandingLedger::HEAD], 'the head stands behind');
         self::assertSame([$book, $book . StandingLedger::HEAD], array_keys(FillingDisk::$files), 'nothing half written is left beside it');

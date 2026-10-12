@@ -87,6 +87,9 @@ final class LabHouse implements SignatureVerifier
      */
     public bool $aProcessPerCall = true;
 
+    /** How this house NAMES a content, given its digest: an operation may name what it acts on with more than one. */
+    public ?\Closure $named = null;
+
     /** What `lab:publish` says it consumed instead of what it read — a test's way of swapping the bytes under an act. */
     public ?string $consumed = null;
 
@@ -162,7 +165,12 @@ final class LabHouse implements SignatureVerifier
 
     public function digestOf(string $name): string
     {
-        return 'sha256:' . hash_file('sha256', $this->root . '/' . $name);
+        return $this->nameOf('sha256:' . hash_file('sha256', $this->root . '/' . $name));
+    }
+
+    private function nameOf(string $digest): string
+    {
+        return $this->named === null ? $digest : ($this->named)($digest);
     }
 
     public function later(int $seconds): void
@@ -259,6 +267,8 @@ final class LabHouse implements SignatureVerifier
 
         if ($signature !== null) {
             $this->container->replaceService(GrantedAuthorization::class, $signature);
+            // …and the caller is one that arrived with the signature of its key, as the terminal builds it.
+            $context = new ToolContext($context->principal, $context->channel, $context->scopes, extra: ['signer.fingerprint' => substr((string) $context->principal, 4)] + $context->extra);
         }
         $outer = $this->atTheBoundary;
         $this->atTheBoundary = true;
@@ -291,6 +301,8 @@ final class LabHouse implements SignatureVerifier
             $this->booted->exchangeArray([]);
             $this->units->exchangeArray([]);
         })->call($this->policy);
+        // …and what it had verified of the book: a process that has just started has read none of it.
+        (new \ReflectionProperty(StandingLedger::class, 'readings'))->setValue(null, []);
         PluginAuthoringPolicy::catalogue($this->container, $this->operations);
     }
 
@@ -402,6 +414,23 @@ final class LabHouse implements SignatureVerifier
     }
 
     /**
+     * EVERY line of the book, in order, as the file holds them — read by the tests, whole and unverified. The house
+     * itself has no way of asking for this: a reading keeps what somebody asks of it ({@see StandingLedger::kept()}).
+     *
+     * @return list<array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}>
+     */
+    public function everyLine(): array
+    {
+        return self::everyLineOf($this->root . '/' . StandingLedger::PATH);
+    }
+
+    /** @return list<array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}> */
+    public static function everyLineOf(string $book): array
+    {
+        return array_values(array_filter(array_map(static fn (string $line): mixed => json_decode($line, true), is_file($book) ? (file($book) ?: []) : []), \is_array(...)));
+    }
+
+    /**
      * The lines of the book of one kind, as data.
      *
      * @return list<array<string, mixed>>
@@ -410,7 +439,7 @@ final class LabHouse implements SignatureVerifier
     {
         return array_values(array_map(
             static fn (array $entry): array => $entry['data'],
-            array_filter($this->ledger()->entries(), static fn (array $entry): bool => $entry['type'] === $type),
+            array_filter($this->everyLine(), static fn (array $entry): bool => $entry['type'] === $type),
         ));
     }
 
@@ -475,7 +504,7 @@ final class LabHouse implements SignatureVerifier
     {
         $said = ($this->scanner)($bytes);
 
-        return $this->scannerSaysWhatItRead ? $said + ['acted_on' => 'sha256:' . hash('sha256', $bytes)] : $said;
+        return $this->scannerSaysWhatItRead ? $said + ['acted_on' => $this->nameOf('sha256:' . hash('sha256', $bytes))] : $said;
     }
 
     private static function sign(string $key, string $payload): string
@@ -495,7 +524,7 @@ final class LabHouse implements SignatureVerifier
             $consumed = (string) hash_file('sha256', $this->root . '/' . $input['path']);
             file_put_contents($this->root . '/var/lab-' . $what . '.log', $consumed . "\n", \FILE_APPEND);
 
-            return ['ok' => true, 'acted_on' => $what === 'published' && $this->consumed !== null ? $this->consumed : 'sha256:' . $consumed];
+            return ['ok' => true, 'acted_on' => $what === 'published' && $this->consumed !== null ? $this->consumed : $this->nameOf('sha256:' . $consumed)];
         };
         $path = ['type' => 'object', 'properties' => ['path' => ['type' => 'string']], 'required' => ['path']];
         $effect = static fn (Reversibility $reversibility, Subject $subject): EffectProfile => new EffectProfile(Mutation::Persistent, Externality::Public, $reversibility, Authority::WriteAsUser, subject: $subject);

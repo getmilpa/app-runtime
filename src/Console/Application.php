@@ -672,6 +672,15 @@ final class Application
         // and no token, a call that changes something that lasts either continues a sequence whose receipt stands — the
         // runner cites it or refuses — or demands consent, or is refused here before anything runs. Measured
         // (evidence/1050): with the seat's receipt released, 21 build operations of the resident ran as `local-shell`.
+        // …and the bearer of a token is asked the same one question as whoever signs ({@see autoridadDelFirmante()}).
+        $closed = \Milpa\AppRuntime\Agent\PluginAuthoringPolicy::closedTo($this->kernel()->container(), $this->root, $caller);
+        if ($closed !== null) {
+            foreach ($renderer->presentError($closed) as $line) {
+                $this->line($line);
+            }
+
+            return 1;
+        }
         if ($identity === null && !\in_array('--sign', $tokens, true)) {
             try {
                 $input = $operacion->inputSchema !== null ? (new CliRunner())->deriveInput($operacion, $tokens) : [];
@@ -1844,9 +1853,14 @@ final class Application
         $scopes = \in_array('*', $tokenScopes, true) ? $signedScopes
             : (\in_array('*', $signedScopes, true) ? $tokenScopes : array_values(array_intersect($tokenScopes, $signedScopes)));
 
-        $context = new ToolContext(principal: 'key:' . $signer->fingerprint, channel: 'cli', scopes: $scopes);
+        $context = new ToolContext(principal: 'key:' . $signer->fingerprint, channel: 'cli', scopes: $scopes, extra: ['signer.fingerprint' => $signer->fingerprint]);
         if ($for === null) {
-            return $context;
+            return $context; // the recovery door of a house that does not boot: it has no kernel to ask
+        }
+        // THE ONE QUESTION, where this door reads who is calling (greenhouse decisions/0615, the sixth review, 6-M4).
+        $closed = \Milpa\AppRuntime\Agent\PluginAuthoringPolicy::closedTo($this->kernel()->container(), $this->root, $context);
+        if ($closed !== null) {
+            throw new \RuntimeException($closed);
         }
         // THIS PROCESS RUNS ONE OPERATION, and when a seat signs for a verb a capability of this house declares,
         // what decides is whether a person admitted it — not the word the verb declares, which the runner asks for

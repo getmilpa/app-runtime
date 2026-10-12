@@ -151,14 +151,14 @@ final class WhatTheJudgeCannotReadItDoesNotLendTest extends TestCase
         $this->house->granted();
         $judge = $this->house->policy->standing();
         $unnamed = new StandingDecision(new StandingCall('lab:publish', [], LabHouse::SEAT, null, EffectProfile::readOnly(), $this->house->now));
-        $before = \count($this->house->ledger()->entries());
+        $before = \count($this->house->everyLine());
 
         $judge->absorbed($unnamed, $this->house->operation('lab:publish'), ['ok' => true], true);
         $judge->refused($unnamed);
 
         self::assertFalse($unnamed->named());
         self::assertFalse($unnamed->passes());
-        self::assertCount($before, $this->house->ledger()->entries());
+        self::assertCount($before, $this->house->everyLine());
         self::assertInstanceOf(HouseStandingJudge::class, (new PluginAuthoringPolicy($this->house->root))->standing(), 'a policy nobody handed a judge has the house\'s own');
     }
 

@@ -404,23 +404,6 @@ final class WhatAFifthReviewFoundInTheHouseTest extends TestCase
         self::assertNull(PluginAuthoringPolicy::behind(null));
     }
 
-    public function testALegHandedNoJudgeAndWithNoneBehindItsGateDoesNotGoOnForASeatInAHouseThatKeepsABook(): void
-    {
-        // «A leg that cannot find the judge does not go on as if there were none.» Built as it was before the fifth
-        // review — nobody hands it the judge — over a gate that holds an app's own policy.
-        $this->coveredShelf();
-        $app = iterator_to_array(self::whatTheGateOfALegCanHold())['the app\'s own policy'][0];
-        $leg = $this->leg = new LabLeg($this->house, $this->shelf->operations(), $this->shelf, onTheGate: $app);
-        $unhanded = new \Milpa\AppRuntime\Agent\TrialAwareRegistry($leg->off, $leg->router, $this->shelf->operations());
-
-        $said = $unhanded->call('shelf_label', ['path' => 'good.txt'], $leg->seat());
-
-        self::assertFalse($said->success, 'a run left the process for a seat with no judge asked, in a house that keeps a book: ' . json_encode($said->data));
-        self::assertStringContainsString('found no judge of standing grants', (string) $said->error);
-        // …and the operator's own terminal, which no grant names, goes as it always did.
-        self::assertTrue($unhanded->call('shelf_label', ['path' => 'good.txt'], ToolContext::cli())->success);
-    }
-
     public function testInAHouseWithNoBookALegWithNoJudgeGoesAsItAlwaysDid(): void
     {
         // The guard: a house that never gave a grant behaves as the published runtime, whatever its gates hold.
@@ -434,35 +417,6 @@ final class WhatAFifthReviewFoundInTheHouseTest extends TestCase
 
         self::assertTrue($unhanded->call('shelf_label', ['path' => 'good.txt'], $leg->seat())->success);
         self::assertFileDoesNotExist($this->house->root . '/' . StandingLedger::PATH);
-    }
-
-    public function testAHouseThatKeepsABookAndWhoseBoundaryIsNotTheHousesLetsNoSeatAct(): void
-    {
-        // The other half of the one question. An app registered ITS OWN boundary: the house's policy is then asked
-        // only at the gates, never told a catalogue, and no act is written before it runs. A grant given while the
-        // house judged — or a book put there — would be read by nobody: so where the house's policy IS asked, with a
-        // book in the house and no boundary of its own, a seat is refused and told why.
-        $this->house->enroll(LabHouse::SEAT, [...LabHouse::SEAT_SCOPES, 'lab:merge'], LabHouse::PERSON);
-        $this->house->granted();
-        $container = new \Milpa\Container\DIContainer();
-        $container->registerService(\Milpa\Console\OperationBoundary::class, new class () implements \Milpa\Console\OperationBoundary {
-            public function execute(Operation $operation, array $input, ?ToolContext $authority, \Closure $next): mixed
-            {
-                return $next();
-            }
-        });
-        PluginAuthoringPolicy::install($container, $this->house->root);
-        $policy = $container->get(CallPolicy::class);
-        self::assertInstanceOf(PluginAuthoringPolicy::class, $policy, 'control: the house\'s policy is what the gates are given');
-        $merge = $this->house->operation('lab:merge');
-        $tool = new \Milpa\ToolRuntime\ToolDefinition('lab_merge', $merge->description, $merge->inputSchema ?? [], $merge->handler, scopes: $merge->scopes, mutating: true);
-
-        $said = $policy->authorize($this->house->contextOf(LabHouse::SEAT), $tool, ['path' => 'good.txt']);
-
-        self::assertFalse($said->allowed, 'a seat was let through by the house\'s policy in a house that keeps a book it does not judge by its boundary');
-        self::assertStringContainsString('does not judge', (string) $said->reason);
-        // …and whoever no grant can name is answered as before.
-        self::assertTrue($policy->authorize(ToolContext::cli(), $tool, ['path' => 'good.txt'])->allowed);
     }
 
     public function testNoGrantIsGivenOverAnOperationTypedByAPermission(): void
@@ -522,29 +476,6 @@ final class WhatAFifthReviewFoundInTheHouseTest extends TestCase
         // …and lifting the «fired» by name is what brings it back.
         $this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => (string) $this->state()?->suspension]);
         self::assertSame(GrantState::InForce, $this->state()?->state);
-    }
-
-    public function testASeatsStopWrittenOverAFiredDoesNotTakeItsPlace(): void
-    {
-        // The other order: the falsifier fired, then any key the house recognizes stopped the grant «for a pause».
-        // The listing said only the pause, and lifting the pause brought the grant back.
-        $this->house->granted();
-        $this->house->fired = true;
-        $this->house->as(LabHouse::SEAT, 'lab:watch');
-        $this->house->fired = false;
-        $fired = (string) $this->state()?->suspension;
-
-        $this->house->signed(LabHouse::OTHER_SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'routine pause, nothing wrong']);
-
-        self::assertSame($fired, $this->state()?->suspension, 'a stop written by any key took the place of the stop the watcher wrote');
-        self::assertStringContainsString('fired', (string) $this->state()?->because);
-        self::assertCount(1, $this->house->lines(StandingLedger::SUSPENDED), 'control: the pause is in the book');
-        $this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => $fired]);
-        self::assertSame(GrantState::InForce, $this->state()?->state, 'control: a person lifts the stop the watcher wrote, by name');
-        // …and once it is lifted, a stop is a stop again: nothing of the «fired» is left standing over it.
-        $this->house->signed(LabHouse::OTHER_SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'a real fault']);
-        self::assertSame(GrantState::Suspended, $this->state()?->state, 'a stop written after a «fired» was lifted stopped nothing');
-        self::assertStringContainsString('a real fault', (string) $this->state()?->because);
     }
 
     // ── 5-L1 · a stop is never refused for its reason — not by the terminal's signature either ─────────────────
@@ -630,6 +561,47 @@ final class WhatAFifthReviewFoundInTheHouseTest extends TestCase
         self::assertSame([], array_filter($this->house->lines(StandingLedger::MEASURED), static fn (array $receipt): bool => $receipt['ok'] === true), 'a yes was written under the grant\'s pin by a process running a softer rule than the disk holds: ' . json_encode([$first, $second]));
         self::assertArrayHasKey('refused', $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $red]));
         self::assertSame([], $this->house->done('merged'));
+    }
+
+    /** @return iterable<string, array{bool, int}> whether the file is put back before the process reads what the instrument is, and how many yeses are written */
+    public static function whenAFileLoadedSoftIsPutBack(): iterable
+    {
+        yield 'put back BEFORE the process reads its pin — the window: SAID, NOT CLOSED' => [true, 1];
+        yield 'put back AFTER the process read its pin — what it loaded is not what is on disk: it says nothing for a grant' => [false, 0];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('whenAFileLoadedSoftIsPutBack')]
+    public function testAFileOfAPluginLoadedBeforeItsPinIsReadIsRunAsItWasLoaded(bool $backBeforeThePin, int $yeses): void
+    {
+        // THE SIXTH REVIEW'S 6-M3, MEASURED AND SAID — NOT CLOSED. A kernel loads a plugin's own file when it boots,
+        // some tens of milliseconds before the process is told its catalogue and reads what each operation is. A
+        // file softened, loaded, and put back INSIDE that window is run soft and pinned as it is on disk: the first
+        // row is that, and it lends. Put back after the pin was read (the second row, and the cause of the «+0» the
+        // review saw past the window): what the process loaded is not what the disk holds when the run ends, so its
+        // yes is not written — and neither is anything else. Whether whoever can write a plugin's file is inside
+        // what this judge promises is a person's question; no loader is built here to answer it.
+        $plugin = $this->aPluginWithItsRuleInAFileOfItsOwn('Rules::clean($bytes)');
+        $hard = (string) file_get_contents($plugin['dir'] . '/Rules.php');
+        $soft = str_replace("!str_contains(\$bytes, 'machine-name:')", 'true', $hard);
+        preg_match('/^namespace (.+);$/m', $hard, $found);
+        file_put_contents($plugin['dir'] . '/Rules.php', $soft);
+        self::assertTrue(class_exists($found[1] . '\\Rules'), 'control: the file is loaded, soft');
+        file_put_contents($plugin['dir'] . '/Rules.php', $hard);
+        $this->house->offer($plugin['scan']);
+        $this->house->granted(['conditions' => [['name' => 'no-host-names', 'statement' => 'what is merged names no machine', 'by' => ['operation' => 'late:scan', 'free' => ['path']]]]]);
+        $red = $this->house->candidate('red.txt', "machine-name: build-host-7\n");
+        $this->house->aProcessPerCall = false;
+        if (!$backBeforeThePin) {
+            file_put_contents($plugin['dir'] . '/Rules.php', $soft);
+        }
+        $this->house->boots(); // the process is told its catalogue: it reads what the instrument is, from the disk
+        file_put_contents($plugin['dir'] . '/Rules.php', $hard);
+
+        $said = $this->house->as(LabHouse::SEAT, 'late:scan', ['path' => $red]);
+
+        self::assertTrue($said['ok'] ?? false, 'control: the code this process runs is the soft one — it says yes of a candidate that names a machine');
+        self::assertCount($yeses, $this->house->lines(StandingLedger::MEASURED), $yeses === 1 ? 'the window was closed: say so in the record of decisions/0615' : 'a yes was written by a process whose loaded file is not the one on disk');
+        self::assertSame($yeses === 1, !isset($this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $red])['refused']));
     }
 
     public function testAPluginWhoseFilesAreAllLoadedWhenTheProcessIsToldStillMeasures(): void

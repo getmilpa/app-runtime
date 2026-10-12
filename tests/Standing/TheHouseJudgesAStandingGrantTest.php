@@ -106,7 +106,7 @@ final class TheHouseJudgesAStandingGrantTest extends TestCase
         self::assertSame('lab.publish', $absorbed[0]['operation']);
         self::assertSame(LabHouse::SEAT, $absorbed[0]['seat']);
         self::assertSame($this->house->digestOf($candidate), $absorbed[0]['subject']);
-        self::assertSame('withdraw the release and publish the one before it', $absorbed[0]['undo']);
+        self::assertArrayNotHasKey('undo', $absorbed[0], 'the line of an act repeats what its grant already says');
         self::assertCount(1, $absorbed[0]['receipts']);
         self::assertSame($this->house->digestOf($candidate), $absorbed[0]['receipts'][0]['subject']);
         self::assertSame('lab.scan', $absorbed[0]['receipts'][0]['by']);

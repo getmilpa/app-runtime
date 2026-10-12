@@ -44,8 +44,6 @@ final readonly class GrantRecord
      *                                                 that names it
      * @param list<string>            $stoppedBy       who has stopped it since it was last in force, as each line says:
      *                                                 a second stop by one of them is the same stop
-     * @param bool                    $fired           the suspension that stands is a «fired» its watcher wrote: a stop
-     *                                                 of any key written over it does not take its place
      */
     public function __construct(
         public StandingGrant $grant,
@@ -61,7 +59,6 @@ final readonly class GrantRecord
         public array $instruments = [],
         public bool $stopped = false,
         public array $stoppedBy = [],
-        public bool $fired = false,
     ) {
     }
 

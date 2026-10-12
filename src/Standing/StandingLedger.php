@@ -64,6 +64,21 @@ use Milpa\ToolRuntime\Identity\OperationAuthorization;
  * repair there is — would then need that head written by hand too. So it is said, and not built.)
  *
  * A house is born without these files, and one where nobody granted anything never gets them.
+ *
+ * ── HOW IT IS READ ──────────────────────────────────────────────────────────────────────────────
+ *
+ * Line by line, and a reading keeps what somebody asks of the book, not the book ({@see self::kept()}): read
+ * whole and kept whole, a process stopped somewhere past twenty megabytes of it.
+ *
+ * Every line is VERIFIED once per process, not once per question — a command asked eight to twelve. What a process
+ * verified it keeps beside a fingerprint of the bytes it verified ({@see self::BYTES} — fast, and not a seal, as the
+ * chain is not); each later reading reads those bytes again and compares. The same bytes are the same book, what was
+ * added after them is verified as it links, and bytes that differ are read from the first line: nothing is believed
+ * of the file but its bytes — not its date, not its size.
+ *
+ * @phpstan-type Line array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}
+ * @phpstan-type Mind array{kept: array<int, Line>, recent: array<int, Line>, lines: int, last: ?string, fault: ?string, calm: array<string, int>, refused: array<string, list<int>>}
+ * @phpstan-type Reading array{bytes: \HashContext, upTo: int, number: int, head: array{lines: int, head: string}|string|null, mind: Mind}
  */
 final class StandingLedger
 {
@@ -91,8 +106,20 @@ final class StandingLedger
     public const REINSTATED = 'reinstated';
     public const REVOKED = 'revoked';
 
-    /** @var array{entries: list<array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}>, fault: ?string}|null */
-    private ?array $read = null;
+    /** How many of the book's last lines a reading keeps whole, for whoever asks what it said lately. */
+    public const RECENT = 40;
+
+    /** The fingerprint a reading keeps of the bytes it verified: to tell, the next time, that they are the same. */
+    private const BYTES = 'xxh128';
+
+    /** How many books one process keeps what it read of: a house has one. */
+    private const BOOKS = 4;
+
+    /** @var array<string, Reading> what this process read of each book, by the book's path */
+    private static array $readings = [];
+
+    /** How many times this process read a book from its first line. */
+    private static int $passes = 0;
 
     /** @var resource|null the book, open and locked for one reading-and-writing ({@see self::exclusively()}) */
     private $held = null;
@@ -138,13 +165,35 @@ final class StandingLedger
     }
 
     /**
-     * Every line that verifies, in order — up to the first one that does not.
+     * What a reading keeps of the book, in the order it was written: every line somebody asks about again.
      *
-     * @return list<array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}>
+     * EVERY LINE BUT THREE KINDS, EACH ONE NO READER REACHES. An act a seat was lent. A sign of calm, once the same
+     * key gave a later one for the same watcher, pin and arguments — a grant's last sign is the last that matches it.
+     * A refusal, once a grant was given, a falsifier fired, or its own grant was stopped, lifted or withdrawn — a
+     * seat's refusals are counted back to the first of those. Everything a person signed, every stop, every receipt
+     * and every «fired» is kept.
+     *
+     * @return list<Line>
      */
-    public function entries(): array
+    public function kept(): array
     {
-        return $this->read()['entries'];
+        return array_values($this->read()['kept']);
+    }
+
+    /**
+     * The last lines of the book, whole and in order — at most {@see self::RECENT}: what it said lately.
+     *
+     * @return list<Line>
+     */
+    public function recent(): array
+    {
+        $mind = $this->read();
+        $recent = [];
+        for ($line = max(0, $mind['lines'] - self::RECENT); $line < $mind['lines']; ++$line) {
+            $recent[] = $mind['recent'][$line % self::RECENT];
+        }
+
+        return $recent;
     }
 
     /**
@@ -156,6 +205,12 @@ final class StandingLedger
     public function fault(): ?string
     {
         return $this->read()['fault'];
+    }
+
+    /** How many times this process verified a book from its first line: what a command costs is one. */
+    public static function passes(): int
+    {
+        return self::$passes;
     }
 
     /**
@@ -210,12 +265,10 @@ final class StandingLedger
             @chmod($this->path, 0o600);
         }
         $this->held = $handle;
-        $this->read = null;
         try {
             return $do();
         } finally {
             $this->held = null;
-            $this->read = null;
             flock($handle, \LOCK_UN);
             fclose($handle);
             // A book that was only opened to be read under the lock, and holds nothing, is not left behind.
@@ -234,18 +287,15 @@ final class StandingLedger
      */
     private function write($handle, string $type, array $data, ?\DateTimeImmutable $at): array
     {
-        // Read under the lock: two writers must not both link to the same last line. And a book longer than the
-        // house reads is not read here either: nothing is added to it.
-        $size = (int) (fstat($handle)['size'] ?? 0);
-        if ($size > self::LONGEST) {
-            throw new \RuntimeException('The book of standing grants does not verify, so nothing is added to it: ' . self::tooLong($size));
-        }
-        rewind($handle);
-        $state = $this->verified((string) stream_get_contents($handle), $this->head());
+        // Read under the lock: two writers must not both link to the same last line. A book that does not verify —
+        // one longer than the house reads is one — takes no line.
+        $state = $this->read();
         if ($state['fault'] !== null) {
             throw new \RuntimeException('The book of standing grants does not verify, so nothing is added to it: ' . $state['fault']);
         }
-        $last = $state['entries'] === [] ? null : $state['entries'][\count($state['entries']) - 1]['hash'];
+        $last = $state['last'];
+        $lines = $state['lines'];
+        unset($state);
         $entry = ['type' => $type, 'at' => ($at ?? new \DateTimeImmutable())->format(\DATE_ATOM), 'prev' => $last, 'data' => $data];
         // A LINE THE HOUSE WRITES IS A LINE IT CAN READ BACK (greenhouse decisions/0615, «Lo que la tercera revisión
         // encontró», M3). A line carries the arguments of a call, and a caller chooses those: a number JSON writes as
@@ -275,8 +325,9 @@ final class StandingLedger
             @ftruncate($handle, $end);
             throw new \RuntimeException('The book of standing grants could not be written: ' . $this->path);
         }
-        $this->read = null;
-        $this->keep(\count($state['entries']) + 1, $entry['hash']);
+        // What this process read of the book is not told of this line: the next reading finds the bytes it verified
+        // and one line after them, and reads that line from the file, as it reads anybody's.
+        $this->keep($lines + 1, $entry['hash']);
 
         return $entry;
     }
@@ -332,25 +383,26 @@ final class StandingLedger
      * Why the lines that are there are not the book this house last wrote, by its head — or `null`: they are, or this
      * house never kept a head.
      *
-     * @param array{lines: int, head: string}|string|null                                                    $kept    the head, as {@see self::head()} read it
-     * @param list<array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}> $entries
+     * @param array{lines: int, head: string}|string|null $kept   the head, as {@see self::head()} read it
+     * @param int                                         $there  how many lines verify
+     * @param ?string                                     $atHead the digest of the line the head counts as the last, when the book holds that many
      */
-    private function againstItsHead(array|string|null $kept, array $entries): ?string
+    private function againstItsHead(array|string|null $kept, int $there, ?string $atHead): ?string
     {
         if (!\is_array($kept)) {
             return $kept;
         }
         ['lines' => $lines, 'head' => $hash] = $kept;
-        if (\count($entries) < $lines) {
+        if ($there < $lines) {
             return \sprintf(
                 'this house wrote %d line(s) in it and %d %s there — it was emptied, truncated, deleted or put back from an older copy',
                 $lines,
-                \count($entries),
-                \count($entries) === 1 ? 'is' : 'are',
+                $there,
+                $there === 1 ? 'is' : 'are',
             );
         }
 
-        return hash_equals($hash, $entries[$lines - 1]['hash']) ? null : \sprintf('line %d is not the line this house wrote there — it was rewritten', $lines);
+        return hash_equals($hash, (string) $atHead) ? null : \sprintf('line %d is not the line this house wrote there — it was rewritten', $lines);
     }
 
     /**
@@ -373,92 +425,203 @@ final class StandingLedger
 
     private static function tooLong(int $bytes): string
     {
-        return \sprintf('it is %d bytes, longer than this house reads (%d): every command reads the whole book, and a longer one stops them all. A person keeps it somewhere else and the house starts another — what it lent, it lends again only by a person\'s signature', $bytes, self::LONGEST);
+        return \sprintf('it is %d bytes, longer than this house reads (%d): a longer one makes every command of everyone wait. A person keeps the book AND ITS HEAD — the file beside it, named as the book and «' . self::HEAD . '» — somewhere else, and the house starts another: what it lent, it lends again only by a person\'s signature', $bytes, self::LONGEST);
     }
 
-    /** @return array{entries: list<array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}>, fault: ?string} */
+    /** @return Mind */
     private function read(): array
     {
-        if ($this->read !== null) {
-            return $this->read;
-        }
         // THE HEAD IS READ BEFORE THE BOOK (third review, L1). A judgment reads with no lock, and a line may land
         // between its two readings. Read after the book, the head would then say one line more than what was read:
         // a book that is whole, called «emptied, truncated, deleted or put back from an older copy» — measured, one
         // reading in four while three processes wrote. Read first, it can only be BEHIND what is read next, and a
         // book that holds more than its head says verifies.
-        $kept = $this->head();
+        $head = $this->head();
         if (!is_file($this->path)) {
-            return $this->read = ['entries' => [], 'fault' => $this->againstItsHead($kept, [])];
-        }
-        // A BOOK LONGER THAN THE HOUSE READS IS NOT READ: IT IS A FAULT (a proposal, not decided — the fifth review,
-        // 5-M2). The book is read whole, by every command of every caller, and a process stops — dies, the person's
-        // own stop and withdrawal included — somewhere past twenty megabytes of it. No bound on a line makes the
-        // book short: an act a seat is lent is a line. So past this length the house says so and reads nothing:
-        // no seat acts, nothing is lent, and a person is still answered.
-        clearstatcache(true, $this->path);
-        if ((int) @filesize($this->path) > self::LONGEST) {
-            return $this->read = ['entries' => [], 'fault' => self::tooLong((int) @filesize($this->path))];
-        }
-        $raw = @file_get_contents($this->path);
-        // A LINE STILL BEING WRITTEN IS NOT A LINE YET (the sibling of L1, found measuring it by processes). A line
-        // that crosses a page of the file is, for an instant, there by halves, and a reading with no lock can land in
-        // that instant: about twenty readings in three hundred thousand ended in an unfinished line while three
-        // processes wrote, each exactly at a page boundary, and a book that was whole read as «edited». Every line
-        // ends in a line break, so a reading that does not is looked at again — a bounded number of times, never
-        // waited for: a book that STAYS without its last line break is a fault ({@see self::verified()}).
-        for ($again = 0; \is_string($raw) && $raw !== '' && !str_ends_with($raw, "\n") && $again < self::LOOKS_AGAIN; ++$again) {
-            usleep(self::SETTLES_IN);
-            $raw = @file_get_contents($this->path);
-        }
+            $this->remember(null);
 
-        return $this->read = $raw === false
-            ? ['entries' => [], 'fault' => 'it cannot be read']
-            : $this->verified($raw, $kept);
+            return self::nothing($this->againstItsHead($head, 0, null));
+        }
+        $handle = @fopen($this->path, 'r');
+        $file = $handle === false ? false : fstat($handle);
+        if ($handle === false || $file === false) {
+            return self::nothing('it cannot be read');
+        }
+        try {
+            // A BOOK LONGER THAN THE HOUSE READS IS NOT READ: IT IS A FAULT (a proposal, not decided — the fifth review,
+            // 5-M2). Past this length the house says so and reads nothing: no seat acts, nothing is lent, and a
+            // person is still answered.
+            if ($file['size'] > self::LONGEST) {
+                return self::nothing(self::tooLong($file['size']));
+            }
+            // WHAT THIS PROCESS VERIFIED IS VERIFIED STILL WHEN THE BYTES ARE THE SAME ONES. They are read again, every
+            // time, and their fingerprint compared: nothing about the file is believed but its bytes.
+            $known = $this->known();
+            $same = false;
+            if ($known !== null) {
+                $bytes = hash_init(self::BYTES);
+                $same = hash_update_stream($bytes, $handle, $known['upTo']) === $known['upTo']
+                    && hash_equals(hash_final(hash_copy($known['bytes'])), hash_final($bytes));
+            }
+            if ($same && $known['upTo'] === $file['size'] && $known['head'] === $head) {
+                return $known['mind']; // nothing was added, and its head is the one it was read against
+            }
+            // ONLY WHAT WAS ADDED IS VERIFIED, when what came before it verified: the same bytes, more after them, and
+            // a head that does not count fewer lines than were read — one that does is a book put back, read whole.
+            $onward = $same && $known['mind']['fault'] === null && $file['size'] > $known['upTo']
+                && ($known['head'] === $head || (\is_array($head) && $head['lines'] >= $known['mind']['lines']));
+            if ($onward) {
+                $mind = $known['mind'];
+                $number = $known['number'];
+                $bytes = $known['bytes'];
+            } else {
+                ++self::$passes;
+                $mind = self::nothing(null);
+                $number = 0;
+                $bytes = hash_init(self::BYTES);
+                if (ftell($handle) !== 0) {
+                    rewind($handle);
+                }
+            }
+            $counted = \is_array($head) ? $head['lines'] : null;
+            $atHead = $mind['lines'] === $counted ? $mind['last'] : null;
+            $lines = $this->verified($handle, $mind['last'], $number, $bytes);
+            foreach ($lines as $entry) {
+                self::take($mind, $entry);
+                if ($mind['lines'] === $counted) {
+                    $atHead = $entry['hash'];
+                }
+            }
+            [$fault, $number] = $lines->getReturn();
+            // Against its head, unless these are lines added to a reading that was already held against this very head.
+            $mind['fault'] = $fault ?? ($onward && $known['head'] === $head ? null : $this->againstItsHead($head, $mind['lines'], $atHead));
+            // A reading that found a fault stands for the whole file as it is: its fingerprint takes the bytes after
+            // the fault too, so that any change to them is a book to read again.
+            hash_update_stream($bytes, $handle);
+            $this->remember(['bytes' => $bytes, 'upTo' => (int) ftell($handle), 'number' => $number, 'head' => $head, 'mind' => $mind]);
+
+            return $mind;
+        } finally {
+            fclose($handle);
+        }
+    }
+
+    /** @return Reading|null what this process read of the book */
+    private function known(): ?array
+    {
+        return self::$readings[$this->path] ?? null;
+    }
+
+    /** @param Reading|null $reading */
+    private function remember(?array $reading): void
+    {
+        unset(self::$readings[$this->path]);
+        if ($reading !== null) {
+            self::$readings = \array_slice(self::$readings, 1 - self::BOOKS, null, true) + [$this->path => $reading];
+        }
+    }
+
+    /** @return Mind a reading that holds no line */
+    private static function nothing(?string $fault): array
+    {
+        return ['kept' => [], 'recent' => [], 'lines' => 0, 'last' => null, 'fault' => $fault, 'calm' => [], 'refused' => []];
     }
 
     /**
-     * The lines of the book and why it does not verify: by its chain, and then by its head.
+     * Take one more line into a reading: count it, and keep it unless nobody asks about its kind again — and let go
+     * of the lines it makes nobody ask about ({@see self::kept()}).
      *
-     * @param array{lines: int, head: string}|string|null $kept the head, read BEFORE the book was
-     *
-     * @return array{entries: list<array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}>, fault: ?string}
+     * @param Mind $mind
+     * @param Line $entry
      */
-    private function verified(string $raw, array|string|null $kept): array
+    private static function take(array &$mind, array $entry): void
     {
-        // A BOOK THAT HOLDS SOMETHING ENDS IN A LINE BREAK, OR IT IS A FAULT (fourth review, L2; decided by Rod,
-        // 2026-10-12: D16). Every line this house writes ends in one, so a book that does not was cut or edited by hand —
-        // an editor that saves without the last line break is enough. Read as whole, the next line was written ONTO
-        // its last one: the act that line let pass ran, and from then on the book was broken for everyone. The house
-        // does not repair its own book, so it does not write the break either: a person looks.
-        if ($raw !== '' && !str_ends_with($raw, "\n")) {
-            return ['entries' => $this->parse($raw)['entries'], 'fault' => 'it does not end in a line break — its last line was cut, or it was edited by hand, and a line added to it would be written onto that one'];
+        $line = $mind['lines']++;
+        $mind['last'] = $entry['hash'];
+        $mind['recent'][$line % self::RECENT] = $entry;
+        $data = $entry['data'];
+        $fired = $entry['type'] === self::WATCHED ? ($data['fired'] ?? null) : null;
+        if ($entry['type'] === self::ABSORBED) {
+            return;
         }
-        $state = $this->parse($raw);
-
-        return $state['fault'] !== null ? $state : ['entries' => $state['entries'], 'fault' => $this->againstItsHead($kept, $state['entries'])];
+        if ($fired === false) {
+            $said = serialize([$data['watcher'] ?? null, $data['who'] ?? null, $data['pin'] ?? null, $data['arguments'] ?? null]);
+            unset($mind['kept'][$mind['calm'][$said] ?? -1]);
+            $mind['calm'][$said] = $line;
+        } elseif ($entry['type'] === self::REFUSED) {
+            $mind['refused'][\is_string($data['grant'] ?? null) ? $data['grant'] : ''][] = $line;
+        } elseif ($entry['type'] === self::GRANTED || $fired === true) {
+            foreach ($mind['refused'] as $refusals) {
+                foreach ($refusals as $refusal) {
+                    unset($mind['kept'][$refusal]);
+                }
+            }
+            $mind['refused'] = [];
+        } elseif (\in_array($entry['type'], [self::SUSPENDED, self::REINSTATED, self::REVOKED], true) && \is_string($data['grant'] ?? null)) {
+            foreach ($mind['refused'][$data['grant']] ?? [] as $refusal) {
+                unset($mind['kept'][$refusal]);
+            }
+            unset($mind['refused'][$data['grant']]);
+        }
+        $mind['kept'][$line] = $entry;
     }
 
-    /** @return array{entries: list<array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}>, fault: ?string} */
-    private function parse(string $raw): array
+    /**
+     * The lines of a book from where its handle stands, each verified against the one before it — and, when they
+     * end, why they do not verify (or `null`) and how many lines of the file were passed.
+     *
+     * @param resource     $handle the book, open where the reading begins
+     * @param ?string      $prev   the digest of the line before that place
+     * @param int          $number how many lines of the file come before it
+     * @param \HashContext $bytes  the fingerprint of the bytes before that place, which takes each line as it is read
+     *
+     * @return \Generator<int, Line, mixed, array{0: ?string, 1: int}>
+     */
+    private function verified($handle, ?string $prev, int $number, \HashContext $bytes): \Generator
     {
-        $entries = [];
-        $prev = null;
-        foreach (explode("\n", $raw) as $number => $line) {
+        $again = 0;
+        while (true) {
+            $from = (int) ftell($handle);
+            $line = fgets($handle);
+            if ($line === false) {
+                return [null, $number];
+            }
+            if (!str_ends_with($line, "\n")) {
+                // A LINE STILL BEING WRITTEN IS NOT A LINE YET (the sibling of L1, found measuring it by processes). A
+                // line that crosses a page of the file is, for an instant, there by halves, and a reading with no lock
+                // can land in that instant: about twenty readings in three hundred thousand ended in an unfinished
+                // line while three processes wrote, each exactly at a page boundary, and a book that was whole read as
+                // «edited». Every line ends in a line break, so a reading that does not is looked at again — a bounded
+                // number of times, never waited for.
+                if ($again++ < self::LOOKS_AGAIN) {
+                    usleep(self::SETTLES_IN);
+                    fseek($handle, $from);
+                    continue;
+                }
+                // A BOOK THAT HOLDS SOMETHING ENDS IN A LINE BREAK, OR IT IS A FAULT (fourth review, L2; decided by
+                // Rod, 2026-10-12: D16). Every line this house writes ends in one, so a book that STAYS without it was
+                // cut or edited by hand — an editor that saves without the last line break is enough. Read as whole,
+                // the next line was written ONTO its last one: the act that line let pass ran, and from then on the
+                // book was broken for everyone. The house does not repair its own book, so it does not write the
+                // break either: a person looks.
+                hash_update($bytes, $line);
+                $entry = self::lineOf($line, $prev);
+                if ($entry !== null) {
+                    yield $entry;
+                }
+
+                return ['it does not end in a line break — its last line was cut, or it was edited by hand, and a line added to it would be written onto that one', $number + 1];
+            }
+            ++$number;
+            hash_update($bytes, $line);
             if (trim($line) === '') {
                 continue;
             }
-            $entry = json_decode($line, true);
-            if (!\is_array($entry) || !\is_string($entry['type'] ?? null) || !\is_string($entry['at'] ?? null)
-                || !\is_string($entry['hash'] ?? null) || !\is_array($entry['data'] ?? null)
-                || ($entry['prev'] ?? null) !== $prev || !hash_equals(self::hashOf($entry), $entry['hash'])) {
-                return ['entries' => $entries, 'fault' => \sprintf(
-                    'line %d does not link to the line before it — it was edited, or a line before it was',
-                    $number + 1,
-                )];
+            $entry = self::lineOf($line, $prev);
+            if ($entry === null) {
+                return [\sprintf('line %d does not link to the line before it — it was edited, or a line before it was', $number), $number];
             }
-            /** @var array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>} $entry */
-            $entries[] = $entry;
+            yield $entry;
             $prev = $entry['hash'];
             // A LINE THE HOUSE CANNOT READ AS WHAT ITS KIND SAYS IS A FAULT OF THE BOOK — NEVER «NOTHING» (third review,
             // M4, and the fourth review of the contract, L8; decided by Rod 2026-10-12). Every line is read again with
@@ -468,11 +631,28 @@ final class StandingLedger
             // that said «fired» would stop nothing. So the book does not verify, and a person looks.
             $unread = self::unread($entry['type'], $entry['at'], $entry['data']);
             if ($unread !== null) {
-                return ['entries' => $entries, 'fault' => \sprintf($unread, $number + 1)];
+                return [\sprintf($unread, $number), $number];
             }
         }
+    }
 
-        return ['entries' => $entries, 'fault' => null];
+    /**
+     * One line of the book as a line of it — its kind, its moment, what it says, and a digest that is its own and
+     * names the line before it — or `null`: it is not one that follows `$prev`.
+     *
+     * @return Line|null
+     */
+    private static function lineOf(string $line, ?string $prev): ?array
+    {
+        $entry = json_decode($line, true);
+        if (!\is_array($entry) || !\is_string($entry['type'] ?? null) || !\is_string($entry['at'] ?? null)
+            || !\is_string($entry['hash'] ?? null) || !\is_array($entry['data'] ?? null)
+            || ($entry['prev'] ?? null) !== $prev || !hash_equals(self::hashOf($entry), $entry['hash'])) {
+            return null;
+        }
+
+        /** @var Line $entry */
+        return $entry;
     }
 
     /**

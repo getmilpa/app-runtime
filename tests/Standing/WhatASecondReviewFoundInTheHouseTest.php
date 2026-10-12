@@ -275,14 +275,14 @@ final class WhatASecondReviewFoundInTheHouseTest extends TestCase
         $this->house->granted(['id' => 'shelf-line', 'covers' => [['operation' => 'shelf:lend', 'arguments' => ['path' => 'another.txt']], ['operation' => 'shelf:label', 'arguments' => ['path' => 'another.txt']]]]);
         $this->house->candidate('good.txt', "clean release\n");
         $leg = $this->leg = new LabLeg($this->house, $plugin->operations(), $plugin);
-        $lines = \count($this->house->ledger()->entries());
+        $lines = \count($this->house->everyLine());
 
         $work = $leg->on->call('shelf_lend', ['path' => 'good.txt'], $leg->seat());
         $rehearsal = $leg->on->call('shelf_label', ['path' => 'good.txt'], $leg->seat());
 
         self::assertTrue($work->success && ($work->data['ran_in_house'] ?? false), (string) $work->error);
         self::assertTrue($rehearsal->success && ($rehearsal->data['ran_in_trial'] ?? false), (string) $rehearsal->error);
-        self::assertCount($lines, $this->house->ledger()->entries(), 'a call no grant names left a line in the book');
+        self::assertCount($lines, $this->house->everyLine(), 'a call no grant names left a line in the book');
         // …and in a house with no book at all, the leg does not make one.
         $bare = new LabHouse();
         try {

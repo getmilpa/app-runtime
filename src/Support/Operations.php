@@ -87,6 +87,11 @@ final class Operations
             }
         }
 
+        // THE ONE QUESTION, where the web surface is told what it serves (the sixth review, 6-M4): no caller is known
+        // here, so a house that keeps a book and does not judge by every door serves nothing.
+        if (\Milpa\AppRuntime\Agent\PluginAuthoringPolicy::closedTo($container, $root, null) !== null) {
+            return [];
+        }
         // THE BOUNDARY IS TOLD WHAT IT WILL BE ASKED TO RUN (greenhouse decisions/0615, the fifth review, 5-M3). This
         // installed it and returned: only the terminal and the agent's catalogue told it anything, so the boundary
         // of a web process knew no operation by name — and its judge of standing grants was not asked.

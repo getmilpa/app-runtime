@@ -100,9 +100,11 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
         $said = $this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $path, 'channel' => 'stable', 'zz' => $value]);
 
         self::assertNull($this->house->ledger()->fault(), 'one call of a seat left the book unreadable for everyone');
-        // What the house cannot write down it does not let pass: nothing ran.
-        self::assertStringContainsString('could not be written', (string) ($said['refused'] ?? 'RAN'));
-        self::assertSame([], $this->house->done('published'));
+        // The act is lent, and its line keeps of what it carried how long it was and its digest (after the sixth
+        // review: one rule for what a line keeps, and no act refused for it).
+        self::assertSame(['ok' => true], $said);
+        self::assertCount(1, $this->house->done('published'));
+        self::assertArrayHasKey('arguments_given', $this->house->lines(StandingLedger::ABSORBED)[0]);
         // …and the house goes on: another seat works, and a person can still stop the grant.
         self::assertArrayNotHasKey('refused', $this->house->as(LabHouse::OTHER_SEAT, 'lab:scan', ['path' => $path]));
         self::assertTrue($this->house->signed(LabHouse::PERSON, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'stop'])['ok'] ?? false);
@@ -164,6 +166,8 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
             }
         };
 
+        // A process that has just started: it reads the book from its first line, and holds it against the head.
+        (new \ReflectionProperty(StandingLedger::class, 'readings'))->setValue(null, []);
         $reader = new StandingLedger($book);
         $fault = $reader->fault();
         FillingDisk::$opening = null;
@@ -171,7 +175,7 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
         self::assertSame(2, $opened, 'control: the reader read two files, and the line landed between them');
         self::assertNull($fault, 'a book that is whole read as «emptied, truncated, deleted or put back from an older copy»');
         self::assertNull((new StandingLedger($book))->fault(), 'control: read again, it verifies');
-        self::assertCount(2, (new StandingLedger($book))->entries());
+        self::assertCount(2, LabHouse::everyLineOf($book));
     }
 
     public function testALineStillBeingWrittenWhileTheBookIsReadIsNotAFault(): void
@@ -185,21 +189,24 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
         (new StandingLedger($book))->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'first']);
         (new StandingLedger($book))->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'while it was being read']);
         $whole = FillingDisk::$files[$book];
-        $unfinished = substr($whole, 0, (int) strpos($whole, "\n") + 41);
-        $opened = 0;
-        FillingDisk::$opening = static function (string $path) use ($book, $whole, $unfinished, &$opened): void {
-            if ($path === $book) {
-                FillingDisk::$files[$book] = ++$opened === 1 ? $unfinished : $whole;
+        // The book is read line by line from one open file, and looking again is going back to where the unfinished
+        // line began: the rest of it lands the first time the reader does.
+        FillingDisk::$files[$book] = substr($whole, 0, (int) strpos($whole, "\n") + 41);
+        $looked = 0;
+        FillingDisk::$seeking = static function (string $path) use ($book, $whole, &$looked): void {
+            if ($path === $book && ++$looked === 1) {
+                FillingDisk::$files[$book] = $whole;
             }
         };
 
         $reader = new StandingLedger($book);
         $fault = $reader->fault();
-        FillingDisk::$opening = null;
+        FillingDisk::$seeking = null;
 
         self::assertNull($fault, 'a book that is whole, read while its last line was being written, read as «edited»');
-        self::assertSame(2, $opened, 'control: the reader saw half a line, and looked again');
-        self::assertCount(2, $reader->entries());
+        self::assertSame(1, $looked, 'control: the reader saw half a line, and looked again');
+        self::assertCount(2, $reader->kept(), 'and the line that landed is one it read');
+        self::assertCount(2, LabHouse::everyLineOf($book));
     }
 
     public function testABookThatEndsInALineNobodyFinishedIsStillAFault(): void
@@ -211,18 +218,18 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
         (new StandingLedger($book))->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'first']);
         (new StandingLedger($book))->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'never finished']);
         FillingDisk::$files[$book] = substr(FillingDisk::$files[$book], 0, (int) strpos(FillingDisk::$files[$book], "\n") + 41);
-        $opened = 0;
-        FillingDisk::$opening = static function (string $path) use ($book, &$opened): void {
-            $opened += $path === $book ? 1 : 0;
+        $looked = 0;
+        FillingDisk::$seeking = static function (string $path) use ($book, &$looked): void {
+            $looked += $path === $book ? 1 : 0;
         };
 
         $fault = (new StandingLedger($book))->fault();
-        FillingDisk::$opening = null;
+        FillingDisk::$seeking = null;
 
         // Said since the fourth review as what it is: a book that does not end in a line break (its L2).
         self::assertStringContainsString('does not end in a line break', (string) $fault);
-        self::assertGreaterThan(1, $opened, 'control: it was looked at again');
-        self::assertLessThanOrEqual(21, $opened, 'it was looked at again without end');
+        self::assertGreaterThan(1, $looked, 'control: it was looked at again');
+        self::assertLessThanOrEqual(20, $looked, 'it was looked at again without end');
     }
 
     // ── L3 · the listing says what the judge honours ────────────────────────────────────────────────────────
@@ -1032,9 +1039,7 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
 
         $receipts = $this->house->lines(StandingLedger::MEASURED);
         self::assertCount(2, $receipts, 'the instrument said no of this content, and the house wrote nothing');
-        // What the line keeps of that run (a proposal, not decided — the sibling of the fourth review's M3): the
-        // argument the grant describes as it came, and the spelling of the one nobody described.
-        self::assertSame([false, [\Milpa\AppRuntime\Standing\HouseStandingJudge::NOT_KEPT => '{"deep":true}', 'path' => $bad]], [$receipts[1]['ok'], $receipts[1]['arguments']]);
+        self::assertSame([false, ['deep' => true, 'path' => $bad]], [$receipts[1]['ok'], $receipts[1]['arguments']]);
         self::assertStringContainsString('does not hold on this candidate', (string) ($this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $bad, 'channel' => 'stable'])['refused'] ?? 'RAN'));
         self::assertCount(1, $this->house->done('published'));
         // …until the run the condition describes measures it again.

@@ -126,7 +126,9 @@ final class StandingOperations implements CommandProvider
                 handler: fn (array $input, ?InvocationContext $invocation = null, ?ToolContext $authority = null): array => $this->suspend($input, $authority),
                 inputSchema: ['type' => 'object', 'properties' => [
                     'grant' => $id,
-                    'reason' => ['type' => 'string', 'description' => 'What was seen, in words — it is what the person reads before lifting it. A stop lands without one, and the house keeps at most 256 characters of it'],
+                    // No ONE type: a surface that checks arguments against this refused a stop whose reason was not a string
+                    // (the sixth review, 6-L3), and a stop is never refused for its reason (D15). The door spells it.
+                    'reason' => ['type' => ['string', 'number', 'boolean', 'array', 'object', 'null'], 'description' => 'What was seen, in words — it is what the person reads before lifting it. A stop lands without one, and the house keeps at most 256 characters of it'],
                 ], 'required' => ['grant']],
                 mutating: true,
                 surfaces: ['cli', 'mcp'],
@@ -186,10 +188,6 @@ final class StandingOperations implements CommandProvider
             if (IdentityKey::normalize($seat) !== $seat) {
                 return self::no('write each seat\'s key as the house shows it — ' . IdentityKey::normalize($seat) . ' — nothing was granted');
             }
-        }
-        $notAPerson = $book->notAPersonFor($granted->signer->fingerprint, $grant->to);
-        if ($notAPerson !== null) {
-            return self::no($notAPerson . ' — nothing was granted');
         }
         // TAKING A GRANT OUT OF THE WAY IS HELD TO THE STANDARD OF REINSTATING IT (greenhouse decisions/0615, «Lo que la
         // revisión encontró», 6): whoever supersedes answers for the seats of the grant it replaces, and when that
@@ -324,19 +322,27 @@ final class StandingOperations implements CommandProvider
             $warnings[] = \sprintf('`%s`, which watches falsifier «%s», is an operation a leg with trials on runs outside its own process: from such a run this house hears «fired», and never a sign of life. This grant lends only while its watcher is run in the house\'s own process — at a terminal — every %d s at most', $grant->falsifier->watcher->operation->forCli(), $grant->falsifier->name, $grant->falsifier->withinSeconds);
         }
 
+        $line = [
+            'grant' => $grant->id,
+            'digest' => $grant->digest(),
+            'payload' => $granted->payload,
+            'signature' => $granted->signature,
+            'fingerprint' => $granted->signer->fingerprint,
+            'operations' => $operations,
+            'instruments' => $instruments,
+            // …and WHICH RECOGNITION of each seat, and of whoever signs, it is given over: a key that leaves the
+            // house and is recognized again is not the one this grant lent to ({@see StandingBook}).
+            'recognized' => $book->recognitions($book->givenOver($grant->to, $granted->signer->fingerprint)),
+        ];
+        // THE DOOR ANSWERS YES ONLY TO WHAT THE BOOK WILL HONOUR (the sixth review, 6-M5). It asked its own questions
+        // of who signs, and the book asked others when it read the line: a grant was given, «ok: yes», that no reading
+        // of the book would ever honour. So the line is read, before it is written, by what reads it afterwards.
+        $unhonoured = $book->asItWouldBeRead($line);
+        if ($unhonoured !== null) {
+            return self::no($unhonoured . ' — nothing was granted');
+        }
         try {
-            $entry = $book->ledger()->append(StandingLedger::GRANTED, [
-                'grant' => $grant->id,
-                'digest' => $grant->digest(),
-                'payload' => $granted->payload,
-                'signature' => $granted->signature,
-                'fingerprint' => $granted->signer->fingerprint,
-                'operations' => $operations,
-                'instruments' => $instruments,
-                // …and WHICH RECOGNITION of each seat, and of whoever signs, it is given over: a key that leaves the
-                // house and is recognized again is not the one this grant lent to ({@see StandingBook}).
-                'recognized' => $book->recognitions($book->givenOver($grant->to, $granted->signer->fingerprint)),
-            ]);
+            $entry = $book->ledger()->append(StandingLedger::GRANTED, $line);
         } catch (\RuntimeException $error) {
             return self::no('nothing was granted: ' . $error->getMessage());
         }
@@ -477,7 +483,7 @@ final class StandingOperations implements CommandProvider
             ];
         }
         try {
-            $entry = $book->ledger()->append(StandingLedger::SUSPENDED, ['grant' => $id, 'by' => $by, 'reason' => $reason] + ($given === null ? [] : ['reason_given' => $given]));
+            $entry = $book->ledger()->append(StandingLedger::SUSPENDED, ['grant' => $id, 'by' => $by, 'arrived' => HouseStandingJudge::arrived($authority), 'reason' => $reason] + ($given === null ? [] : ['reason_given' => $given]));
         } catch (\RuntimeException $error) {
             return self::no('nothing was suspended: ' . $error->getMessage());
         }
@@ -611,7 +617,7 @@ final class StandingOperations implements CommandProvider
         }
 
         $recent = [];
-        foreach (\array_slice($book->ledger()->entries(), -40) as $entry) {
+        foreach ($book->ledger()->recent() as $entry) {
             if ($only !== null && $only !== '' && isset($entry['data']['grant']) && $entry['data']['grant'] !== $only) {
                 continue;
             }

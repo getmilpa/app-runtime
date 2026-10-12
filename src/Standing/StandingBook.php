@@ -104,7 +104,7 @@ final class StandingBook
     public function documents(): array
     {
         $documents = [];
-        foreach ($this->ledger->entries() as $entry) {
+        foreach ($this->ledger->kept() as $entry) {
             $grant = $entry['type'] === StandingLedger::GRANTED ? self::documentOf($entry['data']) : null;
             if ($grant !== null && !isset($documents[$grant->id])) {
                 $documents[$grant->id] = $grant;
@@ -134,7 +134,7 @@ final class StandingBook
     public function receipts(): array
     {
         $receipts = [];
-        foreach ($this->ledger->entries() as $entry) {
+        foreach ($this->ledger->kept() as $entry) {
             $receipt = $entry['type'] === StandingLedger::MEASURED ? ConditionReceipt::fromArray($entry['data']) : null;
             if ($receipt !== null) {
                 $receipts[] = $receipt;
@@ -222,8 +222,21 @@ final class StandingBook
     /** @return list<GrantRecord> */
     private function derive(): array
     {
-        $entries = $this->ledger->entries();
-        $broken = $this->ledger->fault();
+        return $this->derived($this->ledger->kept(), $this->ledger->fault());
+    }
+
+    /**
+     * Every grant these lines hold, each as it stands after the last of them.
+     *
+     * Asked of what a reading of the book keeps ({@see StandingLedger::kept()}) — and it answers the same of every
+     * line of the book: what a reading lets go of is nothing this reads.
+     *
+     * @param list<array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}> $entries
+     *
+     * @return list<GrantRecord>
+     */
+    private function derived(array $entries, ?string $broken): array
+    {
         /** @var array<string, array{grant: StandingGrant, entry: string, at: string, by: string, fault: ?string, state: GrantState, because: ?string, suspension: ?string, signal: ?\DateTimeImmutable, operations: array<string, string>, instruments: array<string, string>, stopped: bool, stoppers: list<string>}> $grants */
         $grants = [];
 
@@ -255,7 +268,7 @@ final class StandingBook
                     'by' => 'key:' . (\is_string($data['fingerprint'] ?? null) ? $data['fingerprint'] : 'unknown'),
                     'fault' => $broken === null ? $fault : 'the book of standing grants does not verify (' . $broken . ')',
                     'state' => GrantState::InForce, 'because' => null, 'suspension' => null, 'signal' => null,
-                    'operations' => $pins['operations'], 'instruments' => $pins['instruments'], 'stopped' => false, 'stoppers' => [], 'fired' => false,
+                    'operations' => $pins['operations'], 'instruments' => $pins['instruments'], 'stopped' => false, 'stoppers' => [], 'stops' => 0, 'first' => null,
                 ];
                 // TAKING ANOTHER GRANT OUT OF THE WAY IS HELD TO THE STANDARD OF REINSTATING IT (greenhouse
                 // decisions/0615, «Lo que la revisión encontró», 6). The grant that supersedes holds; whoever signed it
@@ -312,13 +325,12 @@ final class StandingBook
                 $arguments = \is_array($data['arguments'] ?? null) ? $data['arguments'] : [];
                 foreach ($grants as $key => $known) {
                     $named = $known['grant']->falsifier->watcher;
-                    // A «FIRED» IS A STOP OF ITS OWN, WHATEVER OTHER STOP STANDS (the fifth review, 5-L2; «a watcher that
-                    // says it fired ALWAYS stops»). It was read only for a grant in force at that point: written while
-                    // a seat's routine pause stood, it stopped nothing — and the person who lifted the pause brought
-                    // the grant back with no signature that named the «fired». So it takes the place of any stop a
-                    // person could lift by name; the first one stands, and one that only a new grant lifts is left.
-                    $standsIn = $known['state'] === GrantState::InForce
-                        || ($fired === true && $known['state'] === GrantState::Suspended && !$known['stopped'] && !$known['fired']);
+                    // THE STOP THAT STANDS IS THE LAST ONE WRITTEN (the sixth review, 6-L1; it replaces «a fired takes
+                    // the place of a pause and a pause does not take the place of a fired», which left a stop the door
+                    // had named as written standing for nothing). A «fired» stops a grant in force, and one written
+                    // over a stop a person could lift is now the stop that stands. Whoever lifts names the last one —
+                    // and every line of this book names all the lines before it.
+                    $standsIn = $known['state'] === GrantState::InForce || ($fired === true && $known['state'] === GrantState::Suspended && !$known['stopped']);
                     if (!\is_bool($fired) || $at === false || !$standsIn || !$named->operation->is($watcher)) {
                         continue;
                     }
@@ -332,18 +344,14 @@ final class StandingBook
                     }
                     // THE LINE THAT SAYS THE FALSIFIER FIRED IS THE SUSPENSION. Nothing else has to be written for it
                     // to stand: a second line that failed to land would have left the grant in force.
-                    $grants[$key]['state'] = GrantState::Suspended;
-                    $grants[$key]['suspension'] = $entry['hash'];
-                    $grants[$key]['signal'] = null;
-                    $grants[$key]['fired'] = true;
-                    $grants[$key]['because'] = \sprintf(
+                    $grants[$key] = self::stoppedBy($grants[$key], $entry['hash'], \sprintf(
                         'its falsifier «%s» fired: `%s` reported it, at %s, run by %s (suspension %s)',
                         $known['grant']->falsifier->name,
                         $known['grant']->falsifier->watcher->operation->forCli(),
                         $entry['at'],
                         self::said($data['who'] ?? null, 'someone'),
                         $entry['hash'],
-                    );
+                    ));
                 }
 
                 continue;
@@ -359,24 +367,14 @@ final class StandingBook
                     // person could lift by name — and it must not take the place of the stop that stands.
                     continue;
                 }
-                if ($grants[$id]['fired']) {
-                    // …NOR THE PLACE OF A «FIRED» (the fifth review, 5-L2). Any key the house recognizes can stop a
-                    // grant, with no word: written over the stop its watcher wrote, «routine pause» became what the
-                    // listing said and what a person lifted. Whoever stopped it is still remembered as having.
-                    $grants[$id]['stoppers'][] = \is_string($data['by'] ?? null) ? $data['by'] : '';
-                    continue;
-                }
-                $grants[$id]['state'] = GrantState::Suspended;
-                $grants[$id]['suspension'] = $entry['hash'];
-                $grants[$id]['signal'] = null;
                 $grants[$id]['stoppers'][] = \is_string($data['by'] ?? null) ? $data['by'] : '';
-                $grants[$id]['because'] = \sprintf(
+                $grants[$id] = self::stoppedBy($grants[$id], $entry['hash'], \sprintf(
                     '%s, at %s, by %s (suspension %s)',
                     self::said($data['reason'] ?? null, 'no reason was given'),
                     $entry['at'],
                     self::said($data['by'] ?? null, 'someone'),
                     $entry['hash'],
-                );
+                ));
             } elseif ($entry['type'] === StandingLedger::REINSTATED) {
                 // A REINSTATEMENT HOLDS ONLY WHILE THE RECOGNITION OF WHOEVER SIGNED IT STANDS (fourth review, M2 —
                 // what Rod decided on 2026-10-12 for a grant's own line, applied to the line that lifts a stop). It was
@@ -401,7 +399,7 @@ final class StandingBook
                     $grants[$id]['state'] = GrantState::InForce;
                     $grants[$id]['because'] = null;
                     $grants[$id]['suspension'] = null;
-                    $grants[$id]['fired'] = false;
+                    $grants[$id]['stops'] = 0;
                 }
             } elseif ($entry['type'] === StandingLedger::REVOKED) {
                 if ($this->personSigned($data, 'standing:revoke', $grants[$id]['grant'], ['grant' => $id])) {
@@ -442,8 +440,28 @@ final class StandingBook
             $known['instruments'],
             $known['stopped'],
             array_values(array_unique($known['stoppers'])),
-            $known['fired'],
         ), $grants));
+    }
+
+    /**
+     * A grant a person could still lift, stopped by one more line: that line is now the stop that stands, and what
+     * is said of the grant says how many were written since it was last in force, and the first of them — a person
+     * who lifts the last one is shown what it was written over.
+     *
+     * @param array<string, mixed> $known
+     *
+     * @return array<string, mixed>
+     */
+    private static function stoppedBy(array $known, string $line, string $because): array
+    {
+        $first = $known['stops'] === 0 ? $because : $known['first'];
+
+        return ['state' => GrantState::Suspended, 'suspension' => $line, 'signal' => null, 'stops' => $known['stops'] + 1, 'first' => $first, 'because' => $known['stops'] === 0 ? $because : \sprintf(
+            '%s — the last of %d stops written since it was last in force; the first: %s',
+            $because,
+            $known['stops'] + 1,
+            $first,
+        )] + $known;
     }
 
     /**
@@ -533,7 +551,7 @@ final class StandingBook
         }
         $signer = IdentityKey::normalize($signer);
         foreach ([...array_map(IdentityKey::normalize(...), $grant->to), $signer, ...array_map(strval(...), array_keys($kept))] as $key) {
-            $why = $this->notTheRecognitionItWas($key, $kept[$key] ?? null, $key === $signer);
+            $why = $this->notTheRecognitionItWas($key, $kept, $key === $signer);
             if ($why !== null) {
                 return \sprintf(
                     '%s %s since this grant was given — recognizing a key names no grant, so this one is not honoured until a person gives it again',
@@ -556,7 +574,7 @@ final class StandingBook
         $kept = \is_array($data['recognized'] ?? null) ? $data['recognized'] : null;
         $signer = \is_string($data['fingerprint'] ?? null) ? IdentityKey::normalize($data['fingerprint']) : '';
 
-        return $kept !== null && $signer !== '' && $this->notTheRecognitionItWas($signer, $kept[$signer] ?? null, true) === null;
+        return $kept !== null && $signer !== '' && $this->notTheRecognitionItWas($signer, $kept, true) === null;
     }
 
     /**
@@ -576,14 +594,26 @@ final class StandingBook
      *  - and, for the key that signed, a person: it held the word that recognizes identities.
      *
      * Words typed again by the same enroller, a scope more, an admission: none of those is ceasing to be it.
+     *
+     * @param array<string, mixed> $kept what the line says each key was when it was written
      */
-    private function notTheRecognitionItWas(string $key, mixed $state, bool $asSigner): ?string
+    private function notTheRecognitionItWas(string $key, array $kept, bool $asSigner): ?string
     {
         $never = 'is not at a recognition the ledger holds for it — its line does not say which one it was given over, or says one that key never had —';
+        $enrollments = new FileEnrollmentStore($this->root . '/storage/identity/enrollments.json');
+        $state = $kept[$key] ?? null;
+        if ($state === null && \array_key_exists($key, $kept)) {
+            // A KEY THE LEDGER DID NOT HOLD WHEN THE LINE WAS WRITTEN, AND DOES NOT HOLD TODAY, IS THE SAME RECOGNITION
+            // (the sixth review, 6-M5). The operator of a house — a key the ledger never recognized, by the
+            // terminal's own rule — seats its first person, and so stands on the line of who answers for every seat
+            // with no state at all: asked for a number, every grant of such a house was dead on arrival. The day
+            // the ledger recognizes that key it is another one.
+            return $enrollments->stateOf($key) === null ? null : 'was recognized by this house for the first time';
+        }
         if (!\is_int($state)) {
             return $never;
         }
-        $since = (new FileEnrollmentStore($this->root . '/storage/identity/enrollments.json'))->statesSince($key, $state);
+        $since = $enrollments->statesSince($key, $state);
         if ($since === null) {
             return $never;
         }
@@ -602,6 +632,19 @@ final class StandingBook
         }
 
         return null;
+    }
+
+    /**
+     * Why a line that says a grant was given would not be honoured as this book reads it today — or `null`: it would.
+     * What the door asks before it writes one ({@see StandingOperations}): the door and the book say the same thing.
+     *
+     * @param array<string, mixed> $line
+     */
+    public function asItWouldBeRead(array $line): ?string
+    {
+        $read = $this->grantOf($line);
+
+        return $read === null ? 'it carries no document this house reads as a grant' : $read[1];
     }
 
     /**

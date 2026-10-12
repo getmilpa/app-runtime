@@ -35,6 +35,9 @@ final class FillingDisk
     /** Called with the path every time a file is opened here: a test's way of doing something at that moment. */
     public static ?\Closure $opening = null;
 
+    /** Called with the path every time a reader goes back to a place in a file here: when it looks at it again. */
+    public static ?\Closure $seeking = null;
+
     /** @var resource|null */
     public $context;
 
@@ -49,6 +52,7 @@ final class FillingDisk
         self::$closed = null;
         self::$renames = true;
         self::$opening = null;
+        self::$seeking = null;
         if (!\in_array('filling', stream_get_wrappers(), true)) {
             stream_wrapper_register('filling', self::class);
         }
@@ -103,6 +107,9 @@ final class FillingDisk
 
     public function stream_seek(int $offset, int $whence): bool
     {
+        if (self::$seeking !== null) {
+            (self::$seeking)($this->path);
+        }
         $this->at = $whence === \SEEK_END ? \strlen(self::$files[$this->path]) + $offset : $offset;
 
         return true;

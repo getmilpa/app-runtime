@@ -639,7 +639,7 @@ final class WhatAFourthReviewFoundInTheHouseTest extends TestCase
 
         $this->house->as(LabHouse::OTHER_SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => str_repeat('ñ', 256)]);
 
-        self::assertSame(['by', 'grant', 'reason'], array_keys($this->house->lines(StandingLedger::SUSPENDED)[0]), 'a reason that fits is the whole of what the line says of it');
+        self::assertSame(['arrived', 'by', 'grant', 'reason'], array_keys($this->house->lines(StandingLedger::SUSPENDED)[0]), 'a reason that fits is the whole of what the line says of it');
     }
 
     /** @return iterable<string, array{mixed}> */
@@ -680,23 +680,23 @@ final class WhatAFourthReviewFoundInTheHouseTest extends TestCase
     {
         $this->house->granted();
         $first = $this->house->as(LabHouse::OTHER_SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'seen']);
-        $lines = \count($this->house->ledger()->entries());
+        $lines = \count($this->house->everyLine());
 
         $again = $this->house->as(LabHouse::OTHER_SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'seen again']);
 
         self::assertTrue($again['ok'] ?? false, (string) json_encode($again));
-        self::assertSame($lines, \count($this->house->ledger()->entries()), 'a key stopped again what it had already stopped, and the book grew');
+        self::assertSame($lines, \count($this->house->everyLine()), 'a key stopped again what it had already stopped, and the book grew');
         self::assertSame($first['suspension'], $again['suspension'], 'the answer names the stop that stands');
         // Another key's stop is another fact; and after a person lifts them, the first key stops it again.
         self::assertTrue($this->house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'seen by another'])['ok'] ?? false);
-        self::assertSame($lines + 1, \count($this->house->ledger()->entries()), 'control: a stop by another key is written');
+        self::assertSame($lines + 1, \count($this->house->everyLine()), 'control: a stop by another key is written');
         $standing = (string) $this->house->book()->record('release-line')?->suspension;
         self::assertTrue($this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => $standing])['ok'] ?? false);
         // After the lift nobody has stopped it: whoever stops it next is written, and so is the first key after them.
         self::assertTrue($this->house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'seen by another, after the lift'])['ok'] ?? false);
         self::assertTrue($this->house->as(LabHouse::OTHER_SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'seen once more'])['ok'] ?? false);
         self::assertSame(GrantState::Suspended, $this->house->book()->record('release-line')?->state);
-        self::assertSame($lines + 4, \count($this->house->ledger()->entries()), 'a key that had stopped the grant before a person lifted it was still counted as having stopped it');
+        self::assertSame($lines + 4, \count($this->house->everyLine()), 'a key that had stopped the grant before a person lifted it was still counted as having stopped it');
     }
 
     // ── M4 · a house with no grant behaves as the published runtime, with two operations under one identity too ─

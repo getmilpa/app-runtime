@@ -627,13 +627,23 @@ with, `--sign` among them. So `coa release:watch --sign` is not the run a falsif
 stops the grant when it fires, and it gives no sign of life when it does not. Give a watcher a
 schema, or run it bare.
 
-**What only narrows is written whatever its run carried.** A line of the book keeps the arguments
-of the run, and a value a line cannot hold — `-0.0`, a value nested too deep, bytes that are not
-text — used to drop the line with it: the falsifier had fired and the grant stayed in force. A
-«fired», a no and the stop written after an act are kept with the *spelling* of what the line could
-not hold, a line long.
+**What only narrows is always written** — whatever its run carried, however long the name of the
+content, and whether or not it was «already said». A no and a «fired» are written from every run
+that says them: nothing asks first whether this key said so before (that was read from what one
+process derives of the book today, and a process that could not verify a lift wrote nothing), and
+nothing asks how long a content's name is. What is long in a line is the arguments of the call, and
+of those every line keeps the same thing: the arguments as they came when they are short and a line
+can hold them, and otherwise how long they were and their SHA-256.
 
-**What counts is what the answering process had loaded.** A pin is read from the disk, and a
+**What counts is what the answering process had loaded — as far as the house can know it.** *A
+kernel loads a plugin's own file when it boots, and the process reads what each operation is — its
+pin — when it is told its catalogue, some tens of milliseconds later; a file softened, loaded and
+put back INSIDE that window is run soft and pinned as it is on disk.* Measured at a real terminal,
+the window is between 25 and 55 ms. It is a stated limit, not a closed one: whoever writes a
+plugin's file is the house's operator, and the judge does not promise to defend the house from its
+operator. No seat, no bearer of a token, no confined process and no call of a model writes there by
+any door of this house. A file of a plugin's directory whose name does not end in `.php` — a rule
+kept as data, an include named otherwise — is in no pin at all. A pin is read from the disk, and a
 process that lives — a leg, a server — answers with the code it loaded. So a process reads what
 each operation is **once, when it is told its catalogue**, in a house that keeps a book; a yes, a
 sign of life and an act under a grant then ask that the pin read *now* be that one. A process that
@@ -680,14 +690,19 @@ covers is judged again with the book locked, written down, run there, and looked
 house's book, never the copy's. And what moves authority is never rehearsed at all: `standing:*`
 and `identity:*` run in the house or not at all, so a seat that stops a grant on a leg stops it.
 
-**One question, one answer: does this house judge standing grants, and by this door?** The judge is
+**One question, asked where a door is built: does this house judge standing grants?** The judge is
 the house's policy **as the boundary** every operation runs through
 (`PluginAuthoringPolicy::judgeOf()`), and whoever builds a leg hands it over: what leaves the leg's
-process does not ask its gate who judges it. A leg with no judge in hand and none behind its gate
-makes no such run for a seat in a house that keeps a book. The door that gives a grant asks about
-the boundary **and** the call policy the container holds — with an app's own there, nothing is lent
-by any gate, and no grant is given. A house that keeps a book and whose boundary is not its own
-lets no seat act. A process that was never told its catalogue judges the operation it has in hand,
+process does not ask its gate who judges it. A house judges when that boundary **and** the call
+policy its container holds are its own; an app that registers either takes the house's judgment
+out of what that service did. So the question is not asked inside those services: it is asked
+where the terminal reads who is calling, where a leg is made, and where the web surface is told
+what it serves (`PluginAuthoringPolicy::closedTo()`). In a house that keeps a book and does not
+judge, a key that is not a person is refused there, before any gate; the web surface serves
+nothing; and no grant is given. *An app that replaces both services has taken the house's judgment
+out — it is the house's code, and whoever writes it is its operator. What that question does not
+reach is said: doors an app builds for itself, and the recovery terminal of a house that does not
+boot, which has no kernel to ask.* A process that was never told its catalogue judges the operation it has in hand,
 and refuses a call a grant names; `Operations::declared()`, which the HTTP surface calls to build
 its routes, tells it. And over HTTP a run the house's judge of permissions admitted is not let past
 a grant that names it.
@@ -775,9 +790,10 @@ suspension: `standing:reinstate` does not lift it, because lifting it would brin
 act took away. **Only a new grant takes it out of the way**, one that names the grant
 (`supersedes`) and that very stop (`lifts`). The same goes for a `revoked` line nobody signed and
 for a grant that names another as replaced without being honoured itself: they do not do what they
-ask, and they stop what they name. **A «fired» is a stop of its own**: it takes the place of any
-stop a person could lift by name, and a stop of any key written over it does not take its place — a
-person lifts the «fired», by name. **And a reinstatement holds only while the recognition of
+ask, and they stop what they name. **The stop that stands is the last one written** — a seat's, the
+house's own after an act, a watcher's «fired»: a person lifts it by its name, which is the name of
+every line before it, and what is said of the grant says how many stops were written since it was
+last in force and the first of them. **And a reinstatement holds only while the recognition of
 whoever signed it stands**: its line says which recognition of its signer it was signed over, and a
 person who lifts a suspension and then stops being that recognition — by leaving, or by losing in
 place the word that makes it a person — does not bring the grant
@@ -864,18 +880,26 @@ the book.
   the book, not from who anybody is today: a lift written after a key's stop means its next stop is
   written, whether or not that lift holds. At the terminal a reason that is not text is spelled
   before the call is signed, so the signature refuses no stop either.
-- **What a seat can make the book keep is bounded** (a proposal, not decided). A line that only
-  narrows — a no, a «fired» — keeps the arguments a grant describes, each at most 256 bytes as the
-  book spells them, and the spelling of the rest with how long they were and their digest; a yes
-  and a sign of calm need their arguments whole, so over that bound there is none; an act whose
-  arguments are over 4,096 bytes is not lent, and a refusal past 256 keeps the spelling. The same
-  answer of the same key over what has not changed is answered and not written — a no, a yes, a
-  «fired»; a sign of calm of one key is written again once its last one is a quarter of the
-  falsifier's window old; a seat's refusals under a grant are counted over the grant's standing,
-  not over the tail of the book. None of it loses a stop or a red, and none turns anything green.
-  **And a book longer than 8 MiB is not read: it is a fault**, said — no seat acts, nothing is
-  added, and a person is still answered. No bound on a line makes the book short: an act a seat
-  is lent is a line, and every command reads every line.
+- **What a line keeps of a call is bounded, and nothing else about it is** (a proposal, not
+  decided). Every line keeps the arguments of its call as they came when they are at most 256 bytes
+  as the book spells them, and otherwise their length and their SHA-256: an act is lent whatever it
+  carries, and a no, a «fired» and a refusal are written whatever they carry. A yes and a sign of
+  calm are taken only from a run whose arguments a line keeps as they came — a grant describes that
+  run argument by argument. A sign of calm of one key is written again once its last one is a
+  quarter of the falsifier's window old; a seat's refusals under a grant are kept up to thirty-two
+  between two lines that change the grant's standing. A no, a yes and a «fired» are written every
+  time they are said. **And a book longer than 8 MiB is a fault**, said — no seat acts, nothing is
+  added, a person is still answered, and it is the book *and its head* that a person keeps
+  somewhere else.
+- **The book is read line by line, and a process verifies it once.** What a reading keeps is what
+  somebody asks of the book: not the acts a seat was lent, not a sign of calm the same key gave
+  again, not a refusal older than the last change of its grant's standing. What a process verified
+  it uses again only over the very bytes it verified, read again each time — a file's date and
+  size are not asked. A reading still keeps every receipt: a house that measures a new candidate
+  before every act keeps about 2 kB of each.
+- **A line says whether its caller arrived with the signature of its key** (`arrived`). The
+  bearer of a token carries any actor's name; nothing a token's bearer does is a person's act, and
+  a line it causes says `unsigned`.
 - **An operation is pinned as far as its unit.** Code in ANOTHER unit that its handler reaches — a
   service of another package — can change without the grant noticing. A package edited in place
   under `vendor/`, outside the files of the handler's own class, keeps its reference: the pin says
