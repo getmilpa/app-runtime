@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Tests\Standing;
 
 use Milpa\AppRuntime\Operations\SessionOperations;
 use Milpa\AppRuntime\Standing\StandingLedger;
+use Milpa\Command\Standing\GrantState;
 use Milpa\Container\DIContainer;
 use PHPUnit\Framework\TestCase;
 
@@ -120,7 +121,7 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
         // A line that is well formed and claims a link it does not have. (This asks the CHAIN alone: the head the
         // house keeps beside the book would say at once that the file was rewritten, and it has its own tests.)
         unlink($this->path() . StandingLedger::HEAD);
-        $orphan = ['type' => StandingLedger::REINSTATED, 'at' => '2026-10-11T12:00:00+00:00', 'prev' => null, 'data' => ['grant' => 'a']];
+        $orphan = ['type' => StandingLedger::REINSTATED, 'at' => '2026-10-11T12:00:00+00:00', 'prev' => null, 'data' => ['grant' => 'a', 'suspension' => 'sha256:the-one-it-names']];
         $orphan['hash'] = StandingLedger::hashOf($orphan);
         file_put_contents($this->path(), json_encode($orphan) . "\n");
         self::assertNull(StandingLedger::forRoot($this->house->root)->fault(), 'control: alone, it is a first line');
@@ -190,7 +191,7 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
         yield 'deleted' => [static fn (string $book, array $copies) => unlink($book), 'this house wrote 3 line(s) in it and 0 are there'];
         yield 'its last line rewritten, with its digest computed again' => [static function (string $book, array $copies): void {
             $second = json_decode(explode("\n", $copies[1])[1], true);
-            $forged = ['type' => StandingLedger::REINSTATED, 'at' => '2026-10-11T12:00:00+00:00', 'prev' => $second['hash'], 'data' => ['grant' => 'a']];
+            $forged = ['type' => StandingLedger::REINSTATED, 'at' => '2026-10-11T12:00:00+00:00', 'prev' => $second['hash'], 'data' => ['grant' => 'a', 'suspension' => 'sha256:the-one-it-names']];
             file_put_contents($book, $copies[1] . json_encode($forged + ['hash' => StandingLedger::hashOf($forged)]) . "\n");
         }, 'line 3 is not the line this house wrote there'];
     }
@@ -207,7 +208,7 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
         self::assertStringContainsString($says, (string) $this->fault());
         self::assertTrue(StandingLedger::forRoot($this->house->root)->exists(), 'a house that kept a book has one, whatever became of its file');
         try {
-            StandingLedger::forRoot($this->house->root)->append(StandingLedger::REINSTATED, ['grant' => 'a']);
+            StandingLedger::forRoot($this->house->root)->append(StandingLedger::REINSTATED, ['grant' => 'a', 'suspension' => 'sha256:the-one-it-names']);
             self::fail('a line was added to a book that is not the one the house wrote');
         } catch (\RuntimeException $error) {
             self::assertStringContainsString('does not verify, so nothing is added to it', $error->getMessage());
@@ -253,7 +254,7 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
         $copies = $this->threeLines();
         $head = $this->path() . StandingLedger::HEAD;
         $first = json_decode(explode("\n", $copies[0])[0], true);
-        $forged = ['type' => StandingLedger::REINSTATED, 'at' => '2026-10-11T12:00:00+00:00', 'prev' => $first['hash'], 'data' => ['grant' => 'a']];
+        $forged = ['type' => StandingLedger::REINSTATED, 'at' => '2026-10-11T12:00:00+00:00', 'prev' => $first['hash'], 'data' => ['grant' => 'a', 'suspension' => 'sha256:the-one-it-names']];
         $forged += ['hash' => StandingLedger::hashOf($forged)];
         $rewritten = $copies[0] . json_encode($forged) . "\n";
 
@@ -273,7 +274,7 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
         $ledger = $this->house->ledger();
         $ledger->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'again']);
         $last = $ledger->entries()[1];
-        $added = ['type' => StandingLedger::REINSTATED, 'at' => '2026-10-11T12:00:00+00:00', 'prev' => $last['hash'], 'data' => ['grant' => 'a']];
+        $added = ['type' => StandingLedger::REINSTATED, 'at' => '2026-10-11T12:00:00+00:00', 'prev' => $last['hash'], 'data' => ['grant' => 'a', 'suspension' => 'sha256:the-one-it-names']];
         file_put_contents($this->path(), json_encode($added + ['hash' => StandingLedger::hashOf($added)]) . "\n", \FILE_APPEND);
         self::assertNull($this->fault());
         self::assertCount(3, StandingLedger::forRoot($this->house->root)->entries());
@@ -416,16 +417,12 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
         self::assertStringNotContainsString('«release-line»', implode("\n", $none['recent']));
     }
 
-    public function testALineThatHoldsNoGrantNamesNothing(): void
+    public function testAStopOnAGrantNobodyGaveNamesNothing(): void
     {
-        // A `granted` line whose bytes are not a grant lends nothing and refuses nothing: it names no call.
-        $this->house->writtenByHand(StandingLedger::GRANTED, ['grant' => 'ghost', 'payload' => 'not an authorization']);
-        $this->house->writtenByHand(StandingLedger::GRANTED, ['grant' => 'ghost']);
-        $empty = $this->house->signature(LabHouse::PERSON, 'standing:grant', ['grant' => '{"id":"ghost"}']);
-        $this->house->writtenByHand(StandingLedger::GRANTED, ['grant' => 'ghost', 'payload' => $empty->payload, 'signature' => $empty->signature, 'fingerprint' => LabHouse::PERSON]);
-        $this->house->writtenByHand(StandingLedger::MEASURED, ['not' => 'a receipt']);
+        // A line the house reads, about a grant it never held, lends nothing and refuses nothing.
         $this->house->writtenByHand(StandingLedger::SUSPENDED, ['grant' => 'ghost', 'reason' => 'of nothing']);
 
+        self::assertNull($this->house->ledger()->fault());
         self::assertSame([], $this->house->book()->records());
         self::assertSame([], $this->house->book()->documents());
         self::assertSame([], $this->house->book()->receipts());
@@ -438,6 +435,91 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
         self::assertCount(1, $this->house->book()->records());
         self::assertSame('withdraw the release and publish the one before it', $this->house->book()->record('release-line')?->grant->undo);
         self::assertCount(1, $this->house->book()->documents());
+    }
+
+    /** @return iterable<string, array{\Closure(LabHouse): array<string, mixed>, string}> */
+    public static function grantedLinesThatAreNotGrants(): iterable
+    {
+        yield 'bytes that are not a signed call' => [static fn (LabHouse $house): array => ['grant' => 'ghost', 'payload' => 'not an authorization'], 'it carries no document'];
+        yield 'no bytes at all' => [static fn (LabHouse $house): array => ['grant' => 'ghost'], 'it carries no document'];
+        yield 'a signed document the contract does not read as a grant' => [static function (LabHouse $house): array {
+            $empty = $house->signature(LabHouse::PERSON, 'standing:grant', ['grant' => '{"id":"ghost"}']);
+
+            return ['grant' => 'ghost', 'payload' => $empty->payload, 'signature' => $empty->signature, 'fingerprint' => LabHouse::PERSON];
+        }, 'standing grant «ghost» needs «ceiling»'];
+    }
+
+    /** @return iterable<string, array{string, array<string, mixed>, string}> */
+    public static function linesThatAreNotWhatTheirKindSays(): iterable
+    {
+        yield 'a measurement that is not a receipt' => [StandingLedger::MEASURED, ['not' => 'a receipt'], 'it is not a receipt'];
+        yield 'a receipt with no content it measured' => [StandingLedger::MEASURED, ['by' => 'lab.scan', 'arguments' => [], 'subject' => ' ', 'ok' => true, 'instrument' => 'sha256:x', 'at' => '2026-10-11T12:00:00+00:00'], 'it is not a receipt'];
+        yield 'a sign that does not say whether it fired' => [StandingLedger::WATCHED, ['watcher' => 'lab.watch', 'arguments' => [], 'fired' => 'yes'], 'it does not say how the watcher ran, or — as true or false — whether the falsifier «fired»'];
+        yield 'a sign that does not say how the watcher ran' => [StandingLedger::WATCHED, ['watcher' => 'lab.watch', 'fired' => true], 'it does not say how the watcher ran'];
+        yield 'a sign of no watcher' => [StandingLedger::WATCHED, ['arguments' => [], 'fired' => true], 'it does not say «watcher»'];
+        yield 'an act absorbed under no grant' => [StandingLedger::ABSORBED, ['operation' => 'lab.publish', 'seat' => LabHouse::SEAT], 'it does not say «grant»'];
+        yield 'an act of no operation' => [StandingLedger::ABSORBED, ['grant' => 'release-line', 'seat' => LabHouse::SEAT], 'it does not say «operation»'];
+        yield 'a refusal of no seat' => [StandingLedger::REFUSED, ['grant' => 'release-line', 'operation' => 'lab.publish', 'seat' => ['a', 'list']], 'it does not say «seat»'];
+        yield 'a stop that names no grant' => [StandingLedger::SUSPENDED, ['reason' => 'of nothing'], 'it does not say «grant»'];
+        yield 'a stop that names a grant as nothing' => [StandingLedger::SUSPENDED, ['grant' => '', 'reason' => 'of nothing'], 'it does not say «grant»'];
+        yield 'a reinstatement that names no suspension' => [StandingLedger::REINSTATED, ['grant' => 'release-line'], 'it does not say «suspension»'];
+        yield 'a withdrawal that names no grant' => [StandingLedger::REVOKED, ['fingerprint' => LabHouse::PERSON], 'it does not say «grant»'];
+        yield 'a kind of line this house does not know' => ['amended', ['grant' => 'release-line'], 'this house does not know what kind of line it is'];
+    }
+
+    /** @param array<string, mixed> $data */
+    #[\PHPUnit\Framework\Attributes\DataProvider('linesThatAreNotWhatTheirKindSays')]
+    public function testAnyLineTheHouseCannotReadIsAFaultOfTheBookAndNeverNothing(string $kind, array $data, string $why): void
+    {
+        // Not only a grant (fourth review of the contract, L8; decided by Rod under D1): the judge listens to the
+        // LAST receipt about a content, so a red one that stops reading leaves the green before it speaking; a sign
+        // that says «fired» and cannot be read stops nothing. Whatever a line said, it is not read as nothing.
+        $this->house->granted();
+        self::assertNull($this->house->ledger()->fault(), 'control: the book verifies');
+
+        $this->house->writtenByHand($kind, $data);
+
+        $fault = (string) $this->house->ledger()->fault();
+        self::assertStringContainsString("line 3 is a «{$kind}» line this house cannot read today ({$why}", $fault);
+        self::assertStringContainsString('it is not read as nothing', $fault);
+        self::assertStringContainsString('does not verify', (string) ($this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $this->house->candidate('good.txt', "clean release\n")])['refused'] ?? 'RAN'));
+    }
+
+    public function testALineThatDoesNotSayWhenItWasWrittenIsAFaultToo(): void
+    {
+        // A sign that says «fired» at a moment nobody can read was skipped: it stopped nothing.
+        $this->house->granted();
+        $this->house->writtenByHand(StandingLedger::WATCHED, ['watcher' => 'lab.watch', 'arguments' => [], 'fired' => true]);
+        $path = $this->house->root . '/' . StandingLedger::PATH;
+        $lines = explode("\n", trim((string) file_get_contents($path)));
+        self::assertNull($this->house->ledger()->fault(), 'control: written by the house, it verifies');
+        self::assertSame(GrantState::Suspended, $this->house->book()->record('release-line')?->state, 'control: and it stops the grant');
+        // The same line, saying another moment in a way that is not one — chained again by whoever holds the disk.
+        $last = json_decode((string) array_pop($lines), true);
+        $last['at'] = 'the day before yesterday';
+        $last['hash'] = StandingLedger::hashOf($last);
+        file_put_contents($path, implode("\n", [...$lines, \Milpa\Command\Standing\Canonical::json($last)]) . "\n");
+        unlink($path . StandingLedger::HEAD);
+
+        self::assertStringContainsString('line 3 does not say when it was written', (string) $this->house->ledger()->fault());
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('grantedLinesThatAreNotGrants')]
+    public function testALineThatSaysAGrantWasGivenAndIsNotOneIsAFaultOfTheBookAndNeverNothing(\Closure $line, string $why): void
+    {
+        // It was read as nothing: it named no call, so it lent nothing and refused nothing — and whatever it had
+        // replaced or stopped, when it could still be read, came back (third review, M4; decided by Rod 2026-10-12).
+        $this->house->granted();
+        self::assertNull($this->house->ledger()->fault(), 'control: the book verifies');
+
+        $this->house->writtenByHand(StandingLedger::GRANTED, $line($this->house));
+
+        $fault = (string) $this->house->ledger()->fault();
+        self::assertStringContainsString('line 3 says a grant was given, and it cannot be read as one today (' . $why, $fault);
+        self::assertStringContainsString('it is not read as nothing', $fault);
+        self::assertNotNull($this->house->book()->record('release-line')?->fault, 'no grant of a book that does not verify is honoured');
+        self::assertStringContainsString('does not verify', (string) ($this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $this->house->candidate('good.txt', "clean release\n")])['refused'] ?? 'RAN'));
+        self::assertStringContainsString('does not verify', (string) $this->house->signed(LabHouse::PERSON, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'stop'])['error']);
     }
 
     public function testAGrantWhoseLineRecordsAnotherDigestOrAnotherKeyIsNotHonoured(): void

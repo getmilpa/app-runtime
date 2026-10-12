@@ -39,6 +39,9 @@ final readonly class GrantRecord
      *                                                 longer that one is not the operation a person granted
      * @param array<string, string>   $instruments     the same, for what the grant is MEASURED and WATCHED by: the
      *                                                 operation of each condition and of its falsifier
+     * @param bool                    $stopped         the suspension that stands is a withdrawal or a replacement that
+     *                                                 stopped holding: no reinstatement lifts it, only a new grant
+     *                                                 that names it
      */
     public function __construct(
         public StandingGrant $grant,
@@ -52,20 +55,37 @@ final readonly class GrantRecord
         public ?\DateTimeImmutable $watcherSignalAt = null,
         public array $operations = [],
         public array $instruments = [],
+        public bool $stopped = false,
     ) {
     }
 
-    /** The word a reader sees for where this grant stands, its own date and a broken signature included. */
+    /**
+     * The word a reader sees for where this grant stands, its own date and a broken signature included.
+     *
+     * WHAT A PERSON HAS TO ACT ON COMES FIRST. A grant that was withdrawn or replaced is gone, and says so. One
+     * that is suspended or stopped says THAT — it refuses every call it names, whatever another grant would lend,
+     * so it is the one a person has to lift, withdraw or name. Only a grant the book has in force is «not honoured»
+     * for a fault of its own: every grant given to a seat before it left and returned has such a fault, and saying
+     * only that of all of them hid which one was withdrawn and which one stops the rest (measured on a real leg).
+     */
     public function standsAs(\DateTimeImmutable $now): string
     {
+        if ($this->state !== GrantState::InForce) {
+            return $this->state === GrantState::Suspended && $this->stopped ? 'stopped' : str_replace('_', ' ', $this->state->value);
+        }
         if ($this->fault !== null) {
             return 'not honoured';
         }
-        if ($this->state === GrantState::InForce && !$this->inForceAt($now)) {
-            return 'expired';
-        }
 
-        return str_replace('_', ' ', $this->state->value);
+        return $this->inForceAt($now) ? 'in force' : 'expired';
+    }
+
+    /** Why it stands where it does, and why it is not honoured when it is not — both, when both are so. */
+    public function why(): ?string
+    {
+        $said = array_values(array_filter([$this->state === GrantState::InForce ? null : $this->because, $this->fault], static fn (?string $part): bool => $part !== null));
+
+        return $said === [] ? null : implode(' · Also, it is not honoured: ', $said);
     }
 
     /** Whether the book has this grant in force at this moment: nothing took it back, and it is not past its own date. */

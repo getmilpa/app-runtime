@@ -1856,9 +1856,11 @@ final class Application
         }
         // A STANDING GRANT LENDS TO THE CALL IT NAMES, so the policy is told which call this process is about to make
         // (greenhouse decisions/0615, «Lo que la revisión encontró», 1): the same input the runner derives from the
-        // same tokens. A call whose input cannot be derived runs nothing, and is lent nothing.
+        // same tokens — for an operation with no schema too, where the runner hands on every flag it was typed with
+        // and this used to say «nothing» ({@see RunnerInput}). A call whose input cannot be derived runs nothing,
+        // and is lent nothing.
         try {
-            $arguments = $for->inputSchema !== null ? (new CliRunner())->deriveInput($for, $tokens) : [];
+            $arguments = RunnerInput::of($for, $tokens);
         } catch (\Throwable) {
             $arguments = [];
         }

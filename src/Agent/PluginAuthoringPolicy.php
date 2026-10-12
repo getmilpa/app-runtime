@@ -145,14 +145,37 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
      * at authorization, as one that declares no authority — and the terminal asks this policy before it asks the
      * permission judge.
      *
+     * ONE TELLING HOLDS ONE OPERATION UNDER EACH IDENTITY (greenhouse decisions/0615, «Lo que la tercera revisión
+     * encontró», L5). The judge of standing grants reads the operation this keeps under a name, and a terminal runs
+     * the one it finds first under it: with two, they would not mean the same one. So a catalogue that declares two
+     * DIFFERENT operations under one identity — `lab:scan` and `lab_scan` are one — is refused whole, here, where
+     * every surface hands its catalogue. The same operation declared twice is one operation, and a catalogue told
+     * again replaces what was told before, as it always did.
+     *
      * @param list<Operation> $operations
      *
      * @return list<Operation>
+     *
+     * @throws \RuntimeException when two different operations of this catalogue answer to one identity
      */
     public static function catalogue(\Milpa\Interfaces\Di\DIContainerInterface $container, array $operations): array
     {
         $boundary = $container->has(OperationBoundary::class) ? $container->get(OperationBoundary::class) : null;
         if ($boundary instanceof self) {
+            $told = [];
+            foreach ($operations as $operation) {
+                $identity = new OperationId($operation->name);
+                $written = self::writtenAt($operation);
+                if (isset($told[$identity->canonical]) && $told[$identity->canonical] !== $written) {
+                    throw new \RuntimeException(\sprintf(
+                        'two operations answer to `%s` in this house (%s, and %s): a grant, a judge and a terminal would not mean the same one. One of them takes another name.',
+                        $identity->forCli(),
+                        $told[$identity->canonical],
+                        $written,
+                    ));
+                }
+                $told[$identity->canonical] = $written;
+            }
             foreach ($operations as $operation) {
                 if ($operation->permission !== null) {
                     $boundary->permissioned[McpProjector::toolName($operation->name)] = $operation;
@@ -162,6 +185,18 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         }
 
         return $operations;
+    }
+
+    /** Where an operation's handler is written — which tells one operation from another that took its name. */
+    private static function writtenAt(Operation $operation): string
+    {
+        if (!\is_callable($operation->handler)) {
+            return 'a handler that cannot be called';
+        }
+        $handler = new \ReflectionFunction(\Closure::fromCallable($operation->handler));
+        $class = $handler->getClosureScopeClass()?->getName();
+
+        return \sprintf('%s, %s:%d', $class ?? 'no class', basename((string) $handler->getFileName()), (int) $handler->getStartLine());
     }
 
     /**

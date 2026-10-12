@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Agent;
 
 use Milpa\AppRuntime\Config\SecretFiles;
+use Milpa\AppRuntime\Standing\StandingLedger;
 use Milpa\AppRuntime\Support\ChildProcess;
 use Milpa\AppRuntime\Support\PhpBinary;
 
@@ -451,6 +452,14 @@ final class TrialRunner
         $args = [];
         foreach (SecretFiles::existingUnder($root) as $secret) {
             array_push($args, '--ro-bind', '/dev/null', $secret);
+        }
+        // THE BOOK OF STANDING GRANTS AND ITS HEAD ARE MASKED TOO (greenhouse decisions/0615, «Lo que la tercera
+        // revisión encontró»; decided by Rod 2026-10-12). Mode 600 keeps them from other users of the machine and not
+        // from the processes the house itself starts for a seat: under `--ro-bind / /` a rehearsal and a run of work
+        // read every signed grant, every call a seat made and every argument it carried. The house reads its book in
+        // its own process, before and after the confined one; nothing confined has a reason to.
+        foreach (StandingLedger::existingUnder($root) as $book) {
+            array_push($args, '--ro-bind', '/dev/null', $book);
         }
         // THE KEYRING THE HOUSE SIGNS WITH IS NOT A FILE OF THE HOUSE, AND IT IS MASKED TOO (greenhouse evidence/1178,
         // decided by Rod 2026-10-09). Under `--ro-bind / /` the keyring gpg reads and the agent's sockets are reachable

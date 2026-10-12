@@ -379,10 +379,14 @@ final class WhatAReviewFoundInTheHouseTest extends TestCase
         // that does not hold is read as a stop, never as nothing (decisions/0615, «Lo que la segunda revisión
         // encontró», 2). What it cannot do is what only a person who answers for those seats can: put another in its place.
         $record = $house->book()->record('release-line');
-        self::assertSame('suspended', $record?->standsAs($house->now), 'a key that does not answer for a grant\'s seats took that grant away');
+        self::assertSame('stopped', $record?->standsAs($house->now), 'a key that does not answer for a grant\'s seats took that grant away');
         self::assertStringContainsString('does not answer for seat', (string) $record?->because);
-        self::assertTrue($house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => (string) $record?->suspension])['ok'] ?? false, 'the person who answers for the seat lifts it, naming it');
-        self::assertSame('in force', $house->book()->record('release-line')?->standsAs($house->now));
+        // The person who answers for the seat takes that stop out of the way with a new grant that names it — the one
+        // way there is (decided by Rod, 2026-10-12): a reinstatement does not.
+        self::assertStringContainsString('a reinstatement does not lift that', (string) $house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => (string) $record?->suspension])['error']);
+        $house->granted(['id' => 'release-line-again', 'supersedes' => 'release-line', 'lifts' => (string) $record?->suspension]);
+        self::assertSame('superseded', $house->book()->record('release-line')?->standsAs($house->now));
+        self::assertSame('in force', $house->book()->record('release-line-again')?->standsAs($house->now));
     }
 
     public function testAGrantWhoseOwnLineDoesNotHoldSupersedesNothing(): void
@@ -394,9 +398,9 @@ final class WhatAReviewFoundInTheHouseTest extends TestCase
         $house->grantedByHand(['id' => 'second', 'supersedes' => 'release-line'], line: ['digest' => 'sha256:of-something-else']);
 
         self::assertNotNull($house->book()->record('second')?->fault);
-        // Superseded it is not; stopped it is, until a person lifts that stop by name (second review, 2).
+        // Superseded it is not; stopped it is, until a new grant names that stop (second review, 2; Rod, 2026-10-12).
         $record = $house->book()->record('release-line');
-        self::assertSame('suspended', $record?->standsAs($house->now));
+        self::assertSame('stopped', $record?->standsAs($house->now));
         self::assertStringContainsString('«second» names it as replaced', (string) $record?->because);
     }
 
@@ -610,8 +614,12 @@ final class WhatAReviewFoundInTheHouseTest extends TestCase
         $house->as(LabHouse::SEAT, 'lab:watch', ['only' => 'the easy part']);
         self::assertSame([], $house->lines(StandingLedger::WATCHED), 'a run nobody described is not written down as the watcher');
         self::assertStringContainsString('no sign of life', (string) ($house->as(LabHouse::SEAT, 'lab:merge', ['path' => $candidate])['refused'] ?? 'RAN'));
-        // And were such a line in the book — written by an older house, or by hand — it would still not be read as one.
-        $house->writtenByHand(StandingLedger::WATCHED, ['watcher' => 'lab.watch', 'arguments' => ['only' => 'the easy part'], 'fired' => false, 'who' => 'key:' . LabHouse::SEAT]);
+        // And were such a line in the book — written by hand, with the pin of the very watcher the grant was given
+        // over, so that nothing but the argument nobody described stands between it and a sign of life — it would
+        // still not be read as one.
+        $pin = $house->book()->record('release-line')?->instruments['lab.watch'] ?? null;
+        self::assertNotNull($pin);
+        $house->writtenByHand(StandingLedger::WATCHED, ['watcher' => 'lab.watch', 'arguments' => ['only' => 'the easy part'], 'fired' => false, 'who' => 'key:' . LabHouse::SEAT, 'pin' => $pin]);
         self::assertStringContainsString('no sign of life', (string) ($house->as(LabHouse::SEAT, 'lab:merge', ['path' => $candidate])['refused'] ?? 'RAN'));
         self::assertNull($house->book()->record('release-line')?->watcherSignalAt);
         // The same for the instrument: one receipt, from the run the condition describes.

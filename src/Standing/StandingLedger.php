@@ -15,6 +15,9 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Standing;
 
 use Milpa\Command\Standing\Canonical;
+use Milpa\Command\Standing\ConditionReceipt;
+use Milpa\Command\Standing\StandingGrant;
+use Milpa\ToolRuntime\Identity\OperationAuthorization;
 
 /**
  * The book of standing grants: what a person granted in this house, and everything the house did or
@@ -92,12 +95,33 @@ final class StandingLedger
     }
 
     /**
+     * The absolute paths of the book and of its head where they exist as files: in the house, and in each copy a
+     * trial, an exercise or a boot candidate kept of it before copies left them out. What a confinement masks.
+     *
+     * @return list<string>
+     */
+    public static function existingUnder(string $root): array
+    {
+        $root = rtrim($root, '/');
+        $paths = [];
+        foreach ([$root, ...glob($root . '/var/trials/*/copy') ?: [], ...glob($root . '/var/exercises/*/copy') ?: [], ...glob($root . '/var/boot-candidates/*') ?: []] as $tree) {
+            foreach ([self::PATH, self::PATH . self::HEAD] as $file) {
+                if (is_file($tree . '/' . $file) && !is_link($tree . '/' . $file)) {
+                    $paths[] = $tree . '/' . $file;
+                }
+            }
+        }
+
+        return $paths;
+    }
+
+    /**
      * Whether this house has a book at all. Without one, nobody granted anything and nothing here applies — and a
      * house that kept one and whose file is gone HAS one: it does not verify ({@see self::fault()}).
      */
     public function exists(): bool
     {
-        return is_file($this->path) || is_file($this->path . self::HEAD);
+        return is_file($this->path) || file_exists($this->path . self::HEAD) || is_link($this->path . self::HEAD);
     }
 
     /**
@@ -199,14 +223,30 @@ final class StandingLedger
     {
         // Read under the lock: two writers must not both link to the same last line.
         rewind($handle);
-        $state = $this->verified((string) stream_get_contents($handle));
+        $state = $this->verified((string) stream_get_contents($handle), $this->head());
         if ($state['fault'] !== null) {
             throw new \RuntimeException('The book of standing grants does not verify, so nothing is added to it: ' . $state['fault']);
         }
         $last = $state['entries'] === [] ? null : $state['entries'][\count($state['entries']) - 1]['hash'];
         $entry = ['type' => $type, 'at' => ($at ?? new \DateTimeImmutable())->format(\DATE_ATOM), 'prev' => $last, 'data' => $data];
-        $entry['hash'] = self::hashOf($entry);
-        $line = Canonical::json($entry) . "\n";
+        // A LINE THE HOUSE WRITES IS A LINE IT CAN READ BACK (greenhouse decisions/0615, «Lo que la tercera revisión
+        // encontró», M3). A line carries the arguments of a call, and a caller chooses those: a number JSON writes as
+        // `-0` and reads as `0`, a value nested deeper than a line is read, text that is not text. Written, such a
+        // line no longer hashes to what it says — the book is broken for everyone, takes no line from anyone, and
+        // one call of one seat did it. So the line is read back before it is written, and one that does not say the
+        // same is not written: for whoever asked, that is a book that could not be written.
+        $line = null;
+        $back = null;
+        try {
+            $entry['hash'] = self::hashOf($entry);
+            $line = Canonical::json($entry) . "\n";
+            $back = json_decode($line, true);
+        } catch (\JsonException) {
+            // A value that cannot be spelled at all is not written either.
+        }
+        if ($line === null || !\is_array($back) || !hash_equals($entry['hash'], self::hashOf($back))) {
+            throw new \RuntimeException('The book of standing grants could not be written: the line would not read back as it was written — a value in it is one a line cannot hold — so it was not written: ' . $this->path);
+        }
         fseek($handle, 0, \SEEK_END);
         $end = (int) ftell($handle);
         // A LINE IS WRITTEN WHOLE OR NOT AT ALL. A disk that fills takes the first bytes of a line and no more, and
@@ -243,23 +283,46 @@ final class StandingLedger
     }
 
     /**
-     * Why the lines that are there are not the book this house last wrote, by its head — or `null`: they are, or this
-     * house never kept a head.
+     * The head as the house kept it — or the sentence that says why it cannot be used — or `null`: this house never
+     * kept one.
      *
-     * @param list<array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}> $entries
+     * A HEAD IS A FILE THE HOUSE WROTE, OR IT IS A FAULT (third review, L5). Something else under its name — a
+     * directory, a link — is something the house can never put a head over again: read as «never kept one», that
+     * would switch the head off for good, and in silence.
+     *
+     * @return array{lines: int, head: string}|string|null
      */
-    private function againstItsHead(array $entries): ?string
+    private function head(): array|string|null
     {
         $head = $this->path . self::HEAD;
+        if (is_link($head) || (file_exists($head) && !is_file($head))) {
+            return 'its head is not a file this house wrote, so it cannot be told from a book that was rewritten';
+        }
         if (!is_file($head)) {
             return null;
         }
         $kept = json_decode((string) @file_get_contents($head), true);
         $lines = \is_array($kept) ? ($kept['lines'] ?? null) : null;
         $hash = \is_array($kept) ? ($kept['head'] ?? null) : null;
-        if (!\is_int($lines) || $lines < 1 || !\is_string($hash)) {
-            return 'its head cannot be read, so it cannot be told from a book that was rewritten';
+
+        return \is_int($lines) && $lines >= 1 && \is_string($hash)
+            ? ['lines' => $lines, 'head' => $hash]
+            : 'its head cannot be read, so it cannot be told from a book that was rewritten';
+    }
+
+    /**
+     * Why the lines that are there are not the book this house last wrote, by its head — or `null`: they are, or this
+     * house never kept a head.
+     *
+     * @param array{lines: int, head: string}|string|null                                                    $kept    the head, as {@see self::head()} read it
+     * @param list<array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}> $entries
+     */
+    private function againstItsHead(array|string|null $kept, array $entries): ?string
+    {
+        if (!\is_array($kept)) {
+            return $kept;
         }
+        ['lines' => $lines, 'head' => $hash] = $kept;
         if (\count($entries) < $lines) {
             return \sprintf(
                 'this house wrote %d line(s) in it and %d %s there — it was emptied, truncated, deleted or put back from an older copy',
@@ -293,26 +356,34 @@ final class StandingLedger
         if ($this->read !== null) {
             return $this->read;
         }
+        // THE HEAD IS READ BEFORE THE BOOK (third review, L1). A judgment reads with no lock, and a line may land
+        // between its two readings. Read after the book, the head would then say one line more than what was read:
+        // a book that is whole, called «emptied, truncated, deleted or put back from an older copy» — measured, one
+        // reading in four while three processes wrote. Read first, it can only be BEHIND what is read next, and a
+        // book that holds more than its head says verifies.
+        $kept = $this->head();
         if (!is_file($this->path)) {
-            return $this->read = ['entries' => [], 'fault' => $this->againstItsHead([])];
+            return $this->read = ['entries' => [], 'fault' => $this->againstItsHead($kept, [])];
         }
         $raw = @file_get_contents($this->path);
 
         return $this->read = $raw === false
             ? ['entries' => [], 'fault' => 'it cannot be read']
-            : $this->verified($raw);
+            : $this->verified($raw, $kept);
     }
 
     /**
      * The lines of the book and why it does not verify: by its chain, and then by its head.
      *
+     * @param array{lines: int, head: string}|string|null $kept the head, read BEFORE the book was
+     *
      * @return array{entries: list<array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}>, fault: ?string}
      */
-    private function verified(string $raw): array
+    private function verified(string $raw, array|string|null $kept): array
     {
         $state = $this->parse($raw);
 
-        return $state['fault'] !== null ? $state : ['entries' => $state['entries'], 'fault' => $this->againstItsHead($state['entries'])];
+        return $state['fault'] !== null ? $state : ['entries' => $state['entries'], 'fault' => $this->againstItsHead($kept, $state['entries'])];
     }
 
     /** @return array{entries: list<array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}>, fault: ?string} */
@@ -336,8 +407,79 @@ final class StandingLedger
             /** @var array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>} $entry */
             $entries[] = $entry;
             $prev = $entry['hash'];
+            // A LINE THE HOUSE CANNOT READ AS WHAT ITS KIND SAYS IS A FAULT OF THE BOOK — NEVER «NOTHING» (third review,
+            // M4, and the fourth review of the contract, L8; decided by Rod 2026-10-12). Every line is read again with
+            // the contract and the house of today, and either may come to refuse what an earlier one took. Read as
+            // nothing, a grant would vanish with what it did — the grant it had replaced would be in force again, a
+            // stop written on it would stop nothing; a red receipt would leave the green before it speaking; a sign
+            // that said «fired» would stop nothing. So the book does not verify, and a person looks.
+            $unread = self::unread($entry['type'], $entry['at'], $entry['data']);
+            if ($unread !== null) {
+                return ['entries' => $entries, 'fault' => \sprintf($unread, $number + 1)];
+            }
         }
 
         return ['entries' => $entries, 'fault' => null];
+    }
+
+    /**
+     * Why a line is not one this house can read as what its kind says — as a sentence with a place for the line's
+     * number — or `null`: it is.
+     *
+     * What each kind has to say is what the house READS of it, and no more: a withdrawal nobody signed is read (it
+     * stops the grant it names), a reinstatement nobody signed is read (it lifts nothing).
+     *
+     * @param array<string, mixed> $data
+     */
+    private static function unread(string $type, string $at, array $data): ?string
+    {
+        if (date_create_immutable($at) === false) {
+            return 'line %d does not say when it was written — what it said cannot be told, so it is not read as nothing';
+        }
+        if ($type === self::GRANTED) {
+            $why = self::notAGrant($data);
+
+            return $why === null ? null : 'line %d says a grant was given, and it cannot be read as one today (' . str_replace('%', '%%', $why) . ') — what it replaced or stopped cannot be told, so it is not read as nothing';
+        }
+        $says = static function (string ...$keys) use ($data): ?string {
+            foreach ($keys as $key) {
+                if (!\is_string($data[$key] ?? null) || $data[$key] === '') {
+                    return "it does not say «{$key}»";
+                }
+            }
+
+            return null;
+        };
+        $why = match ($type) {
+            self::MEASURED => ConditionReceipt::fromArray($data) === null ? 'it is not a receipt: the operation that measured, how it was called, the content, what it answered and what it was' : null,
+            self::WATCHED => $says('watcher') ?? (\is_array($data['arguments'] ?? null) && \is_bool($data['fired'] ?? null) ? null : 'it does not say how the watcher ran, or — as true or false — whether the falsifier «fired»'),
+            self::ABSORBED, self::REFUSED => $says('grant', 'operation', 'seat'),
+            self::SUSPENDED, self::REVOKED => $says('grant'),
+            self::REINSTATED => $says('grant', 'suspension'),
+            default => 'this house does not know what kind of line it is',
+        };
+
+        return $why === null ? null : 'line %d is a «' . str_replace('%', '%%', $type) . '» line this house cannot read today (' . $why . ') — what it said cannot be told, so it is not read as nothing';
+    }
+
+    /**
+     * Why the document a `granted` line carries is not a grant the contract of today reads — or `null`: it is one.
+     *
+     * @param array<string, mixed> $data
+     */
+    private static function notAGrant(array $data): ?string
+    {
+        $authorization = \is_string($data['payload'] ?? null) ? OperationAuthorization::fromCanonical($data['payload']) : null;
+        $text = $authorization?->arguments['grant'] ?? null;
+        if (!\is_string($text)) {
+            return 'it carries no document';
+        }
+        try {
+            StandingGrant::fromJson($text);
+        } catch (\InvalidArgumentException $refused) {
+            return $refused->getMessage();
+        }
+
+        return null;
     }
 }

@@ -32,6 +32,9 @@ final class FillingDisk
     /** Whether a file can be given another name here. */
     public static bool $renames = true;
 
+    /** Called with the path every time a file is opened here: a test's way of doing something at that moment. */
+    public static ?\Closure $opening = null;
+
     /** @var resource|null */
     public $context;
 
@@ -45,6 +48,7 @@ final class FillingDisk
         self::$room = \PHP_INT_MAX;
         self::$closed = null;
         self::$renames = true;
+        self::$opening = null;
         if (!\in_array('filling', stream_get_wrappers(), true)) {
             stream_wrapper_register('filling', self::class);
         }
@@ -66,6 +70,9 @@ final class FillingDisk
     {
         if (self::$closed !== null && str_contains($path, self::$closed)) {
             return false;
+        }
+        if (self::$opening !== null) {
+            (self::$opening)($path);
         }
         $this->path = $path;
         if (!isset(self::$files[$path]) || str_starts_with($mode, 'w')) {

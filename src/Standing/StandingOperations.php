@@ -26,6 +26,7 @@ use Milpa\Command\Effect\Reversibility;
 use Milpa\Command\Effect\Subject;
 use Milpa\Command\InvocationContext;
 use Milpa\Command\Operation;
+use Milpa\Command\Standing\Canonical;
 use Milpa\Command\Standing\GrantCondition;
 use Milpa\Command\Standing\GrantState;
 use Milpa\Command\Standing\NamedCall;
@@ -202,10 +203,12 @@ final class StandingOperations implements CommandProvider
             }
             if ($older->state === GrantState::Suspended && $grant->lifts !== $older->suspension) {
                 return self::no(\sprintf(
-                    '«%1$s» is suspended (%2$s). A grant that supersedes it takes that suspension out of the way, which is growing back: it names the suspension it lifts — add "lifts": "%2$s" to «%3$s» — or a person lifts it first — nothing was granted',
+                    '«%1$s» is %4$s (%2$s). A grant that supersedes it takes that stop out of the way, which is growing back: it names the stop it lifts — add "lifts": "%2$s" to «%3$s»%5$s — nothing was granted',
                     $older->grant->id,
                     (string) $older->suspension,
                     $grant->id,
+                    $older->stopped ? 'stopped' : 'suspended',
+                    $older->stopped ? '' : ' — or a person lifts it first',
                 ));
             }
             if ($older->state !== GrantState::Suspended && $grant->lifts !== null) {
@@ -218,13 +221,32 @@ final class StandingOperations implements CommandProvider
         $operations = [];
         foreach ($grant->covers as $act) {
             $operation = $policy->operationNamed($act->operation);
-            $refusal = $operation === null ? 'this house has no operation `' . $act->operation->forCli() . '` to grant' : GrantableOperation::refusal($operation);
-            if ($operation === null || $refusal !== null) {
+            if ($operation === null) {
+                return self::no('this house has no operation `' . $act->operation->forCli() . '` to grant — nothing was granted');
+            }
+            // A VERB OF A CAPABILITY BUILT IN THIS HOUSE IS NOT GRANTED (decided by Rod, 2026-10-12). What opens such
+            // a verb to a seat is a person's admission of that verb (greenhouse decisions/0590), asked before any
+            // grant is: a grant over it would be signed, written and listed, and would never lend — measured on a
+            // real leg, where the seat was told to ask for the admission.
+            $built = $policy->admissions()?->verb($operation->name);
+            if ($built !== null) {
+                return self::no(\sprintf(
+                    '`%s` is a verb of «%s», a capability built in this house. What opens it to a seat is a person admitting that verb, not a standing grant: one over it would never lend — nothing was granted',
+                    $act->operation->forCli(),
+                    $built->capability,
+                ));
+            }
+            $refusal = GrantableOperation::refusal($operation);
+            if ($refusal !== null) {
                 return self::no($refusal . ' — nothing was granted');
             }
             // What the operation IS today, written beside the grant: the day it is something else — an update, a
             // plugin registered again under the same name — it is not the operation a person granted.
-            $operations[$act->operation->canonical] = (string) OperationPin::of($operation);
+            $pin = OperationPin::of($operation, $root);
+            if ($pin === null) {
+                return self::no(\sprintf('`%s` cannot be pinned: %s. A grant is given over what an operation is — nothing was granted', $act->operation->forCli(), (string) OperationPin::whyNot($operation, $root)));
+            }
+            $operations[$act->operation->canonical] = $pin;
             if (!$operation->effectCeiling()->isNoWiderThan($grant->ceiling)) {
                 $warnings[] = \sprintf('`%s` can do more than this grant\'s ceiling allows: only calls whose arguments bring its effect under the ceiling will pass', $act->operation->forCli());
             }
@@ -242,12 +264,13 @@ final class StandingOperations implements CommandProvider
         $instruments = [];
         foreach ($grant->conditions as $condition) {
             $instrument = $policy->operationNamed($condition->by->operation);
-            $pin = $instrument?->instrumentDigest() === null ? null : OperationPin::of($instrument);
+            $pin = $instrument?->instrumentDigest() === null ? null : OperationPin::of($instrument, $root);
             if ($pin === null) {
                 return self::no(\sprintf(
-                    'condition «%s» is measured by `%s`, and this house cannot use it as an instrument: it does not exist here, it does not say what it acts on, or its handler cannot be read. A condition nothing can measure does not fit in a grant — nothing was granted',
+                    'condition «%s» is measured by `%s`, and this house cannot use it as an instrument: %s. A condition nothing can measure does not fit in a grant — nothing was granted',
                     $condition->name,
                     $condition->by->operation->forCli(),
+                    $instrument === null ? 'it does not exist here' : ($instrument->instrumentDigest() === null ? 'it does not say what it acts on, or its handler cannot be read' : (string) OperationPin::whyNot($instrument, $root)),
                 ));
             }
             $instruments[$condition->by->operation->canonical] = $pin;
@@ -256,9 +279,9 @@ final class StandingOperations implements CommandProvider
         if ($watcher === null) {
             return self::no(\sprintf('falsifier «%s» is watched by `%s`, which this house does not have. A position nothing watches is not granted — nothing was granted', $grant->falsifier->name, $grant->falsifier->watcher->operation->forCli()));
         }
-        $pin = OperationPin::of($watcher);
+        $pin = OperationPin::of($watcher, $root);
         if ($pin === null) {
-            return self::no(\sprintf('falsifier «%s» is watched by `%s`, whose handler this house cannot read: it could not tell the day another watcher took its name — nothing was granted', $grant->falsifier->name, $grant->falsifier->watcher->operation->forCli()));
+            return self::no(\sprintf('falsifier «%s» is watched by `%s`, which this house cannot pin: %s. It could not tell the day another watcher took its name — nothing was granted', $grant->falsifier->name, $grant->falsifier->watcher->operation->forCli(), (string) OperationPin::whyNot($watcher, $root)));
         }
         $instruments[$grant->falsifier->watcher->operation->canonical] = $pin;
 
@@ -271,6 +294,9 @@ final class StandingOperations implements CommandProvider
                 'fingerprint' => $granted->signer->fingerprint,
                 'operations' => $operations,
                 'instruments' => $instruments,
+                // …and WHICH RECOGNITION of each seat, and of whoever signs, it is given over: a key that leaves the
+                // house and is recognized again is not the one this grant lent to ({@see StandingBook}).
+                'recognized' => $book->recognitions([...$grant->to, $granted->signer->fingerprint]),
             ]);
         } catch (\RuntimeException $error) {
             return self::no('nothing was granted: ' . $error->getMessage());
@@ -326,6 +352,14 @@ final class StandingOperations implements CommandProvider
             if ($record->state !== GrantState::Suspended) {
                 return self::no(\sprintf('«%s» is not suspended — it is %s%s', $id, str_replace('_', ' ', $record->state->value), $nothing));
             }
+            if ($record->stopped) {
+                return self::no(\sprintf(
+                    '«%1$s» is stopped by a withdrawal or a replacement that does not hold today, and a reinstatement does not lift that: it would bring back what a signed act took away. Only a new grant that names it does — one that says "supersedes": "%1$s" and "lifts": "%2$s"%3$s',
+                    $id,
+                    (string) $record->suspension,
+                    $nothing,
+                ));
+            }
             if ($record->suspension !== $suspension) {
                 return self::no("the suspension that stands on «{$id}» is {$record->suspension}; a signature lifts the one it names and no other{$nothing}");
             }
@@ -376,6 +410,13 @@ final class StandingOperations implements CommandProvider
         if ($reason === '') {
             return self::no('say what was seen, in `reason`: it is what the person reads before lifting it — nothing was suspended');
         }
+        // …AND IT IS READ AS IT IS WRITTEN. The reason is printed by the listing of grants and by the judge's own
+        // refusal, and whoever writes it is any seat the house recognizes: one that carried what a terminal obeys
+        // read «in force — nothing was stopped» over a grant it had just stopped. The same rule as every text a grant
+        // keeps (decided by Rod, 2026-10-12).
+        if (!Canonical::oneLine($reason)) {
+            return self::no(Canonical::notOneLine('say what was seen, in `reason`,', $reason) . ' — nothing was suspended');
+        }
         $root = $this->root();
         $book = $root === null ? null : StandingBook::forRoot($root, $this->verifier);
         $unverified = self::unverified($book);
@@ -386,8 +427,8 @@ final class StandingOperations implements CommandProvider
         if ($book === null || $record === null) {
             return self::no("this house has no standing grant «{$id}» — nothing was suspended");
         }
-        if (\in_array($record->state, [GrantState::Revoked, GrantState::Superseded], true)) {
-            return self::no(\sprintf('«%s» is already %s: it lends nothing, and there is nothing to stop', $id, $record->state->value));
+        if (\in_array($record->state, [GrantState::Revoked, GrantState::Superseded], true) || $record->stopped) {
+            return self::no(\sprintf('«%s» is already %s: it lends nothing, and there is nothing to stop', $id, $record->stopped ? 'stopped, by what only a new grant lifts' : $record->state->value));
         }
         try {
             $entry = $book->ledger()->append(StandingLedger::SUSPENDED, [
@@ -423,15 +464,23 @@ final class StandingOperations implements CommandProvider
         }
         $now = new \DateTimeImmutable();
         $only = \is_string($input['grant'] ?? null) ? trim($input['grant']) : null;
+        $policy = $this->policy();
         $grants = [];
         foreach ($book->records() as $record) {
             if ($only !== null && $only !== '' && $record->grant->id !== $only) {
                 continue;
             }
+            // WHAT IS SHOWN IS WHAT THE JUDGE HONOURS (third review, L3). The book says where a grant stands; whether
+            // the operations it was given over are still those is the judge's question — and a grant the book has in
+            // force under which nothing runs was shown as «in force», with nothing to look at.
+            $stands = $record->standsAs($now);
+            $unhonoured = $stands === 'in force' && $policy !== null ? $policy->standing()->notHonoured($record, $policy->operationNamed(...)) : [];
+            $nothingRuns = $unhonoured !== [] && \count($unhonoured) === \count(array_unique(array_map(static fn (NamedCall $act): string => $act->operation->canonical, $record->grant->covers)));
             $grants[] = [
                 'grant' => $record->grant->id,
-                'stands_as' => $record->standsAs($now),
-                'because' => $record->fault ?? $record->because,
+                'stands_as' => $nothingRuns ? 'not honoured' : $stands,
+                'because' => $record->why() ?? ($nothingRuns ? implode(' · ', array_values(array_unique($unhonoured))) : null),
+                'not_honoured_for' => $unhonoured === [] || $nothingRuns ? null : $unhonoured,
                 'suspension' => $record->suspension,
                 'granted_by' => $record->grantedBy,
                 'granted_at' => $record->grantedAt,
@@ -458,12 +507,13 @@ final class StandingOperations implements CommandProvider
                 $entry['at'],
                 $entry['type'],
                 match ($entry['type']) {
-                    StandingLedger::MEASURED => \sprintf('%s on %s: %s', (string) ($data['by'] ?? ''), (string) ($data['subject'] ?? ''), ($data['ok'] ?? false) === true ? 'green' : 'red'),
-                    StandingLedger::WATCHED => \sprintf('%s: %s', (string) ($data['watcher'] ?? ''), ($data['fired'] ?? null) === true ? 'FIRED' : 'quiet'),
-                    StandingLedger::ABSORBED => \sprintf('«%s» %s on %s', (string) ($data['grant'] ?? ''), (string) ($data['operation'] ?? ''), (string) ($data['subject'] ?? '')),
-                    StandingLedger::REFUSED => \sprintf('«%s» %s: %s', (string) ($data['grant'] ?? ''), (string) ($data['operation'] ?? ''), (string) ($data['reason'] ?? '')),
-                    StandingLedger::SUSPENDED => \sprintf('«%s» by %s: %s', (string) ($data['grant'] ?? ''), (string) ($data['by'] ?? ''), (string) ($data['reason'] ?? '')),
-                    default => '«' . (string) ($data['grant'] ?? '') . '»',
+                    // Every text of a line is said as it is spelled when it is not one line of plain text.
+                    StandingLedger::MEASURED => \sprintf('%s on %s: %s', StandingBook::said($data['by'] ?? null), StandingBook::said($data['subject'] ?? null), ($data['ok'] ?? false) === true ? 'green' : 'red'),
+                    StandingLedger::WATCHED => \sprintf('%s: %s', StandingBook::said($data['watcher'] ?? null), ($data['fired'] ?? null) === true ? 'FIRED' : 'quiet'),
+                    StandingLedger::ABSORBED => \sprintf('«%s» %s on %s', StandingBook::said($data['grant'] ?? null), StandingBook::said($data['operation'] ?? null), StandingBook::said($data['subject'] ?? null)),
+                    StandingLedger::REFUSED => \sprintf('«%s» %s: %s%s', StandingBook::said($data['grant'] ?? null), StandingBook::said($data['operation'] ?? null), StandingBook::said($data['reason'] ?? null), \is_string($data['then'] ?? null) ? ' — ' . StandingBook::said($data['then']) : ''),
+                    StandingLedger::SUSPENDED => \sprintf('«%s» by %s: %s', StandingBook::said($data['grant'] ?? null), StandingBook::said($data['by'] ?? null), StandingBook::said($data['reason'] ?? null)),
+                    default => '«' . StandingBook::said($data['grant'] ?? null) . '»',
                 },
             ));
         }

@@ -95,6 +95,7 @@ final class LabHouse implements SignatureVerifier
         mkdir($this->root . '/storage/identity', 0o755, true);
         $this->now = new \DateTimeImmutable('2026-10-11T12:00:00+00:00');
         $this->scanner = static fn (string $bytes): array => ['ok' => !str_contains($bytes, 'machine-name:')];
+        $this->installed();
 
         $this->enroll(self::PERSON, self::PERSON_SCOPES, self::PERSON);
         $this->enroll(self::SEAT, self::SEAT_SCOPES, self::PERSON);
@@ -112,6 +113,20 @@ final class LabHouse implements SignatureVerifier
     public function destroy(): void
     {
         exec('rm -rf ' . escapeshellarg($this->root));
+    }
+
+    /**
+     * What this house says it installed, the way Composer writes it down: the lab's operations ship in a package, and
+     * so does the runtime. An operation is pinned by the unit it ships in, and one that ships in none is not granted.
+     * A test hands another reference to say «the package was updated», and none to say «nothing here was installed».
+     */
+    public function installed(?string $lab = 'lab-1'): void
+    {
+        @mkdir($this->root . '/vendor/composer', 0o755, true);
+        file_put_contents($this->root . '/vendor/composer/installed.json', (string) json_encode(['packages' => $lab === null ? [] : [
+            ['name' => 'lab/release-line', 'version' => '1.0.0', 'dist' => ['reference' => $lab], 'install-path' => __DIR__],
+            ['name' => 'milpa/app-runtime', 'version' => 'dev-lab', 'source' => ['reference' => 'the-checkout-under-test'], 'install-path' => \dirname(__DIR__, 2)],
+        ]], \JSON_UNESCAPED_SLASHES));
     }
 
     /** @param list<string> $scopes */
@@ -270,7 +285,7 @@ final class LabHouse implements SignatureVerifier
         $grant = \Milpa\Command\Standing\StandingGrant::fromJson($document);
         $signed = $this->signature($signer, 'standing:grant', ['grant' => $document]);
         // What the door writes beside a grant: what each operation it is given over IS, that day.
-        $pin = fn (\Milpa\Command\Standing\NamedCall $named): array => [$named->operation->canonical => (string) \Milpa\AppRuntime\Standing\OperationPin::of($this->operation($named->operation->forCli()))];
+        $pin = fn (\Milpa\Command\Standing\NamedCall $named): array => [$named->operation->canonical => (string) \Milpa\AppRuntime\Standing\OperationPin::of($this->operation($named->operation->forCli()), $this->root)];
         $this->writtenByHand(StandingLedger::GRANTED, $line + [
             'grant' => $grant->id,
             'digest' => $grant->digest(),
@@ -279,6 +294,7 @@ final class LabHouse implements SignatureVerifier
             'fingerprint' => $signer,
             'operations' => array_merge(...array_map($pin, $grant->covers)),
             'instruments' => array_merge(...array_map($pin, [...array_map(static fn (\Milpa\Command\Standing\GrantCondition $condition): \Milpa\Command\Standing\NamedCall => $condition->by, $grant->conditions), $grant->falsifier->watcher])),
+            'recognized' => $this->book()->recognitions([...$grant->to, $signer]),
         ]);
     }
 

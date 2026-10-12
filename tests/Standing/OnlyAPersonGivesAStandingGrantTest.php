@@ -177,7 +177,7 @@ final class OnlyAPersonGivesAStandingGrantTest extends TestCase
         yield 'a ceiling that admits the irreversible' => [['ceiling' => ['reversibility' => 'irreversible'] + $ceiling], 'the highest it carries is «compensatable»'];
         yield 'a ceiling with an unclassified axis' => [['ceiling' => ['authority' => 'unknown'] + $ceiling], 'an unclassified ceiling admits everything'];
         // Money: there is no axis, and a line the judge would ignore is a limit nobody keeps.
-        yield 'a budget' => [['budget' => 50], 'carries «budget», which nothing reads'];
+        yield 'a budget' => [['budget' => 50], 'carries "budget", which nothing reads'];
         // What this house could never judge.
         yield 'an operation this house does not have' => [['covers' => [['operation' => 'lab:nowhere']]], 'this house has no operation `lab:nowhere` to grant'];
         yield 'an operation that declares no scope' => [['covers' => [['operation' => 'lab:wordless']]], '`lab:wordless` declares no scope, so there is nothing for a grant to lend'];

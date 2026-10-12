@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Standing;
 use Milpa\AppRuntime\Identity\IdentityKey;
 use Milpa\Command\Consent\OperationId;
 use Milpa\Command\Operation;
+use Milpa\Command\Standing\Canonical;
 use Milpa\Command\Standing\ConditionReceipt;
 use Milpa\Command\Standing\GrantCondition;
 use Milpa\Command\Standing\GrantStanding;
@@ -70,8 +71,14 @@ final class HouseStandingJudge
     /** Where a context says what was lent to it for the asking, and for which tool — so it can be taken back. */
     public const LENT = 'standing.lent';
 
-    /** How many refusals the book keeps in a row, with nothing else written between them ({@see self::refused()}). */
+    /**
+     * How many refusals of one seat under one grant the book keeps in a row, with nothing but refusals written since
+     * the first of them ({@see self::refused()}).
+     */
     public const REFUSALS_KEPT = 32;
+
+    /** What the last refusal the book keeps of a seat under a grant says, so that a reader knows the rest are not there. */
+    public const REFUSALS_END = 'refusals of this seat under this grant are not written after this one, until something else is written in the book';
 
     /**
      * @param (\Closure(): \DateTimeImmutable)|null $clock the moment of the act; the wall clock when none is handed in
@@ -200,11 +207,16 @@ final class HouseStandingJudge
             if (!$record->grant->lendsTo($seat) || !$record->grant->namesOperation($operation->name)) {
                 continue;
             }
+            // A RECEIPT COUNTS ONLY WHEN THE OPERATION THAT PRODUCED IT IS THE ONE THE GRANT WAS GIVEN OVER (third
+            // review, M1; decided by Rod 2026-10-12). Every receipt carries the pin of what wrote it
+            // ({@see self::witnessed()}), and the contract's judge is handed the pin the GRANT keeps of each
+            // instrument: a measurement taken while other code held the instrument's name — softened and put back, or
+            // the looser one a person has since granted again over — is «not that instrument any more».
             $instruments = [];
             foreach ($record->grant->conditions as $condition) {
-                $instrument = $operationNamed($condition->by->operation)?->instrumentDigest();
-                if ($instrument !== null) {
-                    $instruments[$condition->by->operation->canonical] = $instrument;
+                $pinned = $record->instruments[$condition->by->operation->canonical] ?? null;
+                if ($pinned !== null) {
+                    $instruments[$condition->by->operation->canonical] = $pinned;
                 }
             }
             $held[] = [
@@ -285,7 +297,7 @@ final class HouseStandingJudge
             return $ungrantable . ' — it is not an operation a grant may lend any more';
         }
         $identity = new OperationId($operation->name);
-        if (($record->operations[$identity->canonical] ?? null) !== OperationPin::of($operation)) {
+        if (($record->operations[$identity->canonical] ?? null) !== OperationPin::of($operation, $this->root)) {
             return \sprintf('`%s` is not the operation it was when this grant was given: its declaration or its code changed since', $identity->forCli());
         }
         // …AND SO ARE WHAT IT IS MEASURED BY AND WHAT WATCHES IT (review, second, 4). An instrument or a watcher that
@@ -296,7 +308,7 @@ final class HouseStandingJudge
         $asked[] = [$watched->watcher->operation, \sprintf('which watches falsifier «%s»', $watched->name)];
         foreach ($asked as [$named, $role]) {
             $today = $operationNamed($named);
-            if ($today === null || ($record->instruments[$named->canonical] ?? null) !== OperationPin::of($today)) {
+            if ($today === null || ($record->instruments[$named->canonical] ?? null) !== OperationPin::of($today, $this->root)) {
                 return \sprintf(
                     '`%s`, %s, %s — what a grant is measured and watched by is the operation it was given over, never whatever holds its name today',
                     $named->forCli(),
@@ -307,6 +319,31 @@ final class HouseStandingJudge
         }
 
         return null;
+    }
+
+    /**
+     * Why this judge does not honour a grant today, for each operation it covers that it does not honour — an empty
+     * map when it honours them all. What the listing of grants says is what THIS says (third review, L3): the book
+     * knows where a grant stands, and only the judge asks whether the operations it was given over are still those.
+     *
+     * @param \Closure(OperationId|string): ?Operation $operationNamed
+     *
+     * @return array<string, string> the operation, as typed at a terminal => the sentence
+     */
+    public function notHonoured(GrantRecord $record, \Closure $operationNamed): array
+    {
+        $why = [];
+        foreach ($record->grant->covers as $act) {
+            $operation = $operationNamed($act->operation);
+            $fault = $operation === null
+                ? $record->fault ?? \sprintf('`%s` is not in this house any more', $act->operation->forCli())
+                : $this->faultOf($record, $operation, $operationNamed);
+            if ($fault !== null) {
+                $why[$act->operation->forCli()] = $fault;
+            }
+        }
+
+        return $why;
     }
 
     /**
@@ -389,10 +426,16 @@ final class HouseStandingJudge
      *
      * ONCE, AND NOT WITHOUT END (greenhouse decisions/0615, «Lo que la segunda revisión encontró», 8). Every call of
      * every seat reads the whole book, and a refused call used to add a line each time: a seat grew it for everyone by
-     * asking again. So among the refusals the book ENDS with — nothing else written since — the same one is not
-     * written twice, and no more than {@see self::REFUSALS_KEPT} are kept in a row. The refusal itself is given every
-     * time; what stops is the line. Whatever else is written — a measurement, a watcher's sign, an act, a stop —
-     * ends that run, and what is refused after it is a new fact.
+     * asking again. So among the refusals the book ENDS with — nothing but refusals written since — the same one is
+     * not written twice, and no more than {@see self::REFUSALS_KEPT} of ONE SEAT UNDER ONE GRANT are kept. The refusal
+     * itself is given every time; what stops is the line. Whatever else is written — a measurement, a watcher's sign,
+     * an act, a stop — ends that run, and what is refused after it is a new fact.
+     *
+     * AS NARROW AS IT READS (third review, L2; decided by Rod 2026-10-12). «The same» is the same line, byte for
+     * byte in its canonical spelling: a refusal that differs in how one argument is written is another refusal.
+     * The count is a seat's under a grant, so one seat's refusals never keep the book from saying another was
+     * refused. And the last one kept says the rest are not written ({@see self::REFUSALS_END}): a reader of the book
+     * knows where it stops being a count.
      */
     public function refused(StandingDecision $decision): void
     {
@@ -411,14 +454,26 @@ final class HouseStandingJudge
             'check' => $verdict->failed?->value,
             'reason' => $verdict->reason,
         ];
-        $run = 0;
+        try {
+            $same = Canonical::json($line);
+        } catch (\JsonException) {
+            return; // a refusal the book could not hold as a line: it stands without one
+        }
+        $kept = 0;
         foreach (array_reverse($ledger->entries()) as $entry) {
             if ($entry['type'] !== StandingLedger::REFUSED) {
                 break;
             }
-            if ($entry['data'] == $line || ++$run >= self::REFUSALS_KEPT) {
+            $written = $entry['data'];
+            if (($written['seat'] ?? null) !== $line['seat'] || ($written['grant'] ?? null) !== $line['grant']) {
+                continue;
+            }
+            if (Canonical::json($written) === $same || ++$kept >= self::REFUSALS_KEPT) {
                 return;
             }
+        }
+        if ($kept === self::REFUSALS_KEPT - 1) {
+            $line['then'] = self::REFUSALS_END;
         }
         try {
             $ledger->append(StandingLedger::REFUSED, $line, $this->now());
@@ -434,23 +489,37 @@ final class HouseStandingJudge
      * «Describes» is a closed match: the call carries the arguments the grant fixes, the ones it leaves free, and
      * no other. A run with an argument nobody described is not that instrument being used (review, 5).
      *
+     * FOR WHAT SPEAKS FOR A GRANT. WHAT STOPS ONE IS AN OPEN MATCH (third review, M2; decided by Rod 2026-10-12):
+     * a run of the watcher that carries the arguments the falsifier fixes — whatever else it carries, a flag of the
+     * surface it was typed at among them — is noted too (`stops`), because if it answers «fired» that answer stops
+     * the grant. The closed match was applied to both answers, and the one that only narrows was thrown away.
+     *
+     * THE SAME FOR A MEASUREMENT (fourth review of the contract, L9; decided by Rod 2026-10-12: a red receipt always
+     * counts). A run of the instrument
+     * that carries what a condition fixes and one argument more is noted too (`refutes`): if it answers NO, that is
+     * the instrument saying no of that very content, and the contract's judge reads a red receipt open.
+     *
      * @param array<string, mixed> $arguments
      *
-     * @return array{measures: bool, watches: bool, subject: ?string}|null
+     * @return array{measures: bool, refutes: bool, watches: bool, stops: bool, subject: ?string}|null
      */
     public function witnessing(Operation $operation, array $arguments): ?array
     {
         $measures = false;
+        $refutes = false;
         $watches = false;
+        $stops = false;
         foreach ($this->book()?->documents() ?? [] as $grant) {
             foreach ($grant->conditions as $condition) {
                 $measures = $measures || $condition->by->matchesExactly($operation->name, $arguments);
+                $refutes = $refutes || $condition->by->matches($operation->name, $arguments);
             }
             $watches = $watches || $grant->falsifier->watcher->matchesExactly($operation->name, $arguments);
+            $stops = $stops || $grant->falsifier->watcher->matches($operation->name, $arguments);
         }
 
-        return $measures || $watches
-            ? ['measures' => $measures, 'watches' => $watches, 'subject' => $measures ? $operation->actsOnDigest($arguments) : null]
+        return $refutes || $stops
+            ? ['measures' => $measures, 'refutes' => $refutes, 'watches' => $watches, 'stops' => $stops, 'subject' => $refutes ? $operation->actsOnDigest($arguments) : null]
             : null;
     }
 
@@ -464,8 +533,14 @@ final class HouseStandingJudge
      * watcher's answer counts only when it says `fired` as true or false — and `true` IS the suspension of every
      * grant in force whose falsifier it watches: the book derives it from this very line (review, 7).
      *
-     * @param array{measures: bool, watches: bool, subject: ?string} $noted     what {@see self::witnessing()} noted before the run
-     * @param array<string, mixed>                                   $arguments
+     * EVERY RECEIPT AND EVERY SIGN CARRIES THE PIN OF WHAT PRODUCED IT (third review, M1; decided by Rod 2026-10-12):
+     * the house's own digest of the operation that just ran ({@see OperationPin}), not the contract's — which does
+     * not change when the method a one-line handler calls does. What reads them counts only the ones whose pin is
+     * the grant's. An instrument the house cannot pin leaves no receipt, and a watcher it cannot pin gives no sign of
+     * life — but «fired» is written whoever answered it: stopping asks for nobody's pin.
+     *
+     * @param array{measures: bool, refutes: bool, watches: bool, stops: bool, subject: ?string} $noted     what {@see self::witnessing()} noted before the run
+     * @param array<string, mixed>                                                               $arguments
      *
      * @throws \RuntimeException when the house saw something and could not write it down
      */
@@ -474,9 +549,13 @@ final class HouseStandingJudge
         $ledger = StandingLedger::forRoot($this->root);
         $now = $this->now();
         $who = $context === null ? 'local-shell' : ($context->principal ?? 'unknown');
-        $instrument = $operation->instrumentDigest();
+        $pin = OperationPin::of($operation, $this->root);
+        $instrument = $operation->instrumentDigest() === null ? null : $pin;
         $subject = $noted['subject'];
-        if ($noted['measures'] && $subject !== null && $instrument !== null
+        // A run that is exactly the one a condition describes leaves its receipt, green or red. One that only fits it
+        // open — an argument more — leaves one when it says NO, and never when it says yes.
+        $speaks = $noted['measures'] || ($noted['refutes'] && \is_array($result) && ($result['ok'] ?? null) !== true);
+        if ($speaks && $subject !== null && $instrument !== null
             && $operation->actsOnDigest($arguments) === $subject
             && \is_array($result) && ($result['acted_on'] ?? null) === $subject) {
             $ledger->append(StandingLedger::MEASURED, (new ConditionReceipt(
@@ -491,12 +570,13 @@ final class HouseStandingJudge
         }
 
         $fired = \is_array($result) ? ($result['fired'] ?? null) : null;
-        if ($noted['watches'] && \is_bool($fired)) {
+        if ($fired === true ? $noted['stops'] : ($fired === false && $noted['watches'] && $pin !== null)) {
             $ledger->append(StandingLedger::WATCHED, [
                 'watcher' => (new OperationId($operation->name))->canonical,
                 'arguments' => $arguments,
                 'fired' => $fired,
                 'who' => $who,
+                'pin' => $pin,
             ], $now);
         }
     }

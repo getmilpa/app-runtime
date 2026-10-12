@@ -293,26 +293,39 @@ final class AStandingGrantShrinksOnItsOwnAndGrowsOnlyByAPersonTest extends TestC
         // A line written by hand withdraws nothing — and it STOPS the grant, as any line that asks for it to stop
         // does: the house cannot tell a withdrawal nobody signed from one whose signer has left since, and what
         // takes authority away never reads as nothing (decisions/0615, «Lo que la segunda revisión encontró», 2).
+        self::assertNotNull($this->house->book()->record('release-line')?->watcherSignalAt, 'control: the watcher had given a sign');
         $this->house->writtenByHand(StandingLedger::REVOKED, ['grant' => 'release-line', 'fingerprint' => LabHouse::PERSON]);
-        self::assertSame('suspended', $this->house->book()->record('release-line')?->standsAs($this->house->now));
+        self::assertSame('stopped', $this->house->book()->record('release-line')?->standsAs($this->house->now));
+        self::assertNull($this->house->book()->record('release-line')?->watcherSignalAt, 'a stop forgets the watcher\'s sign, as a suspension does: nobody is shown one from before it');
         self::assertStringContainsString('Standing grant «release-line» is suspended', $this->merge()['refused']);
-        // …lifted like any stop: by a person, naming it.
-        self::assertTrue($this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => $this->suspension()])['ok'] ?? false);
-        self::assertStringContainsString('has given no sign of life', $this->merge()['refused'], 'a sign of life from before the stop does not count after it');
-        $this->house->as(LabHouse::SEAT, 'lab:watch');
-        self::assertSame(['ok' => true], $this->merge());
+        // …and NOT lifted like a suspension (decided by Rod, 2026-10-12): a reinstatement would bring back what a
+        // withdrawal took away. Only a new grant that names that stop takes it out of the way.
+        $stop = $this->suspension();
+        $lifted = $this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => $stop]);
+        self::assertStringContainsString('a reinstatement does not lift that', (string) ($lifted['error'] ?? 'LIFTED'));
+        self::assertStringContainsString('"supersedes": "release-line" and "lifts": "' . $stop . '"', (string) $lifted['error']);
+        self::assertStringContainsString('already stopped, by what only a new grant lifts', (string) $this->house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'x'])['error']);
+        // …nor does a suspension written by hand: it is one a person could lift by name, and it does not take the
+        // place of the stop that stands.
+        $this->house->writtenByHand(StandingLedger::SUSPENDED, ['grant' => 'release-line', 'by' => 'key:' . LabHouse::SEAT, 'reason' => 'to be lifted by name']);
+        self::assertSame($stop, $this->suspension(), 'and nobody puts a stop a person could lift in its place');
+        self::assertSame('stopped', $this->house->book()->record('release-line')?->standsAs($this->house->now));
+        $this->house->granted(['id' => 'release-line-again', 'supersedes' => 'release-line', 'lifts' => $stop]);
+        self::assertSame('superseded', $this->house->book()->record('release-line')?->standsAs($this->house->now));
+        self::assertSame(['ok' => true], $this->merge(), 'under the grant a person gave again');
 
-        $withdrawn = $this->house->signed(LabHouse::PERSON, 'standing:revoke', ['grant' => 'release-line']);
+        // The grant a person withdraws by their own signed act is gone, as before.
+        $withdrawn = $this->house->signed(LabHouse::PERSON, 'standing:revoke', ['grant' => 'release-line-again']);
         self::assertTrue($withdrawn['ok'], (string) ($withdrawn['error'] ?? ''));
         self::assertSame('revoked', $withdrawn['stands_as']);
 
         $refused = $this->merge();
-        self::assertStringContainsString('Standing grant «release-line» is revoked', $refused['refused']);
+        self::assertStringContainsString('Standing grant «release-line-again» is revoked', $refused['refused']);
         self::assertStringContainsString('a person gives a new grant', $refused['refused']);
         // Nothing stops or restores what is gone.
-        self::assertStringContainsString('already revoked', $this->house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'x'])['error']);
-        self::assertStringContainsString('already revoked', $this->house->signed(LabHouse::PERSON, 'standing:revoke', ['grant' => 'release-line'])['error']);
-        self::assertStringContainsString('is not suspended — it is revoked', $this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => 'sha256:x'])['error']);
+        self::assertStringContainsString('already revoked', $this->house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line-again', 'reason' => 'x'])['error']);
+        self::assertStringContainsString('already revoked', $this->house->signed(LabHouse::PERSON, 'standing:revoke', ['grant' => 'release-line-again'])['error']);
+        self::assertStringContainsString('is not suspended — it is revoked', $this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line-again', 'suspension' => 'sha256:x'])['error']);
     }
 
     public function testAGrantThatReplacesAnotherTakesOverAndTheOldOneLendsNothing(): void
@@ -331,12 +344,17 @@ final class AStandingGrantShrinksOnItsOwnAndGrowsOnlyByAPersonTest extends TestC
         $this->house->writtenByHand(StandingLedger::GRANTED, ['grant' => 'release-line-3', 'digest' => 'sha256:x', 'payload' => $forged->payload, 'signature' => $forged->signature, 'fingerprint' => LabHouse::SEAT]);
         self::assertNotNull($this->house->book()->record('release-line-3')?->fault);
         $second = $this->house->book()->record('release-line-2');
-        self::assertSame('suspended', $second?->standsAs($this->house->now), 'replaced it is not; stopped it is');
+        self::assertSame('stopped', $second?->standsAs($this->house->now), 'replaced it is not; stopped it is');
+        self::assertNull($second?->watcherSignalAt, 'and the sign its watcher gave before the stop is forgotten');
         self::assertStringContainsString('«release-line-3» names it as replaced', (string) $second?->because);
         self::assertStringContainsString('Standing grant «release-line-2» is suspended', $this->merge()['refused']);
-        // …lifted like any stop: by a person, naming it.
-        self::assertTrue($this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line-2', 'suspension' => (string) $second?->suspension])['ok'] ?? false);
-        self::assertStringContainsString('has given no sign of life', $this->merge()['refused'], 'a sign of life from before the stop does not count after it');
+        // …and only a new grant that names that stop takes it out of the way: no reinstatement does.
+        self::assertStringContainsString('a reinstatement does not lift that', (string) $this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line-2', 'suspension' => (string) $second?->suspension])['error']);
+        $unnamed = (string) $this->house->signed(LabHouse::PERSON, 'standing:grant', ['grant' => $this->house->document(['id' => 'release-line-4', 'supersedes' => 'release-line-2'])])['error'];
+        self::assertStringContainsString('is stopped (' . $second?->suspension . ')', $unnamed);
+        self::assertStringNotContainsString('a person lifts it first', $unnamed, 'nobody lifts that stop first: a reinstatement does not');
+        $this->house->granted(['id' => 'release-line-4', 'supersedes' => 'release-line-2', 'lifts' => (string) $second?->suspension], watched: false);
+        self::assertStringContainsString('has given no sign of life', $this->merge()['refused'], 'the new grant has to be watched like any other');
         $this->house->as(LabHouse::SEAT, 'lab:watch');
         self::assertSame(['ok' => true], $this->merge());
     }

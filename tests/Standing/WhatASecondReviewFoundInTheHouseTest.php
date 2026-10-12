@@ -378,7 +378,8 @@ final class WhatASecondReviewFoundInTheHouseTest extends TestCase
 
     public function testAReplacementThatDoesNotHoldIsTheStopThatStandsOnAGrantAlreadyStopped(): void
     {
-        // Every stop counts, the latest included: whoever lifts a grant names the stop that stands, having seen it.
+        // Every stop counts, the latest included: whoever takes a grant's stop out of the way names the one that
+        // stands, having seen it — and this one, only with a new grant (decided by Rod, 2026-10-12).
         $this->house->granted();
         $path = $this->measured();
         $first = (string) ($this->house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'it needs another condition'])['suspension'] ?? '');
@@ -395,9 +396,11 @@ final class WhatASecondReviewFoundInTheHouseTest extends TestCase
         $old = $this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => $first]);
         self::assertArrayNotHasKey('ok', array_filter($old, static fn (mixed $value): bool => $value === true), (string) json_encode($old));
         self::assertSame(GrantState::Suspended, $this->house->book()->record('release-line')?->state);
-        // One that names the stop that stands does.
-        self::assertTrue($this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => (string) $record?->suspension])['ok'] ?? false);
-        $this->house->as(LabHouse::SEAT, 'lab:watch');
+        // One that names the stop that stands lifts nothing either: it is not a suspension.
+        self::assertStringContainsString('a reinstatement does not lift that', (string) $this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => (string) $record?->suspension])['error']);
+        // A new grant that names the FIRST stop does not take it out of the way; one that names the stop that stands does.
+        self::assertStringContainsString('is stopped (' . $record?->suspension . ')', (string) $this->house->signed(LabHouse::PERSON, 'standing:grant', ['grant' => $this->house->document(['id' => 'release-line-3', 'supersedes' => 'release-line', 'lifts' => $first])])['error']);
+        $this->house->granted(['id' => 'release-line-3', 'supersedes' => 'release-line', 'lifts' => (string) $record?->suspension]);
         self::assertSame(['ok' => true], $this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $path, 'channel' => 'stable']));
     }
 
@@ -500,7 +503,7 @@ final class WhatASecondReviewFoundInTheHouseTest extends TestCase
 
         $given = $this->house->signed(LabHouse::PERSON, 'standing:grant', ['grant' => $this->house->document(['falsifier' => ['name' => 'f', 'statement' => 's', 'watcher' => ['operation' => 'lab:unreadable'], 'within_seconds' => 60]])]);
 
-        self::assertStringContainsString('whose handler this house cannot read', (string) ($given['error'] ?? 'GIVEN'));
+        self::assertStringContainsString('which this house cannot pin: its handler cannot be read', (string) ($given['error'] ?? 'GIVEN'));
         self::assertFileDoesNotExist($this->house->root . '/' . StandingLedger::PATH);
     }
 

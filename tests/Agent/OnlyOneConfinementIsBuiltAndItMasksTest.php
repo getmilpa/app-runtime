@@ -125,6 +125,41 @@ final class OnlyOneConfinementIsBuiltAndItMasksTest extends TestCase
         }
     }
 
+    public function testTheMaskHidesTheBookOfStandingGrantsAndItsHead(): void
+    {
+        // Mode 600 keeps the book from other users of the machine, not from the processes the house itself starts
+        // for a seat: under `--ro-bind / /` a rehearsal and a run of work read every grant and every call
+        // (greenhouse decisions/0615, «Lo que la tercera revisión encontró»; decided by Rod 2026-10-12).
+        $house = sys_get_temp_dir() . '/milpa-guard-book-' . bin2hex(random_bytes(4));
+        $copy = $house . '/var/trials/t1/copy';
+        $candidate = $house . '/var/boot-candidates/c1';
+        mkdir($house . '/storage/identity', 0o700, true);
+        mkdir($copy . '/storage/identity', 0o700, true);
+        mkdir($candidate . '/storage/identity', 0o700, true);
+        $book = \Milpa\AppRuntime\Standing\StandingLedger::PATH;
+        $head = $book . \Milpa\AppRuntime\Standing\StandingLedger::HEAD;
+
+        try {
+            self::assertSame(null, self::indexOfPair((new TrialRunner())->maskArgs($house), '--ro-bind', '/dev/null'), 'control: a house with no book and no secret masks no file');
+
+            file_put_contents($house . '/' . $book, "{}\n");
+            file_put_contents($house . '/' . $head, "{}\n");
+            file_put_contents($copy . '/' . $book, "{}\n"); // a copy a version before this one made
+            symlink($house . '/' . $head, $candidate . '/' . $head); // bwrap does not mount onto a link: its target is masked
+            $args = (new TrialRunner())->maskArgs($house);
+
+            $masked = [];
+            foreach ($args as $i => $arg) {
+                if ($arg === '--ro-bind' && ($args[$i + 1] ?? null) === '/dev/null') {
+                    $masked[] = $args[$i + 2] ?? null;
+                }
+            }
+            self::assertSame([$house . '/' . $book, $house . '/' . $head, $copy . '/' . $book], $masked);
+        } finally {
+            exec('rm -rf ' . escapeshellarg($house));
+        }
+    }
+
     /** @param list<string> $argv */
     private static function indexOfPair(array $argv, string $flag, string $value): ?int
     {
