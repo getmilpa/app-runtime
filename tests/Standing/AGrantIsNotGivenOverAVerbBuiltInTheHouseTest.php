@@ -99,6 +99,33 @@ final class AGrantIsNotGivenOverAVerbBuiltInTheHouseTest extends TestCase
         $this->dirs = [];
     }
 
+    /** @return iterable<string, array{array<string, mixed>, string}> */
+    public static function whatSpeaksForAGrant(): iterable
+    {
+        yield 'the instrument of a condition' => [['conditions' => [['name' => 'no-host-names', 'statement' => 'what is merged names no machine', 'by' => ['operation' => 'herramientas.prestar', 'free' => ['path']]]]], 'condition «no-host-names» is measured by `herramientas:prestar`'];
+        yield 'its watcher' => [['falsifier' => ['name' => 'a-published-name', 'statement' => 'a published release names a machine', 'watcher' => ['operation' => 'herramientas.prestar'], 'within_seconds' => 3600]], 'falsifier «a-published-name» is watched by `herramientas:prestar`'];
+    }
+
+    /**
+     * The fourth review noted that this door asked «is it a verb built here?» of what a grant COVERS, and not of what
+     * measures or watches it. A seat only rehearses such a verb before a person admits it — in a copy, with no caller
+     * and no judge — so what it says of a falsifier there is heard by nobody (a proposal, not decided).
+     *
+     * @param array<string, mixed> $change
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('whatSpeaksForAGrant')]
+    public function testAGrantIsNotMeasuredOrWatchedByAVerbBuiltInTheHouse(array $change, string $said): void
+    {
+        [$door, $root] = $this->door();
+
+        $given = ($door->handler)(['covers' => [['operation' => 'lab:merge']]] + $change);
+
+        self::assertFalse($given['ok'], (string) json_encode($given));
+        self::assertStringContainsString($said . ', a verb of «Prestamos», a capability built in this house', (string) $given['error']);
+        self::assertStringContainsString('does not measure or watch a standing grant', (string) $given['error']);
+        self::assertFileDoesNotExist($root . '/' . \Milpa\AppRuntime\Standing\StandingLedger::PATH);
+    }
+
     public function testAGrantOverAVerbBuiltInTheHouseIsRefusedAndTheSentenceSaysWhatOpensIt(): void
     {
         [$door, $root] = $this->door();

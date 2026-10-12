@@ -42,6 +42,8 @@ final readonly class GrantRecord
      * @param bool                    $stopped         the suspension that stands is a withdrawal or a replacement that
      *                                                 stopped holding: no reinstatement lifts it, only a new grant
      *                                                 that names it
+     * @param list<string>            $stoppedBy       who has stopped it since it was last in force, as each line says:
+     *                                                 a second stop by one of them is the same stop
      */
     public function __construct(
         public StandingGrant $grant,
@@ -56,6 +58,7 @@ final readonly class GrantRecord
         public array $operations = [],
         public array $instruments = [],
         public bool $stopped = false,
+        public array $stoppedBy = [],
     ) {
     }
 

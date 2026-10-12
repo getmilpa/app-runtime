@@ -126,7 +126,7 @@ final class HouseStandingJudge
      *
      * @return list<string>
      */
-    public function offers(ToolContext $context, Operation $operation, \Closure $operationNamed): array
+    public function offers(ToolContext $context, Operation $operation, \Closure $operationNamed, ?\Closure $answeredTwice = null): array
     {
         $seat = self::seatOf($context);
         $book = $seat === null || $context->hasScope('*') ? null : $this->book();
@@ -145,7 +145,7 @@ final class HouseStandingJudge
         // A book that does not verify honours no grant in it, so every record of one carries that fault.
         $now = $this->now();
         foreach ($book->records() as $record) {
-            if ($record->grant->lendsTo($seat) && $record->grant->namesOperation($operation->name) && $this->faultOf($record, $operation, $operationNamed) === null && $record->inForceAt($now)) {
+            if ($record->grant->lendsTo($seat) && $record->grant->namesOperation($operation->name) && $this->faultOf($record, $operation, $operationNamed, $answeredTwice) === null && $record->inForceAt($now)) {
                 return self::words($context, $operation);
             }
         }
@@ -166,10 +166,12 @@ final class HouseStandingJudge
     /**
      * The house's answer about this call — or `null`: no grant has anything to do with it, and nothing changes.
      *
-     * @param array<string, mixed>                     $arguments
-     * @param \Closure(OperationId|string): ?Operation $operationNamed the catalogue, asked for the instruments a grant names
+     * @param array<string, mixed>                         $arguments
+     * @param \Closure(OperationId|string): ?Operation     $operationNamed the catalogue, asked for the instruments a grant names
+     * @param (\Closure(OperationId|string): ?string)|null $answeredTwice  the catalogue, asked why a name is one two
+     *                                                                     operations answer to ({@see self::faultOf()})
      */
-    public function decide(ToolContext $context, Operation $operation, array $arguments, \Closure $operationNamed): ?StandingDecision
+    public function decide(ToolContext $context, Operation $operation, array $arguments, \Closure $operationNamed, ?\Closure $answeredTwice = null): ?StandingDecision
     {
         $seat = self::seatOf($context);
         $book = $seat === null ? null : $this->book();
@@ -226,7 +228,7 @@ final class HouseStandingJudge
                 // The book was asked first, above: it verifies, and every line of it reads as its kind today — a line
                 // that did not would be a fault of the whole book, and no grant in it would have been read. That is
                 // what this house says to the judge of its record of each grant, and it says it from the same answer.
-                'standing' => new GrantStanding($record->state, $record->because, $this->faultOf($record, $operation, $operationNamed), $record->watcherSignalAt, $receipts, $instruments, recordFault: $fault),
+                'standing' => new GrantStanding($record->state, $record->because, $this->faultOf($record, $operation, $operationNamed, $answeredTwice), $record->watcherSignalAt, $receipts, $instruments, recordFault: $fault),
             ];
             $records[$record->grant->id] = $record;
         }
@@ -350,10 +352,21 @@ final class HouseStandingJudge
      *
      * @param \Closure(OperationId|string): ?Operation $operationNamed the catalogue, asked for the instruments a grant names
      */
-    private function faultOf(GrantRecord $record, Operation $operation, \Closure $operationNamed): ?string
+    private function faultOf(GrantRecord $record, Operation $operation, \Closure $operationNamed, ?\Closure $answeredTwice = null): ?string
     {
         if ($record->fault !== null) {
             return $record->fault;
+        }
+        // A NAME TWO OPERATIONS ANSWER TO IS NOBODY'S TO GRANT OVER (fourth review, M4). The judge reads one of them
+        // under that name and a terminal runs the other; a house takes such a catalogue as the published runtime
+        // does, and it is here that it is not taken — for the operation a grant covers, for what measures it and for
+        // what watches it. Until one of the two takes another name, the grant is not honoured.
+        $named = [new OperationId($operation->name), ...array_map(static fn (GrantCondition $condition): OperationId => $condition->by->operation, $record->grant->conditions), $record->grant->falsifier->watcher->operation];
+        foreach ($answeredTwice === null ? [] : $named as $name) {
+            $twice = $answeredTwice($name);
+            if ($twice !== null) {
+                return $twice . ' — no grant is honoured over that name until one of them takes another';
+            }
         }
         $ungrantable = GrantableOperation::refusal($operation);
         if ($ungrantable !== null) {
@@ -393,14 +406,14 @@ final class HouseStandingJudge
      *
      * @return array<string, string> the operation, as typed at a terminal => the sentence
      */
-    public function notHonoured(GrantRecord $record, \Closure $operationNamed): array
+    public function notHonoured(GrantRecord $record, \Closure $operationNamed, ?\Closure $answeredTwice = null): array
     {
         $why = [];
         foreach ($record->grant->covers as $act) {
             $operation = $operationNamed($act->operation);
             $fault = $operation === null
                 ? $record->fault ?? \sprintf('`%s` is not in this house any more', $act->operation->forCli())
-                : $this->faultOf($record, $operation, $operationNamed);
+                : $this->faultOf($record, $operation, $operationNamed, $answeredTwice);
             if ($fault !== null) {
                 $why[$act->operation->forCli()] = $fault;
             }
@@ -424,12 +437,12 @@ final class HouseStandingJudge
      *
      * @throws \RuntimeException when the book cannot be written
      */
-    public function absorbing(ToolContext $context, Operation $operation, array $arguments, \Closure $operationNamed): ?StandingDecision
+    public function absorbing(ToolContext $context, Operation $operation, array $arguments, \Closure $operationNamed, ?\Closure $answeredTwice = null): ?StandingDecision
     {
         $ledger = StandingLedger::forRoot($this->root);
 
-        return $ledger->exclusively(function () use ($ledger, $context, $operation, $arguments, $operationNamed): ?StandingDecision {
-            $decision = $this->decide($context, $operation, $arguments, $operationNamed);
+        return $ledger->exclusively(function () use ($ledger, $context, $operation, $arguments, $operationNamed, $answeredTwice): ?StandingDecision {
+            $decision = $this->decide($context, $operation, $arguments, $operationNamed, $answeredTwice);
             $record = $decision?->record;
             $verdict = $decision?->verdict;
             if ($decision === null || $record === null || $verdict === null || !$verdict->passes()) {
@@ -473,10 +486,14 @@ final class HouseStandingJudge
         $found = $operation->actsOnDigest($decision->call->arguments);
         $said = \is_array($result) && \is_string($result['acted_on'] ?? null) ? $result['acted_on'] : null;
         $name = $decision->call->operation->forCli();
+        // WHAT AN ACT SAID IS WRITTEN AS THE HOUSE SPELLS IT (fourth review, L1). `acted_on` is the act's own answer,
+        // and it came into the reason of this stop as it came: bytes that are not text made a line the book cannot
+        // hold, the stop was dropped, and the act could be made again — three times, measured.
+        $spelled = static fn (?string $digest): string => StandingBook::said($digest, 'nothing readable');
         $reason = match (true) {
-            $found !== $judged => \sprintf('what `%s` acted on changed between the judgment and the act: %s was judged, %s was there afterwards', $name, $judged, $found ?? 'nothing readable'),
-            $returned && $said === null => \sprintf('`%s` did not say what it consumed (`acted_on`), so the house cannot tell it acted on %s, which was judged', $name, $judged),
-            $returned && $said !== $judged => \sprintf('`%s` said it consumed %s, and %s was judged', $name, (string) $said, $judged),
+            $found !== $judged => \sprintf('what `%s` acted on changed between the judgment and the act: %s was judged, %s was there afterwards', $name, $spelled($judged), $spelled($found)),
+            $returned && $said === null => \sprintf('`%s` did not say what it consumed (`acted_on`), so the house cannot tell it acted on %s, which was judged', $name, $spelled($judged)),
+            $returned && $said !== $judged => \sprintf('`%s` said it consumed %s, and %s was judged', $name, $spelled($said), $spelled($judged)),
             default => null,
         };
         if ($reason !== null) {
@@ -605,12 +622,26 @@ final class HouseStandingJudge
      * the grant's. An instrument the house cannot pin leaves no receipt, and a watcher it cannot pin gives no sign of
      * life — but «fired» is written whoever answered it: stopping asks for nobody's pin.
      *
+     * AND THE PIN OF WHAT PRODUCED IT IS THE ONE THE PROCESS THAT ANSWERED HAD LOADED (fourth review, M1). The pin
+     * was read from the disk AFTER the run, and a process that lives long answers with the code it loaded: a yes
+     * from a guard loaded before it was hardened was written under the pin of the hardened one. So a YES and a SIGN
+     * OF CALM are written only when the pin read now is the one this process read when it was told of the operation
+     * (`$loaded`) — a process that has none to give, because it started before its house kept a book, writes neither.
+     * A no and a «fired» stay as they were: they only narrow.
+     *
+     * AND FROM A RUN THAT LEFT THIS PROCESS, ONLY WHAT NARROWS (fourth review, H1 — a PROPOSAL, not decided): work a
+     * leg ran confined in the house, a rehearsal in a copy (`$elsewhere`). The house did not run that code and cannot
+     * say what it was; its «fired» stops, its no — of the content the house itself reads, before and after — is a
+     * red receipt, and its yes and its sign of calm are never written.
+     *
      * @param array{measures: bool, refutes: bool, watches: bool, stops: bool, subject: ?string} $noted     what {@see self::witnessing()} noted before the run
      * @param array<string, mixed>                                                               $arguments
+     * @param string|null                                                                        $loaded    the pin of the operation as the process that ran it read it when it was told of it — or `null`: it has none to give
+     * @param bool                                                                               $elsewhere the run left the process the house judges in
      *
      * @throws \RuntimeException when the house saw something and could not write it down
      */
-    public function witnessed(array $noted, Operation $operation, array $arguments, mixed $result, ?ToolContext $context): void
+    public function witnessed(array $noted, Operation $operation, array $arguments, mixed $result, ?ToolContext $context, ?string $loaded, bool $elsewhere = false): void
     {
         $ledger = StandingLedger::forRoot($this->root);
         $now = $this->now();
@@ -618,34 +649,64 @@ final class HouseStandingJudge
         $pin = OperationPin::of($operation, $this->root);
         $instrument = $operation->instrumentDigest() === null ? null : $pin;
         $subject = $noted['subject'];
+        // What speaks FOR a grant — a yes, a sign of calm — is taken from this process, as the code it loaded.
+        $vouched = !$elsewhere && $pin !== null && $pin === $loaded;
         // A run that is exactly the one a condition describes leaves its receipt, green or red. Any other run of
         // that instrument leaves one when it says NO, and never when it says yes.
-        $speaks = $noted['measures'] || ($noted['refutes'] && \is_array($result) && ($result['ok'] ?? null) !== true);
+        $no = \is_array($result) && ($result['ok'] ?? null) !== true;
+        $speaks = $no ? $noted['refutes'] : ($noted['measures'] && $vouched);
         if ($speaks && $subject !== null && $instrument !== null
             && $operation->actsOnDigest($arguments) === $subject
             && \is_array($result) && ($result['acted_on'] ?? null) === $subject) {
             // The receipt is given the NAME, as the catalogue spells it: the contract makes the identity from the text
             // after looking at it, and takes no identity built elsewhere (its seventh review).
-            $ledger->append(StandingLedger::MEASURED, (new ConditionReceipt(
-                $operation->name,
-                $arguments,
-                $subject,
-                ($result['ok'] ?? null) === true,
-                $instrument,
-                $who,
-                $now,
-            ))->toArray(), $now);
+            $green = ($result['ok'] ?? null) === true;
+            $receipt = static fn (array $carried): array => (new ConditionReceipt($operation->name, $carried, $subject, $green, $instrument, $who, $now))->toArray();
+            $green
+                ? $ledger->append(StandingLedger::MEASURED, $receipt($arguments), $now)
+                : self::narrowing($ledger, StandingLedger::MEASURED, $receipt, $arguments, $now);
         }
 
         $fired = \is_array($result) ? ($result['fired'] ?? null) : null;
-        if ($fired === true ? $noted['stops'] : ($fired === false && $noted['watches'] && $pin !== null)) {
-            $ledger->append(StandingLedger::WATCHED, [
+        if ($fired === true ? $noted['stops'] : ($fired === false && $noted['watches'] && $vouched)) {
+            $sign = static fn (array $carried): array => [
                 'watcher' => (new OperationId($operation->name))->canonical,
-                'arguments' => $arguments,
+                'arguments' => $carried,
                 'fired' => $fired,
                 'who' => $who,
                 'pin' => $pin,
-            ], $now);
+            ];
+            $fired
+                ? self::narrowing($ledger, StandingLedger::WATCHED, $sign, $arguments, $now)
+                : $ledger->append(StandingLedger::WATCHED, $sign($arguments), $now);
+        }
+    }
+
+    /** Under which name a line keeps the arguments of a run when it cannot keep them as they came: no argument is named so. */
+    public const NOT_KEPT = 'not kept as it came';
+
+    /**
+     * Write a line that only NARROWS — a watcher's «fired», an instrument's no — whatever its run carried (fourth
+     * review, L1; what Rod decided for both on 2026-10-12: from ANY run).
+     *
+     * A line carries the arguments of the run, and a caller chooses those: a number JSON writes as `-0`, a value
+     * nested deeper than a line is read, bytes that are not text. The book does not take such a line — and it was
+     * the stop that was dropped: the falsifier had fired, the caller was told «could not be written», and the grant
+     * stayed in force. Stopping asks for nobody's arguments. So when the line does not fit with them it is written
+     * with their SPELLING in their place — the house's own, a line long ({@see Canonical::shown()}) — and only if
+     * that cannot be written either does this throw.
+     *
+     * @param \Closure(array<string, mixed>): array<string, mixed> $line      the line, given the arguments it keeps
+     * @param array<string, mixed>                                 $arguments what the run carried
+     *
+     * @throws \RuntimeException when the book cannot be written at all
+     */
+    private static function narrowing(StandingLedger $ledger, string $type, \Closure $line, array $arguments, \DateTimeImmutable $now): void
+    {
+        try {
+            $ledger->append($type, $line($arguments), $now);
+        } catch (\RuntimeException) {
+            $ledger->append($type, $line([self::NOT_KEPT => Canonical::shown($arguments)]), $now);
         }
     }
 

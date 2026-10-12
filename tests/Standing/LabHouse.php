@@ -80,6 +80,13 @@ final class LabHouse implements SignatureVerifier
     /** What a handler of this house was handed as its caller's authority, when a test asked it to keep it. */
     public ?ToolContext $seen = null;
 
+    /**
+     * Whether every call through this house's door is made by a process that BOOTS FOR IT — which is what a command
+     * typed at a terminal is. A test of a process that lives — a leg, a server — turns this off and says when that
+     * process boots ({@see self::boots()}): what a process loaded is what it read when it was told its catalogue.
+     */
+    public bool $aProcessPerCall = true;
+
     /** What `lab:publish` says it consumed instead of what it read — a test's way of swapping the bytes under an act. */
     public ?string $consumed = null;
 
@@ -225,6 +232,9 @@ final class LabHouse implements SignatureVerifier
      */
     public function through(ToolContext $context, string $name, array $input = [], ?GrantedAuthorization $signature = null): array
     {
+        if ($this->aProcessPerCall && !$this->atTheBoundary) {
+            $this->boots();
+        }
         $operation = $this->operation($name);
         $tool = McpProjector::toolName($name);
         $context = $this->policy->contextFor($context, $tool, $input);
@@ -264,12 +274,34 @@ final class LabHouse implements SignatureVerifier
         return \is_array($result) ? $result : ['result' => $result];
     }
 
+    /**
+     * A process of this house boots NOW: it forgets what another one had read, and is told the catalogue — in a house
+     * that keeps a book, that is when it reads what each operation is, which is what it then says it loaded.
+     */
+    public function boots(): void
+    {
+        (function (): void {
+            $this->loaded->exchangeArray([]);
+            $this->booted->exchangeArray([]);
+        })->call($this->policy);
+        PluginAuthoringPolicy::catalogue($this->container, $this->operations);
+    }
+
     /** Operations added to this house's catalogue after it was built. */
     public function offer(Operation ...$operations): void
     {
         PluginAuthoringPolicy::catalogue($this->container, array_values($operations));
         $names = array_map(static fn (Operation $operation): string => $operation->name, $operations);
         $this->operations = [...array_values(array_filter($this->operations, static fn (Operation $known): bool => !\in_array($known->name, $names, true))), ...array_values($operations)];
+    }
+
+    /**
+     * Operations a second provider declares: the catalogue is told again WHOLE, with these beside what it held — which
+     * is how two operations come to answer to one identity (`lab:scan` and `lab_scan` are one).
+     */
+    public function offerBeside(Operation ...$operations): void
+    {
+        $this->operations = PluginAuthoringPolicy::catalogue($this->container, [...$this->operations, ...array_values($operations)]);
     }
 
     /**

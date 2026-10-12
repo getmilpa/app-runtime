@@ -394,7 +394,7 @@ final class TheBookOfStandingGrantsIsAChainTest extends TestCase
         self::assertSame('key:' . LabHouse::PERSON, $grant['granted_by']);
         self::assertSame([LabHouse::SEAT], $grant['lends_to']);
         self::assertSame('compensatable', $grant['ceiling']['reversibility']);
-        self::assertSame(['no-host-names — what is published names no machine — measured by lab:scan'], $grant['conditions']);
+        self::assertSame(['no-host-names — what is published names no machine — measured by lab:scan (path: any value)'], $grant['conditions']);
         self::assertSame('lab:watch, every 3600 s at most', $grant['watched_by']);
         self::assertNull($grant['watcher_last_sign'], 'a sign from before the suspension does not count');
         self::assertSame('2027-01-01T00:00:00+00:00', $grant['expires_at']);

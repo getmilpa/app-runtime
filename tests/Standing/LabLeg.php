@@ -83,6 +83,8 @@ final class LabLeg
         $work = $this->file('work-run.php', "<?php\nrequire {$autoload};\nexit({$runs}(\$argv[1] ?? '', \$argv[2] ?? '', \$argv[3] ?? '{}', 'work'));\n");
 
         $house->container->registerService(CallPolicy::class, $house->policy);
+        // A leg is ONE process for all its calls, and it boots here: what it loaded is what the disk held now.
+        $house->boots();
         $registry = new ToolRegistry(new NullLogger());
         (new McpProjector())->projectAll($operations, $registry, $house->container);
         $this->off = new AdmissionAwareRegistry($registry);
@@ -129,7 +131,12 @@ final class LabLeg
             }
         };
         $container = new DIContainer();
-        $container->registerService(OperationBoundary::class, new PluginAuthoringPolicy($root, standing: new HouseStandingJudge($root, $verifier)));
+        // THE PROCESS A LEG STARTS DOES NOT SEE THE BOOK. The real runner masks the book and its head from every
+        // confined process (`TrialRunner::maskArgs()`), and a copy is made without them; this stand-in confines
+        // nothing, so the judge of the process it stands for is handed a place where no book is. Without that, a
+        // watcher run «out of process» wrote its own line in the house's book from here, and the suite could not see
+        // that the house itself heard nothing (the fourth review, H1).
+        $container->registerService(OperationBoundary::class, new PluginAuthoringPolicy($root, standing: new HouseStandingJudge($root . '/storage/identity/as-masked-from-a-confined-process', $verifier)));
         $operations = PluginAuthoringPolicy::catalogue($container, [
             ...(new LabShelf($root))->operations(),
             ...(new StandingOperations($container, $root, $verifier))->operations(),

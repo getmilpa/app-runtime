@@ -45,9 +45,10 @@ final class AdmissionAwareGate extends PolicyGate
      */
     public function contextFor(ToolContext $ctx, string $tool, ?array $arguments = null): ToolContext
     {
-        $policy = $this->inner->getCallPolicy();
+        // The house's policy behind whatever this gate holds — a guard of permissions wraps it ({@see PluginAuthoringPolicy::behind()}).
+        $policy = PluginAuthoringPolicy::behind($this->inner->getCallPolicy());
 
-        return $policy instanceof PluginAuthoringPolicy ? $policy->contextFor($ctx, $tool, $arguments) : $ctx;
+        return $policy !== null ? $policy->contextFor($ctx, $tool, $arguments) : $ctx;
     }
 
     /**
@@ -98,8 +99,8 @@ final class AdmissionAwareGate extends PolicyGate
         if ($result->allowed) {
             return $result;
         }
-        $policy = $this->inner->getCallPolicy();
-        $refusal = $policy instanceof PluginAuthoringPolicy ? $policy->refusalAtTheGate($seen, $tool->name, $tool->scopes, $arguments, $result->reason, written: false) : null;
+        $policy = PluginAuthoringPolicy::behind($this->inner->getCallPolicy());
+        $refusal = $policy !== null ? $policy->refusalAtTheGate($seen, $tool->name, $tool->scopes, $arguments, $result->reason, written: false) : null;
 
         return $refusal === null ? $result : AuthorizationResult::denied($refusal);
     }

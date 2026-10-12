@@ -67,6 +67,15 @@ final class OperationPin
     private static array $installed = [];
 
     /**
+     * What was read while SEVERAL operations are pinned at one moment ({@see self::ofEach()}): each file, each
+     * plugin's directory and the list of what was installed, once. `null` outside such a moment — where every
+     * reading is made again, as it always was.
+     *
+     * @var array{files: array<string, ?string>, directories: array<string, ?string>, installed: array<string, list<array{name: string, at: string, state: ?string}>>}|null
+     */
+    private static ?array $once = null;
+
+    /**
      * The digest that pins this operation in the house at this root, or `null` when it cannot be pinned
      * ({@see self::whyNot()} says why).
      */
@@ -75,6 +84,25 @@ final class OperationPin
         $read = self::read($operation, $root);
 
         return \is_string($read) ? null : 'sha256:' . hash('sha256', Canonical::json($read));
+    }
+
+    /**
+     * The pin of each of these operations, read AT ONE MOMENT: a file many of them are written in is read once, and
+     * so is the list of what this house installed. It is what a process does when its catalogue is told — a house
+     * of seventy operations cost seventy readings of that list.
+     *
+     * @param list<Operation> $operations
+     *
+     * @return list<?string> in the order of the operations
+     */
+    public static function ofEach(array $operations, string $root): array
+    {
+        self::$once = ['files' => [], 'directories' => [], 'installed' => []];
+        try {
+            return array_map(static fn (Operation $operation): ?string => self::of($operation, $root), $operations);
+        } finally {
+            self::$once = null;
+        }
     }
 
     /** Why this operation cannot be pinned in the house at this root — or `null`: it can. */
@@ -195,6 +223,19 @@ final class OperationPin
      */
     private static function directory(string $directory): ?string
     {
+        if (self::$once !== null && \array_key_exists($directory, self::$once['directories'])) {
+            return self::$once['directories'][$directory];
+        }
+        $state = self::walked($directory);
+        if (self::$once !== null) {
+            self::$once['directories'][$directory] = $state;
+        }
+
+        return $state;
+    }
+
+    private static function walked(string $directory): ?string
+    {
         $files = [];
         try {
             $walk = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS));
@@ -223,6 +264,20 @@ final class OperationPin
     private static function installedIn(string $root): array
     {
         $file = $root . '/vendor/composer/installed.json';
+        if (isset(self::$once['installed'][$file])) {
+            return self::$once['installed'][$file];
+        }
+        $packages = self::installedBy($file);
+        if (self::$once !== null) {
+            self::$once['installed'][$file] = $packages;
+        }
+
+        return $packages;
+    }
+
+    /** @return list<array{name: string, at: string, state: ?string}> */
+    private static function installedBy(string $file): array
+    {
         $bytes = is_file($file) ? @file_get_contents($file) : false;
         if ($bytes === false) {
             return [];
@@ -283,8 +338,15 @@ final class OperationPin
      */
     private static function digestOf(string $path): ?string
     {
+        if (self::$once !== null && \array_key_exists($path, self::$once['files'])) {
+            return self::$once['files'][$path];
+        }
         $digest = is_file($path) ? @hash_file('sha256', $path) : false;
+        $digest = $digest === false ? null : $digest;
+        if (self::$once !== null) {
+            self::$once['files'][$path] = $digest;
+        }
 
-        return $digest === false ? null : $digest;
+        return $digest;
     }
 }

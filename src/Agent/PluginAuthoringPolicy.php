@@ -19,6 +19,8 @@ use Milpa\Command\Operation;
 use Milpa\AppRuntime\Auth\HostPermissionPolicy;
 use Milpa\AppRuntime\Standing\HouseStandingJudge;
 use Milpa\AppRuntime\Standing\NotAbsorbed;
+use Milpa\AppRuntime\Standing\StandingLedger;
+use Milpa\AppRuntime\Standing\OperationPin;
 use Milpa\AppRuntime\Standing\StandingDecision;
 use Milpa\Console\McpProjector;
 use Milpa\Console\OperationBoundary;
@@ -69,6 +71,31 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
     private \ArrayObject $catalogued;
 
     /**
+     * The identities two DIFFERENT operations of the catalogue answer to, with where each of them is written — shared
+     * with every copy of this policy. A house takes such a catalogue as the published runtime does; a grant does not.
+     *
+     * @var \ArrayObject<string, list<string>>
+     */
+    private \ArrayObject $twice;
+
+    /**
+     * What each operation WAS when this process was told of it: the operation as it was told — its identity and where
+     * its handler is written — => its pin, or '' when it could not be pinned. Shared with every copy of this policy,
+     * and never read again from the disk: it is what says which code this process is running.
+     *
+     * @var \ArrayObject<string, string>
+     */
+    private \ArrayObject $loaded;
+
+    /**
+     * Under `with a book`: whether this house kept a book of standing grants when this process was first told its
+     * catalogue. One that did not has no record of what it loaded, and cannot speak for a grant given since.
+     *
+     * @var \ArrayObject<string, bool>
+     */
+    private \ArrayObject $booted;
+
+    /**
      * @param (\Closure(): ?\Milpa\Agent\SessionStore)|null $sessions
      * @param JudgedPermission|null                         $judged       the HTTP policy's verdict on the permissioned
      *                                                                    operation now running; without it a mutation
@@ -92,6 +119,9 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
     ) {
         $this->permissioned = new \ArrayObject();
         $this->catalogued = new \ArrayObject();
+        $this->twice = new \ArrayObject();
+        $this->loaded = new \ArrayObject();
+        $this->booted = new \ArrayObject();
     }
 
     /**
@@ -145,18 +175,22 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
      * at authorization, as one that declares no authority — and the terminal asks this policy before it asks the
      * permission judge.
      *
-     * ONE TELLING HOLDS ONE OPERATION UNDER EACH IDENTITY (greenhouse decisions/0615, «Lo que la tercera revisión
-     * encontró», L5). The judge of standing grants reads the operation this keeps under a name, and a terminal runs
-     * the one it finds first under it: with two, they would not mean the same one. So a catalogue that declares two
-     * DIFFERENT operations under one identity — `lab:scan` and `lab_scan` are one — is refused whole, here, where
-     * every surface hands its catalogue. The same operation declared twice is one operation, and a catalogue told
-     * again replaces what was told before, as it always did.
+     * TWO OPERATIONS UNDER ONE IDENTITY ARE TOLD, AND NO GRANT IS HONOURED OVER THAT NAME (greenhouse decisions/0615,
+     * the third review's L5 and the fourth's M4). The judge of standing grants reads the operation this keeps under a
+     * name, and a terminal runs the one it finds first under it: with two — `lab:scan` and `lab_scan` are one — they
+     * would not mean the same one. That was first closed by refusing such a catalogue WHOLE, here, where every
+     * surface hands its catalogue: and a house that never gave a grant refused every command it was asked, the ones
+     * that would have taken the second operation away among them, where the published runtime ran. So the catalogue
+     * is taken as it always was, the identity is remembered ({@see self::answeredTwice()}), and it is the JUDGE that
+     * does not take it: no grant is given over such a name, and one given before the twin appeared is not honoured.
+     * The same operation declared twice is one operation, and a catalogue told again replaces what was told before.
+     *
+     * AND WHAT EACH OPERATION IS, AS THIS PROCESS LOADED IT, IS READ HERE AND KEPT (fourth review, M1) — in a house
+     * that keeps a book; in one that does not, nothing is read ({@see self::remembers()}).
      *
      * @param list<Operation> $operations
      *
      * @return list<Operation>
-     *
-     * @throws \RuntimeException when two different operations of this catalogue answer to one identity
      */
     public static function catalogue(\Milpa\Interfaces\Di\DIContainerInterface $container, array $operations): array
     {
@@ -164,17 +198,14 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         if ($boundary instanceof self) {
             $told = [];
             foreach ($operations as $operation) {
-                $identity = new OperationId($operation->name);
-                $written = self::writtenAt($operation);
-                if (isset($told[$identity->canonical]) && $told[$identity->canonical] !== $written) {
-                    throw new \RuntimeException(\sprintf(
-                        'two operations answer to `%s` in this house (%s, and %s): a grant, a judge and a terminal would not mean the same one. One of them takes another name.',
-                        $identity->forCli(),
-                        $told[$identity->canonical],
-                        $written,
-                    ));
+                $told[(new OperationId($operation->name))->canonical][self::writtenAt($operation)] = true;
+            }
+            foreach ($told as $identity => $written) {
+                if (\count($written) > 1) {
+                    $boundary->twice[$identity] = array_keys($written);
+                } elseif (isset($boundary->twice[$identity])) {
+                    unset($boundary->twice[$identity]);
                 }
-                $told[$identity->canonical] = $written;
             }
             foreach ($operations as $operation) {
                 if ($operation->permission !== null) {
@@ -182,9 +213,105 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
                 }
                 $boundary->catalogued[(new OperationId($operation->name))->canonical] = $operation;
             }
+            $boundary->remembers($operations);
         }
 
         return $operations;
+    }
+
+    /**
+     * Why no grant is given, or honoured, over this identity — two different operations of this house answer to it —
+     * or `null`: one does, or none.
+     */
+    public function answeredTwice(OperationId|string $operation): ?string
+    {
+        $id = $operation instanceof OperationId ? $operation : new OperationId($operation);
+        $written = $this->twice[$id->canonical] ?? null;
+
+        return $written === null ? null : \sprintf(
+            'two operations answer to `%s` in this house (%s): a grant, a judge and a terminal would not mean the same one',
+            $id->forCli(),
+            implode(', and ', $written),
+        );
+    }
+
+    /**
+     * WHAT THIS PROCESS LOADED IS READ WHEN IT IS TOLD, AND NEVER AGAIN (fourth review, M1; what Rod decided on
+     * 2026-10-12 — «a receipt carries the pin of what PRODUCED it» — applied to a process that lives long).
+     *
+     * A pin is read from the disk, and the disk can be another by the time a process answers: a leg that loaded a
+     * guard before a person hardened it measured a candidate with the guard it had loaded, and its yes was written
+     * under the pin of the hardened one — the one the grant had just been given over. So what each operation is, is
+     * read ONCE, here, where the process is told of it: that is as near to «what was loaded» as a house can read.
+     * A yes, a sign of calm and an act under a grant then ask that the pin read NOW be that one.
+     *
+     * ONLY IN A HOUSE THAT KEEPS A BOOK. Where nobody ever granted anything, nothing is read — such a house behaves
+     * as the published runtime, and costs what it costs. So a process that started before its house kept a book has
+     * no record of what it loaded, and it does not speak for a grant given since: it is started again.
+     *
+     * WHAT THIS DOES NOT SEE: a file of the operation's unit that this process loads AFTER this reading, changed in
+     * between and put back before it answers. And, as before, code in another unit that the handler reaches.
+     *
+     * @param list<Operation> $operations
+     */
+    private function remembers(array $operations): void
+    {
+        $this->booted['with a book'] ??= StandingLedger::forRoot($this->root)->exists();
+        if ($this->booted['with a book'] !== true) {
+            return;
+        }
+        $fresh = array_values(array_filter($operations, fn (Operation $operation): bool => !isset($this->loaded[self::toldAs($operation)])));
+        foreach (OperationPin::ofEach($fresh, $this->root) as $at => $pin) {
+            $this->loaded[self::toldAs($fresh[$at])] = $pin ?? '';
+        }
+    }
+
+    /** The pin of this operation as this process read it when it was told of it — or `null`: it has none to give. */
+    private function asThisProcessLoadedIt(Operation $operation): ?string
+    {
+        $pin = $this->loaded[self::toldAs($operation)] ?? '';
+
+        return $pin === '' ? null : $pin;
+    }
+
+    /** An operation as a process is told of it: its identity, and where its handler is written. */
+    private static function toldAs(Operation $operation): string
+    {
+        return (new OperationId($operation->name))->canonical . ' @ ' . self::writtenAt($operation);
+    }
+
+    /**
+     * Whether a leg with trials on runs this operation OUTSIDE its own process, by what the operation declares: as
+     * work confined in the house, or rehearsed in a copy ({@see HouseWork::declaresWork()}, {@see TrialRouter::eligible()}).
+     * A run in this process is heard whole by the judge of standing grants; one that leaves it, only when it narrows.
+     */
+    public function runsElsewhereOnALeg(Operation $operation): bool
+    {
+        return HouseWork::declaresWork($operation) || (new TrialRouter($this->root, $this->runner, ''))->eligible($operation);
+    }
+
+    /**
+     * THE HOUSE'S POLICY BEHIND WHAT A GATE HOLDS: itself, or the one a guard of permissions holds inside — or `null`
+     * (found sweeping every door after the fourth review).
+     *
+     * The projector of milpa/console wraps a gate's policy the moment ONE operation typed by `permission` is told to
+     * a registry, and every door of a leg asked «is the gate's policy the house's?» of the wrapper: it was not, so
+     * nothing was lent, no refusal cited the judge, and a run that leaves the process — a rehearsal, work in the
+     * house — never crossed the judge at all. An act a grant covers ran with nothing written before it. So a leg asks
+     * here, and the wrapper is looked into.
+     *
+     * The guard keeps the host's policy in a private place and hands it to nobody; it is read by reflection, and a
+     * guard that keeps it elsewhere one day makes this THROW: a leg that cannot find the house's judge does not go
+     * on as if there were none.
+     */
+    public static function behind(?CallPolicy $held): ?self
+    {
+        if ($held instanceof self || !$held instanceof PermissionCallPolicy) {
+            return $held instanceof self ? $held : null;
+        }
+        $host = (new \ReflectionProperty(PermissionCallPolicy::class, 'host'))->getValue($held);
+
+        return $host instanceof self ? $host : null;
     }
 
     /** Where an operation's handler is written — which tells one operation from another that took its name. */
@@ -267,7 +394,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             // that seat holds on its own — a condition that a scope given separately walks around is not a condition.
             // The operator's own terminal and a key no grant names are not this judge's: it says nothing of them.
             $operation = $this->operationNamed($name);
-            $decided = $operation === null ? null : $this->standing()->decide($context, $operation, $arguments, $this->operationNamed(...));
+            $decided = $operation === null ? null : $this->standing()->decide($context, $operation, $arguments, $this->operationNamed(...), $this->answeredTwice(...));
             if ($decided?->named() === true && !$decided->passes()) {
                 $this->standing()->refused($decided);
 
@@ -378,11 +505,11 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         }
         $standing = $this->standing();
         if ($arguments === null) {
-            $lent = $standing->offers($context, $operation, $this->operationNamed(...));
+            $lent = $standing->offers($context, $operation, $this->operationNamed(...), $this->answeredTwice(...));
 
             return $lent === [] ? $context : HouseStandingJudge::withLent($context, $tool, $lent);
         }
-        $lent = $standing->lends($context, $operation, $standing->decide($context, $operation, $arguments, $this->operationNamed(...)));
+        $lent = $standing->lends($context, $operation, $standing->decide($context, $operation, $arguments, $this->operationNamed(...), $this->answeredTwice(...)));
 
         return $lent === [] ? $context : HouseStandingJudge::withLent($context, $tool, $lent);
     }
@@ -412,7 +539,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         }
         $operation = $this->operationNamed($tool);
         $standing = $this->standing();
-        $decided = $operation === null ? null : $standing->decide(HouseStandingJudge::withoutLent($seen), $operation, $arguments, $this->operationNamed(...));
+        $decided = $operation === null ? null : $standing->decide(HouseStandingJudge::withoutLent($seen), $operation, $arguments, $this->operationNamed(...), $this->answeredTwice(...));
         $because = $decided?->refusal();
         if ($decided === null || $because === null) {
             return null;
@@ -636,7 +763,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         $noted = $standing->witnessing($operation, $input);
         $result = $this->governed($operation, $input, $authority, $next);
         if ($noted !== null) {
-            $standing->witnessed($noted, $operation, $input, $result, $authority);
+            $standing->witnessed($noted, $operation, $input, $result, $authority, $this->asThisProcessLoadedIt($operation));
         }
 
         return $result;
@@ -686,6 +813,19 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         if ($decided?->passes() !== true) {
             return $this->carriedOut($operation, $input, $context, $name, $next);
         }
+        // …AND ONLY AS THE OPERATION THIS PROCESS LOADED (fourth review, M1). The judge asked that the operation ON
+        // DISK be the one the grant was given over; what runs here is what this process loaded, and a process that
+        // outlived an update runs the code from before it. Asked before the house writes that it lets the act pass.
+        $loaded = $this->asThisProcessLoadedIt($operation);
+        if ($loaded === null || $loaded !== OperationPin::of($operation, $this->root)) {
+            throw new \RuntimeException(\sprintf(
+                '`%s` is covered by a standing grant, and a grant is given over what an operation IS: %s. Start this process again — a leg, a server — and it runs what the grant was given over. Nothing ran.',
+                (new OperationId($operation->name))->forCli(),
+                $loaded === null
+                    ? 'this process loaded it before this house kept a book of standing grants, or could not pin it, so it cannot say which code it is running'
+                    : 'what this process loaded is not what the disk holds now — its code or its package changed while this process was running',
+            ));
+        }
 
         // Then the act goes the way any call of that operation goes: a build call still runs in its trial.
         return $this->underAGrant($context, $operation, $input, fn (): mixed => $this->carriedOut($operation, $input, $context, $name, $next));
@@ -716,11 +856,27 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
     public function crossing(?ToolContext $authority, Operation $operation, array $input, \Closure $run, \Closure $answered): mixed
     {
         $context = HouseStandingJudge::withoutLent($authority ?? ToolContext::cli());
-        if ($this->standing()->decide($context, $operation, $input, $this->operationNamed(...))?->named() !== true) {
-            return $run();
+        $standing = $this->standing();
+        // WHAT SPEAKS ABOUT AN ACT IS HEARD ON THIS DOOR TOO — AND ONLY WHAT STOPS (fourth review, H1; WHAT is heard
+        // is a PROPOSAL, not decided). The judge was put on this door for the act a grant covers, and not for what
+        // speaks about it: a watcher or an instrument that a leg runs as work, or rehearses, answered the seat «fired»
+        // or «no», the process that ran it saw no book, and the house wrote nothing — the grant stayed in force and
+        // the next covered act ran. So the run is noted before and read after, here, as {@see self::execute()} does
+        // for a run in this process. From a run that left it only what NARROWS is taken: a «fired», and a no said of
+        // the content the house itself reads. A yes and a sign of calm are not — the house did not run that code.
+        $noted = $standing->witnessing($operation, $input);
+        $heard = static function (mixed $result) use ($standing, $noted, $operation, $input, $answered, $authority): mixed {
+            if ($noted !== null) {
+                $standing->witnessed($noted, $operation, $input, $answered($result), $authority, null, elsewhere: true);
+            }
+
+            return $result;
+        };
+        if ($standing->decide($context, $operation, $input, $this->operationNamed(...), $this->answeredTwice(...))?->named() !== true) {
+            return $heard($run());
         }
 
-        return $this->underAGrant($context, $operation, $input, $run, $answered);
+        return $heard($this->underAGrant($context, $operation, $input, $run, $answered));
     }
 
     /**
@@ -746,7 +902,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
     {
         $standing = $this->standing();
         try {
-            $absorbed = $standing->absorbing($context, $operation, $input, $this->operationNamed(...));
+            $absorbed = $standing->absorbing($context, $operation, $input, $this->operationNamed(...), $this->answeredTwice(...));
         } catch (\RuntimeException $unwritten) {
             throw new NotAbsorbed($unwritten->getMessage(), previous: $unwritten);
         }

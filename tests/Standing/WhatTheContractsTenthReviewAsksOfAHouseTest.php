@@ -70,7 +70,7 @@ final class WhatTheContractsTenthReviewAsksOfAHouseTest extends TestCase
 
         $listed = $this->house->as(null, 'standing:granted')['grants'][0];
 
-        self::assertStringEndsWith('measured by lab:scan (level=7, mode="true", note="a \\"quoted\\" \\\\ word", strict=true, tag="7")', $listed['conditions'][0]);
+        self::assertStringEndsWith('measured by lab:scan (level=7, mode="true", note="a \\"quoted\\" \\\\ word", strict=true, tag="7", path: any value)', $listed['conditions'][0]);
     }
 
     /** L2 · a seat is handed to the contract as text, from files that declare strict_types. */

@@ -38,6 +38,16 @@ use Milpa\Command\Operation;
  * that is how a test reads whether the house wrote the act down before it ran. Three arguments make an act misbehave
  * on purpose: `quiet` (it does not say what it consumed), `seal` (it leaves the book unwritable) and `crash` (the
  * process that runs it dies without an answer).
+ *
+ * AND WHAT SPEAKS ABOUT AN ACT, AS A LEG RUNS IT (the fourth review, H1). One watcher and one instrument, each under
+ * three names that differ only in what they declare — and so in WHERE a leg runs them:
+ *
+ *   shelf:glance · shelf:check   read-only: in the leg's own process;
+ *   shelf:patrol · shelf:weigh   work in the domain: in the house, confined, in another process;
+ *   shelf:survey · shelf:audit   a mutation that is not work: rehearsed in a copy of the house.
+ *
+ * The watcher says «fired» when the file `shelf-fired` is in the tree it runs in. The instrument says no of content
+ * that names a machine, and — asked to be `strict`, an argument no condition describes — of everything.
  */
 final class LabShelf implements CommandProvider, DeclaresWorkState
 {
@@ -54,7 +64,7 @@ final class LabShelf implements CommandProvider, DeclaresWorkState
             ($this->between)();
         }
 
-        return ['shelf:lend' => ['storage/shelf']];
+        return ['shelf:lend' => ['storage/shelf'], 'shelf:patrol' => ['storage/shelf'], 'shelf:weigh' => ['storage/shelf']];
     }
 
     public function operations(): array
@@ -84,7 +94,26 @@ final class LabShelf implements CommandProvider, DeclaresWorkState
             return ($input['quiet'] ?? false) === true ? ['ok' => true] : ['ok' => true, 'acted_on' => 'sha256:' . hash('sha256', $bytes)];
         };
 
+        $watch = static fn (array $input): array => ['ok' => true, 'fired' => is_file($root . '/shelf-fired')];
+        $measure = static function (array $input) use ($root): array {
+            $bytes = (string) file_get_contents($root . '/' . $input['path']);
+
+            return ['ok' => !str_contains($bytes, 'machine-name:') && ($input['strict'] ?? false) !== true, 'acted_on' => 'sha256:' . hash('sha256', $bytes)];
+        };
+        $measured = ['type' => 'object', 'properties' => ['path' => ['type' => 'string'], 'strict' => ['type' => 'boolean']], 'required' => ['path']];
+        $none = ['type' => 'object', 'properties' => []];
+        $where = static fn (Subject $subject): EffectProfile => new EffectProfile(Mutation::Persistent, Externality::None, Reversibility::Compensatable, Authority::WriteAsUser, subject: $subject);
+        $speaks = [
+            new Operation('shelf:glance', 'Lab: watch the shelf — read-only', $watch, $none, scopes: ['shelf:write'], effects: EffectProfile::readOnly()),
+            new Operation('shelf:patrol', 'Lab: watch the shelf — declared as work in the domain', $watch, $none, mutating: true, scopes: ['shelf:write'], effects: $where(Subject::Data)),
+            new Operation('shelf:survey', 'Lab: watch the shelf — declared as a mutation a leg rehearses', $watch, $none, mutating: true, scopes: ['shelf:write'], effects: $where(Subject::Configuration)),
+            new Operation('shelf:check', 'Lab: measure an item — read-only', $measure, $measured, scopes: ['shelf:write'], effects: EffectProfile::readOnly(), actsOn: $actsOn),
+            new Operation('shelf:weigh', 'Lab: measure an item — declared as work in the domain', $measure, $measured, mutating: true, scopes: ['shelf:write'], effects: $where(Subject::Data), actsOn: $actsOn),
+            new Operation('shelf:audit', 'Lab: measure an item — declared as a mutation a leg rehearses', $measure, $measured, mutating: true, scopes: ['shelf:write'], effects: $where(Subject::Configuration), actsOn: $actsOn),
+        ];
+
         return [
+            ...$speaks,
             new Operation(
                 name: 'shelf:lend',
                 description: 'Lab: lend an item from the shelf — work in the domain',

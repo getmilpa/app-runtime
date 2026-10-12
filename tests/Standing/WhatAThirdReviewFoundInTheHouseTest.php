@@ -217,7 +217,8 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
         $fault = (new StandingLedger($book))->fault();
         FillingDisk::$opening = null;
 
-        self::assertStringContainsString('line 2 does not link to the line before it', (string) $fault);
+        // Said since the fourth review as what it is: a book that does not end in a line break (its L2).
+        self::assertStringContainsString('does not end in a line break', (string) $fault);
         self::assertGreaterThan(1, $opened, 'control: it was looked at again');
         self::assertLessThanOrEqual(21, $opened, 'it was looked at again without end');
     }
@@ -359,28 +360,31 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
         yield 'by the plain walk, where there is no rsync' => [false];
     }
 
-    public function testTwoOperationsDoNotAnswerToOneNameInAHouse(): void
+    public function testTwoOperationsUnderOneNameAreToldAndNoGrantIsGivenOverThatName(): void
     {
-        // The judge would read the last one registered under a name and the terminal run the first.
+        // The judge would read the last one registered under a name and the terminal run the first. This was first
+        // closed by refusing such a catalogue whole — and a house with no grant then refused every command (the fourth
+        // review, M4). The catalogue is taken as the published runtime takes it; what is refused is the GRANT.
         $container = new DIContainer();
         $container->registerService(OperationBoundary::class, new PluginAuthoringPolicy($this->house->root));
+        $boundary = $container->get(OperationBoundary::class);
         $one = new Operation('lab:twice', 'Lab: one operation', static fn (array $input): array => ['ok' => true, 'which' => 'one'], scopes: ['lab:twice'], effects: EffectProfile::readOnly());
         $other = new Operation('lab_twice', 'Lab: another, under the same identity', static fn (array $input): array => ['ok' => true, 'which' => 'other'], scopes: ['lab:twice'], effects: EffectProfile::readOnly());
 
         // The same operation declared twice in one catalogue is one operation, and so is a catalogue told again.
         self::assertCount(2, PluginAuthoringPolicy::catalogue($container, [$one, $one]));
         PluginAuthoringPolicy::catalogue($container, [$one]);
-        $refused = null;
-        try {
-            PluginAuthoringPolicy::catalogue($container, [$one, $this->house->operation('lab:scan'), $other]);
-        } catch (\RuntimeException $error) {
-            $refused = $error->getMessage();
-        }
+        self::assertNull($boundary->answeredTwice('lab:twice'));
 
-        self::assertStringContainsString('two operations answer to `lab:twice` in this house', (string) $refused, 'a house took two operations under one name, and its judge and its terminal would not mean the same one');
-        self::assertNull($container->get(OperationBoundary::class)->operationNamed('lab:scan'), 'a catalogue that is refused is refused whole: nothing of it is kept');
-        self::assertSame($one, $container->get(OperationBoundary::class)->operationNamed('lab_twice'));
-        // A boundary that is not the house's keeps no catalogue, and has nothing to refuse.
+        self::assertCount(3, PluginAuthoringPolicy::catalogue($container, [$one, $this->house->operation('lab:scan'), $other]), 'a house refused the catalogue it was told');
+
+        self::assertStringContainsString('two operations answer to `lab:twice` in this house', (string) $boundary->answeredTwice('lab_twice'), 'a house took two operations under one name, and nothing remembers it');
+        self::assertNull($boundary->answeredTwice('lab:scan'));
+        self::assertNotNull($boundary->operationNamed('lab:scan'), 'the rest of the catalogue is kept');
+        // …and the day one of them takes another name, the identity is one operation's again.
+        PluginAuthoringPolicy::catalogue($container, [$one, $this->house->operation('lab:scan')]);
+        self::assertNull($boundary->answeredTwice('lab:twice'));
+        // A boundary that is not the house's keeps no catalogue, and has nothing to remember.
         self::assertCount(2, PluginAuthoringPolicy::catalogue(new DIContainer(), [$one, $other]));
     }
 
@@ -876,24 +880,31 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
 
     // ── the sibling of D7 in the house: the reason of a stop is written by any seat, and a person reads it ──
 
-    public function testTheReasonOfAStopIsOneLineOfPlainTextOrNothingIsStopped(): void
+    public function testTheReasonOfAStopIsKeptAsOneLineOfPlainTextAndTheStopAlwaysLands(): void
     {
         // Every text a grant keeps is one line of plain text (decided by Rod, 2026-10-12), because a listing and a
         // refusal print it. The reason of a stop is printed by the same listing and by the judge's own sentence —
-        // and whoever writes it is ANY seat the house recognizes.
-        $this->house->granted();
+        // and whoever writes it is ANY seat the house recognizes. This door first REFUSED a reason that was not one;
+        // since the fourth review (M3, a proposal) a stop is never sent back for its reason, and what the house KEEPS
+        // of such a reason is its spelling: what a person reads is still read as it is written.
         $forged = "seen\x1b[2K\rin force — nothing was stopped.\x1b[8m";
+        foreach ([$forged, "two\nlines", "a\ttab", "turned \u{202e}dnuora"] as $at => $reason) {
+            $house = new LabHouse();
+            $house->granted();
 
-        $said = $this->house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => $forged]);
+            $said = $house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => $reason]);
 
-        self::assertStringContainsString('one line of plain text', (string) ($said['error'] ?? 'SUSPENDED, and the listing prints: ' . json_encode($this->house->as(null, 'standing:granted', ['grant' => 'release-line'])['grants'][0]['because'] ?? null)));
-        self::assertSame(0, preg_match('/[\x00-\x1F\x7F]/', (string) ($said['error'] ?? '')), 'the refusal says it back raw');
-        self::assertSame([], $this->house->lines(StandingLedger::SUSPENDED), 'nothing was written');
-        self::assertSame(GrantState::InForce, $this->house->book()->record('release-line')?->state);
-        foreach (["two\nlines", "a\ttab", "turned \u{202e}dnuora"] as $reason) {
-            self::assertStringContainsString('one line of plain text', (string) ($this->house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => $reason])['error'] ?? 'SUSPENDED'));
+            self::assertTrue($said['ok'] ?? false, 'a stop was sent back for its reason: ' . json_encode($said));
+            self::assertSame(GrantState::Suspended, $house->book()->record('release-line')?->state);
+            $kept = (string) $house->lines(StandingLedger::SUSPENDED)[0]['reason'];
+            self::assertTrue(\Milpa\Command\Standing\Canonical::oneLine($kept), "reason {$at} was kept as it came");
+            $printed = (string) json_encode($house->as(null, 'standing:granted', ['grant' => 'release-line']), \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES);
+            self::assertSame(0, preg_match('/\x1b|\x{202e}/u', $printed), 'the listing prints what a terminal obeys');
+            self::assertStringContainsString('spelling', (string) ($said['reason_kept'] ?? ''), 'whoever stopped is not told that the reason was not kept as it came');
+            $house->destroy();
         }
-        // Control: a reason in plain words, in any language, stops the grant as before.
+        // Control: a reason in plain words, in any language, is kept as it came.
+        $this->house->granted();
         self::assertTrue($this->house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'se publicó «build-host-7» — revisar'])['ok'] ?? false);
         self::assertStringContainsString('se publicó «build-host-7» — revisar', (string) $this->house->book()->record('release-line')?->because);
     }
@@ -1084,7 +1095,7 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
 
         $listed = $this->house->as(null, 'standing:granted')['grants'][0];
 
-        self::assertStringEndsWith('measured by lab:scan (level=7, mode="true", strict=true, tag="7")', $listed['conditions'][0]);
+        self::assertStringEndsWith('measured by lab:scan (level=7, mode="true", strict=true, tag="7", path: any value)', $listed['conditions'][0]);
         self::assertSame('lab:publish (channel="stable")', $listed['covers'][0]);
     }
 

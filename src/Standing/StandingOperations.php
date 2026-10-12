@@ -224,6 +224,10 @@ final class StandingOperations implements CommandProvider
             if ($operation === null) {
                 return self::no('this house has no operation `' . $act->operation->forCli() . '` to grant — nothing was granted');
             }
+            $twice = $policy->answeredTwice($act->operation);
+            if ($twice !== null) {
+                return self::no($twice . '. One of them takes another name first — nothing was granted');
+            }
             // A VERB OF A CAPABILITY BUILT IN THIS HOUSE IS NOT GRANTED (decided by Rod, 2026-10-12). What opens such
             // a verb to a seat is a person's admission of that verb (greenhouse decisions/0590), asked before any
             // grant is: a grant over it would be signed, written and listed, and would never lend — measured on a
@@ -262,6 +266,27 @@ final class StandingOperations implements CommandProvider
         // names alone, a softer one registered later measures green what the first measured red. So what each of them
         // is today is kept beside the grant, like the operations it covers.
         $instruments = [];
+        foreach ([...array_map(static fn (GrantCondition $condition): array => [$condition->by->operation, \sprintf('condition «%s» is measured by', $condition->name)], $grant->conditions), [$grant->falsifier->watcher->operation, \sprintf('falsifier «%s» is watched by', $grant->falsifier->name)]] as [$named, $role]) {
+            // WHAT MEASURES AND WHAT WATCHES IS ONE OPERATION, AND NOT A VERB BUILT IN THIS HOUSE (fourth review: M4, and
+            // what it noted of this door — the second one is a PROPOSAL, not decided). Two operations under the name
+            // are not one instrument. And a verb a seat's session built is run, before a person admits it, by
+            // rehearsing it in a copy with no caller and no judge: what such a watcher says there, the house does not
+            // hear — so a grant is not measured or watched by one, as it is not given over one.
+            $twice = $policy->answeredTwice($named);
+            if ($twice !== null) {
+                return self::no(\sprintf('%s `%s`, and %s. One of them takes another name first — nothing was granted', $role, $named->forCli(), $twice));
+            }
+            $speaker = $policy->operationNamed($named);
+            $built = $speaker === null ? null : $policy->admissions()?->verb($speaker->name);
+            if ($built !== null) {
+                return self::no(\sprintf('%s `%s`, a verb of «%s», a capability built in this house. Before a person admits it a seat only rehearses such a verb, in a copy where this house hears nothing: it does not measure or watch a standing grant — nothing was granted', $role, $named->forCli(), $built->capability));
+            }
+            // …NOR AN AUTHORING CALL. `make`, `implement`, `edit` and `test` run in a trial whose answer comes back
+            // wrapped in the trial's own: what such a call says of a falsifier or of a candidate is not read there.
+            if ($speaker !== null && \in_array(\Milpa\Console\McpProjector::toolName($speaker->name), PluginAuthoringPolicy::BUILD, true)) {
+                return self::no(\sprintf('%s `%s`, an authoring call: it runs in a trial, and what it answers there is not read as a measurement or as a watcher\'s sign — nothing was granted', $role, $named->forCli()));
+            }
+        }
         foreach ($grant->conditions as $condition) {
             $instrument = $policy->operationNamed($condition->by->operation);
             $pin = $instrument?->instrumentDigest() === null ? null : OperationPin::of($instrument, $root);
@@ -284,6 +309,19 @@ final class StandingOperations implements CommandProvider
             return self::no(\sprintf('falsifier «%s» is watched by `%s`, which this house cannot pin: %s. It could not tell the day another watcher took its name — nothing was granted', $grant->falsifier->name, $grant->falsifier->watcher->operation->forCli(), (string) OperationPin::whyNot($watcher, $root)));
         }
         $instruments[$grant->falsifier->watcher->operation->canonical] = $pin;
+        // WHERE A LEG RUNS WHAT SPEAKS FOR THIS GRANT IS SAID WHEN IT IS GIVEN (fourth review, H1 — a PROPOSAL, not
+        // decided). An operation that mutates and lets nothing out of the house is run by a leg with trials on in
+        // another process — confined in the house, or rehearsed in a copy — and from there this house takes only what
+        // narrows. A person who names such an operation to measure or to watch is told what that means.
+        foreach ($grant->conditions as $condition) {
+            $instrument = $policy->operationNamed($condition->by->operation);
+            if ($instrument !== null && $policy->runsElsewhereOnALeg($instrument)) {
+                $warnings[] = \sprintf('`%s`, which measures condition «%s», is an operation a leg with trials on runs outside its own process: from such a run this house hears a no, and never a yes. A yes that counts for this grant is measured in the house\'s own process — at a terminal', $condition->by->operation->forCli(), $condition->name);
+            }
+        }
+        if ($policy->runsElsewhereOnALeg($watcher)) {
+            $warnings[] = \sprintf('`%s`, which watches falsifier «%s», is an operation a leg with trials on runs outside its own process: from such a run this house hears «fired», and never a sign of life. This grant lends only while its watcher is run in the house\'s own process — at a terminal — every %d s at most', $grant->falsifier->watcher->operation->forCli(), $grant->falsifier->name, $grant->falsifier->withinSeconds);
+        }
 
         try {
             $entry = $book->ledger()->append(StandingLedger::GRANTED, [
@@ -380,7 +418,9 @@ final class StandingOperations implements CommandProvider
                 'payload' => $granted->payload,
                 'signature' => $granted->signature,
                 'fingerprint' => $granted->signer->fingerprint,
-            ] + ($reinstating ? ['suspension' => $suspension] : []));
+                // …and WHICH RECOGNITION of whoever signs a reinstatement it is signed over: a person who leaves the
+                // house and is recognized again does not bring back what they lifted ({@see StandingBook}).
+            ] + ($reinstating ? ['suspension' => $suspension, 'recognized' => $book->recognitions([$granted->signer->fingerprint])] : []));
         } catch (\RuntimeException $error) {
             return self::no($error->getMessage() . $nothing);
         }
@@ -406,17 +446,7 @@ final class StandingOperations implements CommandProvider
     private function suspend(array $input, ?ToolContext $authority): array
     {
         $id = \is_string($input['grant'] ?? null) ? trim($input['grant']) : '';
-        $reason = \is_string($input['reason'] ?? null) ? trim($input['reason']) : '';
-        if ($reason === '') {
-            return self::no('say what was seen, in `reason`: it is what the person reads before lifting it — nothing was suspended');
-        }
-        // …AND IT IS READ AS IT IS WRITTEN. The reason is printed by the listing of grants and by the judge's own
-        // refusal, and whoever writes it is any seat the house recognizes: one that carried what a terminal obeys
-        // read «in force — nothing was stopped» over a grant it had just stopped. The same rule as every text a grant
-        // keeps (decided by Rod, 2026-10-12).
-        if (!Canonical::oneLine($reason)) {
-            return self::no(Canonical::notOneLine('say what was seen, in `reason`,', $reason) . ' — nothing was suspended');
-        }
+        [$reason, $kept] = self::reasonKept($input['reason'] ?? null);
         $root = $this->root();
         $book = $root === null ? null : StandingBook::forRoot($root, $this->verifier);
         $unverified = self::unverified($book);
@@ -430,12 +460,23 @@ final class StandingOperations implements CommandProvider
         if (\in_array($record->state, [GrantState::Revoked, GrantState::Superseded], true) || $record->stopped) {
             return self::no(\sprintf('«%s» is already %s: it lends nothing, and there is nothing to stop', $id, $record->stopped ? 'stopped, by what only a new grant lifts' : $record->state->value));
         }
-        try {
-            $entry = $book->ledger()->append(StandingLedger::SUSPENDED, [
+        $by = $authority === null ? 'local-shell' : ($authority->principal ?? 'unknown');
+        // …AND A KEY'S SECOND STOP OF WHAT IT ALREADY STOPPED IS THE SAME STOP: answered, and not written. Every call
+        // of every seat reads the whole book, stopping asks for no word and no signature, and each stop used to add
+        // a line: one seat, with nothing, made every command of the house die of the size of its book — the person's
+        // own stop and withdrawal among them. What is bounded is the line; the stop is always heard.
+        if ($record->state === GrantState::Suspended && \in_array($by, $record->stoppedBy, true)) {
+            return [
+                'ok' => true,
                 'grant' => $id,
-                'by' => $authority === null ? 'local-shell' : ($authority->principal ?? 'unknown'),
-                'reason' => $reason,
-            ]);
+                'stands_as' => 'suspended',
+                'suspension' => $record->suspension,
+                'written' => false,
+                'next' => "«{$id}» was already stopped by {$by}, and it still is: nothing was written. Only a person lifts it: standing:reinstate --grant={$id} --suspension={$record->suspension} --sign",
+            ];
+        }
+        try {
+            $entry = $book->ledger()->append(StandingLedger::SUSPENDED, ['grant' => $id, 'by' => $by, 'reason' => $reason]);
         } catch (\RuntimeException $error) {
             return self::no('nothing was suspended: ' . $error->getMessage());
         }
@@ -447,7 +488,41 @@ final class StandingOperations implements CommandProvider
             'suspension' => $entry['hash'],
             'at' => $entry['at'],
             'next' => "Every act «{$id}» covers is the person's again. Only a person lifts it: standing:reinstate --grant={$id} --suspension={$entry['hash']} --sign",
-        ];
+        ] + ($kept === null ? [] : ['reason_kept' => $kept]);
+    }
+
+    /** How much of the reason of a stop the book keeps: every call of every seat reads the whole book. */
+    public const REASON_KEPT = 256;
+
+    /**
+     * What the book keeps of the reason of a stop, and — when that is not the reason as it came — what to tell
+     * whoever stopped.
+     *
+     * A STOP IS NEVER REFUSED FOR ITS REASON (fourth review, M3 — a PROPOSAL, not decided; it takes back two
+     * refusals this door made: of a stop with no reason, and of one whose reason was not one line of plain text).
+     * Stopping is the one thing open to anyone the house recognizes, and a door that sends a stop back to be worded
+     * again is a door that did not stop. So the stop always lands, and it is what the HOUSE keeps that is bounded and
+     * plain: at most {@see self::REASON_KEPT} characters of a line of plain text; the spelling, a line long, of
+     * anything else ({@see Canonical::shown()}) — so that what the listing and the judge print of it is still read as
+     * it is written; and nothing, when nothing was said.
+     *
+     * @return array{string, ?string}
+     */
+    private static function reasonKept(mixed $given): array
+    {
+        if ($given === null || (\is_string($given) && trim($given) === '')) {
+            return ['', 'no reason was given: the stop stands, and the listing says so'];
+        }
+        $text = \is_string($given) ? trim($given) : null;
+        if ($text === null || !Canonical::oneLine($text)) {
+            return [Canonical::shown($given), 'the reason was not one line of plain text: the house keeps its spelling, a line long'];
+        }
+        if (mb_strlen($text) <= self::REASON_KEPT) {
+            return [$text, null];
+        }
+        $cut = rtrim(mb_substr($text, 0, self::REASON_KEPT));
+
+        return [Canonical::oneLine($cut) ? $cut : Canonical::shown($cut), \sprintf('the first %d of the %d characters of the reason are kept', self::REASON_KEPT, mb_strlen($text))];
     }
 
     /**
@@ -474,7 +549,7 @@ final class StandingOperations implements CommandProvider
             // the operations it was given over are still those is the judge's question — and a grant the book has in
             // force under which nothing runs was shown as «in force», with nothing to look at.
             $stands = $record->standsAs($now);
-            $unhonoured = $stands === 'in force' && $policy !== null ? $policy->standing()->notHonoured($record, $policy->operationNamed(...)) : [];
+            $unhonoured = $stands === 'in force' && $policy !== null ? $policy->standing()->notHonoured($record, $policy->operationNamed(...), $policy->answeredTwice(...)) : [];
             $nothingRuns = $unhonoured !== [] && \count($unhonoured) === \count(array_unique(array_map(static fn (NamedCall $act): string => $act->operation->canonical, $record->grant->covers)));
             $grants[] = [
                 'grant' => $record->grant->id,
@@ -575,12 +650,19 @@ final class StandingOperations implements CommandProvider
      * 95th byte were the same line here, and whoever drafted the grant chose what stood after it. A fixed value is
      * visible ASCII by the contract's own rule, so its JSON spelling is safe to print in full — and should a value
      * ever hold anything else, that spelling writes it as an escape.
+     *
+     * AND THE ARGUMENTS IT LEAVES FREE, BY NAME (fourth review, L3). A yes counts only from the run a condition
+     * DESCRIBES, and what a run may carry is half of that description: an instrument that may be run with `lenient`
+     * and one that may not were the same line here, to whoever had just signed and to whoever read the listing.
      */
     private static function spelled(NamedCall $call): string
     {
         $arguments = [];
         foreach ($call->arguments as $name => $value) {
             $arguments[] = $name . '=' . json_encode($value, \JSON_UNESCAPED_SLASHES | \JSON_THROW_ON_ERROR);
+        }
+        foreach ($call->free as $name) {
+            $arguments[] = $name . ': any value';
         }
 
         return $call->operation->forCli() . ($arguments === [] ? '' : ' (' . implode(', ', $arguments) . ')');

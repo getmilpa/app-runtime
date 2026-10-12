@@ -224,7 +224,7 @@ final class StandingBook
     {
         $entries = $this->ledger->entries();
         $broken = $this->ledger->fault();
-        /** @var array<string, array{grant: StandingGrant, entry: string, at: string, by: string, fault: ?string, state: GrantState, because: ?string, suspension: ?string, signal: ?\DateTimeImmutable, operations: array<string, string>, instruments: array<string, string>, stopped: bool}> $grants */
+        /** @var array<string, array{grant: StandingGrant, entry: string, at: string, by: string, fault: ?string, state: GrantState, because: ?string, suspension: ?string, signal: ?\DateTimeImmutable, operations: array<string, string>, instruments: array<string, string>, stopped: bool, stoppers: list<string>}> $grants */
         $grants = [];
 
         foreach ($entries as $entry) {
@@ -255,7 +255,7 @@ final class StandingBook
                     'by' => 'key:' . (\is_string($data['fingerprint'] ?? null) ? $data['fingerprint'] : 'unknown'),
                     'fault' => $broken === null ? $fault : 'the book of standing grants does not verify (' . $broken . ')',
                     'state' => GrantState::InForce, 'because' => null, 'suspension' => null, 'signal' => null,
-                    'operations' => $pins['operations'], 'instruments' => $pins['instruments'], 'stopped' => false,
+                    'operations' => $pins['operations'], 'instruments' => $pins['instruments'], 'stopped' => false, 'stoppers' => [],
                 ];
                 // TAKING ANOTHER GRANT OUT OF THE WAY IS HELD TO THE STANDARD OF REINSTATING IT (greenhouse
                 // decisions/0615, «Lo que la revisión encontró», 6). The grant that supersedes holds; whoever signed it
@@ -354,6 +354,7 @@ final class StandingBook
                 $grants[$id]['state'] = GrantState::Suspended;
                 $grants[$id]['suspension'] = $entry['hash'];
                 $grants[$id]['signal'] = null;
+                $grants[$id]['stoppers'][] = \is_string($data['by'] ?? null) ? $data['by'] : '';
                 $grants[$id]['because'] = \sprintf(
                     '%s, at %s, by %s (suspension %s)',
                     self::said($data['reason'] ?? null, 'no reason was given'),
@@ -362,12 +363,22 @@ final class StandingBook
                     $entry['hash'],
                 );
             } elseif ($entry['type'] === StandingLedger::REINSTATED) {
-                if ($grants[$id]['state'] === GrantState::Suspended && !$grants[$id]['stopped'] && $this->personSigned($data, 'standing:reinstate', $grants[$id]['grant'], ['grant' => $id, 'suspension' => $grants[$id]['suspension']])) {
+                // A REINSTATEMENT HOLDS ONLY WHILE THE RECOGNITION OF WHOEVER SIGNED IT STANDS (fourth review, M2 —
+                // what Rod decided on 2026-10-12 for a grant's own line, applied to the line that lifts a stop). It was
+                // read against who its signer is TODAY and nothing else: a second person lifted a suspension, left the
+                // house — the grant was stopped again, the safe way — and was recognized again, which names no grant,
+                // and the grant was in force with no signature that named it written since. So the line says which
+                // recognition of its signer it was signed over, as a `granted` line does, and one that is not that
+                // recognition any more — or that does not say — lifts nothing: a person lifts the suspension again.
+                if ($grants[$id]['state'] === GrantState::Suspended && !$grants[$id]['stopped']
+                    && $this->personSigned($data, 'standing:reinstate', $grants[$id]['grant'], ['grant' => $id, 'suspension' => $grants[$id]['suspension']])
+                    && $this->isTheRecognitionItWasSignedOver($data)) {
                     // In force again, and unwatched: the watcher's sign was forgotten when the suspension was written,
                     // and none is taken while a grant is suspended. It has to speak again.
                     $grants[$id]['state'] = GrantState::InForce;
                     $grants[$id]['because'] = null;
                     $grants[$id]['suspension'] = null;
+                    $grants[$id]['stoppers'] = [];
                 }
             } elseif ($entry['type'] === StandingLedger::REVOKED) {
                 if ($this->personSigned($data, 'standing:revoke', $grants[$id]['grant'], ['grant' => $id])) {
@@ -407,6 +418,7 @@ final class StandingBook
             $known['operations'],
             $known['instruments'],
             $known['stopped'],
+            array_values(array_unique($known['stoppers'])),
         ), $grants));
     }
 
@@ -482,6 +494,20 @@ final class StandingBook
         }
 
         return null;
+    }
+
+    /**
+     * Whether whoever signed this line is still the recognition of that key the line was signed over: it says how
+     * many times the key had left the house, and the key has not left since.
+     *
+     * @param array<string, mixed> $data a line a person signed
+     */
+    private function isTheRecognitionItWasSignedOver(array $data): bool
+    {
+        $kept = \is_array($data['recognized'] ?? null) ? $data['recognized'] : null;
+        $signer = \is_string($data['fingerprint'] ?? null) ? IdentityKey::normalize($data['fingerprint']) : '';
+
+        return $kept !== null && $signer !== '' && \array_key_exists($signer, $kept) && $kept[$signer] === ($this->recognitions([$signer])[$signer] ?? null);
     }
 
     /**

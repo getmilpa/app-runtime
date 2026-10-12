@@ -154,15 +154,18 @@ final class AStandingGrantShrinksOnItsOwnAndGrowsOnlyByAPersonTest extends TestC
         self::assertStringContainsString("Missing required scope for tool 'standing_reinstate'", $this->house->signed(LabHouse::OTHER_SEAT, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => $stopped['suspension']])['refused']);
     }
 
-    public function testStoppingAGrantNeedsOneThatExistsAndAReason(): void
+    public function testStoppingAGrantNeedsOneThatExistsAndNeverAReason(): void
     {
-        self::assertStringContainsString('say what was seen', $this->house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => ' '])['error']);
         self::assertStringContainsString('no standing grant «nope»', $this->house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'nope', 'reason' => 'x'])['error']);
         self::assertSame([], $this->house->lines(StandingLedger::SUSPENDED));
 
         // The terminal's own operator may stop one too, and is written down as what it is.
         self::assertTrue($this->house->as(null, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'seen from the terminal'])['ok']);
         self::assertSame('local-shell', $this->house->lines(StandingLedger::SUSPENDED)[0]['by']);
+        // A stop with no reason is a stop (the fourth review, M3 — a proposal): this door used to send it back.
+        $bare = $this->house->as(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => ' ']);
+        self::assertTrue($bare['ok'] ?? false, (string) json_encode($bare));
+        self::assertStringContainsString('no reason was given', (string) $this->house->book()->record('release-line')?->because);
     }
 
     public function testOnlyAPersonLiftsASuspensionWithASignatureThatNamesIt(): void

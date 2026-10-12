@@ -52,9 +52,16 @@ use Milpa\ToolRuntime\Identity\OperationAuthorization;
  * rewritten or deleted is a FAULT, never «a house where nobody granted anything».
  *
  * The head sits on the same disk and belongs to the same user: whoever rewrites the book can rewrite
- * it too. It turns a silent rewrite into one that takes two files that agree; it is not an anchor out
- * of that writer's reach, and this house has none. One would be a person's signature over the head,
- * or a witness outside the machine.
+ * it too — OR DELETE IT (the fourth review). A book that holds lines and no head is read as one whose
+ * house never kept a head, so cutting the book back to before a withdrawal and removing the head takes
+ * no digest at all: the book verifies, and the grant is in force. What the head catches is a book that
+ * changed while the head stayed — a truncation, a copy put back, an editor. It is not an anchor out of
+ * the reach of whoever writes that folder, and this house has none. One would be a person's signature
+ * over the head, or a witness outside the machine.
+ *
+ * (Reading «lines and no head» as a fault would not be one either: the same writer puts a head there
+ * with the count and the last digest the book itself holds, and a hand repair of the book — the only
+ * repair there is — would then need that head written by hand too. So it is said, and not built.)
  *
  * A house is born without these files, and one where nobody granted anything never gets them.
  */
@@ -377,7 +384,7 @@ final class StandingLedger
         // that instant: about twenty readings in three hundred thousand ended in an unfinished line while three
         // processes wrote, each exactly at a page boundary, and a book that was whole read as «edited». Every line
         // ends in a line break, so a reading that does not is looked at again — a bounded number of times, never
-        // waited for: a line that STAYS unfinished is a fault, as it was.
+        // waited for: a book that STAYS without its last line break is a fault ({@see self::verified()}).
         for ($again = 0; \is_string($raw) && $raw !== '' && !str_ends_with($raw, "\n") && $again < self::LOOKS_AGAIN; ++$again) {
             usleep(self::SETTLES_IN);
             $raw = @file_get_contents($this->path);
@@ -397,6 +404,14 @@ final class StandingLedger
      */
     private function verified(string $raw, array|string|null $kept): array
     {
+        // A BOOK THAT HOLDS SOMETHING ENDS IN A LINE BREAK, OR IT IS A FAULT (fourth review, L2 — a PROPOSAL, not
+        // decided). Every line this house writes ends in one, so a book that does not was cut or edited by hand —
+        // an editor that saves without the last line break is enough. Read as whole, the next line was written ONTO
+        // its last one: the act that line let pass ran, and from then on the book was broken for everyone. The house
+        // does not repair its own book, so it does not write the break either: a person looks.
+        if ($raw !== '' && !str_ends_with($raw, "\n")) {
+            return ['entries' => $this->parse($raw)['entries'], 'fault' => 'it does not end in a line break — its last line was cut, or it was edited by hand, and a line added to it would be written onto that one'];
+        }
         $state = $this->parse($raw);
 
         return $state['fault'] !== null ? $state : ['entries' => $state['entries'], 'fault' => $this->againstItsHead($kept, $state['entries'])];

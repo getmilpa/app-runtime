@@ -593,6 +593,18 @@ one identity is refused whole.
 seat is a person admitting that verb, asked before any grant is. `standing:grant` refuses such a
 grant and says so: it would be signed, written and listed, and would never lend.
 
+**And not measured or watched by one — nor by an authoring call** (a proposal, not decided;
+greenhouse decisions/0615, the fourth review). Before a person admits it, a seat only *rehearses* a
+verb its session built — in a copy, with no caller and no judge — and `make`, `implement`, `edit`
+and `test` run in a trial whose answer comes back wrapped in the trial's own. What such an
+operation says of a falsifier or of a candidate is heard by nobody, so `standing:grant` refuses it
+as an instrument and as a watcher.
+
+**One operation under each name.** `lab:scan`, `lab_scan` and `lab.scan` are one identity. A house
+takes a catalogue in which two different operations answer to one — as the published runtime does —
+and it is the grant that does not: `standing:grant` refuses to cover, measure by or watch by such a
+name, and a grant given before the twin appeared is not honoured until one of the two takes another.
+
 **What an instrument and an act owe the house.** Both return `acted_on`: the digest of the bytes
 they actually consumed. The house reads the content before and after a run, and those two readings
 cannot see content swapped and swapped back in between. A measurement becomes a receipt only when
@@ -614,6 +626,22 @@ At a terminal, an operation that declares no input schema is handed every `--fla
 with, `--sign` among them. So `coa release:watch --sign` is not the run a falsifier describes: it
 stops the grant when it fires, and it gives no sign of life when it does not. Give a watcher a
 schema, or run it bare.
+
+**What only narrows is written whatever its run carried.** A line of the book keeps the arguments
+of the run, and a value a line cannot hold — `-0.0`, a value nested too deep, bytes that are not
+text — used to drop the line with it: the falsifier had fired and the grant stayed in force. A
+«fired», a no and the stop written after an act are kept with the *spelling* of what the line could
+not hold, a line long.
+
+**What counts is what the answering process had loaded.** A pin is read from the disk, and a
+process that lives — a leg, a server — answers with the code it loaded. So a process reads what
+each operation is **once, when it is told its catalogue**, in a house that keeps a book; a yes, a
+sign of life and an act under a grant then ask that the pin read *now* be that one. A process that
+outlived an update of an instrument writes no yes with it, and runs no covered act as the code from
+before: it is started again. So is one that started **before its house kept a book** — it read
+nothing then, and cannot say what it loaded. A no and a «fired» ask for nobody's pin. *What this
+does not see:* a file of the operation's unit that the process loads after that reading, changed in
+between and put back before it answers.
 
 **What the house then does on every call of a seat the grant names.** While the grant is in force
 and verified, it hands the seat the words that operation declares, for that one call, and asks the
@@ -643,6 +671,19 @@ house, confined, in another process; neither reaches the handler the registry ho
 covers is judged again with the book locked, written down, run there, and looked at again — in the
 house's book, never the copy's. And what moves authority is never rehearsed at all: `standing:*`
 and `identity:*` run in the house or not at all, so a seat that stops a grant on a leg stops it.
+
+**And what speaks about an act is heard there too — only when it narrows** (a proposal, not
+decided). A watcher or an instrument that declares a mutation which leaves nothing out of the house
+is run by a leg in that other process, where the book is masked: the seat was handed «fired» and
+the house wrote nothing. The run is now noted before and read after, in the house, on that door as
+on every other. From a run that left the process the house takes a **«fired»** and a **no** — of
+the content it reads itself, before and after — and never a yes or a sign of life: it did not run
+that code. `standing:grant` says so when a grant names such an operation, and a grant watched by
+one lends only while its watcher is also run in the house's own process, at a terminal.
+
+A leg finds the house's policy **behind** whatever its gate holds: the projector wraps a gate's
+policy the moment one operation typed by `permission` is told to a registry, and asked of that
+wrapper a leg lent nothing and let every run that leaves the process through with nothing written.
 
 **A grant that does not stand lends nothing, not even for the asking.** Suspended, superseded,
 revoked, past its date, or not honoured — and likewise any grant while a suspended one stops the
@@ -694,7 +735,9 @@ not written, and the act it would have recorded does not run). What a measuring 
 with the receipts it ran on) and the refusals of calls a grant names: the same one once — the same
 line, byte for byte — and no more than 32 of one seat under one grant in a row, the last of which
 says the rest are not written. A seat does not grow the book by asking again, and one seat's
-refusals never keep the book from saying another was refused. Nothing lets a caller hand in a
+refusals never keep the book from saying another was refused. **A book that holds something ends in
+a line break, or it is a fault** (a proposal): a book saved by hand without its last one read as
+whole, and the next line was written onto its last. Nothing lets a caller hand in a
 verdict. A house where nobody grants anything keeps no book and answers as it always did.
 
 The book and its head are mode 600, **masked from every process the house confines** — a rehearsal,
@@ -709,13 +752,16 @@ suspension: `standing:reinstate` does not lift it, because lifting it would brin
 act took away. **Only a new grant takes it out of the way**, one that names the grant
 (`supersedes`) and that very stop (`lifts`). The same goes for a `revoked` line nobody signed and
 for a grant that names another as replaced without being honoured itself: they do not do what they
-ask, and they stop what they name. An ordinary suspension — `standing:suspend`, a falsifier that
+ask, and they stop what they name. **And a reinstatement holds only while the recognition of
+whoever signed it stands**: its line says which recognition of its signer it was signed over, and a
+person who lifts a suspension, leaves the house and is recognized again does not bring the grant
+back with them — the suspension is lifted again, by a person. An ordinary suspension — `standing:suspend`, a falsifier that
 fired — is lifted as before, by a person who names it.
 
 | Operation | Who | What it does |
 |-----------|-----|--------------|
 | `standing:grant --sign` | a person | gives a grant; refused over an operation that itself gives authority, over a verb built in the house, over an operation whose unit cannot be told, above a `compensatable` ceiling, or without a watched falsifier. One that supersedes a **suspended or stopped** grant names the stop it lifts (`lifts`), and its signer answers for the seats of the grant it replaces |
-| `standing:suspend` | anyone recognized | stops a grant — no scope, no signature. Every act it covers is the person's again |
+| `standing:suspend` | anyone recognized | stops a grant — no scope, no signature, and never refused for its reason. Every act it covers is the person's again |
 | `standing:reinstate --sign` | a person | lifts a suspension, **naming the very suspension it lifts**; an older signature or a line written by hand lifts nothing — and a stop left by a withdrawal or a replacement that no longer holds is not a suspension: it lifts none of those |
 | `standing:revoke --sign` | a person | withdraws a grant for good |
 | `standing:granted` | the terminal | the grants, where each stands and why — **as the judge honours them**: `not honoured` when nothing a grant covers would run, and which operations are not when only some are — and what happened under it |
@@ -725,6 +771,8 @@ signed, and the listing — each value the grant fixes is printed **as it is spe
 text in quotes, so that the word `true` and the answer true are never the same line, and never
 through the shortened line a refusal says back, which stops at 95 bytes. Two values that differ
 after that were one line on the screen (the contract's tenth review; greenhouse decisions/0615).
+The arguments a measuring or a watching run may carry are named too (`path: any value`): a yes
+counts only from the run a condition describes, and what a run may carry is half of that.
 
 The house suspends a grant itself when a watcher reports its falsifier fired — the line that says
 so is the suspension — and when what an act touched, or says it consumed, is not what was judged.
@@ -767,16 +815,23 @@ the book.
   last digest), read before the book is, so a book that was emptied, truncated, deleted or put back
   from an older copy does not verify instead of reading «nobody granted anything»; a head that is
   not a regular file is a fault too. **The head is not an anchor against whoever writes both
-  files**: it is on the same disk and is the same user's, and rewriting the two gets past it. Only a
-  witness outside the machine would stop that, and this has none. Keep the house's files out of
+  files**: it is on the same disk and is the same user's, and rewriting the two gets past it. **So
+  does deleting it**: a book that holds lines and no head is read as one whose house never kept a
+  head, so whoever can write that folder cuts the book back to before a withdrawal and removes the
+  head, with no digest to compute — the book verifies and the grant is in force. Only a witness
+  outside the machine would stop either, and this has none. Keep the house's files out of
   reach of whoever its seats run as.
   A judgment reads the book with no lock, and a line being written may be there by halves for an
   instant: a reading that does not end in a line break is made again, a bounded number of times, and
-  a line that stays unfinished is a fault.
+  a book that stays without its last line break is a fault.
 - **The keyring that judges must hold the public key of whoever granted.** A seat that runs in its
   own keyring needs that public key imported, or the grant is not honoured there.
-- **A suspension is cheap.** Any recognized principal can hand every absorbed act back to the
-  person. Nothing widens.
+- **A suspension is cheap, and bounded** (a proposal, not decided). Any recognized principal can
+  hand every absorbed act back to the person. Nothing widens. A stop is **never refused for its
+  reason**: the book keeps at most 256 characters of a line of plain text, the spelling of anything
+  else, and nothing when nothing was said. And a key's second stop of a grant it already stopped is
+  answered and **not written** — every call of every seat reads the whole book, and a few hundred
+  stops with long reasons made every command of the house die of its size.
 - **An operation is pinned as far as its unit.** Code in ANOTHER unit that its handler reaches — a
   service of another package — can change without the grant noticing. A package edited in place
   under `vendor/`, outside the files of the handler's own class, keeps its reference: the pin says
@@ -792,7 +847,8 @@ the book.
   same; who answers for it is asked on its own, every time.
 - **The book grows with what the grant asks for.** Every measurement, every sign of a watcher and
   every act absorbed is a line, and every call of every seat reads all of them. Only the refusals
-  are bounded.
+  and the stops are bounded: whoever holds the word of an instrument or of a watcher writes a line
+  with every run of it.
 - **On a leg, an act that fails without saying what it consumed suspends the grant.** In the
   process that ran it, a handler that threw and one that answered a refusal look the same from
   outside, so both are read as an act that returned and did not say `acted_on`.

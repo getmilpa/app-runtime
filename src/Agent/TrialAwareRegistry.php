@@ -160,9 +160,11 @@ final class TrialAwareRegistry extends ToolRegistry
      */
     private function acrossTheJudge(?ToolContext $ctx, Operation $operation, array $args, \Closure $run, \Closure $answered): mixed
     {
-        $policy = $this->inner->getPolicyGate()->getCallPolicy();
+        // The house's policy, behind whatever the gate holds: a guard of permissions wraps it the moment one operation
+        // typed by `permission` is told to this registry, and asked of the wrapper this door let every run through.
+        $policy = PluginAuthoringPolicy::behind($this->inner->getPolicyGate()->getCallPolicy());
 
-        return $policy instanceof PluginAuthoringPolicy ? $policy->crossing($ctx, $operation, $args, $run, $answered) : $run();
+        return $policy !== null ? $policy->crossing($ctx, $operation, $args, $run, $answered) : $run();
     }
 
     /** The house's list, when this leg's loop plays the promotion of an admitted operation's trial ({@see houseApplies()}). */

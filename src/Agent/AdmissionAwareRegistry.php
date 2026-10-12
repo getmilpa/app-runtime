@@ -66,8 +66,8 @@ final class AdmissionAwareRegistry extends ToolRegistry
         }
         // REFUSED FOR A WORD THE SEAT LACKS, UNDER A STANDING GRANT THAT DOES NOT STAND (greenhouse decisions/0615):
         // nothing was lent, and the refusal says why — and, this being the call itself, the house writes it down.
-        $policy = $this->inner->getPolicyGate()->getCallPolicy();
-        $refusal = $policy instanceof PluginAuthoringPolicy
+        $policy = PluginAuthoringPolicy::behind($this->inner->getPolicyGate()->getCallPolicy());
+        $refusal = $policy !== null
             ? $policy->refusalAtTheGate($seen, $name, $this->inner->getDefinition($name)->scopes ?? [], $args, $result->error)
             : null;
 
