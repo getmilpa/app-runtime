@@ -720,6 +720,12 @@ fired — is lifted as before, by a person who names it.
 | `standing:revoke --sign` | a person | withdraws a grant for good |
 | `standing:granted` | the terminal | the grants, where each stands and why — **as the judge honours them**: `not honoured` when nothing a grant covers would run, and which operations are not when only some are — and what happened under it |
 
+Wherever the house says a grant to a person — what `standing:grant` answers to whoever has just
+signed, and the listing — each value the grant fixes is printed **as it is spelled, and whole**:
+text in quotes, so that the word `true` and the answer true are never the same line, and never
+through the shortened line a refusal says back, which stops at 95 bytes. Two values that differ
+after that were one line on the screen (the contract's tenth review; greenhouse decisions/0615).
+
 The house suspends a grant itself when a watcher reports its falsifier fired — the line that says
 so is the suspension — and when what an act touched, or says it consumed, is not what was judged.
 
