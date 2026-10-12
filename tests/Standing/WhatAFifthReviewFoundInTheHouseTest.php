@@ -39,6 +39,7 @@ final class WhatAFifthReviewFoundInTheHouseTest extends TestCase
 
     protected function tearDown(): void
     {
+        array_map(spl_autoload_unregister(...), $this->autoloaders);
         $this->leg?->destroy();
         $this->house->destroy();
     }
@@ -588,6 +589,116 @@ final class WhatAFifthReviewFoundInTheHouseTest extends TestCase
 
         self::assertSame(255, mb_strlen((string) $this->house->lines(StandingLedger::SUSPENDED)[0]['reason']));
         self::assertStringContainsString('the first 255 of the 306 characters', json_encode($said));
+    }
+
+    // ── M1's residue, executed by the fifth review on a real leg: a file of the unit loaded LATE ────────────────
+
+    /** @return iterable<string, array{string}> how the instrument reaches the rule it applies */
+    public static function waysAPluginLoadsAFileLate(): iterable
+    {
+        yield 'a class of the plugin, in a file of its own, first used when the instrument runs' => ['Rules::clean($bytes)'];
+        yield 'a file of the plugin that is no class, required once when the instrument runs' => ["((require_once __DIR__ . '/rules.php') !== false) && clean_plain(\$bytes)"];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('waysAPluginLoadsAFileLate')]
+    public function testAYesIsNotWrittenByAProcessThatLoadedAFileOfTheInstrumentsPluginAfterItReadWhatTheInstrumentIs(string $rule): void
+    {
+        // A process reads what each operation is when it is told its catalogue. A file of the plugin it loads AFTER
+        // that — softened in between and put back before it answers again — was run soft and pinned hard: the second
+        // yes was written green under the grant's pin, and the act ran over a candidate the instrument refuses.
+        $plugin = $this->aPluginWithItsRuleInAFileOfItsOwn($rule);
+        $this->house->offer($plugin['scan']);
+        $this->house->granted(['conditions' => [['name' => 'no-host-names', 'statement' => 'what is merged names no machine', 'by' => ['operation' => 'late:scan', 'free' => ['path']]]]]);
+        $red = $this->house->candidate('red.txt', "machine-name: build-host-7\n");
+        $this->house->aProcessPerCall = false;
+        $this->house->boots();
+        // Softened while the process lives, before it first uses that file…
+        $hard = [(string) file_get_contents($plugin['dir'] . '/Rules.php'), (string) file_get_contents($plugin['dir'] . '/rules.php')];
+        file_put_contents($plugin['dir'] . '/Rules.php', str_replace("!str_contains(\$bytes, 'machine-name:')", 'true', $hard[0]));
+        file_put_contents($plugin['dir'] . '/rules.php', str_replace("!str_contains(\$bytes, 'machine-name:')", 'true', $hard[1]));
+        $first = $this->house->as(LabHouse::SEAT, 'late:scan', ['path' => $red]);
+        // …and put back, the same bytes, before it answers again.
+        file_put_contents($plugin['dir'] . '/Rules.php', $hard[0]);
+        file_put_contents($plugin['dir'] . '/rules.php', $hard[1]);
+
+        $second = $this->house->as(LabHouse::SEAT, 'late:scan', ['path' => $red]);
+
+        self::assertSame([], array_filter($this->house->lines(StandingLedger::MEASURED), static fn (array $receipt): bool => $receipt['ok'] === true), 'a yes was written under the grant\'s pin by a process running a softer rule than the disk holds: ' . json_encode([$first, $second]));
+        self::assertArrayHasKey('refused', $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $red]));
+        self::assertSame([], $this->house->done('merged'));
+    }
+
+    public function testAPluginWhoseFilesAreAllLoadedWhenTheProcessIsToldStillMeasures(): void
+    {
+        // The guard: nothing changed on disk, the instrument's yes is a receipt as before.
+        $plugin = $this->aPluginWithItsRuleInAFileOfItsOwn('Rules::clean($bytes)');
+        $this->house->offer($plugin['scan']);
+        $this->house->granted(['conditions' => [['name' => 'no-host-names', 'statement' => 'what is merged names no machine', 'by' => ['operation' => 'late:scan', 'free' => ['path']]]]]);
+        $good = $this->house->candidate('good.txt', "clean release\n");
+        $this->house->aProcessPerCall = false;
+        $this->house->boots();
+
+        $this->house->as(LabHouse::SEAT, 'late:scan', ['path' => $good]);
+
+        self::assertSame([true], array_column($this->house->lines(StandingLedger::MEASURED), 'ok'));
+        self::assertArrayNotHasKey('refused', $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $good]));
+    }
+
+    /** @var list<\Closure> */
+    private array $autoloaders = [];
+
+    /**
+     * A plugin written under this house whose instrument applies a rule that lives in ANOTHER file of the plugin —
+     * a class the autoloader finds, and a plain file that is required.
+     *
+     * @return array{dir: string, scan: Operation}
+     */
+    private function aPluginWithItsRuleInAFileOfItsOwn(string $rule): array
+    {
+        $name = 'Late' . bin2hex(random_bytes(4));
+        $dir = $this->house->root . '/packages/' . strtolower($name);
+        $namespace = 'Lab\\Plugins\\' . $name;
+        mkdir($dir, 0o755, true);
+        file_put_contents($dir . '/Rules.php', "<?php\n\ndeclare(strict_types=1);\n\nnamespace {$namespace};\n\nfinal class Rules\n{\n    public static function clean(string \$bytes): bool\n    {\n        return !str_contains(\$bytes, 'machine-name:');\n    }\n}\n");
+        file_put_contents($dir . '/rules.php', "<?php\n\ndeclare(strict_types=1);\n\nnamespace {$namespace};\n\nfunction clean_plain(string \$bytes): bool\n{\n    return !str_contains(\$bytes, 'machine-name:');\n}\n");
+        file_put_contents($dir . '/Guard.php', <<<PHP
+            <?php
+
+            declare(strict_types=1);
+
+            namespace {$namespace};
+
+            use Milpa\Command\Effect\EffectProfile;
+            use Milpa\Command\Operation;
+
+            final class Guard
+            {
+                public function __construct(private readonly string \$root)
+                {
+                }
+
+                public function scan(): Operation
+                {
+                    return new Operation('late:scan', 'Lab: measure a candidate by a rule in another file', fn (array \$input): array => \$this->measure((string) file_get_contents(\$this->root . '/' . \$input['path'])), ['type' => 'object', 'properties' => ['path' => ['type' => 'string']], 'required' => ['path']], scopes: ['lab:scan'], effects: EffectProfile::readOnly(), actsOn: fn (array \$input): ?string => is_file(\$this->root . '/' . (\$input['path'] ?? '')) ? 'sha256:' . hash_file('sha256', \$this->root . '/' . \$input['path']) : null);
+                }
+
+                private function measure(string \$bytes): array
+                {
+                    return ['ok' => {$rule}, 'acted_on' => 'sha256:' . hash('sha256', \$bytes)];
+                }
+            }
+            PHP);
+        $loader = static function (string $class) use ($namespace, $dir): void {
+            $prefix = str_replace('\\\\', '\\', $namespace) . '\\';
+            if (str_starts_with($class, $prefix) && is_file($dir . '/' . substr($class, \strlen($prefix)) . '.php')) {
+                require $dir . '/' . substr($class, \strlen($prefix)) . '.php';
+            }
+        };
+        spl_autoload_register($loader);
+        $this->autoloaders[] = $loader;
+        $guard = str_replace('\\\\', '\\', $namespace) . '\\Guard';
+
+        return ['dir' => $dir, 'scan' => (new $guard($this->house->root))->scan()];
     }
 
     private LabShelf $shelf;

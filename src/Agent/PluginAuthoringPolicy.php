@@ -96,6 +96,14 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
     private \ArrayObject $booted;
 
     /**
+     * For each operation this process was told of that ships in a plugin: that plugin's directories, and how many
+     * files the process had loaded when it read the operation's pin ({@see self::remembers()}).
+     *
+     * @var \ArrayObject<string, array{0: list<string>, 1: int}>
+     */
+    private \ArrayObject $units;
+
+    /**
      * @param (\Closure(): ?\Milpa\Agent\SessionStore)|null $sessions
      * @param JudgedPermission|null                         $judged       the HTTP policy's verdict on the permissioned
      *                                                                    operation now running; without it a mutation
@@ -123,6 +131,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         $this->twice = new \ArrayObject();
         $this->loaded = new \ArrayObject();
         $this->booted = new \ArrayObject();
+        $this->units = new \ArrayObject();
     }
 
     /**
@@ -252,8 +261,18 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
      * as the published runtime, and costs what it costs. So a process that started before its house kept a book has
      * no record of what it loaded, and it does not speak for a grant given since: it is started again.
      *
-     * WHAT THIS DOES NOT SEE: a file of the operation's unit that this process loads AFTER this reading, changed in
-     * between and put back before it answers. And, as before, code in another unit that the handler reaches.
+     * AND A FILE OF ITS PLUGIN THAT THIS PROCESS LOADS AFTER THIS READING IS ONE IT CANNOT SPEAK FOR (the fifth
+     * review executed the residue this stated, on a real leg: a helper class of the plugin, first used when the
+     * instrument ran, softened before that and put back before the next answer — the second yes was written green
+     * under the grant's pin). So, for an operation that ships in a PLUGIN — which is pinned by every PHP file of its
+     * directory — the classes of that plugin are loaded HERE, before its pin is read, and from then on a file of
+     * that directory this process comes to load is one whose bytes at that moment nobody read: the process stops
+     * having a pin to give for that operation, and is started again. Measured: it costs a house with a book the
+     * reading of its plugins' class files once per process.
+     *
+     * WHAT THIS STILL DOES NOT SEE: an operation that ships in a PACKAGE is pinned by what the house installed, not
+     * by its files, and its classes are loaded when they are used. And, as before, code in another unit that the
+     * handler reaches.
      *
      * @param list<Operation> $operations
      */
@@ -264,15 +283,33 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             return;
         }
         $fresh = array_values(array_filter($operations, fn (Operation $operation): bool => !isset($this->loaded[self::toldAs($operation)])));
+        $plugins = array_map(fn (Operation $operation): array => OperationPin::pluginsOf($operation, $this->root), $fresh);
+        foreach (array_unique(array_merge(...$plugins, ...[[]])) as $directory) {
+            OperationPin::loadClassesOf($directory);
+        }
         foreach (OperationPin::ofEach($fresh, $this->root) as $at => $pin) {
             $this->loaded[self::toldAs($fresh[$at])] = $pin ?? '';
+            $this->units[self::toldAs($fresh[$at])] = [$plugins[$at], \count(get_included_files())];
         }
     }
 
-    /** The pin of this operation as this process read it when it was told of it — or `null`: it has none to give. */
+    /**
+     * The pin of this operation as this process read it when it was told of it — or `null`: it has none to give, or
+     * it loaded a file of the operation's plugin after that reading.
+     */
     private function asThisProcessLoadedIt(Operation $operation): ?string
     {
         $pin = $this->loaded[self::toldAs($operation)] ?? '';
+        [$plugins, $read] = $this->units[self::toldAs($operation)] ?? [[], 0];
+        if ($pin !== '') {
+            foreach ($plugins === [] ? [] : \array_slice(get_included_files(), $read) as $later) {
+                foreach ($plugins as $directory) {
+                    if (str_starts_with($later, $directory . '/')) {
+                        return null;
+                    }
+                }
+            }
+        }
 
         return $pin === '' ? null : $pin;
     }

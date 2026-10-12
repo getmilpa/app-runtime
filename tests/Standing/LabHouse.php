@@ -289,6 +289,7 @@ final class LabHouse implements SignatureVerifier
         (function (): void {
             $this->loaded->exchangeArray([]);
             $this->booted->exchangeArray([]);
+            $this->units->exchangeArray([]);
         })->call($this->policy);
         PluginAuthoringPolicy::catalogue($this->container, $this->operations);
     }
@@ -301,7 +302,7 @@ final class LabHouse implements SignatureVerifier
     {
         $this->aProcessPerCall = false;
         (function (): void {
-            foreach ([$this->loaded, $this->booted, $this->catalogued, $this->permissioned, $this->twice] as $told) {
+            foreach ([$this->loaded, $this->booted, $this->units, $this->catalogued, $this->permissioned, $this->twice] as $told) {
                 $told->exchangeArray([]);
             }
         })->call($this->policy);

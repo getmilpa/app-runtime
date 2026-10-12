@@ -179,6 +179,79 @@ final class OperationPin
     }
 
     /**
+     * The directories of the PLUGINS this operation's own code is written in — empty when it ships in a package, or
+     * its unit cannot be told.
+     *
+     * A plugin is pinned by every PHP file under its directory, so «what this process loaded of it» can be asked
+     * file by file ({@see self::loadClassesOf()}); a package is pinned by what the house installed, not by its
+     * files.
+     *
+     * @return list<string>
+     */
+    public static function pluginsOf(Operation $operation, string $root): array
+    {
+        $function = \is_callable($operation->handler) ? new \ReflectionFunction(\Closure::fromCallable($operation->handler)) : null;
+        $file = $function?->getFileName();
+        if ($function === null || !\is_string($file)) {
+            return [];
+        }
+        $bound = $function->getClosureThis();
+        /** @var array<string, ?string> $files */
+        $files = [$file => null];
+        foreach ([$function->getClosureScopeClass(), $bound === null ? null : new \ReflectionObject($bound)] as $class) {
+            self::filesOf($class, $files);
+        }
+        $house = realpath($root);
+        $plugins = [];
+        foreach ($files as $path => $class) {
+            $real = realpath($path);
+            if ($real === false || $house === false || $class === null || preg_match('/(?:^|\\\\)Plugins\\\\([^\\\\]+)\\\\(.+)$/D', $class, $named) !== 1) {
+                continue;
+            }
+            $directory = \dirname($real, substr_count($named[2], '\\') + 1);
+            if (str_starts_with($directory . '/', $house . '/') && $directory !== $house && !str_starts_with($directory . '/', $house . '/vendor/')) {
+                $plugins[$directory] = true;
+            }
+        }
+
+        return array_keys($plugins);
+    }
+
+    /**
+     * Load, now, every class a plugin's directory declares that the autoloader finds there.
+     *
+     * So that what a process runs of a plugin is what the disk held WHEN ITS PIN WAS READ (the fifth review, on the
+     * residue of the fourth's M1): a class of the plugin first used when an instrument runs was loaded later — and
+     * a file softened in between, and put back before the next answer, was run soft and pinned hard. Only classes,
+     * and only through the autoloader: a file that is no class is never executed here, and if a process loads one
+     * later it stops speaking for a grant ({@see \Milpa\AppRuntime\Agent\PluginAuthoringPolicy}).
+     */
+    public static function loadClassesOf(string $directory): void
+    {
+        try {
+            $walk = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS));
+        } catch (\UnexpectedValueException) {
+            return;
+        }
+        $loaded = array_flip(get_included_files());
+        foreach ($walk as $found) {
+            if (!$found instanceof \SplFileInfo || !$found->isFile() || strtolower($found->getExtension()) !== 'php' || isset($loaded[$found->getPathname()])) {
+                continue;
+            }
+            $head = (string) @file_get_contents($found->getPathname(), false, null, 0, 8192);
+            if (preg_match('/^\s*namespace\s+([A-Za-z_\\\\][A-Za-z0-9_\\\\]*)\s*[;{]/m', $head, $space) !== 1
+                || preg_match('/^\s*(?:(?:final|abstract|readonly)\s+)*(?:class|interface|trait|enum)\s+([A-Za-z_][A-Za-z0-9_]*)/m', $head, $named) !== 1) {
+                continue;
+            }
+            try {
+                class_exists($space[1] . '\\' . $named[1]);
+            } catch (\Throwable) {
+                // A class that cannot be loaded now is one this process has not loaded: nothing is said of it here.
+            }
+        }
+    }
+
+    /**
      * The unit a file of this house belongs to, and what that unit is today — never its path: the same house moved
      * to another folder holds the same operations. Or the sentence that says no unit could be told.
      *
