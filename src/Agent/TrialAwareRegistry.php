@@ -323,12 +323,16 @@ final class TrialAwareRegistry extends ToolRegistry
 
         // THE CALL RUNS IN THE COPY, NOT ON THE HOST. The registered handler is never reached; what
         // the human gets back is the trial's output and, in the meta, the confinement and the diff.
-        $policy = $this->inner->getPolicyGate()->getCallPolicy();
+        // The house's policy BEHIND whatever the gate holds — the same question every door of a leg asks (greenhouse
+        // decisions/0615, the sweep of «are you the house's policy?»). This one asked it of the gate's policy itself:
+        // with one operation typed by `permission` in the catalogue the gate holds the console's guard around the
+        // house's, the answer was no, and a build call's write set was not named — the whole copy was writable.
+        $policy = PluginAuthoringPolicy::behind($this->inner->getPolicyGate()->getCallPolicy());
         // A custom registry policy cannot turn a source repair's named write set into a whole-copy write.
-        if ($prepared !== null && !$policy instanceof PluginAuthoringPolicy) {
+        if ($prepared !== null && $policy === null) {
             $policy = new PluginAuthoringPolicy($this->router->root());
         }
-        $paths = $policy instanceof PluginAuthoringPolicy && in_array($name, PluginAuthoringPolicy::BUILD, true)
+        $paths = $policy !== null && in_array($name, PluginAuthoringPolicy::BUILD, true)
             ? $policy->writePaths($ctx ?? ToolContext::cli(), $name, $args) : null;
         $observe = $this->sessions !== null && $this->sessionId !== null;
         $before = $observe ? FileEffectObserver::trialSnapshot($plan->workspace) : null;

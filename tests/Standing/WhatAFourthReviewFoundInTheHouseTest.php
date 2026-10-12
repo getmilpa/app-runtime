@@ -254,6 +254,23 @@ final class WhatAFourthReviewFoundInTheHouseTest extends TestCase
         self::assertEqualsCanonicalizing([$this->house->digestOf('good.txt'), $elsewhere], array_column($red, 'subject'), 'a no said of other content than the house holds was lost');
         self::assertStringContainsString('does not hold on this candidate', (string) ($this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => 'good.txt'])['refused'] ?? 'RAN'));
         self::assertSame([], $this->house->done('merged'));
+        // …AND IT REACHES THE OTHER ONE (asserted since the fifth review: this test said «both receipts» and the act
+        // over the second candidate had never been made). The content the copy held, measured green in the house
+        // before: the no the run said of it stops an act over it too.
+        $other = new LabHouse();
+        try {
+            $other->granted();
+            $a = $other->candidate('good.txt', "clean release\n");
+            $b = $other->candidate('other.txt', "what the copy held\n");
+            $other->as(LabHouse::SEAT, 'lab:scan', ['path' => $a]);
+            $other->as(LabHouse::SEAT, 'lab:scan', ['path' => $b]);
+            self::assertArrayNotHasKey('refused', $other->as(LabHouse::SEAT, 'lab:merge', ['path' => $b]), 'control: measured green in the house, the act over the second candidate passes');
+            $other->policy->crossing($other->contextOf(LabHouse::SEAT), $other->operation('lab:scan'), ['path' => $a], static fn (): array => ['ok' => false, 'acted_on' => $other->digestOf('other.txt')], static fn (array $answer): array => $answer);
+            self::assertStringContainsString('does not hold on this candidate', (string) ($other->as(LabHouse::SEAT, 'lab:merge', ['path' => $b])['refused'] ?? 'RAN'), 'a no said of the content a copy held did not reach the candidate that holds it');
+            self::assertStringContainsString('does not hold on this candidate', (string) ($other->as(LabHouse::SEAT, 'lab:merge', ['path' => $a])['refused'] ?? 'RAN'));
+        } finally {
+            $other->destroy();
+        }
     }
 
     public function testANoThatDoesNotSayWhatItReadStillStopsTheCandidateTheHouseHolds(): void
