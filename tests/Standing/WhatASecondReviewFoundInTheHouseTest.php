@@ -744,8 +744,15 @@ final class WhatASecondReviewFoundInTheHouseTest extends TestCase
         }
         self::assertCount(HouseStandingJudge::REFUSALS_KEPT, $this->house->lines(StandingLedger::REFUSED));
 
-        // Anything else the house writes ends that run, and what is refused after it is a new fact.
+        // What ends that count is the grant's standing changing — it was «anything else the house writes», and a
+        // seat wrote its refusals again for each line written for somebody else (the fifth review, 5-M2; a proposal,
+        // not decided). A line of another kind does not start it again…
+        $this->house->later(3600);
         $this->house->as(LabHouse::SEAT, 'lab:watch');
+        $refuse(1);
+        self::assertCount(HouseStandingJudge::REFUSALS_KEPT, $this->house->lines(StandingLedger::REFUSED));
+        // …and a stop does: what is refused after it is a new fact.
+        $this->house->signed(LabHouse::OTHER_SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'seen']);
         $refuse(1);
         self::assertCount(HouseStandingJudge::REFUSALS_KEPT + 1, $this->house->lines(StandingLedger::REFUSED));
         $refuse(1);

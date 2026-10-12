@@ -234,7 +234,12 @@ final class StandingLedger
      */
     private function write($handle, string $type, array $data, ?\DateTimeImmutable $at): array
     {
-        // Read under the lock: two writers must not both link to the same last line.
+        // Read under the lock: two writers must not both link to the same last line. And a book longer than the
+        // house reads is not read here either: nothing is added to it.
+        $size = (int) (fstat($handle)['size'] ?? 0);
+        if ($size > self::LONGEST) {
+            throw new \RuntimeException('The book of standing grants does not verify, so nothing is added to it: ' . self::tooLong($size));
+        }
         rewind($handle);
         $state = $this->verified((string) stream_get_contents($handle), $this->head());
         if ($state['fault'] !== null) {
@@ -363,6 +368,14 @@ final class StandingLedger
         ]));
     }
 
+    /** How many bytes of book this house reads: past it the book is a fault, and is not read (a proposal, not decided). */
+    public const LONGEST = 8 * 1024 * 1024;
+
+    private static function tooLong(int $bytes): string
+    {
+        return \sprintf('it is %d bytes, longer than this house reads (%d): every command reads the whole book, and a longer one stops them all. A person keeps it somewhere else and the house starts another — what it lent, it lends again only by a person\'s signature', $bytes, self::LONGEST);
+    }
+
     /** @return array{entries: list<array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}>, fault: ?string} */
     private function read(): array
     {
@@ -377,6 +390,15 @@ final class StandingLedger
         $kept = $this->head();
         if (!is_file($this->path)) {
             return $this->read = ['entries' => [], 'fault' => $this->againstItsHead($kept, [])];
+        }
+        // A BOOK LONGER THAN THE HOUSE READS IS NOT READ: IT IS A FAULT (a proposal, not decided — the fifth review,
+        // 5-M2). The book is read whole, by every command of every caller, and a process stops — dies, the person's
+        // own stop and withdrawal included — somewhere past twenty megabytes of it. No bound on a line makes the
+        // book short: an act a seat is lent is a line. So past this length the house says so and reads nothing:
+        // no seat acts, nothing is lent, and a person is still answered.
+        clearstatcache(true, $this->path);
+        if ((int) @filesize($this->path) > self::LONGEST) {
+            return $this->read = ['entries' => [], 'fault' => self::tooLong((int) @filesize($this->path))];
         }
         $raw = @file_get_contents($this->path);
         // A LINE STILL BEING WRITTEN IS NOT A LINE YET (the sibling of L1, found measuring it by processes). A line

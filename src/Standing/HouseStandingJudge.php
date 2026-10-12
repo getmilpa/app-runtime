@@ -82,7 +82,7 @@ final class HouseStandingJudge
     public const REFUSALS_KEPT = 32;
 
     /** What the last refusal the book keeps of a seat under a grant says, so that a reader knows the rest are not there. */
-    public const REFUSALS_END = 'refusals of this seat under this grant are not written after this one, until something else is written in the book';
+    public const REFUSALS_END = 'refusals of this seat under this grant are not written after this one, until the standing of the grant changes';
 
     /**
      * @param (\Closure(): \DateTimeImmutable)|null $clock the moment of the act; the wall clock when none is handed in
@@ -550,11 +550,11 @@ final class HouseStandingJudge
             'check' => $verdict->failed?->value,
             'reason' => $verdict->reason,
         ];
-        // A REFUSAL IS A LINE LONG TOO (a proposal, not decided): arguments longer than the house writes down of an
-        // act are kept as their spelling, with how long they were and their digest. Two refusals that differ past
-        // what a line keeps still differ by that digest — they are two lines, as they were.
+        // A REFUSAL IS A LINE LONG TOO (a proposal, not decided): it is only a record, so arguments longer than a
+        // line keeps of one are kept as their spelling, with how long they were and their digest. Two refusals that
+        // differ past what a line keeps still differ by that digest — they are two lines, as they were.
         $given = self::given($line['arguments']);
-        if (($given['bytes'] ?? 0) > self::ACT_ARGUMENTS_KEPT) {
+        if (($given['bytes'] ?? 0) > self::ARGUMENT_KEPT) {
             $line['arguments'] = [self::NOT_KEPT => Canonical::shown($line['arguments'])];
             $line['arguments_given'] = $given;
         }
@@ -563,10 +563,19 @@ final class HouseStandingJudge
         } catch (\JsonException) {
             return; // a refusal the book could not hold as a line: it stands without one
         }
+        // COUNTED OVER WHAT THE GRANT'S STANDING WAS, NOT OVER THE TAIL OF THE BOOK (a proposal, not decided — the
+        // fifth review, 5-M2). The count ended at the first line of another kind, anyone's: a seat with no word of
+        // its own wrote its refusals again for each line the house wrote for somebody else. What makes a refusal a
+        // new fact is that the grant's standing changed — it was given, stopped, lifted, withdrawn, or a falsifier
+        // fired — so the count, and «the same one is not written twice», run back to the last of those.
         $kept = 0;
         foreach (array_reverse($ledger->entries()) as $entry) {
-            if ($entry['type'] !== StandingLedger::REFUSED) {
+            if ($entry['type'] === StandingLedger::GRANTED || ($entry['type'] === StandingLedger::WATCHED && ($entry['data']['fired'] ?? null) === true)
+                || (\in_array($entry['type'], [StandingLedger::SUSPENDED, StandingLedger::REINSTATED, StandingLedger::REVOKED], true) && ($entry['data']['grant'] ?? null) === $line['grant'])) {
                 break;
+            }
+            if ($entry['type'] !== StandingLedger::REFUSED) {
+                continue;
             }
             $written = $entry['data'];
             if (($written['seat'] ?? null) !== $line['seat'] || ($written['grant'] ?? null) !== $line['grant']) {
@@ -744,16 +753,21 @@ final class HouseStandingJudge
             // A YES is a receipt only from the run a condition describes, made in this process by the code it loaded,
             // over content that is the same before and after, which the instrument says are the bytes it read — and
             // (a proposal, not decided) with every argument as long as a line keeps: a yes needs its arguments whole
-            // to be the run a condition describes, so over that bound there is no green. The
+            // to be the run a condition describes, so over that bound there is no green; and not the same yes of the
+            // same key twice while nobody said no of that content in between ({@see self::saidYesAlready()}). The
             // receipt is given the NAME, as the catalogue spells it: the contract makes the identity from the text
             // after looking at it, and takes no identity built elsewhere (its seventh review).
-            $ledger->append(StandingLedger::MEASURED, $receipt($subject, true, $mine)($arguments), $now);
+            if (!self::saidYesAlready($ledger->entries(), $name, $subject, $who, $mine, $arguments)) {
+                $ledger->append(StandingLedger::MEASURED, $receipt($subject, true, $mine)($arguments), $now);
+            }
         }
 
         $fired = \is_array($result) ? ($result['fired'] ?? null) : null;
         // «All is calm» speaks FOR a grant, as a yes does: from this process, by the run the falsifier describes —
         // and (a proposal, not decided) with every argument as long as a line keeps.
-        if ($fired === true ? $noted['stops'] && !$this->saidFiredAlready($ledger->entries(), $operation, $name, $who) : ($fired === false && $noted['watches'] && $mine !== null && self::aLineKeeps($arguments))) {
+        if ($fired === true
+            ? $noted['stops'] && !$this->saidFiredAlready($ledger->entries(), $operation, $name, $who)
+            : ($fired === false && $noted['watches'] && $mine !== null && self::aLineKeeps($arguments) && !$this->saidCalmJustNow($ledger->entries(), $operation, $name, $who, $mine, $arguments, $now))) {
             $sign = static fn (array $carried): array => [
                 'watcher' => $name,
                 'arguments' => $carried,
@@ -794,6 +808,87 @@ final class HouseStandingJudge
 
         return false;
     }
+
+    /**
+     * Whether this key already said yes of this content, by this instrument, with these arguments, and nobody said
+     * no of it since (a proposal, not decided).
+     *
+     * A receipt does not age, so the same yes says nothing the book does not say already. Read from the end of the
+     * book: the first no found for that operation and that content means what the book says of it changed — and a
+     * yes after a no is what lets an act pass again, to be written. Another key's yes is another witness.
+     *
+     * @param list<array{type: string, data: array<string, mixed>}> $entries
+     * @param array<string, mixed>                                  $arguments
+     */
+    private static function saidYesAlready(array $entries, string $by, string $content, string $who, string $instrument, array $arguments): bool
+    {
+        for ($at = \count($entries) - 1; $at >= 0; --$at) {
+            $data = $entries[$at]['data'];
+            if ($entries[$at]['type'] !== StandingLedger::MEASURED || ($data['by'] ?? null) !== $by || ($data['subject'] ?? null) !== $content) {
+                continue;
+            }
+            if (($data['ok'] ?? null) !== true) {
+                return false;
+            }
+            if (($data['who'] ?? null) === $who && ($data['instrument'] ?? null) === $instrument && ($data['arguments'] ?? null) == $arguments) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether this key gave this very sign of calm so recently that another would move nothing worth a line
+     * (a proposal, not decided — and the one bound here that is a trade, not a repetition).
+     *
+     * A sign of life is a TIME: the book keeps a grant watched for its falsifier's window after the last one. So a
+     * sign is never «the same» as the one before — but one written a minute after another moves that time by a
+     * minute, and a watcher run every minute wrote sixty lines an hour that every command reads. It is written again
+     * once the last one of that key is a quarter of the SHORTEST window among the grants that run watches old.
+     *
+     * ONE KEY'S OWN, AND NEVER ACROSS WHAT CHANGED A GRANT'S STANDING. Another key's sign is another's, so no key
+     * keeps a sign somebody else needs out of the book. And reading from the end of the book, anything that is not a
+     * receipt, a refusal, an act or a sign of calm — a grant given, a stop, a lift, a withdrawal, a «fired» — means
+     * «write»: a grant a person lifted is in force and unwatched until its watcher speaks again.
+     *
+     * What it costs: the time the book holds may be up to a quarter of the window older than the watcher's last
+     * run. It never makes a grant read as watched for longer than a written sign says.
+     *
+     * @param list<array{type: string, at: string, data: array<string, mixed>}> $entries
+     * @param array<string, mixed>                                              $arguments
+     */
+    private function saidCalmJustNow(array $entries, Operation $operation, string $watcher, string $who, string $pin, array $arguments, \DateTimeImmutable $now): bool
+    {
+        $window = null;
+        foreach ($this->book()?->documents() ?? [] as $grant) {
+            if ($grant->falsifier->watcher->matchesExactly($operation->name, $arguments)) {
+                $window = min($window ?? $grant->falsifier->withinSeconds, $grant->falsifier->withinSeconds);
+            }
+        }
+        if ($window === null) {
+            return false;
+        }
+        for ($at = \count($entries) - 1; $at >= 0; --$at) {
+            $data = $entries[$at]['data'];
+            if (\in_array($entries[$at]['type'], [StandingLedger::MEASURED, StandingLedger::REFUSED, StandingLedger::ABSORBED], true)) {
+                continue;
+            }
+            if ($entries[$at]['type'] !== StandingLedger::WATCHED || ($data['fired'] ?? null) !== false) {
+                return false;
+            }
+            if (($data['watcher'] ?? null) === $watcher && ($data['who'] ?? null) === $who && ($data['pin'] ?? null) === $pin && ($data['arguments'] ?? null) == $arguments) {
+                $last = date_create_immutable($entries[$at]['at']);
+
+                return $last !== false && $now->getTimestamp() - $last->getTimestamp() < intdiv($window, self::SIGNS_A_WINDOW);
+            }
+        }
+
+        return false;
+    }
+
+    /** How many signs of calm of one key the book keeps in one window of a falsifier (a proposal, not decided). */
+    public const SIGNS_A_WINDOW = 4;
 
     /**
      * Whether this key's «fired» would stop nothing it has not already said stopped (a proposal, not decided).

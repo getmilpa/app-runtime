@@ -163,7 +163,7 @@ final class WhatASeatCanMakeTheBookKeepTest extends TestCase
         self::assertLessThan(2 * HouseStandingJudge::ACT_ARGUMENTS_KEPT, $this->written($this->last(StandingLedger::ABSORBED)));
     }
 
-    public function testARefusalKeepsOnlyTheSpellingOfArgumentsLongerThanTheHouseWritesDown(): void
+    public function testARefusalOfACallAHundredKilobytesLongIsALineLong(): void
     {
         $this->house->granted();
         $path = $this->house->candidate('never-measured.txt', "nobody measured this\n");
@@ -281,6 +281,171 @@ final class WhatASeatCanMakeTheBookKeepTest extends TestCase
 
         self::assertCount(2, $this->fired());
         self::assertSame(GrantState::Suspended, $this->house->book()->record('second-line')?->state, 'a grant given after the first «fired» was left in force by the second');
+    }
+
+    public function testTheSameKeySayingYesAgainOfContentThatIsStillGreenWritesNoLine(): void
+    {
+        // A receipt does not age: the same yes of the same key, by the same instrument, with the same arguments,
+        // says nothing the book does not say already.
+        $this->house->granted();
+        $path = $this->house->candidate('good.txt', "clean release\n");
+
+        foreach ([1, 2, 3] as $again) {
+            self::assertTrue($this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $path])['ok'] ?? null);
+        }
+
+        self::assertSame([true], array_column($this->house->lines(StandingLedger::MEASURED), 'ok'), 'the same yes of the same key over the same content was written again');
+        self::assertArrayNotHasKey('refused', $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $path]));
+    }
+
+    public function testAYesAfterANoIsWrittenAgainBecauseWhatTheBookSaysChanged(): void
+    {
+        // Green, red, green: the third is what lets the act pass again, so it has to be in the book.
+        $this->house->granted();
+        $path = $this->house->candidate('good.txt', "clean release\n");
+        $yes = $this->house->scanner;
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $path]);
+        $this->house->scanner = static fn (string $bytes): array => ['ok' => false];
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $path]);
+        self::assertArrayHasKey('refused', $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $path]), 'control: measured red, the act is refused');
+        $this->house->scanner = $yes;
+
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $path]);
+
+        self::assertSame([true, false, true], array_column($this->house->lines(StandingLedger::MEASURED), 'ok'), 'a yes after a no was taken for the yes before it, and not written');
+        self::assertArrayNotHasKey('refused', $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $path]));
+    }
+
+    public function testAYesOfAnotherKeyIsWritten(): void
+    {
+        $this->house->granted();
+        $this->house->enroll(LabHouse::OTHER_SEAT, ['agent:run', 'lab:scan'], LabHouse::PERSON);
+        $path = $this->house->candidate('good.txt', "clean release\n");
+
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $path]);
+        $this->house->as(LabHouse::OTHER_SEAT, 'lab:scan', ['path' => $path]);
+        $this->house->as(LabHouse::OTHER_SEAT, 'lab:scan', ['path' => $path]);
+
+        self::assertSame(['key:' . LabHouse::SEAT, 'key:' . LabHouse::OTHER_SEAT], array_column($this->house->lines(StandingLedger::MEASURED), 'who'));
+    }
+
+    public function testASignOfCalmIsNotWrittenAgainWhileTheLastOneOfThatKeyIsYoung(): void
+    {
+        // A sign of life is a time, so it cannot be «the same» as the one before — but one a minute after another
+        // moves that time by a minute. It is written again once the last one of that key is a quarter of the
+        // falsifier's window old: a grant watched every minute keeps four lines an hour, not sixty.
+        $this->house->granted();
+        self::assertCount(1, $this->house->lines(StandingLedger::WATCHED), 'control: the first sign is written');
+
+        foreach ([1, 2, 3] as $again) {
+            $this->house->later(60);
+            self::assertFalse($this->house->as(LabHouse::SEAT, 'lab:watch')['fired'] ?? null);
+        }
+        self::assertCount(1, $this->house->lines(StandingLedger::WATCHED), 'a sign of calm three minutes after the last one of that key was written again');
+
+        $this->house->later(900);
+        $this->house->as(LabHouse::SEAT, 'lab:watch');
+
+        self::assertCount(2, $this->house->lines(StandingLedger::WATCHED), 'a sign a quarter of the window after the last one was not written');
+        self::assertEquals($this->house->now, $this->house->book()->record('release-line')?->watcherSignalAt);
+    }
+
+    public function testASignOfCalmIsWrittenAtOnceAfterAStopWasLifted(): void
+    {
+        // The guard of that rule: a grant a person lifted is in force and UNWATCHED until its watcher speaks again.
+        // That sign must not be taken for the young one before the stop.
+        $this->house->granted();
+        $this->house->signed(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'seen']);
+        $this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => (string) $this->house->book()->record('release-line')?->suspension]);
+        self::assertNull($this->house->book()->record('release-line')?->watcherSignalAt, 'control: lifted, and unwatched');
+
+        $this->house->as(LabHouse::SEAT, 'lab:watch');
+
+        self::assertNotNull($this->house->book()->record('release-line')?->watcherSignalAt, 'a grant stayed unwatched because its watcher had spoken a moment before the stop');
+    }
+
+    public function testAnotherKeysSignOfCalmIsItsOwn(): void
+    {
+        // No key can keep another's sign of life out of the book: what is not written again is ONE key's own.
+        $this->house->granted();
+        $this->house->enroll(LabHouse::OTHER_SEAT, ['agent:run', 'lab:watch'], LabHouse::PERSON);
+
+        $this->house->as(LabHouse::OTHER_SEAT, 'lab:watch');
+        $this->house->as(LabHouse::OTHER_SEAT, 'lab:watch');
+
+        self::assertSame(['key:' . LabHouse::SEAT, 'key:' . LabHouse::OTHER_SEAT], array_column($this->house->lines(StandingLedger::WATCHED), 'who'));
+    }
+
+    public function testARefusalKeepsOnlyTheSpellingOfArgumentsLongerThanALineKeeps(): void
+    {
+        // A refusal is only a record. A thousand bytes of arguments are four times what a line keeps of one.
+        $this->house->granted();
+        $path = $this->house->candidate('never-measured.txt', "nobody measured this\n");
+
+        $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $path, 'note' => str_repeat('x', 1000)]);
+
+        $refusal = $this->last(StandingLedger::REFUSED);
+        self::assertLessThan(1024, $this->written($refusal), 'a refusal kept a thousand bytes of the arguments of the call');
+        self::assertArrayHasKey('arguments_given', $refusal['data']);
+    }
+
+    public function testASeatsRefusalsAreNotCountedAgainBecauseSomeoneElseWroteALine(): void
+    {
+        // The fifth review: the cap on a seat's refusals under a grant ended at the first line of another kind —
+        // anyone's. A seat with no word of its own wrote its thirty-two again for each line the house wrote.
+        $this->house->granted();
+        $this->house->enroll(LabHouse::OTHER_SEAT, ['agent:run', 'lab:watch'], LabHouse::PERSON);
+        $path = $this->house->candidate('never-measured.txt', "nobody measured this\n");
+        $asks = function (string $round) use ($path): void {
+            for ($n = 0; $n < 40; ++$n) {
+                $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $path, 'note' => $round . $n]);
+            }
+        };
+        $asks('a');
+        self::assertCount(HouseStandingJudge::REFUSALS_KEPT, $this->house->lines(StandingLedger::REFUSED), 'control: the cap');
+
+        $this->house->as(LabHouse::OTHER_SEAT, 'lab:watch');
+        $asks('b');
+
+        self::assertCount(HouseStandingJudge::REFUSALS_KEPT, $this->house->lines(StandingLedger::REFUSED), 'the cap on one seat\'s refusals started again with another seat\'s line');
+    }
+
+    public function testASeatsRefusalsAreCountedAgainOnceTheGrantsStandingChanges(): void
+    {
+        // The guard: what a seat is refused after the grant was stopped is another fact, and it is written.
+        $this->house->granted();
+        $path = $this->house->candidate('never-measured.txt', "nobody measured this\n");
+        for ($n = 0; $n < 40; ++$n) {
+            $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $path, 'note' => 'a' . $n]);
+        }
+        $this->house->signed(LabHouse::OTHER_SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'seen']);
+
+        self::assertStringContainsString('suspended', (string) ($this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $path])['refused'] ?? 'RAN'));
+
+        self::assertCount(HouseStandingJudge::REFUSALS_KEPT + 1, $this->house->lines(StandingLedger::REFUSED), 'a refusal after the grant was stopped was not written');
+    }
+
+    // ── how long the book is ─────────────────────────────────────────────────────────────────────────────────
+
+    public function testABookLongerThanTheHouseReadsIsAFaultAndNoSeatActs(): void
+    {
+        // Every bound above makes a line short; none makes the book short: an act a seat is lent is a line, and a
+        // house that works writes many. A process of 128M stops — dies, for every command of every caller — reading
+        // a book of some twenty megabytes of short lines. So past a length the house does not read its book: that is
+        // a fault of the book, said, like one that lost its last line break. No seat acts; a person still does.
+        $this->house->granted();
+        $path = $this->house->candidate('good.txt', "clean release\n");
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $path]);
+        self::assertArrayNotHasKey('refused', $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $path]), 'control: the seat acts');
+        $pad = str_repeat('x', 256 * 1024);
+        while (filesize($this->house->root . '/' . StandingLedger::PATH) <= StandingLedger::LONGEST) {
+            $this->house->writtenByHand(StandingLedger::REFUSED, ['grant' => 'another', 'operation' => 'lab_merge', 'arguments' => ['note' => $pad], 'seat' => LabHouse::STRANGER, 'subject' => null, 'check' => 'conditions', 'reason' => 'a long line, written by hand']);
+            clearstatcache();
+        }
+
+        self::assertStringContainsString('longer than this house reads', (string) $this->house->ledger()->fault(), 'a book past that length was read whole');
+        self::assertStringContainsString('does not verify', (string) ($this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $path])['refused'] ?? 'RAN'));
+        self::assertSame(1, \count($this->house->done('merged')), 'a seat acted over a book the house does not read');
     }
 
     /** @return iterable<string, array{0: array<string, mixed>}> */
