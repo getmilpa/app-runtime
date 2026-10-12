@@ -57,6 +57,11 @@ h1 { font-family: var(--font-heading); font-size: var(--text-4xl, 2.25rem);
    as an equal: its own kicker, quieter than the doctrine above it. */
 .gate__next { margin-top: var(--space-5, 1.5rem); color: var(--text-muted); }
 .gate__next .kicker { display: block; margin-bottom: var(--space-1, .25rem); }
+/* An invitation that admits nobody: said where the button is, in the colour of a refusal. */
+.gate__refused {
+  margin: 0 0 var(--space-4, 1rem); padding: var(--space-3, .75rem) var(--space-4, 1rem);
+  color: var(--text); background: var(--danger-bg); border: 1px solid var(--danger-border); border-radius: var(--radius-md, 6px);
+}
 /* The house's own facts are true and SECONDARY: behind a disclosure, so the main hierarchy stays the
    ceremony. Whoever needs the relying party knows to look; nobody else pays for it. */
 .gate__tech > summary { cursor: pointer; color: var(--text-muted); }
