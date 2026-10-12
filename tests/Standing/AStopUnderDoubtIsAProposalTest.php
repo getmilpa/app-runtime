@@ -19,9 +19,9 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
- * A PROPOSAL OF THE CONTRACT, NOT DECIDED (greenhouse decisions/0615; its seventh review, rebuilt as the eighth asked):
- * under doubt, a stop stops — asked here by the door a seat works through. If the proposal is taken out of
- * milpa/command, this file goes with it.
+ * UNDER DOUBT, A STOP STOPS — DECIDED BY ROD, 2026-10-12 (greenhouse decisions/0615, D10 and D13), asked here by the
+ * door a seat works through. It was a proposal of the contract's seventh review, rebuilt as the eighth asked; this file
+ * keeps the name it had while it was one.
  *
  * A narrow grant fixes the channel and is stopped. The seat says the same act another way: without the channel,
  * with an empty one, with a space after it. The contract's judge used to say the stopped grant «does not name» that

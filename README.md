@@ -662,28 +662,28 @@ whatever another would lend, until a person lifts that suspension or gives a gra
 it by name. Expired, revoked and superseded grants stop nobody; otherwise one grant that passes is
 enough.
 
-*Proposed in milpa/command, not decided (greenhouse decisions/0615): under doubt, a stop stops.* A
-grant that fixes an argument names only the calls that say it. So a stopped grant that fixes
-`channel` to `stable` did not stop a call that says no channel at all, or an empty one, or
-`"stable "`: a wider grant lent it — or, where the seat holds the word on its own, nobody's grant
-did and the seat's own word decided. With the proposal in, the house refuses that call —
-«release-line» is suspended, *and it may be the one that names this call* — whether or not another
-grant would lend it. Only a call that says, beyond doubt, another value for what the stopped grant
-fixes is outside it: a value of the same kind, spelled as a grant spells one, and different.
-Capitals still say another value: the judge compares what it is handed, and an operation that
-folds capitals reads the stopped act.
+**Under doubt, a stop stops** (decided by Rod, 2026-10-12; greenhouse decisions/0615, D10). A grant
+that fixes an argument names only the calls that say it. So a stopped grant that fixes `channel` to
+`stable` did not stop a call that says no channel at all, or an empty one, or `"stable "`: a wider
+grant lent it — or, where the seat holds the word on its own, nobody's grant did and the seat's own
+word decided. The house refuses that call now — «release-line» is suspended, *and it may be the one
+that names this call* — whether or not another grant would lend it. Only a call that says, beyond
+doubt, another value for what the stopped grant fixes is outside it: a value of the same kind,
+spelled as a grant spells one, and different. Capitals still say another value: the judge compares
+what it is handed, and an operation that folds capitals reads the stopped act — no rule that
+compares values closes that, and it was decided with that limit said.
 
-*And the rule this house adds to it, proposed with it:* **a grant in force that may be naming a
-call governs a seat that holds the word on its own.** The contract hands a house that question
-(`StandingJudge::mayBeNaming()`) and leaves the answer to it. A seat that held `lab:publish` itself
-left the *conditions* of a grant in force behind by leaving out the argument the grant fixes — the
-call was "nobody's", and a candidate nobody measured was published. This house refuses that call
+**And the rule this house adds to it, decided narrow** (D10 and D13): **a grant in force that may be
+naming a call governs a seat that holds the word on its own.** The contract hands a house that
+question (`StandingJudge::mayBeNaming()`) and leaves the answer to it. A seat that held `lab:publish`
+itself left the *conditions* of a grant in force behind by leaving out the argument the grant fixes —
+the call was "nobody's", and a candidate nobody measured was published. This house refuses that call
 and says how to say it: each fixed argument as the grant fixes it, and the call is judged under the
 grant; or another value for one of them, and the call is the seat's own. It is as narrow as it
 reads: only a grant in force and honoured now, only where the seat's own word would decide (a seat
-that lacks the word is refused at the gate as before), and nothing is lent on it. If the proposal
-leaves the contract, `tests/Standing/AStopUnderDoubtIsAProposalTest.php` and
-`HouseStandingJudge::governedUnderDoubt()` go with it.
+that lacks the word is refused at the gate as before), and nothing is lent on it. **A grant that is
+gone governs nothing under doubt**: past its date or revoked, it stops nobody here — while a call
+said exactly under one is still refused to the seat it names, as it always was.
 
 **The house writes its own receipts**, in `storage/identity/standing.jsonl` — append-only, each
 line carrying the digest of the one before it, written whole or not at all, **read back before it

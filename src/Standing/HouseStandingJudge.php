@@ -256,7 +256,8 @@ final class HouseStandingJudge
     }
 
     /**
-     * PROPOSED WITH THE CONTRACT'S «UNDER DOUBT, A STOP STOPS» — NOT DECIDED (greenhouse decisions/0615). The house's
+     * DECIDED BY ROD, 2026-10-12, NARROW (greenhouse decisions/0615, D10 and D13) — with the contract's «under doubt,
+     * a stop stops». The house's
      * refusal of a call NO grant names exactly, made by a seat that holds the word on its own, while a grant IN FORCE
      * may be the one that names it — or `null`: there is no such grant, or the seat's own word would not decide.
      *
@@ -275,7 +276,8 @@ final class HouseStandingJudge
      *   · NOTHING IS LENT ON IT, and nothing passes on it: it is a refusal, written down as the refusals of a grant
      *     are.
      *
-     * To take it out with the proposal: this method, and the one line of {@see self::decide()} that calls it.
+     * AND A GRANT THAT IS GONE GOVERNS NOTHING UNDER DOUBT (D13): past its date or revoked, it lends nothing and
+     * stops nobody here — while a call said EXACTLY under one is still refused to the seat it names, as it always was.
      *
      * @param list<array{grant: \Milpa\Command\Standing\StandingGrant, standing: GrantStanding}> $held
      * @param array<string, GrantRecord>                                                         $records
