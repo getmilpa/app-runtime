@@ -66,6 +66,12 @@ final class StandingLedger
      */
     public const PATH = 'storage/identity/standing.jsonl';
 
+    /** How many times a reading that ends in an unfinished line is made again before that line is called a fault. */
+    private const LOOKS_AGAIN = 20;
+
+    /** How long a reading waits before it looks again, in microseconds: a line is written in far less. */
+    private const SETTLES_IN = 500;
+
     /** What the head of the book is kept in, beside it: the book's own name and this. */
     public const HEAD = '.head';
 
@@ -366,6 +372,16 @@ final class StandingLedger
             return $this->read = ['entries' => [], 'fault' => $this->againstItsHead($kept, [])];
         }
         $raw = @file_get_contents($this->path);
+        // A LINE STILL BEING WRITTEN IS NOT A LINE YET (the sibling of L1, found measuring it by processes). A line
+        // that crosses a page of the file is, for an instant, there by halves, and a reading with no lock can land in
+        // that instant: about twenty readings in three hundred thousand ended in an unfinished line while three
+        // processes wrote, each exactly at a page boundary, and a book that was whole read as «edited». Every line
+        // ends in a line break, so a reading that does not is looked at again — a bounded number of times, never
+        // waited for: a line that STAYS unfinished is a fault, as it was.
+        for ($again = 0; \is_string($raw) && $raw !== '' && !str_ends_with($raw, "\n") && $again < self::LOOKS_AGAIN; ++$again) {
+            usleep(self::SETTLES_IN);
+            $raw = @file_get_contents($this->path);
+        }
 
         return $this->read = $raw === false
             ? ['entries' => [], 'fault' => 'it cannot be read']

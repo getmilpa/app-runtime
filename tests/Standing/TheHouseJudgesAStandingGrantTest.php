@@ -74,7 +74,7 @@ final class TheHouseJudgesAStandingGrantTest extends TestCase
         $candidate = $this->house->candidate('b.tar', 'candidate b');
 
         $refused = $this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $candidate, 'channel' => 'stable']);
-        self::assertStringContainsString('condition «no-host-names» was never measured on this candidate (' . $this->house->digestOf($candidate) . ')', $refused['refused']);
+        self::assertStringContainsString('condition "no-host-names" was never measured on this candidate ("' . $this->house->digestOf($candidate) . '")', $refused['refused']);
         self::assertSame([], $this->house->done('published'));
 
         // Measured AFTER: the refused act stays refused in the book, and nothing ran because of the measurement.

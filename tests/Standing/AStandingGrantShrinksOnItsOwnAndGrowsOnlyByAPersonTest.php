@@ -418,7 +418,7 @@ final class AStandingGrantShrinksOnItsOwnAndGrowsOnlyByAPersonTest extends TestC
             $candidate = $other->candidate('evidence.diff', 'an acta and nothing else');
             $other->as(LabHouse::SEAT, 'lab:scan', ['path' => $candidate]);
 
-            self::assertStringContainsString('Standing grant «release-line» lends nothing to this call: condition «builds» was never measured', $other->as(LabHouse::SEAT, 'lab:merge', ['path' => $candidate])['refused']);
+            self::assertStringContainsString('Standing grant «release-line» lends nothing to this call: condition "builds" was never measured', $other->as(LabHouse::SEAT, 'lab:merge', ['path' => $candidate])['refused']);
         } finally {
             $other->destroy();
         }

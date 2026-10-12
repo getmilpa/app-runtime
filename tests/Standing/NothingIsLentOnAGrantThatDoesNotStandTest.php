@@ -82,7 +82,7 @@ final class NothingIsLentOnAGrantThatDoesNotStandTest extends TestCase
         $seen = $this->house->policy->contextFor($this->house->contextOf(LabHouse::SEAT), 'lab_merge', ['path' => $unmeasured]);
         self::assertTrue($seen->hasScope('lab:merge'));
         $refused = (string) $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $unmeasured])['refused'];
-        self::assertStringStartsWith('Standing grant «release-line» lends nothing to this call: condition «no-host-names» was never measured', $refused);
+        self::assertStringStartsWith('Standing grant «release-line» lends nothing to this call: condition "no-host-names" was never measured', $refused);
     }
 
     /** @return iterable<string, array{string, string}> */

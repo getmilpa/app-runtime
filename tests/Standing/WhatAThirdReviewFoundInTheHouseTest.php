@@ -172,6 +172,56 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
         self::assertCount(2, (new StandingLedger($book))->entries());
     }
 
+    public function testALineStillBeingWrittenWhileTheBookIsReadIsNotAFault(): void
+    {
+        // The sibling of L1, found measuring it by processes: a line that crosses a page of the file is, for an
+        // instant, there by halves — and a judgment, which reads with no lock, read a whole book as «edited». Asked
+        // of the bytes alone, about twenty readings in three hundred thousand ended in an unfinished line, every one
+        // of them exactly at a page boundary.
+        FillingDisk::mount();
+        $book = 'filling://house/storage/identity/standing.jsonl';
+        (new StandingLedger($book))->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'first']);
+        (new StandingLedger($book))->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'while it was being read']);
+        $whole = FillingDisk::$files[$book];
+        $unfinished = substr($whole, 0, (int) strpos($whole, "\n") + 41);
+        $opened = 0;
+        FillingDisk::$opening = static function (string $path) use ($book, $whole, $unfinished, &$opened): void {
+            if ($path === $book) {
+                FillingDisk::$files[$book] = ++$opened === 1 ? $unfinished : $whole;
+            }
+        };
+
+        $reader = new StandingLedger($book);
+        $fault = $reader->fault();
+        FillingDisk::$opening = null;
+
+        self::assertNull($fault, 'a book that is whole, read while its last line was being written, read as «edited»');
+        self::assertSame(2, $opened, 'control: the reader saw half a line, and looked again');
+        self::assertCount(2, $reader->entries());
+    }
+
+    public function testABookThatEndsInALineNobodyFinishedIsStillAFault(): void
+    {
+        // The mirror: a line that STAYS unfinished — whoever wrote it died half way — is a fault of the book, said
+        // after looking again a bounded number of times, never waited for.
+        FillingDisk::mount();
+        $book = 'filling://house/storage/identity/standing.jsonl';
+        (new StandingLedger($book))->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'first']);
+        (new StandingLedger($book))->append(StandingLedger::SUSPENDED, ['grant' => 'a', 'by' => 'someone', 'reason' => 'never finished']);
+        FillingDisk::$files[$book] = substr(FillingDisk::$files[$book], 0, (int) strpos(FillingDisk::$files[$book], "\n") + 41);
+        $opened = 0;
+        FillingDisk::$opening = static function (string $path) use ($book, &$opened): void {
+            $opened += $path === $book ? 1 : 0;
+        };
+
+        $fault = (new StandingLedger($book))->fault();
+        FillingDisk::$opening = null;
+
+        self::assertStringContainsString('line 2 does not link to the line before it', (string) $fault);
+        self::assertGreaterThan(1, $opened, 'control: it was looked at again');
+        self::assertLessThanOrEqual(21, $opened, 'it was looked at again without end');
+    }
+
     // ── L3 · the listing says what the judge honours ────────────────────────────────────────────────────────
 
     public function testTheListingDoesNotCallInForceAGrantTheJudgeDoesNotHonour(): void
@@ -462,6 +512,51 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
         self::assertArrayHasKey('refused', $this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $path, 'channel' => 'stable']));
     }
 
+    // D4, read as D5 was completed (2026-10-12): «a watcher that says it fired ALWAYS stops» — from any run of it
+
+    /** @return iterable<string, array{array<string, mixed>}> */
+    public static function runsOfTheWatcherThatAreNotTheOneTheFalsifierDescribes(): iterable
+    {
+        yield 'without the argument the falsifier fixes' => [[]];
+        yield 'the fixed argument at another value' => [['line' => 'beta']];
+        yield 'the fixed argument as another type' => [['line' => true]];
+        yield 'the fixed argument, and one more' => [['line' => 'release', 'sign' => '1']];
+    }
+
+    /** @param array<string, mixed> $how */
+    #[DataProvider('runsOfTheWatcherThatAreNotTheOneTheFalsifierDescribes')]
+    public function testAWatcherThatSaysFiredStopsTheGrantFromAnyRunOfIt(array $how): void
+    {
+        $this->house->granted(['falsifier' => ['name' => 'a-published-name', 'statement' => 'a published release names a machine', 'watcher' => ['operation' => 'lab:watch', 'arguments' => ['line' => 'release']], 'within_seconds' => 3600]], watched: false);
+        $path = $this->measured();
+        // A quiet answer from that run is no sign of life: what speaks FOR a grant is the run its falsifier describes.
+        self::assertSame(false, $this->house->as(LabHouse::SEAT, 'lab:watch', $how)['fired'] ?? null, 'control: the watcher answered that all is quiet');
+        self::assertSame([], $this->house->lines(StandingLedger::WATCHED), 'a quiet answer from a run nobody described was kept as a sign of life');
+        $this->house->as(LabHouse::SEAT, 'lab:watch', ['line' => 'release']);
+        self::assertSame(GrantState::InForce, $this->house->book()->record('release-line')?->state, 'control: watched by the run the falsifier describes, the grant is in force');
+
+        $this->house->fired = true;
+        self::assertSame(true, $this->house->as(LabHouse::SEAT, 'lab:watch', $how)['fired'] ?? null, 'control: the watcher answered that it fired');
+
+        self::assertSame(GrantState::Suspended, $this->house->book()->record('release-line')?->state, 'the watcher said «fired» and the grant is still in force');
+        self::assertArrayHasKey('refused', $this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $path, 'channel' => 'stable']));
+    }
+
+    public function testALineThatSaysTheWatcherFiredStopsTheGrantWhateverArgumentsItNames(): void
+    {
+        // The same reading where the book is read: the line is the suspension, whatever run wrote it.
+        $this->house->granted(['falsifier' => ['name' => 'a-published-name', 'statement' => 'a published release names a machine', 'watcher' => ['operation' => 'lab:watch', 'arguments' => ['line' => 'release']], 'within_seconds' => 3600]], watched: false);
+        $this->house->as(LabHouse::SEAT, 'lab:watch', ['line' => 'release']);
+
+        $this->house->writtenByHand(StandingLedger::WATCHED, ['watcher' => 'lab.watch', 'arguments' => ['line' => 'beta'], 'fired' => true]);
+
+        self::assertSame(GrantState::Suspended, $this->house->book()->record('release-line')?->state);
+        // …and «fired» by ANOTHER operation stops nothing here: it is this falsifier's watcher that is listened to.
+        $this->house->granted(['id' => 'second-line', 'falsifier' => ['name' => 'a-published-name', 'statement' => 'a published release names a machine', 'watcher' => ['operation' => 'lab:watch', 'arguments' => ['line' => 'release']], 'within_seconds' => 3600]], watched: false);
+        $this->house->writtenByHand(StandingLedger::WATCHED, ['watcher' => 'lab.scan', 'arguments' => ['line' => 'release'], 'fired' => true]);
+        self::assertSame(GrantState::InForce, $this->house->book()->record('second-line')?->state, 'another operation said «fired», and this grant stopped');
+    }
+
     public function testAQuietSignFromARunWithAnArgumentNobodyDescribedStillDoesNotCount(): void
     {
         // The mirror, and it stays: what speaks FOR a grant is the run its falsifier describes, and no other.
@@ -477,7 +572,10 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
     public function testFiredStopsAGrantWhoeverAnsweredItAndWhateverItsFalsifierFixes(): void
     {
         // Stopping asks for nobody's pin: other code under the watcher's name that says «fired» stops the grant too.
-        // And «the arguments the falsifier fixes» are still asked: a run for another scope is not this falsifier.
+        // «The arguments the falsifier fixes» were still asked, and this test pinned that a run for another scope was
+        // not this falsifier firing. It is now (D4 read as D5 was completed, 2026-10-12: «fired» ALWAYS stops, from
+        // any run of that operation). What that costs is here on purpose: one watcher that serves two scopes stops
+        // the grants of both when it fires for one.
         $real = $this->house->operation('lab:watch');
         $this->house->granted(['falsifier' => ['name' => 'a-published-name', 'statement' => 's', 'watcher' => ['operation' => 'lab:watch', 'arguments' => ['scope' => 'releases']], 'within_seconds' => 3600]], watched: false);
         $this->house->as(LabHouse::SEAT, 'lab:watch', ['scope' => 'releases']);
@@ -485,10 +583,8 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
         $this->house->offer(new Operation('lab:watch', $real->description, static fn (array $input): array => ['ok' => true, 'fired' => true], scopes: $real->scopes, effects: EffectProfile::readOnly()));
 
         $this->house->as(LabHouse::SEAT, 'lab:watch', ['scope' => 'another']);
-        self::assertSame(GrantState::InForce, $this->house->book()->record('release-line')?->state, 'a run for another scope is not this falsifier firing');
-        $this->house->as(LabHouse::SEAT, 'lab:watch', ['scope' => 'releases', 'verbose' => '1']);
 
-        self::assertSame(GrantState::Suspended, $this->house->book()->record('release-line')?->state);
+        self::assertSame(GrantState::Suspended, $this->house->book()->record('release-line')?->state, 'the watcher fired, for another scope, and the grant is still in force');
         self::assertSame(false, $this->house->book()->record('release-line')?->stopped, 'a falsifier that fired is a suspension a person lifts by name, as before');
     }
 
@@ -817,11 +913,21 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
         self::assertStringContainsString('by "key:\\u001b[8m": "seen\\u001b[2K\\rin force."', $recent);
     }
 
+    public function testATextWrittenByHandIsNotRepairedBeforeItIsShown(): void
+    {
+        // What is blank around a text was taken off it before it was looked at, so a reason that ended in a line break
+        // was printed as if it had not. A text is shown as it is, or spelled out: nothing trims it.
+        self::assertSame('seen it', \Milpa\AppRuntime\Standing\StandingBook::said('seen it'));
+        self::assertSame('"seen it\n"', \Milpa\AppRuntime\Standing\StandingBook::said("seen it\n"));
+        self::assertSame('" seen it"', \Milpa\AppRuntime\Standing\StandingBook::said(' seen it'));
+        self::assertSame('"seen\u200bit"', \Milpa\AppRuntime\Standing\StandingBook::said("seen\u{200B}it"), 'and what is not seen is spelled out too');
+        self::assertSame('nothing', \Milpa\AppRuntime\Standing\StandingBook::said("  \n", 'nothing'));
+    }
+
     /** @return iterable<string, array{string, array<string, mixed>}> */
     public static function linesWrittenByHandThatCarryWhatATerminalObeys(): iterable
     {
         $esc = "\x1b[2K\rall is well\x1b[8m";
-        yield 'a receipt, by the operation it names' => [StandingLedger::MEASURED, ['by' => 'lab.scan' . $esc, 'arguments' => [], 'subject' => 'sha256:x', 'ok' => true, 'instrument' => 'sha256:y', 'at' => '2026-10-11T12:00:00+00:00']];
         yield 'a receipt, by the content it names' => [StandingLedger::MEASURED, ['by' => 'lab.scan', 'arguments' => [], 'subject' => 'sha256:x' . $esc, 'ok' => true, 'instrument' => 'sha256:y', 'at' => '2026-10-11T12:00:00+00:00']];
         yield 'a sign, by its watcher' => [StandingLedger::WATCHED, ['watcher' => 'lab.other' . $esc, 'arguments' => [], 'fired' => false]];
         yield 'an act, by its grant' => [StandingLedger::ABSORBED, ['grant' => 'g' . $esc, 'operation' => 'lab.publish', 'seat' => LabHouse::SEAT]];
@@ -847,6 +953,22 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
 
         self::assertSame(0, preg_match('/[\x00-\x1F\x7F]/', $recent), 'the listing prints a byte a terminal obeys');
         self::assertStringContainsString('\\u001b[2K\\rall is well\\u001b[8m', $recent, 'control: the line is listed, spelled out');
+    }
+
+    public function testAReceiptWhoseOperationIsNotOneIsALineTheHouseCannotRead(): void
+    {
+        // It used to be listed, spelled out. The contract no longer reads it as a receipt at all (its fifth review,
+        // L3): a line that names no operation is matched against no condition, so it is a fault of the book — and
+        // the fault says where, never what the line held.
+        $this->house->granted();
+        $this->house->writtenByHand(StandingLedger::MEASURED, ['by' => "lab.scan\x1b[2K\rall is well\x1b[8m", 'arguments' => [], 'subject' => 'sha256:x', 'ok' => false, 'instrument' => 'sha256:y', 'at' => '2026-10-11T12:00:00+00:00']);
+
+        $fault = (string) $this->house->ledger()->fault();
+
+        self::assertStringContainsString('is a «measured» line this house cannot read today', $fault);
+        self::assertSame(0, preg_match('/[\x00-\x1F\x7F]/', $fault));
+        $candidate = $this->house->candidate('a.tar', 'candidate a');
+        self::assertStringContainsString('does not verify', (string) ($this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $candidate, 'channel' => 'stable'])['refused'] ?? 'RAN'));
     }
 
     public function testWhoRanAWatcherThatFiredIsSpelledOutToo(): void
@@ -887,6 +1009,69 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
         $this->house->scanner = static fn (string $bytes): array => ['ok' => true];
         $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $bad]);
         self::assertSame(['ok' => true], $this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $bad, 'channel' => 'stable']));
+    }
+
+    // ── decided by Rod, 2026-10-12 (D5, complete): a NO counts from ANY run of the instrument on that content ──
+
+    /** @return iterable<string, array{array<string, mixed>}> */
+    public static function runsThatAreNotTheOneTheConditionDescribes(): iterable
+    {
+        yield 'without the argument the condition fixes' => [[]];
+        yield 'the fixed argument at another value' => [['strict' => false]];
+        yield 'the fixed argument as another type' => [['strict' => 'yes']];
+        yield 'the fixed argument, and one more' => [['strict' => true, 'deep' => true]];
+    }
+
+    /** @param array<string, mixed> $how */
+    #[DataProvider('runsThatAreNotTheOneTheConditionDescribes')]
+    public function testANoFromAnyRunOfTheInstrumentOnThatContentIsWrittenDownAndStopsTheAct(array $how): void
+    {
+        $this->house->granted(['conditions' => [['name' => 'no-host-names', 'statement' => 'what is published names no machine', 'by' => ['operation' => 'lab:scan', 'arguments' => ['strict' => true], 'free' => ['path']]]]]);
+        $bad = $this->house->candidate('bad.txt', "machine-name: build-host-7\n");
+        $this->house->scanner = static fn (string $bytes): array => ['ok' => true];
+        // A YES from that run is not this condition measured, and leaves no receipt.
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $bad] + $how);
+        self::assertSame([], $this->house->lines(StandingLedger::MEASURED), 'control: a yes from a run nobody described is not a receipt');
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $bad, 'strict' => true]);
+        self::assertSame(['ok' => true], $this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $bad, 'channel' => 'stable']), 'control: measured green by the run the condition describes, it is published');
+
+        $this->house->scanner = static fn (string $bytes): array => ['ok' => false];
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $bad] + $how);
+
+        $receipts = $this->house->lines(StandingLedger::MEASURED);
+        self::assertCount(2, $receipts, 'the instrument said no of this content, and the house wrote nothing');
+        self::assertFalse($receipts[1]['ok']);
+        self::assertStringContainsString('does not hold on this candidate', (string) ($this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $bad, 'channel' => 'stable'])['refused'] ?? 'RAN'));
+        self::assertCount(1, $this->house->done('published'));
+        // …until the run the condition describes measures it again.
+        $this->house->scanner = static fn (string $bytes): array => ['ok' => true];
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $bad, 'strict' => true]);
+        self::assertSame(['ok' => true], $this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $bad, 'channel' => 'stable']));
+    }
+
+    public function testANoFromAnotherOperationOrAboutOtherContentWritesNothingForThisCondition(): void
+    {
+        $this->house->granted(['conditions' => [['name' => 'no-host-names', 'statement' => 'what is published names no machine', 'by' => ['operation' => 'lab:scan', 'arguments' => ['strict' => true], 'free' => ['path']]]]]);
+        $good = $this->house->candidate('good.txt', "clean release\n");
+        $other = $this->house->candidate('other.txt', "machine-name: build-host-7\n");
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $good, 'strict' => true]);
+        $this->house->scanner = static fn (string $bytes): array => ['ok' => false];
+
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $other]);
+
+        self::assertSame(['ok' => true], $this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $good, 'channel' => 'stable']), 'a no about other content stopped this one');
+    }
+
+    // ── decided by Rod, 2026-10-12 (D8): a fixed value is shown as it is spelled ──────────────────────────────
+
+    public function testTheListingShowsAFixedValueAsItIsSpelledSoThatTrueAndTheWordTrueAreTwo(): void
+    {
+        $this->house->granted(['conditions' => [['name' => 'no-host-names', 'statement' => 'what is published names no machine', 'by' => ['operation' => 'lab:scan', 'arguments' => ['strict' => true, 'mode' => 'true', 'level' => 7, 'tag' => ''], 'free' => ['path']]]]]);
+
+        $listed = $this->house->as(null, 'standing:granted')['grants'][0];
+
+        self::assertStringEndsWith('measured by lab:scan (level=7, mode="true", strict=true, tag="")', $listed['conditions'][0]);
+        self::assertSame('lab:publish (channel="stable")', $listed['covers'][0]);
     }
 
     public function testAnAnswerThatIsNotAnAnswerFromSuchARunLeavesNoReceipt(): void

@@ -304,14 +304,15 @@ final class StandingBook
                 // one the falsifier describes — an argument nobody described is not this falsifier being watched —
                 // AND made by the very operation the grant was given over (M1): a sign carries the pin of what
                 // produced it. «It fired» only narrows: it stops every grant in force whose falsifier names that
-                // operation with the arguments it fixes, whatever else the run carried and whoever answered.
+                // operation, whatever arguments the run carried — one more, the fixed one missing or at another value
+                // — and whoever answered. («Always», as it was completed for a red receipt: from any run.)
                 $at = date_create_immutable($entry['at']);
                 $fired = $data['fired'] ?? null;
                 $watcher = (string) ($data['watcher'] ?? '');
                 $arguments = \is_array($data['arguments'] ?? null) ? $data['arguments'] : [];
                 foreach ($grants as $key => $known) {
                     $named = $known['grant']->falsifier->watcher;
-                    if (!\is_bool($fired) || $at === false || $known['state'] !== GrantState::InForce || !$named->matches($watcher, $arguments)) {
+                    if (!\is_bool($fired) || $at === false || $known['state'] !== GrantState::InForce || !$named->operation->is($watcher)) {
                         continue;
                     }
                     if ($fired === false) {
@@ -425,7 +426,7 @@ final class StandingBook
             return $otherwise;
         }
 
-        return Canonical::oneLine(trim($text)) ? trim($text) : Canonical::shown($text);
+        return Canonical::oneLine($text) ? $text : Canonical::shown($text);
     }
 
     /** What a stop that is not a suspension says of how it ends: by a new grant that names it, and by nothing else. */

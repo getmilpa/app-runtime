@@ -72,7 +72,7 @@ final class OnlyAPersonGivesAStandingGrantTest extends TestCase
         self::assertSame('release-line', $given['grant']);
         self::assertSame('key:' . LabHouse::PERSON, $given['granted_by']);
         self::assertSame([LabHouse::SEAT], $given['lends_to']);
-        self::assertSame(['lab:publish (channel=stable)', 'lab:merge', 'lab:announce'], $given['covers']);
+        self::assertSame(['lab:publish (channel="stable")', 'lab:merge', 'lab:announce'], $given['covers']);
         self::assertSame(['no-host-names — measured by lab:scan'], $given['conditions']);
         self::assertSame('lab:watch, every 3600 s at most', $given['watched_by']);
         self::assertStringContainsString('lends nothing until its watcher has given a sign of life', $given['next']);

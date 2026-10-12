@@ -553,7 +553,10 @@ The signature covers the whole document, and the document is read back out of th
 every judgment — never from a copy kept beside them. It is read with the contract the house has
 *that day* (`milpa/command` 0.30.2 or later: it refuses documents 0.30.0 and 0.30.1 accepted), and a
 line that says a grant was given and can no longer be read as one is **a fault of the book**, never
-«no grant»: what it had replaced or stopped must not come back because a reader got stricter.
+«no grant»: what it had replaced or stopped must not come back because a reader got stricter. So is
+any other line the house cannot read today as what it says it is — a receipt, a sign of the watcher,
+a stop: a red receipt skipped would leave the green one before it speaking. The house tells the
+judge its record reads whole, from that same answer, or nothing is lent.
 
 **What a grant may cover.** An operation that declares a scope (never `*`, never
 `identity:enroll`), an input schema, what it acts on (`actsOn`), and its effects — with authority
@@ -595,8 +598,15 @@ cannot see content swapped and swapped back in between. A measurement becomes a 
 suspends the grant. A condition's `by` and the falsifier's `watcher` are matched closed: a run that
 carries an argument the grant did not describe (`free` lists the ones it may) is not that
 instrument. **That is for what speaks *for* a grant** — a green measurement, a quiet sign. A watcher
-that answers `fired: true` stops every grant in force whose falsifier names it with the arguments
-it fixes, **whatever else that run carried and whichever code answered**: «it fired» only narrows.
+that answers `fired: true` stops every grant in force whose falsifier names that operation,
+**whatever arguments that run carried and whichever code answered** — one argument more, the
+argument the falsifier fixes missing or at another value: «it fired» only narrows. A quiet answer
+is a sign of life only from the run the falsifier describes.
+
+**And a measurement that says no is written down from any run of the instrument.** One argument
+more, the argument a condition fixes missing or at another value: if that run answers no of a
+content, the house keeps its receipt, and the act over that content is refused until the run the
+condition describes measures it again. A yes from such a run leaves no receipt.
 
 At a terminal, an operation that declares no input schema is handed every `--flag` it was typed
 with, `--sign` among them. So `coa release:watch --sign` is not the run a falsifier describes: it
@@ -729,6 +739,9 @@ the book.
   files**: it is on the same disk and is the same user's, and rewriting the two gets past it. Only a
   witness outside the machine would stop that, and this has none. Keep the house's files out of
   reach of whoever its seats run as.
+  A judgment reads the book with no lock, and a line being written may be there by halves for an
+  instant: a reading that does not end in a line break is made again, a bounded number of times, and
+  a line that stays unfinished is a fault.
 - **The keyring that judges must hold the public key of whoever granted.** A seat that runs in its
   own keyring needs that public key imported, or the grant is not honoured there.
 - **A suspension is cheap.** Any recognized principal can hand every absorbed act back to the

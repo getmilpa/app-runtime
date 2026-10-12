@@ -221,7 +221,10 @@ final class HouseStandingJudge
             }
             $held[] = [
                 'grant' => $record->grant,
-                'standing' => new GrantStanding($record->state, $record->because, $this->faultOf($record, $operation, $operationNamed), $record->watcherSignalAt, $receipts, $instruments),
+                // The book was asked first, above: it verifies, and every line of it reads as its kind today — a line
+                // that did not would be a fault of the whole book, and no grant in it would have been read. That is
+                // what this house says to the judge of its record of each grant, and it says it from the same answer.
+                'standing' => new GrantStanding($record->state, $record->because, $this->faultOf($record, $operation, $operationNamed), $record->watcherSignalAt, $receipts, $instruments, recordFault: $fault),
             ];
             $records[$record->grant->id] = $record;
         }
@@ -489,15 +492,18 @@ final class HouseStandingJudge
      * «Describes» is a closed match: the call carries the arguments the grant fixes, the ones it leaves free, and
      * no other. A run with an argument nobody described is not that instrument being used (review, 5).
      *
-     * FOR WHAT SPEAKS FOR A GRANT. WHAT STOPS ONE IS AN OPEN MATCH (third review, M2; decided by Rod 2026-10-12):
-     * a run of the watcher that carries the arguments the falsifier fixes — whatever else it carries, a flag of the
-     * surface it was typed at among them — is noted too (`stops`), because if it answers «fired» that answer stops
-     * the grant. The closed match was applied to both answers, and the one that only narrows was thrown away.
+     * FOR WHAT SPEAKS FOR A GRANT. WHAT STOPS ONE IS ANY RUN OF THE WATCHER (third review, M2; decided by Rod
+     * 2026-10-12: «a watcher that says it fired ALWAYS stops» — read as the same «always» he completed for a red
+     * receipt: from any run). A run of the operation that watches a falsifier is noted whatever arguments it carries
+     * — a flag of the surface it was typed at, the argument the falsifier fixes missing or at another value —
+     * (`stops`), because if it answers «fired» that answer stops the grant. The closed match was applied to both
+     * answers, and the one that only narrows was thrown away.
      *
-     * THE SAME FOR A MEASUREMENT (fourth review of the contract, L9; decided by Rod 2026-10-12: a red receipt always
-     * counts). A run of the instrument
-     * that carries what a condition fixes and one argument more is noted too (`refutes`): if it answers NO, that is
-     * the instrument saying no of that very content, and the contract's judge reads a red receipt open.
+     * AND FOR A MEASUREMENT, ANY RUN OF THE INSTRUMENT (decided by Rod 2026-10-12: a red receipt counts from any
+     * run). A run of the operation that measures a condition is noted whatever arguments it carries — one more, the
+     * fixed one missing or at another value (`refutes`): if it answers NO, that is the instrument saying no of that
+     * very content, and the contract's judge stops the act on it until the run the condition describes measures the
+     * content again. A YES from such a run is never written down.
      *
      * @param array<string, mixed> $arguments
      *
@@ -512,10 +518,10 @@ final class HouseStandingJudge
         foreach ($this->book()?->documents() ?? [] as $grant) {
             foreach ($grant->conditions as $condition) {
                 $measures = $measures || $condition->by->matchesExactly($operation->name, $arguments);
-                $refutes = $refutes || $condition->by->matches($operation->name, $arguments);
+                $refutes = $refutes || $condition->by->operation->is($operation->name);
             }
             $watches = $watches || $grant->falsifier->watcher->matchesExactly($operation->name, $arguments);
-            $stops = $stops || $grant->falsifier->watcher->matches($operation->name, $arguments);
+            $stops = $stops || $grant->falsifier->watcher->operation->is($operation->name);
         }
 
         return $refutes || $stops
@@ -552,8 +558,8 @@ final class HouseStandingJudge
         $pin = OperationPin::of($operation, $this->root);
         $instrument = $operation->instrumentDigest() === null ? null : $pin;
         $subject = $noted['subject'];
-        // A run that is exactly the one a condition describes leaves its receipt, green or red. One that only fits it
-        // open — an argument more — leaves one when it says NO, and never when it says yes.
+        // A run that is exactly the one a condition describes leaves its receipt, green or red. Any other run of
+        // that instrument leaves one when it says NO, and never when it says yes.
         $speaks = $noted['measures'] || ($noted['refutes'] && \is_array($result) && ($result['ok'] ?? null) !== true);
         if ($speaks && $subject !== null && $instrument !== null
             && $operation->actsOnDigest($arguments) === $subject

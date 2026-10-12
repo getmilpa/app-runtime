@@ -565,11 +565,17 @@ final class StandingOperations implements CommandProvider
         return $kernel instanceof \Milpa\Runtime\Kernel ? $kernel->root() : null;
     }
 
+    /**
+     * A named call as a person reads it before signing and in every listing: each fixed value AS IT IS SPELLED
+     * ({@see Canonical::shown()}, what the contract says a host owes whoever signs). The word «true» and the answer
+     * true are two values a call is compared with, and so are nothing and the text of no characters: printed bare,
+     * each pair was one.
+     */
     private static function spelled(NamedCall $call): string
     {
         $arguments = [];
         foreach ($call->arguments as $name => $value) {
-            $arguments[] = $name . '=' . (\is_bool($value) ? ($value ? 'true' : 'false') : (string) $value);
+            $arguments[] = $name . '=' . Canonical::shown($value);
         }
 
         return $call->operation->forCli() . ($arguments === [] ? '' : ' (' . implode(', ', $arguments) . ')');
