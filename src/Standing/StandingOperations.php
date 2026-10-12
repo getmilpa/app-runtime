@@ -566,16 +566,21 @@ final class StandingOperations implements CommandProvider
     }
 
     /**
-     * A named call as a person reads it before signing and in every listing: each fixed value AS IT IS SPELLED
-     * ({@see Canonical::shown()}, what the contract says a host owes whoever signs). The word «true» and the answer
-     * true are two values a call is compared with, and so are nothing and the text of no characters: printed bare,
-     * each pair was one.
+     * A named call as a person reads it before signing and in every listing: each fixed value AS IT IS SPELLED, AND
+     * WHOLE. The word «true» and the answer true are two values a call is compared with: printed bare, the pair was
+     * one.
+     *
+     * NEVER THROUGH {@see Canonical::shown()} ALONE (the contract's tenth review, L1; greenhouse decisions/0615). That
+     * is how a REFUSAL says a value back, and it stops at a line: two values a grant can fix that differ after their
+     * 95th byte were the same line here, and whoever drafted the grant chose what stood after it. A fixed value is
+     * visible ASCII by the contract's own rule, so its JSON spelling is safe to print in full — and should a value
+     * ever hold anything else, that spelling writes it as an escape.
      */
     private static function spelled(NamedCall $call): string
     {
         $arguments = [];
         foreach ($call->arguments as $name => $value) {
-            $arguments[] = $name . '=' . Canonical::shown($value);
+            $arguments[] = $name . '=' . json_encode($value, \JSON_UNESCAPED_SLASHES | \JSON_THROW_ON_ERROR);
         }
 
         return $call->operation->forCli() . ($arguments === [] ? '' : ' (' . implode(', ', $arguments) . ')');
