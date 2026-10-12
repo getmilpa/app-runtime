@@ -488,6 +488,17 @@ final class WhatASeatCanMakeTheBookKeepTest extends TestCase
         self::assertStringContainsString('longer than this house reads', (string) $this->house->ledger()->fault(), 'a book past that length was read whole');
         self::assertStringContainsString('does not verify', (string) ($this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $path])['refused'] ?? 'RAN'));
         self::assertSame(1, \count($this->house->done('merged')), 'a seat acted over a book the house does not read');
+        // …and nothing is added to it, whoever asks the ledger to: a line more would be read by nobody.
+        clearstatcache();
+        $bytes = filesize($this->house->root . '/' . StandingLedger::PATH);
+        try {
+            $this->house->writtenByHand(StandingLedger::SUSPENDED, ['grant' => 'release-line', 'by' => 'key:' . LabHouse::SEAT, 'reason' => 'one line more']);
+            self::fail('a line was added to a book the house does not read');
+        } catch (\RuntimeException $unwritten) {
+            self::assertStringContainsString('longer than this house reads', $unwritten->getMessage());
+        }
+        clearstatcache();
+        self::assertSame($bytes, filesize($this->house->root . '/' . StandingLedger::PATH));
     }
 
     /** @return iterable<string, array{0: array<string, mixed>}> */
