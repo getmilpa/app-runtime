@@ -1,6 +1,26 @@
 # Changelog
 
 
+## [0.221.1](https://github.com/getmilpa/app-runtime/compare/v0.221.0...v0.221.1) (2026-10-13)
+
+
+### Bug Fixes
+
+* a trial and confined work do not read the house's bearer-credential stores ([#802](https://github.com/getmilpa/app-runtime/issues/802)) ([2751232](https://github.com/getmilpa/app-runtime/commit/27512324df84a6cfef6f68d9e87f7cef7971f648))
+
+## [0.221.0](https://github.com/getmilpa/app-runtime/compare/v0.220.2...v0.221.0) (2026-10-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* three things stop working on purpose. (1) A token minted with no scopes no longer opens anything a scope guards, at the terminal, over `coa mcp`, in `coa shell`, in `coa chat` or on the agent's leg: revoke it and mint one that names its scopes — `token:new --actor=<who> --scopes='["<scope>"]' --sign`; `*`, asked for by name, still grants every one. (2) In `coa shell` and `coa chat` a presented token is held to the scopes each operation declares: a token that drives the chat needs `agent:run`, and `agent:answer` to answer what a turn stops to ask — mint one that holds them. (3) `identity:invite`, `token:new`, `token:list` and `token:revoke` refuse a flag they do not declare and a word given with no flag: say the declared flag (`--scopes=…`) and drop what the operation never took (`--expires=…`; tokens have no expiry).
+
+### Bug Fixes
+
+* a refused invitation offers no button whoever writes the ceremony's words, and its page says what it is (greenhouse decisions/0617) ([#801](https://github.com/getmilpa/app-runtime/issues/801)) ([b016486](https://github.com/getmilpa/app-runtime/commit/b0164863c7afd0e43f8deccca160000696f2758c))
+* a token minted with no scopes holds none — it was read as every scope (greenhouse decisions/0616) ([#800](https://github.com/getmilpa/app-runtime/issues/800)) ([69a3757](https://github.com/getmilpa/app-runtime/commit/69a3757748bba50256366df13f21a56682f696f6))
+* an invitation that admits nobody offers no button, and says why where it would be ([#798](https://github.com/getmilpa/app-runtime/issues/798)) ([e1bfecc](https://github.com/getmilpa/app-runtime/commit/e1bfecc66d17b75e0d9c8ed913e3654f47416a2f))
+
 ## [0.220.2](https://github.com/getmilpa/app-runtime/compare/v0.220.1...v0.220.2) (2026-10-11)
 
 
