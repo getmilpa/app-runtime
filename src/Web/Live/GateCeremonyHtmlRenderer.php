@@ -125,6 +125,11 @@ final class GateCeremonyHtmlRenderer implements ComponentRendererInterface, Decl
 
         $away = \is_array($copy['away'] ?? null) ? $copy['away'] : ['href' => '/', 'text' => ''];
 
+        // An invitation that admits nobody says so where the button would be, not only in the margin.
+        $refused = \is_string($copy['refused'] ?? null) && $copy['refused'] !== ''
+            ? '      <p class="gate__refused" role="alert">' . $e($copy['refused']) . "</p>\n"
+            : '';
+
         return '<div class="gate">' . "\n"
             . '  <aside class="gate__brand">' . "\n"
             . '    <a class="gate__wordmark" href="https://getmilpa.com" target="_blank" rel="noopener noreferrer">'
@@ -142,7 +147,9 @@ final class GateCeremonyHtmlRenderer implements ComponentRendererInterface, Decl
             . "  </aside>\n"
             . '  <main class="gate__act">' . "\n"
             . '    <div class="gate__body">' . "\n"
-            . '      <button id="go">' . $e($copy['button']) . "</button>\n"
+            . $refused
+            // No words for the button is no button: the client module binds to it only when it is there.
+            . (\is_string($copy['button'] ?? null) && $copy['button'] !== '' ? '      <button id="go">' . $e($copy['button']) . "</button>\n" : '')
             . '      <div id="out"></div>' . "\n"
             . "    </div>\n"
             . '    <div class="gate__foot">' . "\n"

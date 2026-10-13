@@ -239,8 +239,14 @@ final class GateCeremonyComponent implements ComponentDefinitionInterface
         };
         $copy['next'] = [
             'kicker' => 'Step 2 · What may you do?',
-            'text' => 'This invitation will not admit anyone: ' . $why . '. Registering still identifies you and grants nothing — ask whoever runs this house for a new one (`php bin/coa identity:invite --sign`).',
+            'text' => 'This invitation will not admit anyone: ' . $why . '. Ask whoever runs this house for a new one (`php bin/coa identity:invite --sign`).',
         ];
+        // Said again where the hand goes, and with NO BUTTON under it: a person who opens a spent link
+        // and finds the same button under the same words reads it as a link that still works. Somebody
+        // arrived here to redeem an invitation; when it admits nobody there is nothing for them to
+        // press — registering from this page would leave a credential the house recognizes for nothing.
+        $copy['refused'] = 'This invitation will not admit anyone: ' . $why . '.';
+        $copy['button'] = '';
 
         return $copy;
     }
