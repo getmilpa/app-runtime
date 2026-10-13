@@ -31,6 +31,19 @@ final class SecretFiles
     /** The envelope and Composer's credentials, matched by the tail of a path. */
     public const PATHS = ['.milpa/secrets.json', 'auth.json'];
 
+    /**
+     * Stores that keep a RAW BEARER CREDENTIAL under `var/`/`storage/` — a value that, presented, opens
+     * something (greenhouse decisions/0618). The passkey session store keys each record by the session id
+     * itself, which is exactly the cookie that authenticates; the HTTP confirm-token store keys each entry by
+     * the confirm token the client sends back. Neither lives under `.env`/the envelope, so {@see isSecret()}
+     * does not name them and {@see scan()} (which skips `var/`) would never reach the session store. A confined
+     * process reaches the real house's copy of these through `--ro-bind / /` by absolute path, so the mask names
+     * them explicitly. The token store and the enrollment ledger are NOT here: the token store keeps only
+     * sha256 hashes, and the ledger keeps grants over public key fingerprints — neither is a bearer credential
+     * (whether a trial should also be blind to those books is a separate question, greenhouse decisions/0618).
+     */
+    public const BEARER_CREDENTIAL_STORES = ['var/passkey/sessions.json', 'storage/confirm-tokens.json'];
+
     /** `.env*` names that are placeholders, not secrets. */
     private const TEMPLATES = ['.env.example', '.env.dist', '.env.template', '.env.sample'];
 
@@ -78,18 +91,33 @@ final class SecretFiles
      * runner masks these from the confined process; a boot candidate LINKS them, but one left by a crashed probe
      * of a version before they were linked would be a copy, so it is covered too.
      *
+     * The raw-bearer-credential stores ({@see BEARER_CREDENTIAL_STORES}) are added by their explicit paths: a
+     * confined process reaches the REAL house's session store and confirm tokens through `--ro-bind / /` by
+     * absolute path, and the session store lives under `var/`, which {@see scan()} never descends into.
+     *
      * @return list<string>
      */
     public static function existingUnder(string $root): array
     {
         $paths = array_map(static fn (string $rel): string => $root . '/' . $rel, self::under($root));
-        foreach ([...glob($root . '/var/trials/*/copy') ?: [], ...glob($root . '/var/exercises/*/copy') ?: [], ...glob($root . '/var/boot-candidates/*') ?: []] as $copy) {
-            if (is_dir($copy)) {
-                foreach (self::scan($copy, '') as $rel) {
-                    $paths[] = $copy . '/' . $rel;
+        $bases = [$root, ...glob($root . '/var/trials/*/copy') ?: [], ...glob($root . '/var/exercises/*/copy') ?: [], ...glob($root . '/var/boot-candidates/*') ?: []];
+        foreach ($bases as $base) {
+            if (!is_dir($base)) {
+                continue;
+            }
+            if ($base !== $root) {
+                foreach (self::scan($base, '') as $rel) {
+                    $paths[] = $base . '/' . $rel;
+                }
+            }
+            foreach (self::BEARER_CREDENTIAL_STORES as $store) {
+                $path = $base . '/' . $store;
+                if (is_file($path) && !is_link($path)) {
+                    $paths[] = $path;
                 }
             }
         }
+        $paths = array_values(array_unique($paths));
         sort($paths);
 
         return $paths;
