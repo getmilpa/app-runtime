@@ -529,6 +529,42 @@ final class WhatAFourthReviewFoundInTheHouseTest extends TestCase
         self::assertSame(['ok' => true, 'ran' => 'the code the grant was given over'], $this->house->as(LabHouse::SEAT, 'guard:ship', ['path' => $path]));
     }
 
+    public function testOfAGrantTheDiskDoesNotHonourASeatReadsWhyAndNotThatAProcessIsStartedAgain(): void
+    {
+        // The instrument was hardened while a process lived, and nobody granted again over it. Starting that process
+        // again mends nothing — a person grants again, over what is there now — and that is what the seat reads.
+        $guard = $this->loaded('true');
+        $this->house->offer($guard['scan']);
+        $this->house->granted(['conditions' => [['name' => 'no-host-names', 'statement' => 'what is published names no machine', 'by' => ['operation' => 'guard:scan', 'free' => ['path']]]]]);
+        $this->aProcessThatLivesBoots();
+        $this->onDisk($guard, "!str_contains(\$bytes, 'machine-name:')");
+        $path = $this->house->candidate('good.txt', "clean release\n");
+
+        $refused = (string) ($this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $path, 'channel' => 'stable'])['refused'] ?? 'RAN');
+
+        self::assertStringContainsString('`guard:scan`, which measures condition «no-host-names», is not the operation it was when this grant was given', $refused);
+        self::assertStringNotContainsString('Start this process again', $refused, 'a seat was told to start a process again where a person has to grant again');
+    }
+
+    public function testOfAGrantThatIsStoppedASeatReadsThatItIsStoppedAndNotThatAProcessIsStartedAgain(): void
+    {
+        // Its instrument's file was written again — the same bytes — after the process started, and the grant is
+        // stopped. What a seat reads of a stopped grant is that it is stopped: a person lifts it.
+        $guard = $this->loaded("!str_contains(\$bytes, 'machine-name:')");
+        $this->house->offer($guard['scan']);
+        $this->house->granted(['conditions' => [['name' => 'no-host-names', 'statement' => 'what is published names no machine', 'by' => ['operation' => 'guard:scan', 'free' => ['path']]]]]);
+        $this->aProcessThatLivesBoots();
+        $this->house->signed(LabHouse::SEAT, 'standing:suspend', ['grant' => 'release-line', 'reason' => 'seen by the seat']);
+        $this->onDisk($guard, "!str_contains(\$bytes, 'machine-name:')");
+        self::assertSame(\Milpa\AppRuntime\Standing\OperationPin::of($guard['scan'], $this->house->root), $this->house->book()->record('release-line')?->instruments['guard.scan'] ?? null, 'control: the disk holds what the grant was given over');
+        $path = $this->house->candidate('good.txt', "clean release\n");
+
+        $refused = (string) ($this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $path, 'channel' => 'stable'])['refused'] ?? 'RAN');
+
+        self::assertStringContainsString('is suspended', $refused);
+        self::assertStringNotContainsString('Start this process again', $refused, 'a seat was told to start a process again where a person has to lift a stop');
+    }
+
     public function testAProcessThatStartedBeforeItsHouseKeptABookSpeaksForAGrantGivenSince(): void
     {
         // D19 (decided by Rod, 2026-10-13). A process used to read what each operation was when it was told its
