@@ -863,10 +863,6 @@ final class HouseStandingJudge
     }
 
     /**
-     * The seat behind a caller: a key, as the book would name it — or `null` for whoever is not a key. What the key
-     * holds is not asked here: a grant governs the seat it names, even one that holds every scope.
-     */
-    /**
      * How the caller a line names arrived: with the signature of that key, or without one — the bearer of a token
      * carries any actor's name, and a line that kept the name alone said a seat did what its token's bearer did
      * (the sixth review, 6-L4).
@@ -876,6 +872,10 @@ final class HouseStandingJudge
         return \is_string($context?->extra['signer.fingerprint'] ?? null) ? 'signed' : 'unsigned';
     }
 
+    /**
+     * The seat behind a caller: a key, as the book would name it — or `null` for whoever is not a key. What the key
+     * holds is not asked here: a grant governs the seat it names, even one that holds every scope.
+     */
     public static function seatOf(ToolContext $context): ?string
     {
         $principal = $context->principal;
