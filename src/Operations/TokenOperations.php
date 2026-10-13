@@ -75,7 +75,7 @@ final readonly class TokenOperations implements CommandProvider
                 effects: EffectProfile::readOnly(),
                 description: 'The API tokens of this app: who each one is and what it can do — never the secret',
                 handler: fn (array $input): array => $this->list($input),
-                inputSchema: ['type' => 'object', 'properties' => []],
+                inputSchema: ['type' => 'object', 'properties' => [], 'additionalProperties' => false],
                 mutating: false,
                 // Sólo la terminal. Listar tokens por HTTP le dice a quien llegue qué actores existen
                 // y con qué scopes — un mapa de a quién conviene robarle.
@@ -103,6 +103,10 @@ final readonly class TokenOperations implements CommandProvider
                         'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'What it may do — at least one: a token holds only the scopes it is minted with. `*` grants every scope'],
                     ],
                     'required' => ['actor'],
+                    // NOTHING IT DOES NOT DECLARE (greenhouse decisions/0616): `--scope=…`, mistyped, was dropped in
+                    // silence and minted a token with no scopes, and `--expires=…` was dropped for a token that never
+                    // expires. A flag this operation does not know is an error, said before a secret exists.
+                    'additionalProperties' => false,
                 ],
                 // Muta y NO pide firma: acuñar es reversible —se revoca— y quien corre esto ya está
                 // en la terminal de la app, que es el mismo poder. Una compuerta aquí sería trámite.
@@ -131,6 +135,7 @@ final readonly class TokenOperations implements CommandProvider
                     'type' => 'object',
                     'properties' => ['id' => ['type' => 'string', 'description' => 'The id that `token:list` shows']],
                     'required' => ['id'],
+                    'additionalProperties' => false,
                 ],
                 mutating: true,
                 surfaces: ['cli'],

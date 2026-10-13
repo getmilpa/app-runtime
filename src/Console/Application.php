@@ -663,6 +663,18 @@ final class Application
 
         $receipts = $this->recibos();
         $tokens = $this->tokens($operacion, $resto);
+        // A WORD GIVEN WITH NO FLAG, where the operation takes none that way, was dropped in silence — and an operation
+        // whose optional argument has a powerful default then ran on that default: `identity:invite agent:read` minted
+        // the widest invitation (greenhouse decisions/0616). An operation that closes its schema takes nothing it does
+        // not declare: a flag it does not know is refused by the runner, and a word with no place is refused here.
+        $surplus = ($operacion->inputSchema['additionalProperties'] ?? null) === false ? $this->surplus($operacion, $resto) : null;
+        if ($surplus !== null) {
+            foreach ($renderer->presentError($surplus) as $line) {
+                $this->line($line);
+            }
+
+            return 1;
+        }
         $caller = new ToolContext(
             principal: $identity->actor->id ?? $base->principal,
             channel: $base->channel,
@@ -1686,6 +1698,29 @@ final class Application
             ));
         }
         $this->line('');
+    }
+
+    /**
+     * The refusal for a word given with no flag that no required argument takes, or null when every word has a place.
+     *
+     * {@see tokens()} gives each bare word to the next REQUIRED argument, in order, and has always dropped the ones
+     * left over. This names the first of those, and the flags the operation does declare.
+     *
+     * @param list<string> $argv tokens after the command name
+     */
+    private function surplus(Operation $operacion, array $argv): ?string
+    {
+        $modelo = (new CliProjector())->project($operacion);
+        $required = \count(array_filter($modelo->flags, static fn (array $flag): bool => $flag['required']));
+        $words = array_values(array_filter($argv, static fn (string $token): bool => !str_starts_with($token, '--')));
+        if (!isset($words[$required])) {
+            return null;
+        }
+        $flags = array_map(static fn (string $name): string => '--' . str_replace('_', '-', $name), array_keys($modelo->flags));
+
+        return "«{$words[$required]}» was given without a flag, and «" . $this->commandName($operacion) . '» takes '
+            . ($required === 0 ? 'no argument' : "only {$required}") . ' that way. Nothing ran. '
+            . ($flags === [] ? 'It declares no flags.' : 'Name what it is: ' . implode(', ', $flags) . '.');
     }
 
     /**

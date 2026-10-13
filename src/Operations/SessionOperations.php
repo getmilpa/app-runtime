@@ -801,6 +801,11 @@ final class SessionOperations implements CommandProvider
                             'description' => 'What the invited passkey may do — omitted, what the installed capabilities declare their operator needs, plus identity:enroll',
                         ],
                     ],
+                    // NOTHING IT DOES NOT DECLARE (greenhouse decisions/0616). Its scopes are optional and their default
+                    // is the widest thing this operation can mint — in a house with a panel, its administrator's. A
+                    // flag the terminal dropped in silence (`--scope=agent:read`, mistyped) left them unset, so whoever
+                    // meant to narrow the invitation delegated the most. A flag it does not know is now an error.
+                    'additionalProperties' => false,
                 ],
                 outputSchema: [
                     'type' => 'object',
