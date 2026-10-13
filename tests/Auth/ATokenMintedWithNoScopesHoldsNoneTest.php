@@ -156,6 +156,36 @@ final class ATokenMintedWithNoScopesHoldsNoneTest extends TestCase
         self::assertFalse(PresentedToken::declaresNoScopes(PresentedToken::identity(self::container($this->root), self::OTHER)));
     }
 
+    /** @return iterable<string, array{array<string, mixed>}> */
+    public static function rowsThatNameNoScope(): iterable
+    {
+        yield 'no `scopes` at all' => [[]];
+        yield 'null' => [['scopes' => null]];
+        yield 'text in place of the list' => [['scopes' => 'shelf:read']];
+        yield 'an empty list' => [['scopes' => []]];
+    }
+
+    /**
+     * The store is a file a person can edit and a backup can restore: a row whose `scopes` is missing or is not a
+     * list is read as an empty one ({@see ApiToken::fromArray()}). That row verifies — and it holds nothing.
+     *
+     * @param array<string, mixed> $row
+     */
+    #[DataProvider('rowsThatNameNoScope')]
+    public function testAStoredRowThatNamesNoScopeHoldsNone(array $row): void
+    {
+        $container = new DIContainer();
+        /** @var InMemoryRepository<ApiToken> $repository */
+        $repository = new InMemoryRepository(ApiToken::class);
+        $repository->save(ApiToken::fromArray(['hash' => TokenVerifier::hash('a-row-somebody-wrote'), 'actor' => 'ci', 'createdAt' => '2026-10-12T00:00:00+00:00'] + $row));
+        $container->registerService(TokenVerifier::class . '.repository', $repository);
+
+        $identity = PresentedToken::identity($container, 'a-row-somebody-wrote');
+
+        self::assertNotNull($identity);
+        self::assertSame([], PresentedToken::scopes($identity, ['*']));
+    }
+
     // ── The terminal ─────────────────────────────────────────────────────────────────────────────────────────────────
 
     /** @return iterable<string, array{string}> */
