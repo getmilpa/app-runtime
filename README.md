@@ -635,27 +635,43 @@ nothing asks how long a content's name is. What is long in a line is the argumen
 of those every line keeps the same thing: the arguments as they came when they are short and a line
 can hold them, and otherwise how long they were and their SHA-256.
 
-**What counts is what the answering process had loaded — as far as the house can know it.** *A
-kernel loads a plugin's own file when it boots, and the process reads what each operation is — its
-pin — when it is told its catalogue, some tens of milliseconds later; a file softened, loaded and
-put back INSIDE that window is run soft and pinned as it is on disk.* Measured at a real terminal,
-the window is between 25 and 55 ms. It is a stated limit, not a closed one: whoever writes a
-plugin's file is the house's operator, and the judge does not promise to defend the house from its
-operator. No seat, no bearer of a token, no confined process and no call of a model writes there by
-any door of this house. A file of a plugin's directory whose name does not end in `.php` — a rule
-kept as data, an include named otherwise — is in no pin at all. A pin is read from the disk, and a
-process that lives — a leg, a server — answers with the code it loaded. So a process reads what
-each operation is **once, when it is told its catalogue**, in a house that keeps a book; a yes, a
-sign of life and an act under a grant then ask that the pin read *now* be that one. A process that
-outlived an update of an instrument writes no yes with it, and runs no covered act as the code from
-before: it is started again. So is one that started **before its house kept a book** — it read
-nothing then, and cannot say what it loaded. A no and a «fired» ask for nobody's pin. **And a file
-of the operation's plugin that the process loads after that reading is one it cannot speak for**: a
-plugin is pinned by every PHP file of its directory, so its classes are loaded when the process is
-told its catalogue, before the pin is read, and a file of that directory loaded later — one that is
-no class, say — leaves the process with no pin to give for that operation. *What this does not
-see:* an operation that ships in a **package** is pinned by what the house installed, not by its
-files, and its classes are loaded when they are used.
+**What counts is what the answering process runs — and a process runs what the disk held when it
+started** (decided by Rod, 2026-10-13: D19). A pin is read from the disk, and a process that lives
+— a leg, a server — answers with the code it loaded. So one rule: **a process speaks for an
+operation only when nothing its pin reads is dated at or after the second that process started.**
+It writes no yes and no sign of calm with an instrument or a watcher that changed since it started,
+and it lends nothing under a grant whose operation, instrument or watcher did. The seat reads why
+and what to do — *«`line:ship` changed after this process started (`packages/line/Line.php` is
+dated in the second it started, or later), and a process answers with the code it loaded. Start
+this process again — a leg, a server; at a terminal, run the command again.»* — and no line is
+written for it. **Whoever updates an instrument starts again what was running.** A no and a «fired»
+ask for nobody's pin, and are written all the same.
+
+*What is dated* is what the pin reads, and where it is: each file the handler's code is written in
+and the directory it is in; for a plugin, every directory under it and every PHP file in them; for
+a package, `vendor/composer/installed.json`. *The date* is the later of when a file's bytes were
+written and when anything about it last changed — so a file copied or moved into place keeping its
+date (`cp -p`, `mv`, `rsync -a`), and one whose date was set back, are dated when they arrived. Only
+whoever moves the clock of the machine gets past that: the house's operator, and the judge does not
+promise to defend the house from its operator.
+
+*It errs narrow, and it costs a second.* A date is a whole second, so a file written in the very
+second a process started is one that process cannot speak for: a command run in the second an
+instrument's file was written is refused, and the same command a second later is not. A file
+touched and not changed is dated when it was touched. A directory is dated when any file is added
+to it or taken from it, so a plugin that writes files into its own directory gets no yes written.
+
+*What it took the place of.* A process used to read what every operation is when it was told its
+catalogue, load every class of a plugin before that, and count the files it loaded afterwards; one
+that had started before its house kept a book spoke for no grant given since. None of that is
+there, and that last process speaks: nothing changed since it started.
+
+*What it does not see.* A process that does not read its code from the disk when it loads it —
+PHP's opcache serving a file it compiled before the file changed. Nothing here asks opcache what it
+holds. A file of a plugin's directory whose name does not end in `.php` — a rule kept as data, an
+include named otherwise — is in no pin at all, and is not dated. An operation that ships in a
+**package** is pinned by what the house installed and by the files of its handler's own class:
+another file of that package edited in place is neither pinned nor dated.
 
 **What the house then does on every call of a seat the grant names.** While the grant is in force
 and verified, it hands the seat the words that operation declares, for that one call, and asks the
@@ -888,9 +904,33 @@ the book.
   run argument by argument. A sign of calm of one key is written again once its last one is a
   quarter of the falsifier's window old; a seat's refusals under a grant are kept up to thirty-two
   between two lines that change the grant's standing. A no, a yes and a «fired» are written every
-  time they are said. **And a book longer than 8 MiB is a fault**, said — no seat acts, nothing is
-  added, a person is still answered, and it is the book *and its head* that a person keeps
-  somewhere else.
+  time they are said.
+- **The book that fills** (decided by Rod, 2026-10-13: D18). **A book longer than 8 MiB is a
+  fault**, said — no seat acts, nothing is added, no stop is written either, a person is still
+  answered. **From 4 MiB the house says so**: `standing:granted` carries it under `book`, and the
+  answer of every act a seat is lent carries it under `standing_book`, naming the two files a person
+  keeps. **And one seat alone does not fill it.** Every line a seat's call leaves is written under a
+  grant — an act it was lent and a refusal name theirs; a receipt and a sign of a watcher are
+  written under every grant that operation measures or watches — and each grant may have 3,000 such
+  lines written under it between two acts of a person: the one that gives it, and each one that
+  lifts it (*the number is a proposal, not decided*). Past that the house writes ONE line, a stop
+  of that grant `by the house`, and nothing more under it — a stop weighs more than a no that was
+  not written — until a person lifts it with `standing:reinstate`, where the count starts again.
+  Measured at a real terminal: one seat measuring content after content is stopped at its 3,000th
+  line, the book then at 1.7 MB — a fifth of what the house reads — and fifty more runs and a
+  «fired» add nothing. An honest seat spends two lines an act, a receipt and the act: 3,000 lines
+  are 1,500 acts, a day at an act a minute, and then a person looks. A seat that holds several
+  grants has a budget under each.
+- **Keeping the book somewhere else is a person's act, by hand.** No operation does it yet.
+  (1) Stop what is running of the house — legs, servers. (2) Move
+  `storage/identity/standing.jsonl` AND `storage/identity/standing.jsonl.head`, the two together,
+  to where they will be kept; either of the two moved alone is not a book kept somewhere else — the
+  house still has one, and nothing is lent under it. (3) The house now keeps no book and judges
+  nothing: a person gives again, with a new signature, each grant that should stand. **What is
+  left behind, in the book that was kept:** every stop and every withdrawal — a grant that was
+  stopped is in force the moment it is given again — and every receipt, the red with the green:
+  nothing is lent on a candidate until it is measured again. The kept pair still reads whole when
+  it is put, laid out the same, under another folder.
 - **The book is read line by line, and a process verifies it once.** What a reading keeps is what
   somebody asks of the book: not the acts a seat was lent, not a sign of calm the same key gave
   again, not a refusal older than the last change of its grant's standing. What a process verified

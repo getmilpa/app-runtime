@@ -66,14 +66,8 @@ final class OperationPin
      */
     private static array $installed = [];
 
-    /**
-     * What was read while SEVERAL operations are pinned at one moment ({@see self::ofEach()}): each file, each
-     * plugin's directory and the list of what was installed, once. `null` outside such a moment — where every
-     * reading is made again, as it always was.
-     *
-     * @var array{files: array<string, ?string>, directories: array<string, ?string>, installed: array<string, list<array{name: string, at: string, state: ?string}>>}|null
-     */
-    private static ?array $once = null;
+    /** The second this process started, once it has been asked ({@see self::processStarted()}). */
+    private static ?int $started = null;
 
     /**
      * The digest that pins this operation in the house at this root, or `null` when it cannot be pinned
@@ -84,25 +78,6 @@ final class OperationPin
         $read = self::read($operation, $root);
 
         return \is_string($read) ? null : 'sha256:' . hash('sha256', Canonical::json($read));
-    }
-
-    /**
-     * The pin of each of these operations, read AT ONE MOMENT: a file many of them are written in is read once, and
-     * so is the list of what this house installed. It is what a process does when its catalogue is told — a house
-     * of seventy operations cost seventy readings of that list.
-     *
-     * @param list<Operation> $operations
-     *
-     * @return list<?string> in the order of the operations
-     */
-    public static function ofEach(array $operations, string $root): array
-    {
-        self::$once = ['files' => [], 'directories' => [], 'installed' => []];
-        try {
-            return array_map(static fn (Operation $operation): ?string => self::of($operation, $root), $operations);
-        } finally {
-            self::$once = null;
-        }
     }
 
     /** Why this operation cannot be pinned in the house at this root — or `null`: it can. */
@@ -116,9 +91,12 @@ final class OperationPin
     /**
      * Everything the pin is the digest of — or the sentence that says what could not be read.
      *
+     * @param list<string> $dated filled with what was read to say it: each file, each plugin's directory, and what
+     *                            the house wrote down that it installed
+     *
      * @return array<string, mixed>|string
      */
-    private static function read(Operation $operation, string $root): array|string
+    private static function read(Operation $operation, string $root, array &$dated = []): array|string
     {
         $handler = $operation->handlerDigest();
         $function = \is_callable($operation->handler) ? new \ReflectionFunction(\Closure::fromCallable($operation->handler)) : null;
@@ -142,7 +120,8 @@ final class OperationPin
                 return 'a file its code is written in cannot be read';
             }
             $code[] = $digest;
-            $unit = self::unitOf($real, $class, rtrim($root, '/'));
+            $dated[] = $real;
+            $unit = self::unitOf($real, $class, rtrim($root, '/'), $dated);
             if (\is_string($unit)) {
                 return $unit;
             }
@@ -179,87 +158,84 @@ final class OperationPin
     }
 
     /**
-     * The directories of the PLUGINS this operation's own code is written in — empty when it ships in a package, or
-     * its unit cannot be told.
+     * WHAT A PROCESS RUNS IS WHAT IT LOADED, AND IT LOADED IT AFTER IT STARTED (decided by Rod, 2026-10-13: D19).
      *
-     * A plugin is pinned by every PHP file under its directory, so «what this process loaded of it» can be asked
-     * file by file ({@see self::loadClassesOf()}); a package is pinned by what the house installed, not by its
-     * files.
+     * A pin is read from the disk, and a process answers with the code it loaded: a guard loaded before a person
+     * hardened it said yes under the pin of the hardened one, and a file softened, loaded and put back was run soft
+     * and pinned hard. So ONE rule, in place of reading every pin when a process is told its catalogue and loading
+     * every class of a plugin before that: a process speaks for an operation — writes its yes, its sign of calm, runs
+     * it under a grant — only when NOTHING THE PIN READS IS DATED AT OR AFTER THE SECOND THAT PROCESS STARTED. Then
+     * whatever it loaded, whenever it loaded it, is what the disk holds now. Whoever updates an instrument starts
+     * again what was running.
      *
-     * @return list<string>
+     * WHAT IS DATED is what the pin reads, and where it is: each file the handler's code is written in and the
+     * directory it is in; for a plugin, every directory under it and every PHP file in them; for a package, what the
+     * house wrote down that it installed. THE DATE of each is the later of when its bytes were written and when
+     * anything about it was last changed — a file copied or moved into place with the date it had is dated when it
+     * arrived, and so is one whose date was set back. Only whoever moves the clock of the machine gets past that:
+     * its operator (D17).
+     *
+     * IT ERRS NARROW, three ways. A file touched and not changed is dated when it was touched. A date is a whole
+     * second, so a file written in the very second a process started is one it cannot speak for: run a second
+     * later, it does. And a directory is dated when a file is added to it or taken from it, whatever that file is.
+     *
+     * WHAT IT DOES NOT SEE: a process that does not read its code from the disk when it loads it — PHP's opcache
+     * serving a file it compiled before the file changed. Nothing here asks opcache what it holds.
+     *
+     * @return string|null what was found dated at or after the second this process started — its path from the
+     *                     house's root when it is under it, its name otherwise — or `null`: nothing was, or the
+     *                     operation cannot be pinned and nothing is written under its pin anyway
      */
-    public static function pluginsOf(Operation $operation, string $root): array
+    public static function changedSinceThisProcessStarted(Operation $operation, string $root): ?string
     {
-        $function = \is_callable($operation->handler) ? new \ReflectionFunction(\Closure::fromCallable($operation->handler)) : null;
-        $file = $function?->getFileName();
-        if ($function === null || !\is_string($file)) {
-            return [];
+        $read = [];
+        if (\is_string(self::read($operation, $root, $read))) {
+            return null;
         }
-        $bound = $function->getClosureThis();
-        /** @var array<string, ?string> $files */
-        $files = [$file => null];
-        foreach ([$function->getClosureScopeClass(), $bound === null ? null : new \ReflectionObject($bound)] as $class) {
-            self::filesOf($class, $files);
-        }
-        $house = realpath($root);
-        $plugins = [];
-        foreach ($files as $path => $class) {
-            $real = realpath($path);
-            if ($real === false || $house === false || $class === null || preg_match('/(?:^|\\\\)Plugins\\\\([^\\\\]+)\\\\(.+)$/D', $class, $named) !== 1) {
+        $dated = [];
+        foreach (array_unique($read) as $path) {
+            $dated[$path] = true;
+            if (!is_dir($path)) {
+                $dated[\dirname($path)] = true;
                 continue;
             }
-            $directory = \dirname($real, substr_count($named[2], '\\') + 1);
-            if (str_starts_with($directory . '/', $house . '/') && $directory !== $house && !str_starts_with($directory . '/', $house . '/vendor/')) {
-                $plugins[$directory] = true;
+            foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::SELF_FIRST) as $found) {
+                if ($found instanceof \SplFileInfo && ($found->isDir() || strtolower($found->getExtension()) === 'php')) {
+                    $dated[$found->getPathname()] = true;
+                }
+            }
+        }
+        $house = realpath($root);
+        foreach (array_keys($dated) as $path) {
+            $stat = @stat($path);
+            if ($stat === false || max($stat['mtime'], $stat['ctime']) >= self::processStarted()) {
+                return $house !== false && str_starts_with($path, $house . '/') ? substr($path, \strlen($house) + 1) : basename($path);
             }
         }
 
-        return array_keys($plugins);
+        return null;
     }
 
     /**
-     * Load, now, every class a plugin's directory declares that the autoloader finds there.
-     *
-     * So that what a process runs of a plugin is what the disk held WHEN ITS PIN WAS READ (the fifth review, on the
-     * residue of the fourth's M1): a class of the plugin first used when an instrument runs was loaded later — and
-     * a file softened in between, and put back before the next answer, was run soft and pinned hard. Only classes,
-     * and only through the autoloader: a file that is no class is never executed here, and if a process loads one
-     * later it stops speaking for a grant ({@see \Milpa\AppRuntime\Agent\PluginAuthoringPolicy}).
+     * The second this process started — read the first time it is asked and kept, so that a process that answers
+     * many requests keeps the one it started in, not the one of the request it is answering.
      */
-    public static function loadClassesOf(string $directory): void
+    public static function processStarted(): int
     {
-        try {
-            $walk = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS));
-        } catch (\UnexpectedValueException) {
-            return;
-        }
-        $loaded = array_flip(get_included_files());
-        foreach ($walk as $found) {
-            if (!$found instanceof \SplFileInfo || !$found->isFile() || strtolower($found->getExtension()) !== 'php' || isset($loaded[$found->getPathname()])) {
-                continue;
-            }
-            $head = (string) @file_get_contents($found->getPathname(), false, null, 0, 8192);
-            if (preg_match('/^\s*namespace\s+([A-Za-z_\\\\][A-Za-z0-9_\\\\]*)\s*[;{]/m', $head, $space) !== 1
-                || preg_match('/^\s*(?:(?:final|abstract|readonly)\s+)*(?:class|interface|trait|enum)\s+([A-Za-z_][A-Za-z0-9_]*)/m', $head, $named) !== 1) {
-                continue;
-            }
-            try {
-                class_exists($space[1] . '\\' . $named[1]);
-            } catch (\Throwable) {
-                // A class that cannot be loaded now is one this process has not loaded: nothing is said of it here.
-            }
-        }
+        return self::$started ??= (int) ($_SERVER['REQUEST_TIME_FLOAT'] ?? time());
     }
 
     /**
      * The unit a file of this house belongs to, and what that unit is today — never its path: the same house moved
      * to another folder holds the same operations. Or the sentence that says no unit could be told.
      *
-     * @param string $real the file, by its real path
+     * @param string       $real  the file, by its real path
+     * @param list<string> $dated filled with what says what that unit is: a plugin's directory, or what the house
+     *                            wrote down that it installed
      *
      * @return array{name: string, state: string}|string
      */
-    private static function unitOf(string $real, ?string $class, string $root): array|string
+    private static function unitOf(string $real, ?string $class, string $root, array &$dated = []): array|string
     {
         // A PACKAGE, when the house installed one there: the most specific one, by where Composer says it put it.
         $package = null;
@@ -269,6 +245,8 @@ final class OperationPin
             }
         }
         if ($package !== null) {
+            $dated[] = $root . '/vendor/composer/installed.json';
+
             return $package['state'] === null
                 ? \sprintf('it ships in the package `%s`, which this house installed with no reference: the day that package changed could not be told', $package['name'])
                 : ['name' => 'package:' . $package['name'], 'state' => $package['state']];
@@ -279,7 +257,8 @@ final class OperationPin
         if ($class !== null && $house !== false && preg_match('/(?:^|\\\\)Plugins\\\\([^\\\\]+)\\\\(.+)$/D', $class, $named) === 1) {
             $directory = \dirname($real, substr_count($named[2], '\\') + 1);
             if (str_starts_with($directory . '/', $house . '/') && $directory !== $house && !str_starts_with($directory . '/', $house . '/vendor/')) {
-                $state = self::directory($directory);
+                $state = self::walked($directory);
+                $dated[] = $directory;
 
                 return $state === null
                     ? \sprintf('it ships in the plugin `%s`, and a PHP file of that plugin cannot be read', $named[1])
@@ -294,19 +273,6 @@ final class OperationPin
      * What every PHP file under a plugin's directory holds, as one digest — by each file's place inside the
      * directory, never by where the directory is.
      */
-    private static function directory(string $directory): ?string
-    {
-        if (self::$once !== null && \array_key_exists($directory, self::$once['directories'])) {
-            return self::$once['directories'][$directory];
-        }
-        $state = self::walked($directory);
-        if (self::$once !== null) {
-            self::$once['directories'][$directory] = $state;
-        }
-
-        return $state;
-    }
-
     private static function walked(string $directory): ?string
     {
         $files = [];
@@ -336,16 +302,7 @@ final class OperationPin
      */
     private static function installedIn(string $root): array
     {
-        $file = $root . '/vendor/composer/installed.json';
-        if (isset(self::$once['installed'][$file])) {
-            return self::$once['installed'][$file];
-        }
-        $packages = self::installedBy($file);
-        if (self::$once !== null) {
-            self::$once['installed'][$file] = $packages;
-        }
-
-        return $packages;
+        return self::installedBy($root . '/vendor/composer/installed.json');
     }
 
     /** @return list<array{name: string, at: string, state: ?string}> */
@@ -411,15 +368,8 @@ final class OperationPin
      */
     private static function digestOf(string $path): ?string
     {
-        if (self::$once !== null && \array_key_exists($path, self::$once['files'])) {
-            return self::$once['files'][$path];
-        }
         $digest = is_file($path) ? @hash_file('sha256', $path) : false;
-        $digest = $digest === false ? null : $digest;
-        if (self::$once !== null) {
-            self::$once['files'][$path] = $digest;
-        }
 
-        return $digest;
+        return $digest === false ? null : $digest;
     }
 }

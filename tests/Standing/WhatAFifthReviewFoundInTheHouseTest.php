@@ -538,9 +538,10 @@ final class WhatAFifthReviewFoundInTheHouseTest extends TestCase
     #[\PHPUnit\Framework\Attributes\DataProvider('waysAPluginLoadsAFileLate')]
     public function testAYesIsNotWrittenByAProcessThatLoadedAFileOfTheInstrumentsPluginAfterItReadWhatTheInstrumentIs(string $rule): void
     {
-        // A process reads what each operation is when it is told its catalogue. A file of the plugin it loads AFTER
-        // that — softened in between and put back before it answers again — was run soft and pinned hard: the second
-        // yes was written green under the grant's pin, and the act ran over a candidate the instrument refuses.
+        // A file of the plugin that a process loads LATE — softened while it lives and put back before it answers
+        // again — was run soft and pinned hard: the second yes was written green under the grant's pin, and the act
+        // ran over a candidate the instrument refuses. Now nothing a process has not loaded yet can be changed under
+        // it and counted: the file is dated after the process started (decided by Rod, 2026-10-13: D19).
         $plugin = $this->aPluginWithItsRuleInAFileOfItsOwn($rule);
         $this->house->offer($plugin['scan']);
         $this->house->granted(['conditions' => [['name' => 'no-host-names', 'statement' => 'what is merged names no machine', 'by' => ['operation' => 'late:scan', 'free' => ['path']]]]]);
@@ -549,12 +550,12 @@ final class WhatAFifthReviewFoundInTheHouseTest extends TestCase
         $this->house->boots();
         // Softened while the process lives, before it first uses that file…
         $hard = [(string) file_get_contents($plugin['dir'] . '/Rules.php'), (string) file_get_contents($plugin['dir'] . '/rules.php')];
-        file_put_contents($plugin['dir'] . '/Rules.php', str_replace("!str_contains(\$bytes, 'machine-name:')", 'true', $hard[0]));
-        file_put_contents($plugin['dir'] . '/rules.php', str_replace("!str_contains(\$bytes, 'machine-name:')", 'true', $hard[1]));
+        $this->house->writes($plugin['dir'] . '/Rules.php', str_replace("!str_contains(\$bytes, 'machine-name:')", 'true', $hard[0]));
+        $this->house->writes($plugin['dir'] . '/rules.php', str_replace("!str_contains(\$bytes, 'machine-name:')", 'true', $hard[1]));
         $first = $this->house->as(LabHouse::SEAT, 'late:scan', ['path' => $red]);
         // …and put back, the same bytes, before it answers again.
-        file_put_contents($plugin['dir'] . '/Rules.php', $hard[0]);
-        file_put_contents($plugin['dir'] . '/rules.php', $hard[1]);
+        $this->house->writes($plugin['dir'] . '/Rules.php', $hard[0]);
+        $this->house->writes($plugin['dir'] . '/rules.php', $hard[1]);
 
         $second = $this->house->as(LabHouse::SEAT, 'late:scan', ['path' => $red]);
 
@@ -563,50 +564,40 @@ final class WhatAFifthReviewFoundInTheHouseTest extends TestCase
         self::assertSame([], $this->house->done('merged'));
     }
 
-    /** @return iterable<string, array{bool, int}> whether the file is put back before the process reads what the instrument is, and how many yeses are written */
-    public static function whenAFileLoadedSoftIsPutBack(): iterable
+    public function testAFileOfAPluginLoadedSoftWhenAProcessBootsAndPutBackRightAfterIsOneItDoesNotSpeakFor(): void
     {
-        yield 'put back BEFORE the process reads its pin — the window: SAID, NOT CLOSED' => [true, 1];
-        yield 'put back AFTER the process read its pin — what it loaded is not what is on disk: it says nothing for a grant' => [false, 0];
-    }
-
-    #[\PHPUnit\Framework\Attributes\DataProvider('whenAFileLoadedSoftIsPutBack')]
-    public function testAFileOfAPluginLoadedBeforeItsPinIsReadIsRunAsItWasLoaded(bool $backBeforeThePin, int $yeses): void
-    {
-        // THE SIXTH REVIEW'S 6-M3, MEASURED AND SAID — NOT CLOSED. A kernel loads a plugin's own file when it boots,
-        // some tens of milliseconds before the process is told its catalogue and reads what each operation is. A
-        // file softened, loaded, and put back INSIDE that window is run soft and pinned as it is on disk: the first
-        // row is that, and it lends. Put back after the pin was read (the second row, and the cause of the «+0» the
-        // review saw past the window): what the process loaded is not what the disk holds when the run ends, so its
-        // yes is not written — and neither is anything else. Whether whoever can write a plugin's file is inside
-        // what this judge promises is a person's question; no loader is built here to answer it.
+        // THE SIXTH REVIEW'S 6-M3. A kernel loads a plugin's own file when it boots, some tens of milliseconds before
+        // the process was told its catalogue — which is when it used to read what each operation is. A file that was
+        // soft when the process started, loaded, and put back INSIDE that window was run soft and pinned as it is on
+        // disk: it lent. It was said and not closed, and no loader was built. The rule that replaced that reading
+        // (decided by Rod, 2026-10-13: D19) has no window: the file was put back AFTER the process started, whenever
+        // the process came to load it.
         $plugin = $this->aPluginWithItsRuleInAFileOfItsOwn('Rules::clean($bytes)');
         $hard = (string) file_get_contents($plugin['dir'] . '/Rules.php');
         $soft = str_replace("!str_contains(\$bytes, 'machine-name:')", 'true', $hard);
         preg_match('/^namespace (.+);$/m', $hard, $found);
-        file_put_contents($plugin['dir'] . '/Rules.php', $soft);
-        self::assertTrue(class_exists($found[1] . '\\Rules'), 'control: the file is loaded, soft');
-        file_put_contents($plugin['dir'] . '/Rules.php', $hard);
         $this->house->offer($plugin['scan']);
         $this->house->granted(['conditions' => [['name' => 'no-host-names', 'statement' => 'what is merged names no machine', 'by' => ['operation' => 'late:scan', 'free' => ['path']]]]]);
         $red = $this->house->candidate('red.txt', "machine-name: build-host-7\n");
+        $this->house->writes($plugin['dir'] . '/Rules.php', $soft);
         $this->house->aProcessPerCall = false;
-        if (!$backBeforeThePin) {
-            file_put_contents($plugin['dir'] . '/Rules.php', $soft);
-        }
-        $this->house->boots(); // the process is told its catalogue: it reads what the instrument is, from the disk
-        file_put_contents($plugin['dir'] . '/Rules.php', $hard);
+        $this->house->boots(); // the process starts, with the file soft on disk…
+        self::assertTrue(class_exists($found[1] . '\\Rules'), 'control: …its kernel loads it, soft…');
+        $this->house->writes($plugin['dir'] . '/Rules.php', $hard); // …and it is put back, before anything is asked of the process.
 
         $said = $this->house->as(LabHouse::SEAT, 'late:scan', ['path' => $red]);
 
         self::assertTrue($said['ok'] ?? false, 'control: the code this process runs is the soft one — it says yes of a candidate that names a machine');
-        self::assertCount($yeses, $this->house->lines(StandingLedger::MEASURED), $yeses === 1 ? 'the window was closed: say so in the record of decisions/0615' : 'a yes was written by a process whose loaded file is not the one on disk');
-        self::assertSame($yeses === 1, !isset($this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $red])['refused']));
+        self::assertSame($this->house->book()->record('release-line')?->instruments['late.scan'] ?? null, \Milpa\AppRuntime\Standing\OperationPin::of($plugin['scan'], $this->house->root), 'control: the disk holds what the grant was given over');
+        self::assertSame([], $this->house->lines(StandingLedger::MEASURED), 'a yes was written by a process that loaded the file before it was put back');
+        self::assertStringContainsString('changed after this process started', (string) ($this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $red])['refused'] ?? 'RAN'));
+        self::assertSame([], $this->house->done('merged'));
     }
 
-    public function testAPluginWhoseFilesAreAllLoadedWhenTheProcessIsToldStillMeasures(): void
+    public function testAPluginNothingChangedInSinceTheProcessStartedStillMeasures(): void
     {
-        // The guard: nothing changed on disk, the instrument's yes is a receipt as before.
+        // The guard: nothing changed on disk, the instrument's yes is a receipt as before — whenever the process
+        // comes to load each file of the plugin.
         $plugin = $this->aPluginWithItsRuleInAFileOfItsOwn('Rules::clean($bytes)');
         $this->house->offer($plugin['scan']);
         $this->house->granted(['conditions' => [['name' => 'no-host-names', 'statement' => 'what is merged names no machine', 'by' => ['operation' => 'late:scan', 'free' => ['path']]]]]);

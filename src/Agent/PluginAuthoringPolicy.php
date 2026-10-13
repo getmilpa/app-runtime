@@ -79,31 +79,6 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
     private \ArrayObject $twice;
 
     /**
-     * What each operation WAS when this process was told of it: the operation as it was told — its identity and where
-     * its handler is written — => its pin, or '' when it could not be pinned. Shared with every copy of this policy,
-     * and never read again from the disk: it is what says which code this process is running.
-     *
-     * @var \ArrayObject<string, string>
-     */
-    private \ArrayObject $loaded;
-
-    /**
-     * Under `with a book`: whether this house kept a book of standing grants when this process was first told its
-     * catalogue. One that did not has no record of what it loaded, and cannot speak for a grant given since.
-     *
-     * @var \ArrayObject<string, bool>
-     */
-    private \ArrayObject $booted;
-
-    /**
-     * For each operation this process was told of that ships in a plugin: that plugin's directories, and how many
-     * files the process had loaded when it read the operation's pin ({@see self::remembers()}).
-     *
-     * @var \ArrayObject<string, array{0: list<string>, 1: int}>
-     */
-    private \ArrayObject $units;
-
-    /**
      * @param (\Closure(): ?\Milpa\Agent\SessionStore)|null $sessions
      * @param JudgedPermission|null                         $judged       the HTTP policy's verdict on the permissioned
      *                                                                    operation now running; without it a mutation
@@ -128,9 +103,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         $this->permissioned = new \ArrayObject();
         $this->catalogued = new \ArrayObject();
         $this->twice = new \ArrayObject();
-        $this->loaded = new \ArrayObject();
-        $this->booted = new \ArrayObject();
-        $this->units = new \ArrayObject();
+        OperationPin::processStarted(); // asked here, where a process builds its boundary: the second it started in
     }
 
     /**
@@ -223,7 +196,6 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
                 }
                 $boundary->catalogued[(new OperationId($operation->name))->canonical] = $operation;
             }
-            $boundary->remembers($operations);
         }
 
         return $operations;
@@ -243,79 +215,6 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
             $id->forCli(),
             implode(', and ', $written),
         );
-    }
-
-    /**
-     * WHAT THIS PROCESS LOADED IS READ WHEN IT IS TOLD, AND NEVER AGAIN (fourth review, M1; what Rod decided on
-     * 2026-10-12 — «a receipt carries the pin of what PRODUCED it» — applied to a process that lives long).
-     *
-     * A pin is read from the disk, and the disk can be another by the time a process answers: a leg that loaded a
-     * guard before a person hardened it measured a candidate with the guard it had loaded, and its yes was written
-     * under the pin of the hardened one — the one the grant had just been given over. So what each operation is, is
-     * read ONCE, here, where the process is told of it: that is as near to «what was loaded» as a house can read.
-     * A yes, a sign of calm and an act under a grant then ask that the pin read NOW be that one.
-     *
-     * ONLY IN A HOUSE THAT KEEPS A BOOK. Where nobody ever granted anything, nothing is read — such a house behaves
-     * as the published runtime, and costs what it costs. So a process that started before its house kept a book has
-     * no record of what it loaded, and it does not speak for a grant given since: it is started again.
-     *
-     * AND A FILE OF ITS PLUGIN THAT THIS PROCESS LOADS AFTER THIS READING IS ONE IT CANNOT SPEAK FOR (the fifth
-     * review executed the residue this stated, on a real leg: a helper class of the plugin, first used when the
-     * instrument ran, softened before that and put back before the next answer — the second yes was written green
-     * under the grant's pin). So, for an operation that ships in a PLUGIN — which is pinned by every PHP file of its
-     * directory — the classes of that plugin are loaded HERE, before its pin is read, and from then on a file of
-     * that directory this process comes to load is one whose bytes at that moment nobody read: the process stops
-     * having a pin to give for that operation, and is started again. Measured: it costs a house with a book the
-     * reading of its plugins' class files once per process.
-     *
-     * WHAT THIS STILL DOES NOT SEE: an operation that ships in a PACKAGE is pinned by what the house installed, not
-     * by its files, and its classes are loaded when they are used. And, as before, code in another unit that the
-     * handler reaches.
-     *
-     * @param list<Operation> $operations
-     */
-    private function remembers(array $operations): void
-    {
-        $this->booted['with a book'] ??= StandingLedger::forRoot($this->root)->exists();
-        if ($this->booted['with a book'] !== true) {
-            return;
-        }
-        $fresh = array_values(array_filter($operations, fn (Operation $operation): bool => !isset($this->loaded[self::toldAs($operation)])));
-        $plugins = array_map(fn (Operation $operation): array => OperationPin::pluginsOf($operation, $this->root), $fresh);
-        foreach (array_unique(array_merge(...$plugins, ...[[]])) as $directory) {
-            OperationPin::loadClassesOf($directory);
-        }
-        foreach (OperationPin::ofEach($fresh, $this->root) as $at => $pin) {
-            $this->loaded[self::toldAs($fresh[$at])] = $pin ?? '';
-            $this->units[self::toldAs($fresh[$at])] = [$plugins[$at], \count(get_included_files())];
-        }
-    }
-
-    /**
-     * The pin of this operation as this process read it when it was told of it — or `null`: it has none to give, or
-     * it loaded a file of the operation's plugin after that reading.
-     */
-    private function asThisProcessLoadedIt(Operation $operation): ?string
-    {
-        $pin = $this->loaded[self::toldAs($operation)] ?? '';
-        [$plugins, $read] = $this->units[self::toldAs($operation)] ?? [[], 0];
-        if ($pin !== '') {
-            foreach ($plugins === [] ? [] : \array_slice(get_included_files(), $read) as $later) {
-                foreach ($plugins as $directory) {
-                    if (str_starts_with($later, $directory . '/')) {
-                        return null;
-                    }
-                }
-            }
-        }
-
-        return $pin === '' ? null : $pin;
-    }
-
-    /** An operation as a process is told of it: its identity, and where its handler is written. */
-    private static function toldAs(Operation $operation): string
-    {
-        return (new OperationId($operation->name))->canonical . ' @ ' . self::writtenAt($operation);
     }
 
     /**
@@ -858,7 +757,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         $noted = $standing->witnessing($operation, $input);
         $result = $this->governed($operation, $input, $authority, $next);
         if ($noted !== null) {
-            $standing->witnessed($noted, $operation, $input, $result, $authority, $this->asThisProcessLoadedIt($operation));
+            $standing->witnessed($noted, $operation, $input, $result, $authority, true);
         }
 
         return $result;
@@ -921,20 +820,6 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         if ($decided?->passes() !== true) {
             return $this->carriedOut($operation, $input, $context, $name, $next);
         }
-        // …AND ONLY AS THE OPERATION THIS PROCESS LOADED (fourth review, M1). The judge asked that the operation ON
-        // DISK be the one the grant was given over; what runs here is what this process loaded, and a process that
-        // outlived an update runs the code from before it. Asked before the house writes that it lets the act pass.
-        $loaded = $this->asThisProcessLoadedIt($operation);
-        if ($loaded === null || $loaded !== OperationPin::of($operation, $this->root)) {
-            throw new \RuntimeException(\sprintf(
-                '`%s` is covered by a standing grant, and a grant is given over what an operation IS: %s. Start this process again — a leg, a server — and it runs what the grant was given over. Nothing ran.',
-                (new OperationId($operation->name))->forCli(),
-                $loaded === null
-                    ? 'this process loaded it before this house kept a book of standing grants, or could not pin it, so it cannot say which code it is running'
-                    : 'what this process loaded is not what the disk holds now — its code or its package changed while this process was running',
-            ));
-        }
-
         // Then the act goes the way any call of that operation goes: a build call still runs in its trial.
         return $this->underAGrant($context, $operation, $input, fn (): mixed => $this->carriedOut($operation, $input, $context, $name, $next));
     }
@@ -976,7 +861,7 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         $noted = $standing->witnessing($operation, $input);
         $heard = static function (mixed $result) use ($standing, $noted, $operation, $input, $answered, $authority): mixed {
             if ($noted !== null) {
-                $standing->witnessed($noted, $operation, $input, $answered($result), $authority, null);
+                $standing->witnessed($noted, $operation, $input, $answered($result), $authority, false);
             }
 
             return $result;
@@ -1026,8 +911,11 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         try {
             $result = $run();
             $returned = true;
+            // A SEAT THAT IS LENT AN ACT IS TOLD WHEN THE BOOK IS FILLING (decided by Rod, 2026-10-13: D18) — in what
+            // the act answered, when that is a list of things said: it is the seat that can tell a person in time.
+            $filling = \is_array($result) && !isset($result['standing_book']) ? StandingLedger::forRoot($this->root)->nearlyFull() : null;
 
-            return $result;
+            return $filling === null ? $result : $result + ['standing_book' => $filling];
         } finally {
             $said = $returned && $answered !== null ? $answered($result) : $result;
             $standing->absorbed($absorbed, $operation, $said, $returned && ($answered === null || $said !== null));

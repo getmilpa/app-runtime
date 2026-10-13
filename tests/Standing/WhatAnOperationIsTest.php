@@ -77,6 +77,7 @@ final class WhatAnOperationIsTest extends TestCase
 
     protected function tearDown(): void
     {
+        LabHouse::aProcessStartedIn(null);
         exec('rm -rf ' . escapeshellarg($this->house));
     }
 
@@ -450,5 +451,212 @@ final class WhatAnOperationIsTest extends TestCase
         self::assertStringStartsWith('sha256:', (string) $here[0], 'control: the package\'s operation is pinned — ' . json_encode($here));
         self::assertStringStartsWith('sha256:', (string) $here[1], 'control: the plugin\'s operation is pinned');
         self::assertSame($here, $there);
+    }
+
+    // ── D19 · a process speaks for an operation only when nothing its pin reads is dated at or after the second ──
+    // ── it started. Asked here with the MACHINE's clock: the files are dated by the machine, and the test says  ──
+    // ── in which second «this process» started, before or after them — it never waits for a second to pass.    ──
+
+    /** What was found dated at or after the second a process that started in `$second` started — or `null`. */
+    private function datedSince(int $second, ?Operation $operation = null): ?string
+    {
+        LabHouse::aProcessStartedIn($second);
+
+        return OperationPin::changedSinceThisProcessStarted($operation ?? $this->operation($this->built->handler()), $this->house);
+    }
+
+    /** The last second the machine dates anything under this directory in: written, or changed in any way. */
+    private static function lastDatedUnder(string $directory): int
+    {
+        clearstatcache();
+        $last = max((int) filemtime($directory), (int) filectime($directory));
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::SELF_FIRST) as $found) {
+            $last = max($last, $found->getMTime(), $found->getCTime());
+        }
+
+        return $last;
+    }
+
+    /** The plugin's directory as the rule names it: from the house's root. */
+    private function pluginFromTheRoot(): string
+    {
+        return substr($this->plugin, \strlen($this->house) + 1);
+    }
+
+    public function testAProcessThatStartedAfterEverythingWasWrittenSpeaksForIt(): void
+    {
+        self::assertNull($this->datedSince(time() + 2));
+        self::assertNull($this->datedSince(time() + 2, $this->operation()));
+    }
+
+    public function testAFileWrittenInTheVerySecondAProcessStartedIsOneItCannotSpeakFor(): void
+    {
+        // A date is a whole second: of a file dated in the second a process started, nobody can say on which side
+        // of the start it was written. One second later, it can be said.
+        $last = self::lastDatedUnder($this->plugin);
+
+        self::assertNotNull($this->datedSince($last), 'a file dated in the second the process started was taken as written before it');
+        self::assertNotNull($this->datedSince($last - 1));
+        self::assertNull($this->datedSince($last + 1), 'control: a process that started the second after speaks for it');
+    }
+
+    /** @return iterable<string, array{string, ?string}> what is dated after the process started, and what the rule names — from the plugin's directory — or null: it is not dated */
+    public static function whatOfAPluginIsDated(): iterable
+    {
+        yield 'its own file' => ['/{plugin}.php', '/{plugin}.php'];
+        yield 'a PHP file of it the handler never names' => ['/Support/Rules.php', '/Support/Rules.php'];
+        yield 'its directory — where a file is added or taken away' => ['', ''];
+        yield 'a directory under it' => ['/Support', '/Support'];
+        yield 'a file of it that is not PHP — said: it is in no pin' => ['/notes.txt', null];
+        yield 'the directory its directory is in — every other plugin is added there' => ['/..', null];
+    }
+
+    #[DataProvider('whatOfAPluginIsDated')]
+    public function testOfAPluginEveryDirectoryAndEveryPhpFileIsDated(string $what, ?string $named): void
+    {
+        // Asked of two operations of the plugin: one written in its own file, at the top of its directory, and one
+        // written in a class two levels down — the unit is the plugin's whole directory for both.
+        $rules = new (substr($this->built::class, 0, (int) strrpos($this->built::class, '\\')) . '\\Support\\Rules')();
+        $start = time() + 5;
+        self::assertNull($this->datedSince($start), 'control: nothing is dated after it yet');
+        self::assertNull($this->datedSince($start, $this->operation($rules->handler())), 'control: nothing is dated after it yet');
+
+        touch($this->plugin . str_replace('{plugin}', basename($this->plugin), $what), $start);
+
+        $expected = $named === null ? null : $this->pluginFromTheRoot() . str_replace('{plugin}', basename($this->plugin), $named);
+        self::assertSame($expected, $this->datedSince($start));
+        self::assertSame($expected, $this->datedSince($start, $this->operation($rules->handler())));
+    }
+
+    /** @return iterable<string, array{string, ?string}> what is dated after the process started, and what the rule names — or null: it is not dated */
+    public static function whatOfAPackageIsDated(): iterable
+    {
+        yield 'what the house wrote down that it installed' => ['vendor/composer/installed.json', 'vendor/composer/installed.json'];
+        yield 'the file the handler is written in' => ['vendor/lab/thing/src/Provider.php', 'vendor/lab/thing/src/Provider.php'];
+        yield 'the file of its parent' => ['vendor/lab/thing/src/Base.php', 'vendor/lab/thing/src/Base.php'];
+        yield 'the file of its trait' => ['vendor/lab/thing/src/Helps.php', 'vendor/lab/thing/src/Helps.php'];
+        yield 'the directory those files are in' => ['vendor/lab/thing/src', 'vendor/lab/thing/src'];
+        yield 'a file of the package its class is not written in — said: a package is pinned by what was installed' => ['vendor/lab/thing/src/Service.php', null];
+        yield 'a file of the house that is no unit of the operation' => ['src/Plugins', null];
+    }
+
+    #[DataProvider('whatOfAPackageIsDated')]
+    public function testOfAPackageWhatWasInstalledAndTheFilesOfTheHandlersClassAreDated(string $what, ?string $named): void
+    {
+        $start = time() + 5;
+        self::assertNull($this->datedSince($start, $this->operation()), 'control: nothing is dated after it yet');
+
+        touch($this->house . '/' . $what, $start);
+
+        self::assertSame($named, $this->datedSince($start, $this->operation()));
+    }
+
+    public function testAFileWhoseDateWasSetBackIsDatedWhenThatWasDone(): void
+    {
+        // What `cp -p`, `rsync -a`, `mv` and `touch -d` leave: a file — and its directory — that say they were
+        // written long ago. The machine also keeps when anything about a file last CHANGED, and nobody sets that
+        // one: a process that started before the file arrived does not speak for it.
+        $arrived = self::lastDatedUnder($this->plugin);
+        foreach ([$this->plugin . '/Support/Rules.php', $this->plugin . '/Support', $this->plugin . '/' . basename($this->plugin) . '.php', $this->plugin] as $path) {
+            touch($path, $arrived - 1000);
+        }
+        clearstatcache();
+        self::assertSame($arrived - 1000, max(filemtime($this->plugin), filemtime($this->plugin . '/Support'), filemtime($this->plugin . '/Support/Rules.php'), filemtime($this->plugin . '/' . basename($this->plugin) . '.php')), 'control: every one of them says it was written long ago');
+
+        self::assertNotNull($this->datedSince($arrived - 500), 'a file moved into place with the date it had was taken as older than the process');
+        self::assertNull($this->datedSince(time() + 2), 'control: for a process that starts after it arrived, it is old');
+    }
+
+    public function testTheMachineDatesADirectoryWhenAFileIsAddedToItTakenFromItOrRenamedInIt(): void
+    {
+        // What the rule leans on to see a file that is gone, and one moved over another: the machine's own date of
+        // the directory. Asked of the machine, not of the rule.
+        $directory = $this->plugin . '/Support';
+        $dated = static function () use ($directory): int {
+            clearstatcache();
+
+            return (int) filemtime($directory);
+        };
+        foreach ([
+            'a file is added' => static fn (): mixed => file_put_contents($directory . '/New.php', "<?php\n"),
+            'a file is renamed over another' => static fn (): bool => rename($directory . '/New.php', $directory . '/Rules.php'),
+            'a file is taken away' => static fn (): bool => unlink($directory . '/Rules.php'),
+        ] as $when => $change) {
+            touch($directory, 1_000_000_000);
+            self::assertSame(1_000_000_000, $dated());
+            $change();
+            self::assertGreaterThan(1_000_000_000, $dated(), 'the machine did not date the directory when ' . $when);
+        }
+    }
+
+    public function testWhatIsOutsideTheHouseIsNamedByItsNameAlone(): void
+    {
+        // A package may be installed from a folder beside the house. A sentence a seat reads, and a line of the book,
+        // never carry where that is.
+        $outside = sys_get_temp_dir() . '/milpa-beside-' . bin2hex(random_bytes(6));
+        $name = 'Beside' . bin2hex(random_bytes(6));
+        mkdir($outside, 0o755, true);
+        try {
+            file_put_contents($outside . '/Tool.php', "<?php\nfinal class {$name}\n{\n    public function handler(): \\Closure\n    {\n        return fn (array \$input): array => ['ok' => true];\n    }\n}\n");
+            require $outside . '/Tool.php';
+            $this->installed('ref-1', ['name' => 'lab/beside', 'version' => '1.0.0', 'dist' => ['reference' => 'r'], 'install-path' => $outside]);
+            $operation = $this->operation((new $name())->handler());
+            $start = time() + 5;
+            self::assertNotNull($this->pin($operation), 'control: it is pinned');
+            self::assertNull($this->datedSince($start, $operation));
+
+            touch($outside . '/Tool.php', $start);
+
+            self::assertSame('Tool.php', $this->datedSince($start, $operation));
+        } finally {
+            exec('rm -rf ' . escapeshellarg($outside));
+        }
+    }
+
+    public function testOfAnOperationThatCannotBePinnedNothingIsSaid(): void
+    {
+        // Nothing is written under the pin of an operation that has none: there is nothing to speak for.
+        $unpinned = $this->operation(static fn (array $input): array => ['ok' => true]);
+
+        self::assertNull($this->pin($unpinned), 'control');
+        self::assertNull($this->datedSince(0, $unpinned));
+    }
+
+    public function testAProcessReadsTheSecondItStartedInOnceAndKeepsIt(): void
+    {
+        $was = $_SERVER['REQUEST_TIME_FLOAT'] ?? null;
+        try {
+            LabHouse::aProcessStartedIn(null);
+            $_SERVER['REQUEST_TIME_FLOAT'] = 1_700_000_000.9;
+            self::assertSame(1_700_000_000, OperationPin::processStarted());
+            // A process that answers many requests is told, at each, when THAT one began.
+            $_SERVER['REQUEST_TIME_FLOAT'] = 1_800_000_000.0;
+            self::assertSame(1_700_000_000, OperationPin::processStarted(), 'the second a process started in moved with the request it was answering');
+
+            LabHouse::aProcessStartedIn(null);
+            unset($_SERVER['REQUEST_TIME_FLOAT']);
+            $before = time();
+            self::assertGreaterThanOrEqual($before, OperationPin::processStarted(), 'a process that is not told when it started takes the second it is asked in');
+            self::assertLessThanOrEqual(time(), OperationPin::processStarted());
+        } finally {
+            $_SERVER['REQUEST_TIME_FLOAT'] = $was;
+        }
+    }
+
+    public function testItIsAskedWhereAProcessBuildsItsBoundary(): void
+    {
+        // …so that the one kept is the second the process started in, and not the second of the first request that
+        // came to need it.
+        $was = $_SERVER['REQUEST_TIME_FLOAT'] ?? null;
+        try {
+            LabHouse::aProcessStartedIn(null);
+            $_SERVER['REQUEST_TIME_FLOAT'] = 1_700_000_000.9;
+            new \Milpa\AppRuntime\Agent\PluginAuthoringPolicy($this->house);
+            $_SERVER['REQUEST_TIME_FLOAT'] = 1_800_000_000.0;
+
+            self::assertSame(1_700_000_000, OperationPin::processStarted());
+        } finally {
+            $_SERVER['REQUEST_TIME_FLOAT'] = $was;
+        }
     }
 }

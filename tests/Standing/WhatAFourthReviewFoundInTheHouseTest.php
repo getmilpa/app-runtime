@@ -363,15 +363,19 @@ final class WhatAFourthReviewFoundInTheHouseTest extends TestCase
     public function testTheShellOfTheTerminalWrapsAnOperationAndWhatItSaysStillNarrows(): void
     {
         // The shell runs a COPY of each operation with a door in front of its handler, and hands the runner that copy:
-        // it is pinned as another operation, so its yes and its sign of calm speak for no grant — and what narrows
-        // is heard all the same.
+        // it is pinned as another operation, so its yes is a receipt under a pin no grant was given over and speaks
+        // for none — and what narrows is heard all the same.
         $this->shelfLine('shelf:glance', 'shelf:check');
         $runner = new \Milpa\Console\OperationRunner($this->house->container);
         $behindADoor = fn (string $name): Operation => \Milpa\AppRuntime\Console\UnsignedTerminal::withHandler($this->house->operation($name), fn (array $input, mixed ...$rest): mixed => ($this->house->operation($name)->handler)($input, ...$rest));
         $this->house->candidate('other.txt', "another clean release\n");
 
         $runner->run($behindADoor('shelf:check'), ['path' => 'other.txt'], 'tui');
-        self::assertCount(1, $this->house->lines(StandingLedger::MEASURED), 'a yes said by the copy the shell runs was written as a receipt');
+        $pins = array_column($this->house->lines(StandingLedger::MEASURED), 'instrument');
+        self::assertCount(2, $pins);
+        self::assertSame($this->house->book()->record('shelf-line')?->instruments['shelf.check'] ?? null, $pins[0], 'control: the first is the instrument the grant was given over');
+        self::assertNotSame($pins[0], $pins[1], 'a yes said by the copy the shell runs was written under the pin of the instrument itself');
+        self::assertArrayHasKey('refused', $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => 'other.txt']), 'and it spoke for the grant');
         $runner->run($behindADoor('shelf:check'), ['path' => 'good.txt', 'strict' => true], 'tui');
         self::assertArrayHasKey('refused', $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => 'good.txt']), 'a no said at the shell did not stop the act');
         touch($this->house->root . '/shelf-fired');
@@ -449,6 +453,10 @@ final class WhatAFourthReviewFoundInTheHouseTest extends TestCase
         self::assertArrayHasKey('refused', $published, 'a red candidate was published on a yes from code the grant was never given over');
         self::assertSame([], $this->house->done('published'));
         self::assertSame([], $this->house->lines(StandingLedger::MEASURED), 'the yes was written as a receipt under the grant\'s own pin');
+        // …and what the seat reads says what to do, and where the house saw it.
+        self::assertStringContainsString('`guard:scan`, which measures condition «no-host-names», changed after this process started (`' . substr($guard['file'], \strlen($this->house->root) + 1) . '` is dated in the second it started, or later)', (string) $published['refused']);
+        self::assertStringContainsString('Start this process again', (string) $published['refused']);
+        self::assertSame([], $this->house->lines(StandingLedger::REFUSED), 'what one process cannot speak for is not a line of the book');
     }
 
     public function testAGrantGivenOverAHardenedInstrumentIsNotServedByAProcessThatLoadedTheOneBeforeIt(): void
@@ -471,6 +479,8 @@ final class WhatAFourthReviewFoundInTheHouseTest extends TestCase
 
         self::assertArrayHasKey('refused', $published, 'the new grant was served by the instrument it replaced');
         self::assertSame([], $this->house->done('published'));
+        self::assertSame([], array_filter($this->house->lines(StandingLedger::MEASURED), static fn (array $receipt): bool => $receipt['ok'] === true), 'and its yes was written');
+        self::assertStringContainsString('Start this process again', (string) $published['refused']);
     }
 
     public function testASignOfCalmFromCodeThisProcessLoadedBeforeTheWatcherWasPutBackKeepsNoGrantAlive(): void
@@ -487,7 +497,8 @@ final class WhatAFourthReviewFoundInTheHouseTest extends TestCase
         self::assertSame(['ok' => true, 'fired' => false], $this->house->as(LabHouse::SEAT, 'guard:watch'), 'control: the code this process loaded cannot see the falsifier');
         $published = $this->house->as(LabHouse::SEAT, 'lab:publish', ['path' => $path, 'channel' => 'stable']);
 
-        self::assertStringContainsString('has given no sign of life', (string) ($published['refused'] ?? 'RAN'), 'a watcher that cannot see kept the grant alive under the pin of the one that can');
+        self::assertStringContainsString('`guard:watch`, which watches falsifier «a-published-name», changed after this process started', (string) ($published['refused'] ?? 'RAN'), 'a watcher that cannot see kept the grant alive under the pin of the one that can');
+        self::assertSame([], $this->house->lines(StandingLedger::WATCHED), 'and its sign of calm was written');
     }
 
     public function testAnActIsNotRunUnderAGrantByAProcessThatLoadedAnotherVersionOfIt(): void
@@ -503,7 +514,7 @@ final class WhatAFourthReviewFoundInTheHouseTest extends TestCase
         $shipped = $this->house->as(LabHouse::SEAT, 'guard:ship', ['path' => $path]);
 
         self::assertArrayHasKey('refused', $shipped, 'a covered act ran, under the grant, as code the grant was never given over: ' . json_encode($shipped));
-        self::assertStringContainsString('this process loaded', (string) $shipped['refused']);
+        self::assertStringContainsString('`guard:ship` changed after this process started', (string) $shipped['refused']);
         self::assertSame([], $this->house->lines(StandingLedger::ABSORBED), 'and the house had written that it let it pass');
     }
 
@@ -518,21 +529,30 @@ final class WhatAFourthReviewFoundInTheHouseTest extends TestCase
         self::assertSame(['ok' => true, 'ran' => 'the code the grant was given over'], $this->house->as(LabHouse::SEAT, 'guard:ship', ['path' => $path]));
     }
 
-    public function testAProcessThatStartedBeforeItsHouseKeptABookDoesNotSpeakForAGrantGivenSince(): void
+    public function testAProcessThatStartedBeforeItsHouseKeptABookSpeaksForAGrantGivenSince(): void
     {
-        // It has no record of what it loaded: in a house where nobody granted anything, nothing is read.
+        // D19 (decided by Rod, 2026-10-13). A process used to read what each operation was when it was told its
+        // catalogue, and only in a house that kept a book: one that had started before the first grant had no record
+        // of what it loaded, spoke for none, and was started again. The rule asks for no record: nothing its
+        // operations are written in changed since it started, so what it runs is what the disk holds.
         $this->house->aProcessPerCall = false;
         $this->house->granted(watched: false);
         $path = $this->house->candidate('good.txt', "clean release\n");
-        // Told its catalogue again after the house got its book, it still has not read what it loaded WHEN it loaded it.
-        $this->house->offer($this->house->operation('lab:watch'), $this->house->operation('lab:scan'), $this->house->operation('lab:merge'));
 
         self::assertSame(['ok' => true, 'fired' => false], $this->house->as(LabHouse::SEAT, 'lab:watch'));
         self::assertSame(['ok' => true], $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $path]));
-        self::assertSame([], [...$this->house->lines(StandingLedger::WATCHED), ...$this->house->lines(StandingLedger::MEASURED)], 'a process that cannot say what it loaded spoke for a grant');
-        $this->house->writtenByHand(StandingLedger::WATCHED, ['watcher' => 'lab.watch', 'arguments' => [], 'fired' => false, 'who' => 'key:' . LabHouse::SEAT, 'pin' => $this->house->book()->record('release-line')?->instruments['lab.watch']]);
-        $this->house->writtenByHand(StandingLedger::MEASURED, ['by' => 'lab:scan', 'arguments' => ['path' => $path], 'subject' => $this->house->digestOf($path), 'ok' => true, 'instrument' => $this->house->book()->record('release-line')?->instruments['lab.scan'], 'who' => 'key:' . LabHouse::SEAT, 'at' => $this->house->now->format(\DATE_ATOM)]);
-        self::assertStringContainsString('before this house kept a book', (string) ($this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $path])['refused'] ?? 'RAN'), 'and it ran an act under one');
+        self::assertSame([[false], [true]], [array_column($this->house->lines(StandingLedger::WATCHED), 'fired'), array_column($this->house->lines(StandingLedger::MEASURED), 'ok')]);
+        self::assertSame(['ok' => true], $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $path]));
+
+        // …and the day what the house installed is written again under it — updated, and put back as it was: the pins
+        // are the grant's again — it stops speaking, and says where it saw it.
+        $this->house->installed('lab-2');
+        $this->house->installed();
+        $other = $this->house->candidate('other.txt', "another clean release\n");
+        self::assertSame(['ok' => true], $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $other]));
+        self::assertCount(1, $this->house->lines(StandingLedger::MEASURED), 'a yes was written by a process that outlived an update of what it runs');
+        $refused = (string) ($this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $path])['refused'] ?? 'RAN');
+        self::assertStringContainsString('`lab:merge` changed after this process started (`vendor/composer/installed.json` is dated in the second it started, or later)', $refused);
 
         $this->house->boots();
         self::assertSame(['ok' => true], $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $path]), 'control: started again, it runs what the grant was given over');
@@ -980,14 +1000,15 @@ final class WhatAFourthReviewFoundInTheHouseTest extends TestCase
     }
 
     /**
-     * What the file of that plugin holds NOW. The process that loaded it goes on running what it loaded.
+     * What the file of that plugin holds NOW, written in the second this house is in: for a process that is running,
+     * after it started. The process that loaded it goes on running what it loaded.
      *
      * @param array{file: string, class: string} $guard
      */
     private function onDisk(array $guard, string $rule, string $sees = 'false', string $does = "'nothing'"): void
     {
         $namespace = substr($guard['class'], 0, (int) strrpos($guard['class'], '\\'));
-        file_put_contents($guard['file'], <<<PHP
+        $this->house->writes($guard['file'], <<<PHP
             <?php
 
             declare(strict_types=1);

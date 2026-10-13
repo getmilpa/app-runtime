@@ -83,9 +83,23 @@ final class LabHouse implements SignatureVerifier
     /**
      * Whether every call through this house's door is made by a process that BOOTS FOR IT — which is what a command
      * typed at a terminal is. A test of a process that lives — a leg, a server — turns this off and says when that
-     * process boots ({@see self::boots()}): what a process loaded is what it read when it was told its catalogue.
+     * process boots ({@see self::boots()}): what a process runs is what the disk held when it started.
      */
     public bool $aProcessPerCall = true;
+
+    /**
+     * THE SECOND THIS HOUSE IS IN: the one its processes start in, and the one it dates what it writes with.
+     *
+     * A process speaks for an operation only when nothing its pin reads is dated at or after the second that
+     * process started (decided by Rod, 2026-10-13: D19) — and a machine dates a file in whole seconds, while a test
+     * writes a file, starts a process and writes again inside one. So this house keeps a clock of its own, as it
+     * does for `now`: each process it starts, starts one second later ({@see self::boots()}), and a file a test
+     * writes through {@see self::writes()} is dated in the second the house is in — after every process started
+     * before it, and in the very second of the one that is running. It runs a day AHEAD of the machine's clock, so
+     * that the machine's own date of a file never speaks first; `WhatAProcessRunsIsWhatItLoadedTest` asks the rule
+     * with the machine's clock alone.
+     */
+    public int $second;
 
     /** How this house NAMES a content, given its digest: an operation may name what it acts on with more than one. */
     public ?\Closure $named = null;
@@ -105,7 +119,9 @@ final class LabHouse implements SignatureVerifier
         mkdir($this->root . '/storage/identity', 0o755, true);
         $this->now = new \DateTimeImmutable('2026-10-11T12:00:00+00:00');
         $this->scanner = static fn (string $bytes): array => ['ok' => !str_contains($bytes, 'machine-name:')];
+        $this->second = time() + 86400;
         $this->installed();
+        $this->starts();
 
         $this->enroll(self::PERSON, self::PERSON_SCOPES, self::PERSON);
         $this->enroll(self::SEAT, self::SEAT_SCOPES, self::PERSON);
@@ -122,7 +138,33 @@ final class LabHouse implements SignatureVerifier
 
     public function destroy(): void
     {
+        self::aProcessStartedIn(null);
         exec('rm -rf ' . escapeshellarg($this->root));
+    }
+
+    /**
+     * Say in which second «this process» started — or, with `null`, forget it: the next one to ask reads the
+     * machine's own. For a test with no house of this class, whose every call is a command typed at a terminal.
+     */
+    public static function aProcessStartedIn(?int $second): void
+    {
+        (new \ReflectionProperty(\Milpa\AppRuntime\Standing\OperationPin::class, 'started'))->setValue(null, $second);
+    }
+
+    /** A process of this house starts: one second after everything this house wrote. */
+    private function starts(): void
+    {
+        self::aProcessStartedIn(++$this->second);
+    }
+
+    /**
+     * Write a file of this house NOW — in the second the house is in, which is the one its running process started
+     * in: for that process the file changed after it started; for the next one to start, before.
+     */
+    public function writes(string $file, string $bytes): void
+    {
+        file_put_contents($file, $bytes);
+        touch($file, $this->second);
     }
 
     /**
@@ -133,7 +175,7 @@ final class LabHouse implements SignatureVerifier
     public function installed(?string $lab = 'lab-1'): void
     {
         @mkdir($this->root . '/vendor/composer', 0o755, true);
-        file_put_contents($this->root . '/vendor/composer/installed.json', (string) json_encode(['packages' => $lab === null ? [] : [
+        $this->writes($this->root . '/vendor/composer/installed.json', (string) json_encode(['packages' => $lab === null ? [] : [
             ['name' => 'lab/release-line', 'version' => '1.0.0', 'dist' => ['reference' => $lab], 'install-path' => __DIR__],
             ['name' => 'milpa/app-runtime', 'version' => 'dev-lab', 'source' => ['reference' => 'the-checkout-under-test'], 'install-path' => \dirname(__DIR__, 2)],
         ]], \JSON_UNESCAPED_SLASHES));
@@ -291,16 +333,11 @@ final class LabHouse implements SignatureVerifier
     }
 
     /**
-     * A process of this house boots NOW: it forgets what another one had read, and is told the catalogue — in a house
-     * that keeps a book, that is when it reads what each operation is, which is what it then says it loaded.
+     * A process of this house boots NOW: it starts, it has read none of the book, and it is told the catalogue.
      */
     public function boots(): void
     {
-        (function (): void {
-            $this->loaded->exchangeArray([]);
-            $this->booted->exchangeArray([]);
-            $this->units->exchangeArray([]);
-        })->call($this->policy);
+        $this->starts();
         // …and what it had verified of the book: a process that has just started has read none of it.
         (new \ReflectionProperty(StandingLedger::class, 'readings'))->setValue(null, []);
         PluginAuthoringPolicy::catalogue($this->container, $this->operations);
@@ -313,8 +350,9 @@ final class LabHouse implements SignatureVerifier
     public function bootsUntold(): void
     {
         $this->aProcessPerCall = false;
+        $this->starts();
         (function (): void {
-            foreach ([$this->loaded, $this->booted, $this->units, $this->catalogued, $this->permissioned, $this->twice] as $told) {
+            foreach ([$this->catalogued, $this->permissioned, $this->twice] as $told) {
                 $told->exchangeArray([]);
             }
         })->call($this->policy);

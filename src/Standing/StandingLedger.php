@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Standing;
 
+use Milpa\Command\Consent\OperationId;
 use Milpa\Command\Standing\Canonical;
 use Milpa\Command\Standing\ConditionReceipt;
 use Milpa\Command\Standing\StandingGrant;
@@ -77,7 +78,7 @@ use Milpa\ToolRuntime\Identity\OperationAuthorization;
  * of the file but its bytes — not its date, not its size.
  *
  * @phpstan-type Line array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}
- * @phpstan-type Mind array{kept: array<int, Line>, recent: array<int, Line>, lines: int, last: ?string, fault: ?string, calm: array<string, int>, refused: array<string, list<int>>}
+ * @phpstan-type Mind array{kept: array<int, Line>, recent: array<int, Line>, lines: int, last: ?string, fault: ?string, calm: array<string, int>, refused: array<string, list<int>>, speaks: array<string, list<string>>, spent: array<string, int>, halted: array<string, true>}
  * @phpstan-type Reading array{bytes: \HashContext, upTo: int, number: int, head: array{lines: int, head: string}|string|null, mind: Mind}
  */
 final class StandingLedger
@@ -205,6 +206,55 @@ final class StandingLedger
     public function fault(): ?string
     {
         return $this->read()['fault'];
+    }
+
+    /**
+     * HOW MANY LINES WERE WRITTEN UNDER A GRANT SINCE A PERSON LAST GAVE IT OR LIFTED IT, and whether a stop of it
+     * was written since (decided by Rod, 2026-10-13: D18).
+     *
+     * Counted over the LINES of the book, the same by whoever reads it — never over where a grant stands today, which
+     * a process reads with its own keyring. Under a grant are written: the acts it lent and the refusals it gave,
+     * which name it; and every receipt and every sign of a watcher whose operation is one its line says it is
+     * measured or watched by. The count starts again at the line that gives it and at each line that lifts it.
+     *
+     * @return array{lines: int, stopped: bool}
+     */
+    public function spentUnder(string $grant): array
+    {
+        $mind = $this->read();
+
+        return ['lines' => $mind['spent'][$grant] ?? 0, 'stopped' => isset($mind['halted'][$grant])];
+    }
+
+    /**
+     * The grants whose line says this operation measures or watches them: under each, what that operation says is
+     * written ({@see self::spentUnder()}).
+     *
+     * @return list<string>
+     */
+    public function spokenForBy(string $operation): array
+    {
+        $named = (new OperationId($operation))->canonical;
+
+        return array_keys(array_filter($this->read()['speaks'], static fn (array $by): bool => \in_array($named, $by, true)));
+    }
+
+    /**
+     * THE BOOK IS PAST HALF OF WHAT THIS HOUSE READS: said to a person who lists it and to a seat it lends to, in
+     * time for a person to keep it somewhere else (decided by Rod, 2026-10-13: D18) — or `null`: it is not.
+     */
+    public function nearlyFull(): ?string
+    {
+        clearstatcache(true, $this->path);
+        $bytes = is_file($this->path) ? (int) filesize($this->path) : 0;
+
+        return $bytes < self::WARNS_FROM ? null : \sprintf(
+            'The book of standing grants holds %.1f of the %d MiB this house reads. Past that it is a fault: no seat acts, nothing is lent, and no stop is written either. A person keeps the book AND ITS HEAD somewhere else — `%s` and `%s`, the two together — and gives again the grants that should stand; the README of milpa/app-runtime says how, and what is left behind.',
+            $bytes / 1048576,
+            self::LONGEST / 1048576,
+            self::PATH,
+            self::PATH . self::HEAD,
+        );
     }
 
     /** How many times this process verified a book from its first line: what a command costs is one. */
@@ -420,8 +470,17 @@ final class StandingLedger
         ]));
     }
 
-    /** How many bytes of book this house reads: past it the book is a fault, and is not read (a proposal, not decided). */
+    /** How many bytes of book this house reads: past it the book is a fault, and is not read (decided by Rod, 2026-10-13: D18). */
     public const LONGEST = 8 * 1024 * 1024;
+
+    /** From how many bytes the house says its book is filling ({@see self::nearlyFull()}): half of what it reads. */
+    public const WARNS_FROM = 4 * 1024 * 1024;
+
+    /**
+     * How many lines are written under one grant between two acts of a person — the one that gives it, and each one
+     * that lifts it (a PROPOSAL, not decided: the number; that there is one was decided by Rod, 2026-10-13: D18).
+     */
+    public const BUDGET = 3000;
 
     private static function tooLong(int $bytes): string
     {
@@ -524,7 +583,7 @@ final class StandingLedger
     /** @return Mind a reading that holds no line */
     private static function nothing(?string $fault): array
     {
-        return ['kept' => [], 'recent' => [], 'lines' => 0, 'last' => null, 'fault' => $fault, 'calm' => [], 'refused' => []];
+        return ['kept' => [], 'recent' => [], 'lines' => 0, 'last' => null, 'fault' => $fault, 'calm' => [], 'refused' => [], 'speaks' => [], 'spent' => [], 'halted' => []];
     }
 
     /**
@@ -541,6 +600,27 @@ final class StandingLedger
         $mind['recent'][$line % self::RECENT] = $entry;
         $data = $entry['data'];
         $fired = $entry['type'] === self::WATCHED ? ($data['fired'] ?? null) : null;
+        // WHAT EACH GRANT HAS SPENT ({@see self::spentUnder()}): told from the line alone.
+        $grant = \is_string($data['grant'] ?? null) ? $data['grant'] : null;
+        $speaker = $data[$entry['type'] === self::MEASURED ? 'by' : 'watcher'] ?? null;
+        if ($grant !== null && \in_array($entry['type'], [self::GRANTED, self::REINSTATED], true)) {
+            $mind['spent'][$grant] = 0;
+            unset($mind['halted'][$grant]);
+            if ($entry['type'] === self::GRANTED) {
+                $mind['speaks'][$grant] = array_map(strval(...), array_keys(\is_array($data['instruments'] ?? null) ? $data['instruments'] : []));
+            }
+        } elseif ($grant !== null && $entry['type'] === self::SUSPENDED) {
+            $mind['halted'][$grant] = true;
+        } elseif ($grant !== null && \in_array($entry['type'], [self::ABSORBED, self::REFUSED], true)) {
+            $mind['spent'][$grant] = ($mind['spent'][$grant] ?? 0) + 1;
+        } elseif (\in_array($entry['type'], [self::MEASURED, self::WATCHED], true) && \is_string($speaker)) {
+            $speaker = (new OperationId($speaker))->canonical;
+            foreach ($mind['speaks'] as $under => $by) {
+                if (\in_array($speaker, $by, true)) {
+                    $mind['spent'][$under] = ($mind['spent'][$under] ?? 0) + 1;
+                }
+            }
+        }
         if ($entry['type'] === self::ABSORBED) {
             return;
         }

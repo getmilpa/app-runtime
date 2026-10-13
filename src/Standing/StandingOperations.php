@@ -642,7 +642,9 @@ final class StandingOperations implements CommandProvider
             'ok' => true,
             'grants' => $grants,
             'recent' => $recent,
-        ] + ($book->ledger()->fault() === null ? [] : ['book' => 'DOES NOT VERIFY: ' . $book->ledger()->fault() . '. No grant in it is honoured until a person has looked.']);
+        ] + ($book->ledger()->fault() === null
+            ? ($book->ledger()->nearlyFull() === null ? [] : ['book' => $book->ledger()->nearlyFull()])
+            : ['book' => 'DOES NOT VERIFY: ' . $book->ledger()->fault() . '. No grant in it is honoured until a person has looked.']);
     }
 
     /**

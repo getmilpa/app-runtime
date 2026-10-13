@@ -20,6 +20,7 @@ use Milpa\Command\Operation;
 use Milpa\Command\Standing\Canonical;
 use Milpa\Command\Standing\ConditionReceipt;
 use Milpa\Command\Standing\GrantCondition;
+use Milpa\Command\Standing\GrantState;
 use Milpa\Command\Standing\GrantStanding;
 use Milpa\Command\Standing\StandingCall;
 use Milpa\Command\Standing\StandingCheck;
@@ -223,12 +224,19 @@ final class HouseStandingJudge
                     $instruments[$condition->by->operation->canonical] = $pinned;
                 }
             }
+            $unhonoured = $this->faultOf($record, $operation, $operationNamed, $answeredTwice);
+            if ($unhonoured === null && $record->state === GrantState::InForce) {
+                $outlived = $this->outlived($record, $operation, $operationNamed);
+                if ($outlived !== null) {
+                    return new StandingDecision($call, stopped: $outlived);
+                }
+            }
             $held[] = [
                 'grant' => $record->grant,
                 // The book was asked first, above: it verifies, and every line of it reads as its kind today — a line
                 // that did not would be a fault of the whole book, and no grant in it would have been read. That is
                 // what this house says to the judge of its record of each grant, and it says it from the same answer.
-                'standing' => new GrantStanding($record->state, $record->because, $this->faultOf($record, $operation, $operationNamed, $answeredTwice), $record->watcherSignalAt, $receipts, $instruments, recordFault: $fault),
+                'standing' => new GrantStanding($record->state, $record->because, $unhonoured, $record->watcherSignalAt, $receipts, $instruments, recordFault: $fault),
             ];
             $records[$record->grant->id] = $record;
         }
@@ -398,6 +406,40 @@ final class HouseStandingJudge
     }
 
     /**
+     * A PROCESS SPEAKS FOR A GRANT ONLY WHILE NOTHING THE GRANT WAS GIVEN OVER CHANGED AFTER IT STARTED (decided by
+     * Rod, 2026-10-13: D19; {@see OperationPin::changedSinceThisProcessStarted()}). The operation a grant covers,
+     * what measures it and what watches it are each read from the disk, and a process runs what it loaded: one that
+     * outlived an update of any of them is told so here, in the one sentence a seat reads, and is started again.
+     *
+     * Asked of a grant in force that is honoured as the disk holds it: of any other, what a seat reads is why it is
+     * not — and that is a person's to mend, not a process's.
+     *
+     * @param \Closure(OperationId|string): ?Operation $operationNamed
+     */
+    private function outlived(GrantRecord $record, Operation $operation, \Closure $operationNamed): ?string
+    {
+        $asked = [[$operation, '']];
+        foreach ($record->grant->conditions as $condition) {
+            $asked[] = [$operationNamed($condition->by->operation), \sprintf(', which measures condition «%s»,', $condition->name)];
+        }
+        $asked[] = [$operationNamed($record->grant->falsifier->watcher->operation), \sprintf(', which watches falsifier «%s»,', $record->grant->falsifier->name)];
+        foreach ($asked as [$named, $as]) {
+            $dated = $named === null ? null : OperationPin::changedSinceThisProcessStarted($named, $this->root);
+            if ($named !== null && $dated !== null) {
+                return \sprintf(
+                    'Standing grant «%s» names this call, and this process does not speak for it: `%s`%s changed after this process started (`%s` is dated in the second it started, or later), and a process answers with the code it loaded. Start this process again — a leg, a server; at a terminal, run the command again. Nothing is lent by this one.',
+                    $record->grant->id,
+                    (new OperationId($named->name))->forCli(),
+                    $as,
+                    $dated,
+                );
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Why this judge does not honour a grant today, for each operation it covers that it does not honour — an empty
      * map when it honours them all. What the listing of grants says is what THIS says (third review, L3): the book
      * knows where a grant stands, and only the judge asks whether the operations it was given over are still those.
@@ -448,14 +490,18 @@ final class HouseStandingJudge
             if ($decision === null || $record === null || $verdict === null || !$verdict->passes()) {
                 return $decision;
             }
-            $ledger->append(StandingLedger::ABSORBED, [
+            // …AND NOT BY A GRANT THAT SPENT ITS BUDGET ({@see self::spends()}): the stop is written in place of the
+            // line that would let the act pass, and the judgment is asked again — it reads that stop.
+            if (!$this->spends($ledger, [$record->grant->id], StandingLedger::ABSORBED, [
                 'grant' => $record->grant->id,
                 'operation' => $decision->call->operation->canonical,
                 'seat' => $decision->call->seat,
                 'subject' => $decision->call->subject,
                 'receipts' => array_map(static fn (ConditionReceipt $receipt): array => $receipt->toArray(), $verdict->cited),
                 'arrived' => self::arrived($context),
-            ] + self::kept($decision->call->arguments), $this->now());
+            ] + self::kept($decision->call->arguments), $this->now())) {
+                return $this->decide($context, $operation, $arguments, $operationNamed, $answeredTwice);
+            }
 
             return $decision;
         });
@@ -550,10 +596,54 @@ final class HouseStandingJudge
             $line['then'] = self::REFUSALS_END;
         }
         try {
-            $ledger->append(StandingLedger::REFUSED, $line, $this->now());
+            $ledger->exclusively(fn (): bool => $this->spends($ledger, [$record->grant->id], StandingLedger::REFUSED, $line, $this->now()));
         } catch (\RuntimeException) {
             // The refusal stands without its line: a book that cannot be written does not turn a no into a yes.
         }
+    }
+
+    /** What the house says when it stops a grant that spent its budget ({@see self::spends()}). */
+    public const BUDGET_SPENT = 'this grant spent its budget: %d lines were written under it since a person last gave it or lifted it — receipts, signs of its watcher, acts it lent, refusals. Nothing more is written under it and nothing is lent under it until a person lifts this stop';
+
+    /**
+     * ONE SEAT ALONE DOES NOT FILL THE BOOK: WHAT IS WRITTEN UNDER A GRANT HAS A BUDGET, AND A GRANT THAT SPENT IT IS
+     * STOPPED (decided by Rod, 2026-10-13: D18).
+     *
+     * Every line a call of a seat leaves is written under some grant: an act it was lent and a refusal name theirs;
+     * a receipt and a sign of a watcher are written under every grant measured or watched by that operation. Each
+     * grant may have {@see StandingLedger::BUDGET} such lines written under it between two acts of a person — the
+     * one that gives it, and each one that lifts it. Past that the house writes ONE line, a stop of that grant, and
+     * nothing more under it: a stop weighs more than any no that was not written, and a person lifts it — which is
+     * where the count starts again.
+     *
+     * Asked with the book locked, of the lines of the book ({@see StandingLedger::spentUnder()}): whether a grant is
+     * stopped is read from a line that says so, written since the last one that gave or lifted it — never from where
+     * it stands for the process that asks.
+     *
+     * @param list<string>         $grants the grants this line is written under
+     * @param array<string, mixed> $line
+     *
+     * A LINE NO GRANT'S OWN LINE ANSWERS FOR IS WRITTEN, ALWAYS: there is no stop to write in its place. That is a
+     * receipt or a sign of an operation the house knows a grant by only from a line its door did not write.
+     *
+     * @return bool whether the line was written — it is not when every grant it would be written under spent its budget
+     */
+    private function spends(StandingLedger $ledger, array $grants, string $type, array $line, \DateTimeImmutable $now): bool
+    {
+        $left = $grants === [];
+        foreach ($grants as $grant) {
+            $spent = $ledger->spentUnder($grant);
+            if ($spent['lines'] < StandingLedger::BUDGET) {
+                $left = true;
+            } elseif (!$spent['stopped']) {
+                $ledger->append(StandingLedger::SUSPENDED, ['grant' => $grant, 'by' => 'the house', 'reason' => \sprintf(self::BUDGET_SPENT, $spent['lines'])], $now);
+            }
+        }
+        if ($left) {
+            $ledger->append($type, $line, $now);
+        }
+
+        return $left;
     }
 
     /**
@@ -616,16 +706,16 @@ final class HouseStandingJudge
      * the grant's. An instrument the house cannot pin leaves no receipt, and a watcher it cannot pin gives no sign of
      * life — but «fired» is written whoever answered it: stopping asks for nobody's pin.
      *
-     * AND THE PIN OF WHAT PRODUCED IT IS THE ONE THE PROCESS THAT ANSWERED HAD LOADED (fourth review, M1). The pin
-     * was read from the disk AFTER the run, and a process that lives long answers with the code it loaded: a yes
-     * from a guard loaded before it was hardened was written under the pin of the hardened one. So a YES and a SIGN
-     * OF CALM are written only when the pin read now is the one this process read when it was told of the operation
-     * (`$loaded`) — a process that has none to give, because it started before its house kept a book, writes neither.
-     * A no and a «fired» stay as they were: they only narrow.
+     * AND IT IS WRITTEN ONLY BY A PROCESS THAT RUNS WHAT THE DISK HOLDS (fourth review, M1; decided by Rod,
+     * 2026-10-13: D19). The pin is read from the disk AFTER the run, and a process that lives long answers with the
+     * code it loaded: a yes from a guard loaded before it was hardened was written under the pin of the hardened
+     * one. So a YES and a SIGN OF CALM are written only when nothing that pin reads is dated at or after the second
+     * this process started ({@see OperationPin::changedSinceThisProcessStarted()}). A no and a «fired» stay as they
+     * were: they only narrow.
      *
      * AND FROM A RUN THAT LEFT THIS PROCESS, ONLY WHAT NARROWS (fourth review, H1; decided by Rod, 2026-10-12: D14): work a
      * leg ran confined in the house, a rehearsal in a copy. The house did not run that code and has no pin of what
-     * was loaded to give for it — whoever hands such a run in says so with `null` — so its «fired» stops, its no is a
+     * was loaded to give for it — whoever hands such a run in says it was not run `$here` — so its «fired» stops, its no is a
      * red receipt, and its yes and its sign of calm are never written: for a green, a candidate is measured in the
      * house.
      *
@@ -634,15 +724,15 @@ final class HouseStandingJudge
      *
      * @param array{measures: bool, refutes: bool, watches: bool, stops: bool, subject: ?string} $noted     what {@see self::witnessing()} noted before the run
      * @param array<string, mixed>                                                               $arguments
-     * @param string|null                                                                        $loaded    the pin of the operation as the process that ran it read it when it was told of it — or `null`: it has none to give, or the run left this process
+     * @param bool                                                                               $here      whether the run was this process's own — never so for one that left it
      *
      * @throws \RuntimeException when the house saw something and could not write it down
      */
-    public function witnessed(array $noted, Operation $operation, array $arguments, mixed $result, ?ToolContext $context, ?string $loaded): void
+    public function witnessed(array $noted, Operation $operation, array $arguments, mixed $result, ?ToolContext $context, bool $here): void
     {
         $ledger = StandingLedger::forRoot($this->root);
-        $ledger->exclusively(function () use ($ledger, $noted, $operation, $arguments, $result, $context, $loaded): void {
-            $this->written($ledger, $noted, $operation, $arguments, $result, $context, $loaded);
+        $ledger->exclusively(function () use ($ledger, $noted, $operation, $arguments, $result, $context, $here): void {
+            $this->written($ledger, $noted, $operation, $arguments, $result, $context, $here);
         });
     }
 
@@ -658,21 +748,23 @@ final class HouseStandingJudge
      * @param array{measures: bool, refutes: bool, watches: bool, stops: bool, subject: ?string} $noted
      * @param array<string, mixed>                                                               $arguments
      */
-    private function written(StandingLedger $ledger, array $noted, Operation $operation, array $arguments, mixed $result, ?ToolContext $context, ?string $loaded): void
+    private function written(StandingLedger $ledger, array $noted, Operation $operation, array $arguments, mixed $result, ?ToolContext $context, bool $here): void
     {
         $now = $this->now();
         $name = (new OperationId($operation->name))->canonical;
         $who = $context === null ? 'local-shell' : ($context->principal ?? 'unknown');
         $pin = OperationPin::of($operation, $this->root);
         $subject = $noted['subject'];
-        // What speaks FOR a grant — a yes, a sign of calm — is taken from this process, as the code it loaded: the
-        // pin this process answers for, or none. And from a run whose arguments a line keeps as they came: it is the
-        // run a grant describes, argument by argument, or it is not.
+        // What speaks FOR a grant — a yes, a sign of calm — is taken from this process's own run, of code nothing
+        // changed since it started: the pin this process answers for, or none. And from a run whose arguments a line
+        // keeps as they came: it is the run a grant describes, argument by argument, or it is not.
         $kept = self::kept($arguments);
-        $mine = $pin !== null && $pin === $loaded && !isset($kept['arguments_given']) ? $pin : null;
+        $mine = $here && $pin !== null && !isset($kept['arguments_given']) && OperationPin::changedSinceThisProcessStarted($operation, $this->root) === null ? $pin : null;
         $no = \is_array($result) && ($result['ok'] ?? null) !== true;
         $said = \is_array($result) && \is_string($result['acted_on'] ?? null) ? $result['acted_on'] : null;
         $kept += ['arrived' => self::arrived($context)];
+        // …AND EACH IS WRITTEN UNDER THE GRANTS THIS OPERATION MEASURES OR WATCHES, while one of them has budget left.
+        $under = $ledger->spokenForBy($name);
         $receipt = static fn (string $content, bool $green, string $by): array => array_replace((new ConditionReceipt($operation->name, $kept['arguments'], $content, $green, $by, $who, $now))->toArray(), $kept);
         if ($no && $noted['refutes']) {
             // A NO IS NEVER LOST (decided by Rod, 2026-10-12: D14 — «a no is heard and stops, whatever run it comes
@@ -685,17 +777,17 @@ final class HouseStandingJudge
                 $said = 'sha256:' . hash('sha256', $said);
             }
             foreach (array_unique(array_filter([$subject, $after, $said], static fn (?string $content): bool => $content !== null && trim($content) !== '')) as $content) {
-                $ledger->append(StandingLedger::MEASURED, $receipt($content, false, $pin ?? self::NOT_PINNED), $now);
+                $this->spends($ledger, $under, StandingLedger::MEASURED, $receipt($content, false, $pin ?? self::NOT_PINNED), $now);
             }
         } elseif (!$no && $noted['measures'] && $mine !== null && $subject !== null && $operation->actsOnDigest($arguments) === $subject && $said === $subject) {
             // A YES IS OWED MORE: it is this process's own run of the pinned instrument, on the content the house read
             // before and after, which the run itself says it read.
-            $ledger->append(StandingLedger::MEASURED, $receipt($subject, true, $mine), $now);
+            $this->spends($ledger, $under, StandingLedger::MEASURED, $receipt($subject, true, $mine), $now);
         }
 
         $fired = \is_array($result) ? ($result['fired'] ?? null) : null;
         if ($fired === true ? $noted['stops'] : ($fired === false && $noted['watches'] && $mine !== null && !$this->saidCalmJustNow($ledger->kept(), $operation, $name, $who, $mine, $arguments, $now))) {
-            $ledger->append(StandingLedger::WATCHED, ['watcher' => $name, 'fired' => $fired, 'who' => $who, 'pin' => $pin] + $kept, $now);
+            $this->spends($ledger, $under, StandingLedger::WATCHED, ['watcher' => $name, 'fired' => $fired, 'who' => $who, 'pin' => $pin] + $kept, $now);
         }
     }
 
