@@ -113,19 +113,21 @@ final class ThePresentedTokenBoundsTheCallTest extends TestCase
     }
 
     /**
-     * A token minted with NO scopes does not silently inherit the wildcard.
+     * A token minted with NO scopes holds none — it does not inherit the wildcard.
      *
-     * The one case where «empty means the default» would be wrong: somebody minted a token on purpose
-     * with nothing on it. `scopes()` cannot tell that apart from «no identity», so the assertion below
-     * records what it actually does — the default stands — and names it as the boundary of this slice
-     * rather than pretending it was decided.
+     * This test first recorded the opposite, and said so: «`scopes()` cannot tell that apart from "no identity", so
+     * the assertion below records what it actually does — the default stands — and names it as the boundary of this
+     * slice rather than pretending it was decided». It can tell them apart: one is `null` and the other is an
+     * identity. And the boundary was the widest token in the house — measured on the published train, the terminal
+     * and MCP ran a lasting change for it with no signature (greenhouse decisions/0616). The default is for a caller
+     * that presented nothing.
      */
-    public function testAScopelessTokenIsRecordedAsTheBoundaryItIs(): void
+    public function testAScopelessTokenHoldsNothing(): void
     {
         $identity = PresentedToken::identity($this->container([]), self::SECRET);
 
         self::assertNotNull($identity, 'it verifies — the token is real, it just grants nothing');
-        self::assertSame(['*'], PresentedToken::scopes($identity, ['*']), 'and today the default still wins: a scopeless token bounds nothing');
+        self::assertSame([], PresentedToken::scopes($identity, ['*']), 'somebody who holds nothing is not nobody: the default is not theirs');
     }
 
     /** A container holding one minted token for `rod`, with the scopes given. */

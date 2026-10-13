@@ -75,7 +75,7 @@ final readonly class TokenOperations implements CommandProvider
                 effects: EffectProfile::readOnly(),
                 description: 'The API tokens of this app: who each one is and what it can do — never the secret',
                 handler: fn (array $input): array => $this->list($input),
-                inputSchema: ['type' => 'object', 'properties' => []],
+                inputSchema: ['type' => 'object', 'properties' => [], 'additionalProperties' => false],
                 mutating: false,
                 // Sólo la terminal. Listar tokens por HTTP le dice a quien llegue qué actores existen
                 // y con qué scopes — un mapa de a quién conviene robarle.
@@ -100,9 +100,13 @@ final readonly class TokenOperations implements CommandProvider
                     'type' => 'object',
                     'properties' => [
                         'actor' => ['type' => 'string', 'description' => 'Who it is: "ci", "rods-agent", whatever identifies it'],
-                        'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'What it may do. `*` grants every scope'],
+                        'scopes' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'What it may do — at least one: a token holds only the scopes it is minted with. `*` grants every scope'],
                     ],
                     'required' => ['actor'],
+                    // NOTHING IT DOES NOT DECLARE (greenhouse decisions/0616): `--scope=…`, mistyped, was dropped in
+                    // silence and minted a token with no scopes, and `--expires=…` was dropped for a token that never
+                    // expires. A flag this operation does not know is an error, said before a secret exists.
+                    'additionalProperties' => false,
                 ],
                 // Muta y NO pide firma: acuñar es reversible —se revoca— y quien corre esto ya está
                 // en la terminal de la app, que es el mismo poder. Una compuerta aquí sería trámite.
@@ -131,6 +135,7 @@ final readonly class TokenOperations implements CommandProvider
                     'type' => 'object',
                     'properties' => ['id' => ['type' => 'string', 'description' => 'The id that `token:list` shows']],
                     'required' => ['id'],
+                    'additionalProperties' => false,
                 ],
                 mutating: true,
                 surfaces: ['cli'],
@@ -161,7 +166,9 @@ final readonly class TokenOperations implements CommandProvider
             $tokens[] = [
                 'id' => (string) $token->id(),
                 'actor' => $token->actor(),
-                'scopes' => $token->scopes() === [] ? '—' : implode(', ', $token->scopes()),
+                // A token stored with no scopes holds none (greenhouse decisions/0616): said here, where the operator
+                // of a house that upgraded looks for the token that stopped opening anything.
+                'scopes' => $token->scopes() === [] ? '— none: it holds nothing; revoke it and mint one that names its scopes' : implode(', ', $token->scopes()),
                 'createdAt' => $token->createdAt(),
             ];
         }
@@ -181,17 +188,26 @@ final readonly class TokenOperations implements CommandProvider
             return ['ok' => false, 'error' => 'falta `actor`: quién va a usar este token'];
         }
 
-        $repo = $this->tokens();
-        if ($repo === null) {
-            return ['ok' => false, 'error' => 'esta app no cableó un almacén de tokens'];
-        }
-
         /** @var list<string> $scopes */
         $scopes = [];
         foreach ((array) ($input['scopes'] ?? []) as $scope) {
             if (\is_string($scope) && trim($scope) !== '') {
                 $scopes[] = trim($scope);
             }
+        }
+        // A TOKEN IS MINTED WITH WHAT IT WILL HOLD, OR NOT MINTED (greenhouse decisions/0616). One that declares no
+        // scopes holds none, so minting it hands over a secret that opens nothing — and until v0.220.2 it opened
+        // everything: the terminal and MCP read its empty list as «nobody identified». Omitted, empty, blank or not
+        // text all end here, said before a secret exists; every scope is still one word away, asked for by name.
+        if ($scopes === []) {
+            return ['ok' => false, 'error' => 'missing `scopes`: a token holds only the scopes it is minted with, and one that names none holds none. '
+                . 'Name what it may do: ' . Capabilities::cli() . 'token:new --actor=' . escapeshellarg($actor) . " --scopes='[\"<scope>\"]' --sign"
+                . ' — `*` in place of a scope grants every one.'];
+        }
+
+        $repo = $this->tokens();
+        if ($repo === null) {
+            return ['ok' => false, 'error' => 'esta app no cableó un almacén de tokens'];
         }
 
         // 32 bytes de aleatoriedad criptográfica. `random_bytes` lanza si el sistema no puede darla,

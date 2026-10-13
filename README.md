@@ -616,7 +616,8 @@ physical YubiKey, greenhouse evidence/0519):
    revocation in the entry's `history` — the ledger records facts, it erases none (greenhouse
    decisions/0207). Active passkey sessions use the enrollment's current scopes on every request:
    reducing permissions takes effect immediately without requiring a new sign-in. An empty scope
-   list preserves authentication and grants no scoped access; revocation ends the session.
+   list preserves authentication and grants no scoped access (a minted token's too, since the release after
+   0.220.2 — see *Upgrading*); revocation ends the session.
 5. **Name the gate.** Where the panel's middleware is declared (`admin.middleware` for `milpa/admin`,
    the `middleware` of any `Route` of yours):
    ```php
@@ -721,6 +722,37 @@ $response = $handler->handle($request);
 ```
 
 ## Upgrading
+
+### After 0.220.2 — a token minted with no scopes holds none (breaking)
+
+**This one breaks on purpose.** Up to 0.220.2 a token minted with no scopes — `token:new --actor=ci` with
+`--scopes` omitted, empty, or mistyped (`--scope=…` is dropped in silence) — was read by the terminal, by
+`coa mcp` and on the agent's leg as «nobody identified» and handed the surface's default, `*`: with it in
+`MILPA_TOKEN` an unsigned call ran whatever a scope guards, lasting changes included, and minted itself a
+token with every scope (greenhouse decisions/0616). Over HTTP the same token always held nothing, and a
+call that demands consent always asked for a signature.
+
+- **A token holds what it declares, none included**, at the terminal, over `coa mcp`, in `coa shell`, in
+  `coa chat` and on the agent's leg. The default stays where greenhouse decisions/0311 put it: with a
+  caller that presents no token, or one that does not verify.
+- **A token you minted without scopes stops opening anything a scope guards.** `php bin/coa token:list`
+  shows it as `— none: it holds nothing`; the refusal says `This token declares no scopes, so it holds
+  none` and prints the line that mints one that does. Revoke it and mint another:
+  `php bin/coa token:new --actor='ci' --scopes='["<scope>"]' --sign` (`*` in place of a scope grants every one,
+  asked for by name).
+- **`token:new` no longer mints without a scope.** Omitted, empty, blank or not text: it refuses before a
+  secret exists and says what to type.
+- **`coa shell` and `coa chat` ask what a presented token holds.** They asked only whether one was
+  presented, so a token holding one unrelated scope made there any lasting change that demands no
+  consent. They now ask the admission the terminal asks first: the scopes the operation declares, the
+  host's call policy and its permission judge. A token that drives the chat needs `agent:run`, and
+  `agent:answer` to answer what a turn stops to ask.
+- **A flag that was not heard is refused where it delegated in silence.** `identity:invite` takes its
+  scopes as an option whose default is the widest invitation the house mints; the terminal dropped a
+  mistyped `--scope=agent:read`, and a bare `agent:read`, and minted that default. `identity:invite`,
+  `token:new`, `token:list` and `token:revoke` now refuse a flag they do not declare (`unknown field
+  'scope'`) and a word given with no flag — so `token:new --expires=…` is an error too: tokens have no
+  expiry. Asking for an invitation with no scopes still mints the default.
 
 ### 0.201.x — a house from 0.200.x keeps booting without `passkey.origins`
 
@@ -867,8 +899,8 @@ isolation against external writers. Authoring a plugin and activating its code a
 The four operations that drive the agent — `agent`, `skill:invoke`, `agent:goal`, `agent:mode` — now declare
 `scopes: ['agent:run']` (greenhouse decisions/0208). Over HTTP the policy is consulted where before it was
 not: an **anonymous `POST /agent` now answers `401`**, and an authenticated actor without the scope `403`.
-The CLI now checks declared operation scopes when `MILPA_TOKEN` presents a verified identity with
-nonempty scopes. It uses the same `PolicyGate::authorizeScopes` judgement as the agent door, before
+The CLI now checks declared operation scopes when `MILPA_TOKEN` presents a verified identity (since the
+release after 0.220.2 whatever scopes it declares, none included — see above). It uses the same `PolicyGate::authorizeScopes` judgement as the agent door, before
 asking for a signature or session consent. Consent cannot supply a missing scope; a sufficient scope
 does not replace consent. This requires `milpa/tool-runtime >= 0.16`.
 
@@ -883,8 +915,9 @@ HTTP agent turns additionally require `milpa/console >= 0.19`: the authenticated
 authority travels separately from `InvocationContext`, through the runner to the agent's governed
 door. A passkey or Bearer caller keeps its own scopes, including an empty list; the server's
 `MILPA_TOKEN` cannot replace them. A web turn missing that authority refuses before calling a model.
-Absent, invalid and empty-scope tokens retain the local process’s `*` default (greenhouse decision
-0311); finite callers are additionally subject to the plugin authoring policy below. MCP over stdio
+Absent and invalid tokens retain the local process’s `*` default (greenhouse decision
+0311) — a token minted with no scopes retained it too until 0.220.2, and holds nothing since the
+release after it (see above); finite callers are additionally subject to the plugin authoring policy below. MCP over stdio
 also retains its `*` context. An MCP client that authenticates as a principal of its own needs `agent:run`
 for `skill:invoke`, `agent:goal` and `agent:mode`, as it already did for `agent:sessions` and `agent:show`.
 The `*` wildcard an `identity:bootstrap` root holds keeps admitting. An app that exposes any of the four
