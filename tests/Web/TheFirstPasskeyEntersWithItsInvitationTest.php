@@ -133,6 +133,15 @@ final class TheFirstPasskeyEntersWithItsInvitationTest extends TestCase
         $page = (string) $http->handle($this->browserGet('/webauthn/enroll?invite=' . $token))->getBody();
         self::assertStringContainsString('This invitation will not admit anyone: it was already used', $page);
         self::assertSame('', $this->facts($page)['invite']);
+        // …and says it where the hand goes, with nothing to press under it.
+        self::assertStringContainsString('<p class="gate__refused" role="alert">This invitation will not admit anyone: it was already used.</p>', $page);
+        self::assertStringNotContainsString('<button', $page, 'a spent link offers no ceremony');
+        self::assertStringContainsString('Already enrolled?', $page, 'the way in for somebody who already has a key stays');
+        // A live link, and a page opened with no link at all, keep their own button and carry no refusal.
+        $live = (string) $http->handle($this->browserGet('/webauthn/enroll?invite=' . IdentityInvitations::forRoot($root)->mint(['milpa.admin'], 'key:' . self::SIGNER)['token']))->getBody();
+        self::assertStringContainsString('<button id="go">Register and enter</button>', $live);
+        self::assertStringNotContainsString('<p class="gate__refused"', $live);
+        self::assertStringNotContainsString('<p class="gate__refused"', (string) $http->handle($this->browserGet('/webauthn/enroll'))->getBody());
     }
 
     public function testIdentityOperationsNeedNothingOfTheAgentAndTheInviteIsSignedAtTheTerminal(): void
