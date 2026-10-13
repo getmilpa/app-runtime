@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.221.1](https://github.com/getmilpa/app-runtime/compare/v0.221.0...v0.221.1) (2026-10-13)
+
+
+### Bug Fixes
+
+* a trial and confined work do not read the house's bearer-credential stores ([#802](https://github.com/getmilpa/app-runtime/issues/802)) ([2751232](https://github.com/getmilpa/app-runtime/commit/27512324df84a6cfef6f68d9e87f7cef7971f648))
+
 ## [0.221.0](https://github.com/getmilpa/app-runtime/compare/v0.220.2...v0.221.0) (2026-10-13)
 
 
