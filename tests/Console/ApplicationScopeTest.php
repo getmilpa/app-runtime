@@ -52,7 +52,9 @@ final class ApplicationScopeTest extends TestCase
         yield 'insufficient' => [['posts:read'], self::TOKEN, false];
         yield 'absent' => [['posts:read'], null, true];
         yield 'invalid' => [['posts:read'], 'not-minted', true];
-        yield 'empty retains 0311 default' => [[], self::TOKEN, true];
+        // This row read «empty retains 0311 default» and expected the call to run: a token minted with no scopes was
+        // handed the terminal's wildcard. 0311's default is for a caller that presented nothing (greenhouse decisions/0616).
+        yield 'empty holds nothing' => [[], self::TOKEN, false];
     }
 
     /** @param list<string> $scopes */
@@ -77,7 +79,8 @@ final class ApplicationScopeTest extends TestCase
         self::assertSame($allowed ? 1 : 0, $executed);
         self::assertSame($allowed, $result['ok']);
         if (!$allowed) {
-            self::assertSame("Missing required scope for tool 'probe_read'. Need one of: probe:read — context has: posts:read.", $result['error']);
+            self::assertStringStartsWith("Missing required scope for tool 'probe_read'. Need one of: probe:read — context has: " . ($scopes === [] ? '(none)' : 'posts:read') . '.', $result['error']);
+            self::assertSame($scopes === [], str_contains($result['error'], 'This token declares no scopes'), 'only the token that declares none is told to mint another');
         }
     }
 
