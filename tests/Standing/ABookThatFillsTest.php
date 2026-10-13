@@ -16,10 +16,12 @@ use PHPUnit\Framework\TestCase;
  * The book of standing grants is read whole by every command, and past eight mebibytes it is a fault: no seat acts
  * and no stop is written. One seat measuring content after content reached that in twenty-six minutes. So:
  *
- *   · WHAT IS WRITTEN UNDER A GRANT HAS A BUDGET. Every line a seat's call leaves is written under some grant — the
- *     acts it was lent and the refusals it was given name theirs, a receipt and a sign of a watcher are written
- *     under every grant that operation measures or watches. Past the budget the house writes one line, a stop of
- *     that grant, and nothing more under it until a person lifts it.
+ *   · WHAT A GRANT'S SEATS WRITE UNDER IT HAS A BUDGET. The acts a seat was lent and the refusals it was given name
+ *     their grant, and a receipt and a sign of a watcher are written under every grant that operation measures or
+ *     watches and that names the caller as a seat. Past the budget the house writes one line, a stop of that grant,
+ *     and nothing more of its seats that speaks for it until a person lifts it. A no and a «fired» are not asked
+ *     the budget — they are written, always ({@see WhatNarrowsIsAlwaysWrittenTest}) — and what somebody who is no
+ *     seat of a grant writes is not counted under it.
  *   · THE HOUSE SAYS WHEN ITS BOOK IS PAST HALF, to the person who lists it and to the seat it lends to.
  *   · KEEPING THE BOOK SOMEWHERE ELSE IS A PERSON'S ACT, by hand for now: the book and its head, together — and what
  *     is left behind is every stop, every withdrawal and every receipt.
@@ -45,37 +47,37 @@ final class ABookThatFillsTest extends TestCase
 
     // ── the budget of a grant ────────────────────────────────────────────────────────────────────────────────
 
-    public function testTheFirstLinePastAGrantsBudgetIsAStopOfThatGrantAndNothingMoreIsWrittenUnderIt(): void
+    public function testTheFirstLinePastAGrantsBudgetIsAStopOfThatGrantAndNothingMoreThatSpeaksForItIsWritten(): void
     {
         $this->house->granted();
         $this->spendAllBut(1);
-        $red = [$this->house->candidate('red-1.txt', "machine-name: one\n"), $this->house->candidate('red-2.txt', "machine-name: two\n"), $this->house->candidate('red-3.txt', "machine-name: three\n")];
+        $good = [$this->house->candidate('good-1.txt', "clean release one\n"), $this->house->candidate('good-2.txt', "clean release two\n"), $this->house->candidate('good-3.txt', "clean release three\n")];
 
         // The last line of the budget is written as any other…
-        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $red[0]]);
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $good[0]]);
         self::assertSame(['lines' => StandingLedger::BUDGET, 'stopped' => false], $this->house->ledger()->spentUnder('release-line'));
         self::assertSame(GrantState::InForce, $this->state());
         $before = \count($this->house->everyLine());
 
         // …and the next one is not: in its place the house stops the grant.
-        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $red[1]]);
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $good[1]]);
 
         $stops = $this->house->lines(StandingLedger::SUSPENDED);
         self::assertCount(1, $stops);
         self::assertEquals(['grant' => 'release-line', 'by' => 'the house', 'reason' => \sprintf(HouseStandingJudge::BUDGET_SPENT, StandingLedger::BUDGET)], $stops[0]);
         self::assertSame($before + 1, \count($this->house->everyLine()), 'the line past the budget was written as well as the stop');
+        self::assertSame([], $this->receiptsOn($good[1]));
         self::assertSame(GrantState::Suspended, $this->state());
         self::assertSame(['lines' => StandingLedger::BUDGET, 'stopped' => true], $this->house->ledger()->spentUnder('release-line'));
 
-        // From then on nothing is written under it: not a no, not a «fired», not a refusal, not another stop.
-        $this->house->fired = true;
-        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $red[2]]);
-        $this->house->as(LabHouse::SEAT, 'lab:watch');
-        $refused = $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $red[2]]);
-        self::assertSame($before + 1, \count($this->house->everyLine()), 'a grant that spent its budget went on filling the book');
+        // From then on nothing its seats say for it is written: not a yes, not a refusal, not another stop.
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $good[2]]);
+        $refused = $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $good[0]]);
+        self::assertSame($before + 1, \count($this->house->everyLine()), 'a grant that spent its budget went on filling the book with what speaks for it');
         // …and the seat reads why, and who lifts it.
-        self::assertStringContainsString('spent its budget: ' . StandingLedger::BUDGET . ' lines were written under it', (string) ($refused['refused'] ?? 'RAN'));
+        self::assertStringContainsString('spent its budget: its seats wrote ' . StandingLedger::BUDGET . ' lines under it', (string) ($refused['refused'] ?? 'RAN'));
         self::assertStringContainsString('until a person lifts this stop', (string) $refused['refused']);
+        self::assertStringContainsString('only a no and a «fired» are still written', (string) $refused['refused']);
         self::assertSame([], $this->house->done('merged'));
     }
 
@@ -134,7 +136,7 @@ final class ABookThatFillsTest extends TestCase
     /** @return iterable<string, array{string, array<string, mixed>}> a line a seat's call leaves, as the house writes it */
     public static function whatIsWrittenUnderAGrant(): iterable
     {
-        yield 'a receipt of the operation that measures it' => [StandingLedger::MEASURED, ['by' => 'lab.scan', 'arguments' => ['path' => 'x'], 'subject' => 'sha256:x', 'ok' => false, 'instrument' => 'sha256:any', 'who' => 'key:' . LabHouse::OTHER_SEAT, 'at' => '2026-10-11T12:00:00+00:00']];
+        yield 'a receipt of the operation that measures it' => [StandingLedger::MEASURED, ['by' => 'lab.scan', 'arguments' => ['path' => 'x'], 'subject' => 'sha256:x', 'ok' => false, 'instrument' => 'sha256:any', 'who' => 'key:' . LabHouse::SEAT, 'at' => '2026-10-11T12:00:00+00:00']];
         yield 'a receipt whose line spells that operation another way' => [StandingLedger::MEASURED, ['by' => 'lab:scan', 'arguments' => ['path' => 'x'], 'subject' => 'sha256:x', 'ok' => true, 'instrument' => 'sha256:any', 'who' => 'key:' . LabHouse::SEAT, 'at' => '2026-10-11T12:00:00+00:00']];
         yield 'a sign of the operation that watches it' => [StandingLedger::WATCHED, ['watcher' => 'lab.watch', 'arguments' => [], 'fired' => false, 'who' => 'key:' . LabHouse::SEAT, 'pin' => 'sha256:any']];
         yield 'a «fired» of it' => [StandingLedger::WATCHED, ['watcher' => 'lab.watch', 'arguments' => [], 'fired' => true, 'who' => 'key:' . LabHouse::SEAT, 'pin' => null]];
@@ -180,16 +182,17 @@ final class ABookThatFillsTest extends TestCase
     {
         $this->house->granted();
         $this->house->granted(['id' => 'second-line', 'covers' => [['operation' => 'lab:announce']]], watched: false);
-        self::assertSame(['release-line', 'second-line'], $this->house->ledger()->spokenForBy('lab:scan'));
+        self::assertSame(['release-line', 'second-line'], $this->house->ledger()->spokenForBy('lab:scan', 'key:' . LabHouse::SEAT));
+        self::assertSame([], $this->house->ledger()->spokenForBy('lab:scan', 'key:' . LabHouse::PERSON), 'control: under no grant, for whoever is a seat of none');
         // The first spends what is left of its budget on acts, which only it lent.
         for ($spent = $this->house->ledger()->spentUnder('release-line')['lines']; $spent < StandingLedger::BUDGET; ++$spent) {
             $this->house->writtenByHand(StandingLedger::ABSORBED, ['grant' => 'release-line', 'operation' => 'lab.merge', 'seat' => LabHouse::SEAT, 'subject' => 'sha256:' . $spent, 'receipts' => []]);
         }
-        $red = $this->house->candidate('red.txt', "machine-name: one\n");
+        $good = $this->house->candidate('good.txt', "clean release\n");
 
-        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $red]);
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $good]);
 
-        self::assertSame([false], $this->receiptsOn($red), 'a no was not written though a grant it speaks under had budget left');
+        self::assertSame([true], $this->receiptsOn($good), 'a yes was not written though a grant it speaks under had budget left');
         self::assertSame(['release-line'], array_column($this->house->lines(StandingLedger::SUSPENDED), 'grant'), 'and the grant that spent its budget is stopped');
         self::assertSame(GrantState::InForce, $this->house->book()->record('second-line')?->state);
         self::assertSame(1, $this->house->ledger()->spentUnder('second-line')['lines'], 'this receipt — the sign of the watcher was written before this grant was given');
@@ -198,14 +201,14 @@ final class ABookThatFillsTest extends TestCase
     public function testWhatNoGrantsOwnLineAnswersForIsWrittenWhateverWasSpent(): void
     {
         // A grant as it stands when the door did not write it: its line does not say what it is measured by. There is
-        // no stop to write in place of a no of that instrument, so the no is written — always.
+        // no stop to write in place of a yes of that instrument, so the yes is written — always.
         $this->house->grantedByHand(line: ['instruments' => []]);
-        self::assertSame([], $this->house->ledger()->spokenForBy('lab:scan'), 'control: the line of that grant names no instrument');
-        $red = $this->house->candidate('red.txt', "machine-name: one\n");
+        self::assertSame([], $this->house->ledger()->spokenForBy('lab:scan', 'key:' . LabHouse::SEAT), 'control: the line of that grant names no instrument');
+        $good = $this->house->candidate('good.txt', "clean release\n");
 
-        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $red]);
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $good]);
 
-        self::assertSame([false], $this->receiptsOn($red));
+        self::assertSame([true], $this->receiptsOn($good));
     }
 
     public function testAGrantAlreadyStoppedByALineIsNotStoppedAgainByTheHouse(): void
@@ -216,7 +219,7 @@ final class ABookThatFillsTest extends TestCase
         $this->spendAllBut(0);
         $before = \count($this->house->everyLine());
 
-        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $this->house->candidate('red.txt', "machine-name: one\n")]);
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $this->house->candidate('good.txt', "clean release\n")]);
 
         self::assertSame($before, \count($this->house->everyLine()));
         self::assertSame(['key:' . LabHouse::SEAT], array_column($this->house->lines(StandingLedger::SUSPENDED), 'by'));
@@ -362,11 +365,11 @@ final class ABookThatFillsTest extends TestCase
         return array_column(array_values(array_filter($this->house->lines(StandingLedger::MEASURED), static fn (array $receipt): bool => $receipt['subject'] === $subject)), 'ok');
     }
 
-    /** Write, as a seat's refused calls would, the lines that leave this many of the lab grant's budget unspent. */
+    /** Write, as the lab grant's own seat measuring content after content, the lines that leave this many of its budget unspent. */
     private function spendAllBut(int $left): void
     {
         for ($spent = $this->house->ledger()->spentUnder('release-line')['lines']; $spent < StandingLedger::BUDGET - $left; ++$spent) {
-            $this->house->writtenByHand(StandingLedger::MEASURED, ['by' => 'lab.scan', 'arguments' => ['path' => 'seen-' . $spent . '.txt'], 'subject' => 'sha256:' . hash('sha256', (string) $spent), 'ok' => false, 'instrument' => 'sha256:any', 'who' => 'key:' . LabHouse::OTHER_SEAT, 'at' => $this->house->now->format(\DATE_ATOM), 'arrived' => 'unsigned']);
+            $this->house->writtenByHand(StandingLedger::MEASURED, ['by' => 'lab.scan', 'arguments' => ['path' => 'seen-' . $spent . '.txt'], 'subject' => 'sha256:' . hash('sha256', (string) $spent), 'ok' => false, 'instrument' => 'sha256:any', 'who' => 'key:' . LabHouse::SEAT, 'at' => $this->house->now->format(\DATE_ATOM), 'arrived' => 'unsigned']);
         }
     }
 

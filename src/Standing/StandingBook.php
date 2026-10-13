@@ -702,13 +702,9 @@ final class StandingBook
      */
     private static function documentOf(array $data): ?StandingGrant
     {
-        $authorization = \is_string($data['payload'] ?? null) ? OperationAuthorization::fromCanonical($data['payload']) : null;
-        $text = $authorization?->arguments['grant'] ?? null;
-        try {
-            return \is_string($text) ? StandingGrant::fromJson($text) : null;
-        } catch (\InvalidArgumentException) {
-            return null;
-        }
+        $grant = StandingLedger::grantIn($data);
+
+        return $grant instanceof StandingGrant ? $grant : null;
     }
 
     private static function short(string $key): string

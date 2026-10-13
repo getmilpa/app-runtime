@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Standing;
 
+use Milpa\AppRuntime\Identity\IdentityKey;
 use Milpa\Command\Consent\OperationId;
 use Milpa\Command\Standing\Canonical;
 use Milpa\Command\Standing\ConditionReceipt;
@@ -78,7 +79,7 @@ use Milpa\ToolRuntime\Identity\OperationAuthorization;
  * of the file but its bytes — not its date, not its size.
  *
  * @phpstan-type Line array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}
- * @phpstan-type Mind array{kept: array<int, Line>, recent: array<int, Line>, lines: int, last: ?string, fault: ?string, calm: array<string, int>, refused: array<string, list<int>>, speaks: array<string, list<string>>, spent: array<string, int>, halted: array<string, true>}
+ * @phpstan-type Mind array{kept: array<int, Line>, recent: array<int, Line>, lines: int, last: ?string, fault: ?string, calm: array<string, int>, refused: array<string, list<int>>, speaks: array<string, list<string>>, seats: array<string, list<string>>, spent: array<string, int>, halted: array<string, true>}
  * @phpstan-type Reading array{bytes: \HashContext, upTo: int, number: int, head: array{lines: int, head: string}|string|null, mind: Mind}
  */
 final class StandingLedger
@@ -209,13 +210,18 @@ final class StandingLedger
     }
 
     /**
-     * HOW MANY LINES WERE WRITTEN UNDER A GRANT SINCE A PERSON LAST GAVE IT OR LIFTED IT, and whether a stop of it
-     * was written since (decided by Rod, 2026-10-13: D18).
+     * HOW MANY LINES THE SEATS OF A GRANT WROTE UNDER IT SINCE A PERSON LAST GAVE IT OR LIFTED IT, and whether a stop
+     * of it was written since (decided by Rod, 2026-10-13: D18 — «a SEAT has a budget of lines per grant»).
      *
      * Counted over the LINES of the book, the same by whoever reads it — never over where a grant stands today, which
-     * a process reads with its own keyring. Under a grant are written: the acts it lent and the refusals it gave,
-     * which name it; and every receipt and every sign of a watcher whose operation is one its line says it is
-     * measured or watched by. The count starts again at the line that gives it and at each line that lifts it.
+     * a process reads with its own keyring. Under a grant a seat of it writes: the acts it was lent and the refusals
+     * it was given, which name the grant; and every receipt and every sign of a watcher whose operation is one the
+     * grant's line says it is measured or watched by. The count starts again at the line that gives it and at each
+     * line that lifts it.
+     *
+     * WHAT SOMEBODY ELSE WRITES IS NOT COUNTED (the seventh review, 7-M1): it counted whoever measured, and a token
+     * the decided stop refuses stopped a seat's grant by measuring. The seats are the ones the grant's own signed
+     * document names ({@see self::grantIn()}), and a line says who wrote it.
      *
      * @return array{lines: int, stopped: bool}
      */
@@ -227,16 +233,32 @@ final class StandingLedger
     }
 
     /**
-     * The grants whose line says this operation measures or watches them: under each, what that operation says is
-     * written ({@see self::spentUnder()}).
+     * The grants a receipt or a sign of this operation is written under when THIS caller says it: the ones whose line
+     * says the operation measures or watches them, and whose document names that caller as a seat
+     * ({@see self::spentUnder()}). None, for whoever is a seat of none of them.
+     *
+     * @param mixed $who the caller as a line names it
      *
      * @return list<string>
      */
-    public function spokenForBy(string $operation): array
+    public function spokenForBy(string $operation, mixed $who): array
+    {
+        return self::under($this->read(), $operation, $who);
+    }
+
+    /**
+     * {@see self::spokenForBy()}, asked of a reading.
+     *
+     * @param Mind $mind
+     *
+     * @return list<string>
+     */
+    private static function under(array $mind, string $operation, mixed $who): array
     {
         $named = (new OperationId($operation))->canonical;
+        $key = \is_string($who) && str_starts_with($who, 'key:') ? IdentityKey::normalize(substr($who, 4)) : null;
 
-        return array_keys(array_filter($this->read()['speaks'], static fn (array $by): bool => \in_array($named, $by, true)));
+        return array_keys(array_filter($mind['speaks'], static fn (array $by, string $grant): bool => \in_array($named, $by, true) && \in_array($key, $mind['seats'][$grant] ?? [], true), \ARRAY_FILTER_USE_BOTH));
     }
 
     /**
@@ -470,7 +492,15 @@ final class StandingLedger
         ]));
     }
 
-    /** How many bytes of book this house reads: past it the book is a fault, and is not read (decided by Rod, 2026-10-13: D18). */
+    /**
+     * How many bytes of book this house reads: past it the book is a fault, and is not read (decided by Rod, 2026-10-13: D18).
+     *
+     * WHAT STILL REACHES IT (the seventh review; decided by Rod, 2026-10-13). No budget counts what narrows — a no and
+     * a «fired» are written whoever says them and whatever a grant spent — nor what somebody who is a seat of no grant
+     * writes. One caller with the word of an instrument writes its way here in about fifteen thousand runs. The house
+     * says so from half ({@see self::WARNS_FROM}); past this it lends nothing until a person keeps the book somewhere
+     * else.
+     */
     public const LONGEST = 8 * 1024 * 1024;
 
     /** From how many bytes the house says its book is filling ({@see self::nearlyFull()}): half of what it reads. */
@@ -583,7 +613,7 @@ final class StandingLedger
     /** @return Mind a reading that holds no line */
     private static function nothing(?string $fault): array
     {
-        return ['kept' => [], 'recent' => [], 'lines' => 0, 'last' => null, 'fault' => $fault, 'calm' => [], 'refused' => [], 'speaks' => [], 'spent' => [], 'halted' => []];
+        return ['kept' => [], 'recent' => [], 'lines' => 0, 'last' => null, 'fault' => $fault, 'calm' => [], 'refused' => [], 'speaks' => [], 'seats' => [], 'spent' => [], 'halted' => []];
     }
 
     /**
@@ -600,25 +630,26 @@ final class StandingLedger
         $mind['recent'][$line % self::RECENT] = $entry;
         $data = $entry['data'];
         $fired = $entry['type'] === self::WATCHED ? ($data['fired'] ?? null) : null;
-        // WHAT EACH GRANT HAS SPENT ({@see self::spentUnder()}): told from the line alone.
+        // WHAT THE SEATS OF EACH GRANT HAVE SPENT ({@see self::spentUnder()}): told from the line alone.
         $grant = \is_string($data['grant'] ?? null) ? $data['grant'] : null;
         $speaker = $data[$entry['type'] === self::MEASURED ? 'by' : 'watcher'] ?? null;
         if ($grant !== null && \in_array($entry['type'], [self::GRANTED, self::REINSTATED], true)) {
             $mind['spent'][$grant] = 0;
             unset($mind['halted'][$grant]);
             if ($entry['type'] === self::GRANTED) {
+                $document = self::grantIn($data);
                 $mind['speaks'][$grant] = array_map(strval(...), array_keys(\is_array($data['instruments'] ?? null) ? $data['instruments'] : []));
+                $mind['seats'][$grant] = $document instanceof StandingGrant ? array_map(IdentityKey::normalize(...), $document->to) : [];
             }
         } elseif ($grant !== null && $entry['type'] === self::SUSPENDED) {
             $mind['halted'][$grant] = true;
         } elseif ($grant !== null && \in_array($entry['type'], [self::ABSORBED, self::REFUSED], true)) {
-            $mind['spent'][$grant] = ($mind['spent'][$grant] ?? 0) + 1;
+            if (\is_string($data['seat'] ?? null) && \in_array(IdentityKey::normalize($data['seat']), $mind['seats'][$grant] ?? [], true)) {
+                $mind['spent'][$grant] = ($mind['spent'][$grant] ?? 0) + 1;
+            }
         } elseif (\in_array($entry['type'], [self::MEASURED, self::WATCHED], true) && \is_string($speaker)) {
-            $speaker = (new OperationId($speaker))->canonical;
-            foreach ($mind['speaks'] as $under => $by) {
-                if (\in_array($speaker, $by, true)) {
-                    $mind['spent'][$under] = ($mind['spent'][$under] ?? 0) + 1;
-                }
+            foreach (self::under($mind, $speaker, $data['who'] ?? null) as $under) {
+                $mind['spent'][$under] = ($mind['spent'][$under] ?? 0) + 1;
             }
         }
         if ($entry['type'] === self::ABSORBED) {
@@ -750,9 +781,9 @@ final class StandingLedger
             return 'line %d does not say when it was written — what it said cannot be told, so it is not read as nothing';
         }
         if ($type === self::GRANTED) {
-            $why = self::notAGrant($data);
+            $why = self::grantIn($data);
 
-            return $why === null ? null : 'line %d says a grant was given, and it cannot be read as one today (' . str_replace('%', '%%', $why) . ') — what it replaced or stopped cannot be told, so it is not read as nothing';
+            return !\is_string($why) ? null : 'line %d says a grant was given, and it cannot be read as one today (' . str_replace('%', '%%', $why) . ') — what it replaced or stopped cannot be told, so it is not read as nothing';
         }
         $says = static function (string ...$keys) use ($data): ?string {
             foreach ($keys as $key) {
@@ -776,11 +807,13 @@ final class StandingLedger
     }
 
     /**
-     * Why the document a `granted` line carries is not a grant the contract of today reads — or `null`: it is one.
+     * The document a `granted` line carries in its signed bytes — or, as a sentence, why it is not a grant the
+     * contract of today reads. The one reading of it: what verifies the book, what counts a seat's lines and what
+     * judges a grant ({@see StandingBook}) all read this.
      *
      * @param array<string, mixed> $data
      */
-    private static function notAGrant(array $data): ?string
+    public static function grantIn(array $data): StandingGrant|string
     {
         $authorization = \is_string($data['payload'] ?? null) ? OperationAuthorization::fromCanonical($data['payload']) : null;
         $text = $authorization?->arguments['grant'] ?? null;
@@ -788,11 +821,9 @@ final class StandingLedger
             return 'it carries no document';
         }
         try {
-            StandingGrant::fromJson($text);
+            return StandingGrant::fromJson($text);
         } catch (\InvalidArgumentException $refused) {
             return $refused->getMessage();
         }
-
-        return null;
     }
 }

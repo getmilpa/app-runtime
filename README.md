@@ -666,12 +666,33 @@ catalogue, load every class of a plugin before that, and count the files it load
 that had started before its house kept a book spoke for no grant given since. None of that is
 there, and that last process speaks: nothing changed since it started.
 
-*What it does not see.* A process that does not read its code from the disk when it loads it —
-PHP's opcache serving a file it compiled before the file changed. Nothing here asks opcache what it
-holds. A file of a plugin's directory whose name does not end in `.php` — a rule kept as data, an
-include named otherwise — is in no pin at all, and is not dated. An operation that ships in a
-**package** is pinned by what the house installed and by the files of its handler's own class:
-another file of that package edited in place is neither pinned nor dated.
+*What it does not see — the limits of whoever operates the house.* The rule dates FILES, of CODE,
+as the process that asks reads them. So:
+
+- **A server that does not look at its files on every request.** To the rule a process started
+  when its request did, and the code a request runs may have been compiled by OPcache before the
+  instrument's file changed: a yes of the old code is written under the pin of the new file, and
+  nobody touched a date. With `opcache.revalidate_freq=0` and `opcache.validate_timestamps=1` —
+  what `coa serve` passes — or without OPcache, it does not happen (executed: 0 of 6). With PHP's
+  own default, `revalidate_freq=2`, it does for two seconds after every change (6 of 6); with
+  `validate_timestamps=0`, until the server is started again. Nothing here asks OPcache what it
+  holds, and no yes is refused for it: **whoever serves a house that lends sets its server to look
+  every time, or starts it again after an instrument changes.** `coa doctor` says so to a house
+  that keeps a book.
+- **A release switched under a living process.** A house deployed by pointing a link at another
+  folder changes no file of the folder a living leg or server runs from: nothing is dated, nothing
+  tells that process to start again, and it goes on lending under the pin the grant was given
+  over, with that code. A process started after the switch reads the new release, whose operation
+  is another one, and honours nothing until a person gives the grant again. **Whoever deploys by
+  switching a link starts again what it left running.**
+- **What an instrument reads that is not its code.** A file of a plugin's directory whose name
+  does not end in `.php` — a rule kept as data, an include named otherwise —, a class reached
+  through a link inside that directory, a class of another unit, a variable of the environment:
+  none is in a pin, and none is dated. An operation that ships in a **package** is pinned by what
+  the house installed and by the files of its handler's own class: another file of that package
+  edited in place is neither pinned nor dated. **An instrument's verdict has to be a function of
+  the candidate's code and content, and of nothing else** — one that takes its rule from anywhere
+  else is not the instrument a person signed for.
 
 **What the house then does on every call of a seat the grant names.** While the grant is in force
 and verified, it hands the seat the words that operation declares, for that one call, and asks the
@@ -909,18 +930,26 @@ the book.
   fault**, said — no seat acts, nothing is added, no stop is written either, a person is still
   answered. **From 4 MiB the house says so**: `standing:granted` carries it under `book`, and the
   answer of every act a seat is lent carries it under `standing_book`, naming the two files a person
-  keeps. **And one seat alone does not fill it.** Every line a seat's call leaves is written under a
-  grant — an act it was lent and a refusal name theirs; a receipt and a sign of a watcher are
-  written under every grant that operation measures or watches — and each grant may have 3,000 such
-  lines written under it between two acts of a person: the one that gives it, and each one that
-  lifts it (*the number is a proposal, not decided*). Past that the house writes ONE line, a stop
-  of that grant `by the house`, and nothing more under it — a stop weighs more than a no that was
-  not written — until a person lifts it with `standing:reinstate`, where the count starts again.
-  Measured at a real terminal: one seat measuring content after content is stopped at its 3,000th
-  line, the book then at 1.7 MB — a fifth of what the house reads — and fifty more runs and a
-  «fired» add nothing. An honest seat spends two lines an act, a receipt and the act: 3,000 lines
-  are 1,500 acts, a day at an act a minute, and then a person looks. A seat that holds several
-  grants has a budget under each.
+  keeps. **And one seat alone does not fill it with what speaks for it.** What a grant's seats write
+  under it has a budget: an act a seat was lent and a refusal it was given name their grant; a yes
+  and a sign of calm are written under every grant that operation measures or watches *and that
+  names the caller as a seat*. Each grant may have 3,000 lines of its seats written under it
+  between two acts of a person: the one that gives it, and each one that lifts it. Past that the
+  house writes ONE line, a stop of that grant `by the house`, and nothing more its seats say for
+  it, until a person lifts it with `standing:reinstate`, where the count starts again. An honest
+  seat spends two lines an act, a receipt and the act: 3,000 lines are 1,500 acts, a day at an act
+  a minute, and then a person looks. A seat that holds several grants has a budget under each.
+- **A no and a «fired» are not asked the budget** (the seventh review; decided by Rod,
+  2026-10-13). They were: said while a grant was stopped for its budget they were not written, a
+  person lifted the stop the house named, and the act was lent on a candidate a no had been said
+  of. What narrows is written whatever a grant stands as and whatever it spent, from every door,
+  whoever says it — a «fired» written over a stop is the stop that stands, and whoever lifts names
+  it. **And the budget is the seats':** what a person, another key or the bearer of a token writes
+  is not counted under a grant, so whoever cannot stop a grant does not stop it by measuring.
+  **What that leaves, said:** nothing but the 8 MiB ceiling bounds a no, a «fired», or anything
+  whoever is no seat of a grant writes. One caller that holds the word of an instrument reaches
+  the ceiling in about fifteen thousand runs — twenty-six minutes at a terminal — and the house
+  then lends nothing until a person keeps the book somewhere else. It says so from half.
 - **Keeping the book somewhere else is a person's act, by hand.** No operation does it yet.
   (1) Stop what is running of the house — legs, servers. (2) Move
   `storage/identity/standing.jsonl` AND `storage/identity/standing.jsonl.head`, the two together,

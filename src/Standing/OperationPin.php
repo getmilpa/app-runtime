@@ -205,6 +205,10 @@ final class OperationPin
                 }
             }
         }
+        // PHP keeps, per process, its last look at a file, and gives it again: a process that lives is given today's
+        // date because this line says so — not because of the order in which the lines above happen to look at
+        // things (the seventh review, 7-L7). Every date below is read after it.
+        clearstatcache();
         $house = realpath($root);
         foreach (array_keys($dated) as $path) {
             $stat = @stat($path);

@@ -53,4 +53,37 @@ final class CompiledCode
 
         return $dropped;
     }
+
+    /**
+     * The one line `coa doctor` says about OPcache to a house that keeps a book of standing grants (greenhouse
+     * decisions/0615 — the seventh review, 7-L5; decided by Rod, 2026-10-13: a limit of whoever operates the house,
+     * said — the judge neither asks OPcache what it holds nor refuses a yes for it).
+     *
+     * The judge dates an instrument's FILES against the second the asking process started. A server answers each
+     * request as a new process, over code OPcache may have compiled before a file changed: with PHP's own default
+     * a yes of the OLD code was written for two seconds after every change, and with `validate_timestamps=0` until
+     * the server was started again. `!` when PHP, as this process reads it, is set so; `·` otherwise — and it says
+     * that it is THIS process's reading: a server may load another configuration, and a terminal often loads no
+     * OPcache at all.
+     *
+     * @param string|false $validates what `ini_get('opcache.validate_timestamps')` gives this process
+     * @param string|false $every     what `ini_get('opcache.revalidate_freq')` gives this process
+     */
+    public static function saidToAHouseThatLends(string|false $validates, string|false $every): string
+    {
+        $rule = 'standing grants: the judge dates the files of an instrument, it does not ask OPcache what it compiled. '
+            . 'A server that does not look at its files on every request answers with an instrument\'s OLD code after it changed, and a yes of it is written. '
+            . '`' . Capabilities::cli() . 'serve` looks every time (opcache.revalidate_freq=0); whoever runs another server sets it so, or starts it again after an instrument changes. ';
+        if ($validates === false || $every === false) {
+            return '  · ' . $rule . 'This process loads no OPcache: it cannot say how a server of this house is set.';
+        }
+        $read = \sprintf('opcache.validate_timestamps=%s, opcache.revalidate_freq=%s', $validates === '' ? '0' : $validates, $every === '' ? '0' : $every);
+        if (!filter_var($validates, \FILTER_VALIDATE_BOOL)) {
+            return '  ! ' . $rule . 'PHP, as this process reads it, never looks again (' . $read . '): a server run so answers with the old code until it is started again.';
+        }
+
+        return (int) $every > 0
+            ? '  ! ' . $rule . 'PHP, as this process reads it, looks again only every ' . (int) $every . ' s (' . $read . '): a server run so answers with the old code for that long after each change.'
+            : '  · ' . $rule . 'PHP, as this process reads it, looks every time (' . $read . ').';
+    }
 }

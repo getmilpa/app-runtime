@@ -603,18 +603,24 @@ final class HouseStandingJudge
     }
 
     /** What the house says when it stops a grant that spent its budget ({@see self::spends()}). */
-    public const BUDGET_SPENT = 'this grant spent its budget: %d lines were written under it since a person last gave it or lifted it — receipts, signs of its watcher, acts it lent, refusals. Nothing more is written under it and nothing is lent under it until a person lifts this stop';
+    public const BUDGET_SPENT = 'this grant spent its budget: its seats wrote %d lines under it since a person last gave it or lifted it — receipts, signs of its watcher, acts it lent, refusals. Nothing is lent under it until a person lifts this stop, and of what its seats say only a no and a «fired» are still written';
 
     /**
-     * ONE SEAT ALONE DOES NOT FILL THE BOOK: WHAT IS WRITTEN UNDER A GRANT HAS A BUDGET, AND A GRANT THAT SPENT IT IS
-     * STOPPED (decided by Rod, 2026-10-13: D18).
+     * ONE SEAT ALONE DOES NOT FILL THE BOOK WITH WHAT SPEAKS FOR IT: WHAT A GRANT'S SEATS WRITE UNDER IT HAS A BUDGET,
+     * AND A GRANT THAT SPENT IT IS STOPPED (decided by Rod, 2026-10-13: D18).
      *
-     * Every line a call of a seat leaves is written under some grant: an act it was lent and a refusal name theirs;
-     * a receipt and a sign of a watcher are written under every grant measured or watched by that operation. Each
-     * grant may have {@see StandingLedger::BUDGET} such lines written under it between two acts of a person — the
-     * one that gives it, and each one that lifts it. Past that the house writes ONE line, a stop of that grant, and
-     * nothing more under it: a stop weighs more than any no that was not written, and a person lifts it — which is
-     * where the count starts again.
+     * What a seat's call leaves that speaks FOR a grant, or records what it lent or refused, is written under that
+     * grant: an act it was lent and a refusal name theirs; a yes and a sign of calm are written under every grant
+     * that operation measures or watches and that names the caller as a seat. Each grant may have
+     * {@see StandingLedger::BUDGET} lines of its seats written under it between two acts of a person — the one that
+     * gives it, and each one that lifts it. Past that the house writes ONE line, a stop of that grant, and nothing
+     * more of these under it: a person lifts it — which is where the count starts again.
+     *
+     * A NO AND A «FIRED» DO NOT COME THROUGH HERE (the seventh review, 7-H1; decided by Rod, 2026-10-13). They did:
+     * said while a grant was stopped for its budget they were not written, a person lifted the stop the house named,
+     * and the act was lent on a candidate a no had been said of. What narrows is written by {@see self::written()}
+     * straight into the book, whatever was spent — so no stop stands in for it, and no lift brings back what it took.
+     * What that leaves unbounded is said where the book's ceiling is ({@see StandingLedger::LONGEST}).
      *
      * Asked with the book locked, of the lines of the book ({@see StandingLedger::spentUnder()}): whether a grant is
      * stopped is read from a line that says so, written since the last one that gave or lifted it — never from where
@@ -623,8 +629,9 @@ final class HouseStandingJudge
      * @param list<string>         $grants the grants this line is written under
      * @param array<string, mixed> $line
      *
-     * A LINE NO GRANT'S OWN LINE ANSWERS FOR IS WRITTEN, ALWAYS: there is no stop to write in its place. That is a
-     * receipt or a sign of an operation the house knows a grant by only from a line its door did not write.
+     * A LINE NO GRANT'S OWN LINE ANSWERS FOR IS WRITTEN, ALWAYS: there is no stop to write in its place. That is
+     * what somebody who is a seat of none of them says, and a receipt or a sign of an operation the house knows a
+     * grant by only from a line its door did not write.
      *
      * @return bool whether the line was written — it is not when every grant it would be written under spent its budget
      */
@@ -739,11 +746,14 @@ final class HouseStandingJudge
     /**
      * {@see self::witnessed()}, with the book locked.
      *
-     * A LINE THAT NARROWS IS ALWAYS WRITTEN (the sixth review, 6-M1 and 6-M2). A no, and a «fired», are written from
-     * every run that says them: nothing asks first whether it was «already said» — that was read from what this
-     * process derives of the book today, and a process that could not verify a lift read a grant as still stopped and
-     * wrote nothing — and nothing asks how long the name of a content is. What is long in a line is the arguments of
-     * the call, and of those a line keeps their length and their digest ({@see self::kept()}).
+     * A LINE THAT NARROWS IS ALWAYS WRITTEN (the sixth review, 6-M1 and 6-M2; the seventh, 7-H1). A no, and a «fired»,
+     * are written from every run that says them: nothing asks first whether it was «already said» — that was read
+     * from what this process derives of the book today, and a process that could not verify a lift read a grant as
+     * still stopped and wrote nothing —, nothing asks how long the name of a content is, and nothing asks what a
+     * grant has spent ({@see self::spends()}): each of the three was an economy of lines put in front of this write.
+     * So a no and a «fired» are handed to the book itself, and to nothing that can answer «not written». What is long
+     * in a line is the arguments of the call, and of those a line keeps their length and their digest
+     * ({@see self::kept()}).
      *
      * @param array{measures: bool, refutes: bool, watches: bool, stops: bool, subject: ?string} $noted
      * @param array<string, mixed>                                                               $arguments
@@ -763,8 +773,9 @@ final class HouseStandingJudge
         $no = \is_array($result) && ($result['ok'] ?? null) !== true;
         $said = \is_array($result) && \is_string($result['acted_on'] ?? null) ? $result['acted_on'] : null;
         $kept += ['arrived' => self::arrived($context)];
-        // …AND EACH IS WRITTEN UNDER THE GRANTS THIS OPERATION MEASURES OR WATCHES, while one of them has budget left.
-        $under = $ledger->spokenForBy($name);
+        // …AND WHAT SPEAKS FOR A GRANT IS WRITTEN UNDER THE ONES THIS OPERATION MEASURES OR WATCHES AND THIS CALLER IS A
+        // SEAT OF, while one of them has budget left. What narrows is not asked that: it goes straight into the book.
+        $under = $ledger->spokenForBy($name, $who);
         $receipt = static fn (string $content, bool $green, string $by): array => array_replace((new ConditionReceipt($operation->name, $kept['arguments'], $content, $green, $by, $who, $now))->toArray(), $kept);
         if ($no && $noted['refutes']) {
             // A NO IS NEVER LOST (decided by Rod, 2026-10-12: D14 — «a no is heard and stops, whatever run it comes
@@ -777,7 +788,7 @@ final class HouseStandingJudge
                 $said = 'sha256:' . hash('sha256', $said);
             }
             foreach (array_unique(array_filter([$subject, $after, $said], static fn (?string $content): bool => $content !== null && trim($content) !== '')) as $content) {
-                $this->spends($ledger, $under, StandingLedger::MEASURED, $receipt($content, false, $pin ?? self::NOT_PINNED), $now);
+                $ledger->append(StandingLedger::MEASURED, $receipt($content, false, $pin ?? self::NOT_PINNED), $now);
             }
         } elseif (!$no && $noted['measures'] && $mine !== null && $subject !== null && $operation->actsOnDigest($arguments) === $subject && $said === $subject) {
             // A YES IS OWED MORE: it is this process's own run of the pinned instrument, on the content the house read
@@ -786,8 +797,11 @@ final class HouseStandingJudge
         }
 
         $fired = \is_array($result) ? ($result['fired'] ?? null) : null;
-        if ($fired === true ? $noted['stops'] : ($fired === false && $noted['watches'] && $mine !== null && !$this->saidCalmJustNow($ledger->kept(), $operation, $name, $who, $mine, $arguments, $now))) {
-            $this->spends($ledger, $under, StandingLedger::WATCHED, ['watcher' => $name, 'fired' => $fired, 'who' => $who, 'pin' => $pin] + $kept, $now);
+        $sign = ['watcher' => $name, 'fired' => $fired, 'who' => $who, 'pin' => $pin] + $kept;
+        if ($fired === true && $noted['stops']) {
+            $ledger->append(StandingLedger::WATCHED, $sign, $now);
+        } elseif ($fired === false && $noted['watches'] && $mine !== null && !$this->saidCalmJustNow($ledger->kept(), $operation, $name, $who, $mine, $arguments, $now)) {
+            $this->spends($ledger, $under, StandingLedger::WATCHED, $sign, $now);
         }
     }
 

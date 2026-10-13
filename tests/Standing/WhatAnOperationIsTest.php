@@ -589,6 +589,41 @@ final class WhatAnOperationIsTest extends TestCase
         }
     }
 
+    public function testAProcessThatAlreadyLookedAtAFileSeesItChangedByAnotherProcess(): void
+    {
+        // PHP KEEPS, PER PROCESS, THE ANSWER OF THE LAST LOOK IT TOOK AT A FILE, and gives it again for the same path
+        // until something clears it or it looks at another. A process that lives — a leg, a server — has looked at
+        // the files of its instruments before; the date it is given must be today's (the seventh review, 7-L7: the
+        // rule read today's date only because of the ORDER of its readings, and a reordering that took the date of
+        // the handler's own file first answered «nothing changed» and no test saw it).
+        //
+        // Staged for real, which takes three things. The change is made by ANOTHER process, started before this
+        // one's look: PHP's own `touch()`, and running a command, both clear what PHP remembers. NOTHING runs between
+        // PHP's second look and the question — not an assertion either: the first use of one loads a class, the
+        // loader looks at that class's file, and PHP forgets the look this test staged. And the file looked at is
+        // the handler's own, by the very path PHP gives for it. The first assertion after the question is the
+        // control of all that: PHP's own second look still gave the old date.
+        $operation = $this->operation($this->built->handler());
+        $file = (string) realpath((string) (new \ReflectionFunction($this->built->handler()))->getFileName());
+        self::assertSame($this->plugin . '/' . basename($this->plugin) . '.php', $file, 'control: the handler lives in the file of its plugin');
+        $start = time() + 1;
+        LabHouse::aProcessStartedIn($start);
+        self::assertNull(OperationPin::changedSinceThisProcessStarted($operation, $this->house), 'control: nothing is dated after the start yet');
+        $other = popen(\sprintf('sleep %.2f; touch %s', ($start - microtime(true)) + 0.25, escapeshellarg($file)), 'r');
+        self::assertNotFalse($other);
+        $looked = filemtime($file);
+        usleep((int) ((($start - microtime(true)) + 0.6) * 1_000_000));
+
+        $again = filemtime($file);
+        $seen = OperationPin::changedSinceThisProcessStarted($operation, $this->house);
+
+        pclose($other);
+        clearstatcache();
+        self::assertSame($looked, $again, 'the stale look this test is about was not staged: PHP gave the new date by itself');
+        self::assertGreaterThanOrEqual($start, filemtime($file), 'control: the other process did date the file after the start');
+        self::assertSame($this->pluginFromTheRoot() . '/' . basename($this->plugin) . '.php', $seen, 'a process that had already looked at the file was given the date from before');
+    }
+
     public function testWhatIsOutsideTheHouseIsNamedByItsNameAlone(): void
     {
         // A package may be installed from a folder beside the house. A sentence a seat reads, and a line of the book,

@@ -1475,6 +1475,13 @@ final class Application
         $ensayos = $this->trialRunner ?? new TrialRunner();
         $this->line(Containment::of($delApp, $this->root)->said($ensayos->available(), $ensayos->installed()));
 
+        // WHAT A SERVER OF A HOUSE THAT LENDS RUNS IS NOT ASKED OF OPCACHE (greenhouse decisions/0615, the seventh
+        // review; decided by Rod, 2026-10-13: a limit of whoever operates the house, said here). One line, to a house
+        // that keeps a book of standing grants, and never a failure.
+        if (\Milpa\AppRuntime\Standing\StandingLedger::forRoot($this->root)->exists()) {
+            $this->line(\Milpa\AppRuntime\Support\CompiledCode::saidToAHouseThatLends(\ini_get('opcache.validate_timestamps'), \ini_get('opcache.revalidate_freq')));
+        }
+
         // A GRAPH THAT CLOSES IS NOT A HOUSE THAT BOOTS (greenhouse evidence/1067): a 0.200.3 house moved to
         // 0.201.0 died in a plugin's boot() while this said «✓ el grafo cierra», exit 0 — and `coa update` reads
         // this exit as its boot check, so it printed `boots: 1`. The same fresh process the recovery path asks.
