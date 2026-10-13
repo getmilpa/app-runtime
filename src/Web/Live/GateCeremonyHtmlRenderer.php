@@ -35,9 +35,10 @@ use Milpa\Live\ValueObjects\RenderTarget;
  * only while something upstream validated it, and it was the controller's caller that did, not the
  * controller. Data cannot become code here (greenhouse decisions/0263).
  *
- * The markup keeps the three bare hooks the module binds to — `#go`, `#out`, and the brand mark's
+ * The markup keeps the bare hooks the module binds to — `#go`, `#out`, and the brand mark's
  * `[data-milpa-component]` — because they are the contract between this file and its module, and
- * renaming one silently disables the ceremony.
+ * renaming one silently disables the ceremony. `#go` is there only when the page has an act to offer: a
+ * page whose invitation the door refused has none, and the module binds to it only when it finds it.
  */
 final class GateCeremonyHtmlRenderer implements ComponentRendererInterface, DeclaresClientAssets
 {
@@ -71,7 +72,8 @@ final class GateCeremonyHtmlRenderer implements ComponentRendererInterface, Decl
      * Paints the act the state names, announcing before and after so a plugin can extend it.
      *
      * The subject the pair carries is MUTABLE on purpose: `dispatch` returns void, so writing to it
-     * is the only way a subscriber changes the copy or the markup.
+     * is the only way a subscriber changes the copy or the markup. What no word in the copy changes is
+     * whether the page offers an act: an invitation the door refused paints no button, whoever wrote one.
      */
     public function render(ComponentDefinitionInterface $component, RenderRequest $request): RenderResult
     {
@@ -97,7 +99,11 @@ final class GateCeremonyHtmlRenderer implements ComponentRendererInterface, Decl
         );
         $this->events?->dispatch(GateCeremonyComponent::BEFORE_RENDER, ['ceremony' => $subject]);
 
-        $subject->html = self::markup($subject);
+        // WHETHER THERE IS AN ACT TO OFFER IS THE DOOR'S VERDICT, NOT A WORD IN THE COPY. The copy was just
+        // handed to every subscriber, and writing the button is how a house translates it: read from there,
+        // «no button» lasts until the first translator. So it is read from the state the door filled, which
+        // no subscriber holds.
+        $subject->html = self::markup($subject, $invitation === null || ($invitation['ok'] ?? false) === true);
         $this->events?->dispatch(GateCeremonyComponent::AFTER_RENDER, ['ceremony' => $subject]);
 
         return new RenderResult(
@@ -107,7 +113,8 @@ final class GateCeremonyHtmlRenderer implements ComponentRendererInterface, Decl
         );
     }
 
-    private static function markup(GateCeremonyRender $subject): string
+    /** @param bool $offers whether the door admits an act from this page: false for an invitation it refused */
+    private static function markup(GateCeremonyRender $subject, bool $offers): string
     {
         $copy = $subject->copy;
         $e = static fn (mixed $value): string => htmlspecialchars((string) $value, \ENT_QUOTES | \ENT_SUBSTITUTE, 'UTF-8');
@@ -125,10 +132,15 @@ final class GateCeremonyHtmlRenderer implements ComponentRendererInterface, Decl
 
         $away = \is_array($copy['away'] ?? null) ? $copy['away'] : ['href' => '/', 'text' => ''];
 
+        // The two words that may be absent are read as every other word of the copy is — cast, so a
+        // subscriber may hand a lazy translation — and guarded only because, unlike the rest, no words here
+        // means nothing is painted.
+        $words = static fn (mixed $value): string => \is_scalar($value) || $value instanceof \Stringable ? (string) $value : '';
+        $button = $words($copy['button'] ?? '');
+
         // An invitation that admits nobody says so where the button would be, not only in the margin.
-        $refused = \is_string($copy['refused'] ?? null) && $copy['refused'] !== ''
-            ? '      <p class="gate__refused" role="alert">' . $e($copy['refused']) . "</p>\n"
-            : '';
+        $said = $words($copy['refused'] ?? '');
+        $refused = $said !== '' ? '      <p class="gate__refused" role="alert">' . $e($said) . "</p>\n" : '';
 
         return '<div class="gate">' . "\n"
             . '  <aside class="gate__brand">' . "\n"
@@ -148,8 +160,9 @@ final class GateCeremonyHtmlRenderer implements ComponentRendererInterface, Decl
             . '  <main class="gate__act">' . "\n"
             . '    <div class="gate__body">' . "\n"
             . $refused
-            // No words for the button is no button: the client module binds to it only when it is there.
-            . (\is_string($copy['button'] ?? null) && $copy['button'] !== '' ? '      <button id="go">' . $e($copy['button']) . "</button>\n" : '')
+            // A page the door refused has no button whatever the copy says, and no words for it is no button
+            // anywhere: the client module binds to it only when it is there.
+            . ($offers && $button !== '' ? '      <button id="go">' . $e($button) . "</button>\n" : '')
             . '      <div id="out"></div>' . "\n"
             . "    </div>\n"
             . '    <div class="gate__foot">' . "\n"

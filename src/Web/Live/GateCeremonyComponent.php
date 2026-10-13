@@ -209,8 +209,9 @@ final class GateCeremonyComponent implements ComponentDefinitionInterface
      * The enroll words when the link carried an invitation (greenhouse decisions/0498).
      *
      * Step 2 stops asking and SAYS: what this person will hold and which key answers for them — before
-     * anybody touches a key. A link that will not admit says why, and that registering alone still
-     * grants nothing.
+     * anybody touches a key. A link that will not admit is not that page with a sentence added: its
+     * heading and its lede say what it is, it says why in the margin and again under `refused` — painted
+     * where the button would be — and it has no words for a button.
      *
      * @param array<string, mixed> $copy       the words {@see copy()} gave
      * @param array<string, mixed> $invitation what the door said of the secret
@@ -237,6 +238,11 @@ final class GateCeremonyComponent implements ComponentDefinitionInterface
             'expired' => 'it has expired',
             default => 'this house did not issue it',
         };
+        // NOT THE HEADING OF A LINK THAT WORKS. «Register a passkey» and «Use your device, password manager,
+        // or security key» instruct an act this page does not offer. The doctrine line stays as it is: it is
+        // as true of a refused link as of a live one (greenhouse decisions/0260).
+        $copy['heading'] = 'This invitation admits nobody';
+        $copy['lede'] = ['There is nothing to register from this link.'];
         $copy['next'] = [
             'kicker' => 'Step 2 · What may you do?',
             'text' => 'This invitation will not admit anyone: ' . $why . '. Ask whoever runs this house for a new one (`php bin/coa identity:invite --sign`).',
@@ -245,6 +251,8 @@ final class GateCeremonyComponent implements ComponentDefinitionInterface
         // and finds the same button under the same words reads it as a link that still works. Somebody
         // arrived here to redeem an invitation; when it admits nobody there is nothing for them to
         // press — registering from this page would leave a credential the house recognizes for nothing.
+        // The empty word below is only what this copy has to say. What REMOVES the button is the renderer
+        // reading the door's verdict, so a subscriber that writes one back here paints nothing.
         $copy['refused'] = 'This invitation will not admit anyone: ' . $why . '.';
         $copy['button'] = '';
 
