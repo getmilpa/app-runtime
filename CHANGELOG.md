@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.221.2](https://github.com/getmilpa/app-runtime/compare/v0.221.1...v0.221.2) (2026-10-13)
+
+
+### Miscellaneous Chores
+
+* re-cut 0.221.2 ([#805](https://github.com/getmilpa/app-runtime/issues/805)) ([ef9e197](https://github.com/getmilpa/app-runtime/commit/ef9e197b78e306195de16594a6326e396539b975))
+
 ## [0.221.1](https://github.com/getmilpa/app-runtime/compare/v0.221.0...v0.221.1) (2026-10-13)
 
 
