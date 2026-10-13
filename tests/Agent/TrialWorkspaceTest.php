@@ -110,6 +110,42 @@ final class TrialWorkspaceTest extends TestCase
         self::assertSame([], $ws->stale());
     }
 
+    /**
+     * A COPY OF THE HOUSE NEVER CONTAINS A BEARER-CREDENTIAL STORE (greenhouse decisions/0618).
+     *
+     * The stores are named once ({@see SecretFiles::BEARER_CREDENTIAL_STORES}) and the copier leaves them out, as it
+     * leaves out the named secret files: the session store lives under `var/` (already left out) and the
+     * confirm-token store under `storage/` is left out by name — whichever way the copy is made. A non-bearer file
+     * under `storage/` still travels (the control).
+     */
+    #[DataProvider('waysToCopy')]
+    public function testNoBearerCredentialStoreTravelsIntoATrial(bool $withRsync): void
+    {
+        $root = $this->root();
+        $canary = 'bearer-' . bin2hex(random_bytes(8));
+        foreach (\Milpa\AppRuntime\Config\SecretFiles::BEARER_CREDENTIAL_STORES as $store) {
+            @mkdir(\dirname($root . '/' . $store), 0o775, true);
+            file_put_contents($root . '/' . $store, "{\"held\": \"{$canary}\"}\n");
+        }
+        file_put_contents($root . '/storage/app-data.json', "{\"ok\": true}\n");
+
+        $path = (string) getenv('PATH');
+        if (! $withRsync) {
+            putenv('PATH=' . $this->aPathWithoutRsync());
+        }
+        try {
+            $ws = TrialWorkspace::materialize($root, 'w-bearer', $this->runner());
+        } finally {
+            putenv('PATH=' . $path);
+        }
+
+        self::assertSame([], self::filesHolding($root . '/var/trials/w-bearer', $canary), 'a file of the trial holds a bearer credential');
+        foreach (\Milpa\AppRuntime\Config\SecretFiles::BEARER_CREDENTIAL_STORES as $store) {
+            self::assertFileDoesNotExist($ws->copy . '/' . $store, $store . ' must not be copied into the trial');
+        }
+        self::assertFileExists($ws->copy . '/storage/app-data.json', 'the control: a non-secret file under storage/ still travels');
+    }
+
     /** The house says what a secret file is in ONE place, and it is the predicate every copy and read reads. */
     public function testWhatASecretFileIsIsSaidOnce(): void
     {

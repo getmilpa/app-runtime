@@ -222,7 +222,7 @@ final class BootCandidate
     private static function copyTree(string $from, string $to, bool $top, string $under = ''): void
     {
         foreach (scandir($from) ?: [] as $name) {
-            if ($name === '.' || $name === '..' || ($top && \in_array($name, self::SKIP, true)) || SecretFiles::isSecret($under . $name)) {
+            if ($name === '.' || $name === '..' || ($top && \in_array($name, self::SKIP, true)) || SecretFiles::withheldFromCopy($under . $name)) {
                 continue;
             }
             $source = $from . '/' . $name;
