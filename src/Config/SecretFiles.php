@@ -73,6 +73,18 @@ final class SecretFiles
     }
 
     /**
+     * Whether a path, relative to a house, must be left OUT of any COPY of the house: a file that holds a secret
+     * ({@see isSecret}, any depth) OR a bearer-credential store ({@see BEARER_CREDENTIAL_STORES}). A copy of the
+     * house never contains a bearer-credential store. The stores are named once ({@see BEARER_CREDENTIAL_STORES})
+     * and every copier leaves them out, as it leaves out the named secret files — `TrialWorkspace` (trials and
+     * exercises) and `BootCandidate` (boot candidates) ask this one rule (greenhouse decisions/0618).
+     */
+    public static function withheldFromCopy(string $relative): bool
+    {
+        return self::isSecret($relative) || \in_array($relative, self::BEARER_CREDENTIAL_STORES, true);
+    }
+
+    /**
      * The paths, relative to a house root, of every file under it that holds a secret and exists now — the
      * environment family, the envelope, Composer's credentials, at any depth, outside `var/` and `vendor/`. A
      * trial's copy leaves these out.

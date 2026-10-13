@@ -435,8 +435,14 @@ final class TrialWorkspace
         //
         // IT WAS «MINUS .env» (greenhouse evidence/1161): the envelope `provider:declare` writes and Composer's
         // credentials came later and travelled with the rest. The list is the house's now, not this method's.
+        //
+        // A COPY OF THE HOUSE NEVER CONTAINS A BEARER-CREDENTIAL STORE (greenhouse decisions/0618). The stores are
+        // named once ({@see SecretFiles::BEARER_CREDENTIAL_STORES}) and every copier leaves them out, as it leaves
+        // out the named secret files: `var/` is already excluded, and the store under `storage/` is withheld by
+        // {@see SecretFiles::withheldFromCopy}, the one rule every house-copier asks.
+        $withheld = array_merge(SecretFiles::under($root), SecretFiles::BEARER_CREDENTIAL_STORES);
         if (self::hasRsync()) {
-            $secrets = implode(' ', array_map(static fn (string $rel): string => escapeshellarg('--exclude=/' . $rel), SecretFiles::under($root)));
+            $secrets = implode(' ', array_map(static fn (string $rel): string => escapeshellarg('--exclude=/' . $rel), $withheld));
             $cmd = sprintf(
                 'rsync -a --exclude=/var/ --exclude=/vendor/ %s %s %s',
                 $secrets,
@@ -451,7 +457,7 @@ final class TrialWorkspace
 
         foreach (self::relFiles($root) as $rel) {
             $top = explode('/', $rel)[0];
-            if ($top === 'var' || SecretFiles::isSecret($rel)) {
+            if ($top === 'var' || SecretFiles::withheldFromCopy($rel)) {
                 continue;
             }
             $dest = $copy . '/' . $rel;
