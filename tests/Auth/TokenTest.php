@@ -22,6 +22,7 @@ use Milpa\Auth\Credential;
 use Milpa\Command\Operation;
 use Milpa\Container\DIContainer;
 use Milpa\Data\InMemoryRepository;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -95,10 +96,84 @@ final class TokenTest extends TestCase
     /** Dos tokens acuñados seguidos no son el mismo — ni parecido. */
     public function testTwoMintedTokensDiffer(): void
     {
-        $a = (string) $this->correr('token.new', ['actor' => 'a'])['token'];
-        $b = (string) $this->correr('token.new', ['actor' => 'b'])['token'];
+        $a = (string) $this->correr('token.new', ['actor' => 'a', 'scopes' => ['plugins:read']])['token'];
+        $b = (string) $this->correr('token.new', ['actor' => 'b', 'scopes' => ['plugins:read']])['token'];
 
         self::assertNotSame($a, $b);
+    }
+
+    /** @return iterable<string, array{array<string, mixed>}> */
+    public static function withoutAScope(): iterable
+    {
+        yield 'scopes omitted' => [[]];
+        yield 'an empty list' => [['scopes' => []]];
+        yield 'a blank scope' => [['scopes' => ['']]];
+        yield 'only whitespace' => [['scopes' => ['  ', "\t"]]];
+        yield 'entries that are not text' => [['scopes' => [1, true, null, ['plugins:read']]]];
+        yield 'a blank string in place of the list' => [['scopes' => '']];
+        yield 'null in place of the list' => [['scopes' => null]];
+    }
+
+    /**
+     * A token is minted with the scopes it will hold, or it is not minted (greenhouse decisions/0616).
+     *
+     * A token that declares no scopes holds none, so one minted without them is a secret that opens nothing: the
+     * house says so where it is asked for, with what to type, instead of handing over a token to find out with.
+     *
+     * @param array<string, mixed> $input
+     */
+    #[DataProvider('withoutAScope')]
+    public function testATokenIsNotMintedWithoutAScope(array $input): void
+    {
+        $r = $this->correr('token.new', ['actor' => 'ci'] + $input);
+
+        self::assertFalse($r['ok']);
+        self::assertArrayNotHasKey('token', $r, 'no secret is handed over');
+        self::assertSame([], $this->repo->all(), 'and nothing is stored');
+        self::assertStringContainsString('`scopes`', (string) $r['error']);
+        self::assertStringContainsString('holds none', (string) $r['error']);
+        self::assertStringContainsString("--scopes='[\"<scope>\"]'", (string) $r['error'], 'the refusal says what to type');
+    }
+
+    /** @return iterable<string, array{mixed, list<string>}> */
+    public static function withAScope(): iterable
+    {
+        yield 'one scope' => [['plugins:read'], ['plugins:read']];
+        yield 'every scope, asked for by name' => [['*'], ['*']];
+        yield 'one scope given as text' => ['plugins:read', ['plugins:read']];
+        yield 'padded, and beside entries that are not scopes' => [[' plugins:read ', '', 7], ['plugins:read']];
+    }
+
+    /**
+     * The control: whatever names at least one scope mints as it did.
+     *
+     * @param list<string> $held
+     */
+    #[DataProvider('withAScope')]
+    public function testATokenIsMintedWithTheScopesItNames(mixed $scopes, array $held): void
+    {
+        $r = $this->correr('token.new', ['actor' => 'ci', 'scopes' => $scopes]);
+
+        self::assertTrue($r['ok']);
+        self::assertSame($held, $r['scopes']);
+        self::assertSame($held, $this->repo->all()[0]->scopes());
+    }
+
+    /**
+     * A token that was minted with no scopes before this rule is listed as what it is now: holding nothing.
+     *
+     * The list is where the operator of a house that upgrades finds the tokens that stopped opening anything.
+     */
+    public function testATokenStoredWithNoScopesIsListedAsHoldingNothing(): void
+    {
+        $this->repo->save(new ApiToken(hash: TokenVerifier::hash('minted-before-0616'), actor: 'old-ci', scopes: [], createdAt: '2026-09-11T00:00:00+00:00'));
+        $this->correr('token.new', ['actor' => 'ci', 'scopes' => ['plugins:read']]);
+
+        $listed = array_column((array) $this->correr('token.list')['tokens'], 'scopes', 'actor');
+
+        self::assertSame('plugins:read', $listed['ci']);
+        self::assertStringContainsString('none', (string) $listed['old-ci']);
+        self::assertStringContainsString('holds nothing', (string) $listed['old-ci']);
     }
 
     /** El verificador convierte un token válido en un actor con SUS scopes, no con otros. */
@@ -189,7 +264,7 @@ final class TokenTest extends TestCase
             $handler = $op->handler;
             self::assertIsCallable($handler);
             /** @var array{ok: bool, error?: string} $r */
-            $r = $handler(['actor' => 'x', 'id' => '1']);
+            $r = $handler(['actor' => 'x', 'id' => '1', 'scopes' => ['plugins:read']]);
             self::assertFalse($r['ok']);
             self::assertStringContainsString('almacén', (string) $r['error']);
         }

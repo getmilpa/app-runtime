@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Auth;
 
+use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\Auth\AuthContext;
 use Milpa\Auth\Credential;
 use Milpa\Data\RepositoryInterface;
@@ -38,6 +39,14 @@ use Milpa\Interfaces\Di\DIContainerInterface;
  * The token comes from `token:new`, which mints scopes a person chose, and is verified by
  * {@see TokenVerifier} — the same verifier the HTTP door uses, so a token cannot mean one thing to a
  * browser and another to a shell. One token, one verifier, one set of scopes.
+ *
+ * 🚨 AND «NO SCOPES» IS A SET OF SCOPES. Until v0.220.2 {@see self::scopes()} read an empty list as «nobody
+ * identified» and handed the caller the surface's default — the terminal's and MCP's `*` — so a token minted with
+ * nothing on it was the widest token in the house, and it made lasting changes with no signature: a token is how a
+ * call is made without one. The first version of this class named that case as the boundary it had not decided.
+ * It is decided (greenhouse decisions/0616): the default belongs to a caller that presented NOTHING, and a caller
+ * that presented a token holds what the token declares — none included. That is how `milpa/auth` has always read
+ * an actor ({@see \Milpa\Auth\Actor::hasAnyScope()}), and so how the HTTP door always answered the same token.
  */
 final class PresentedToken
 {
@@ -96,9 +105,11 @@ final class PresentedToken
     /**
      * The scopes a governed call should carry, given an identity and the default it would have had.
      *
-     * The DEFAULT wins when there is no identity. This method exists so that rule lives in one place
-     * instead of at each of the two sites that build a context — the regression that cost three
-     * releases was one site deciding differently from the other.
+     * The DEFAULT wins when there is no identity — and only then. An identity carries its own scopes, and an
+     * identity that declares none carries none: «somebody who holds nothing» is not «nobody», and reading the one as
+     * the other handed a token minted with no scopes the wildcard of the surface it was presented on (greenhouse
+     * decisions/0616). This method exists so that rule lives in one place instead of at each of the sites that build
+     * a context — the regression that cost three releases was one site deciding differently from the other.
      *
      * @param list<string> $default the scopes the context already had, kept when nobody identified
      *
@@ -107,8 +118,39 @@ final class PresentedToken
     public static function scopes(?AuthContext $identity, array $default): array
     {
         $actor = $identity?->actor;
-        $scopes = $actor->scopes ?? [];
 
-        return $scopes === [] ? $default : $scopes;
+        return $actor === null ? $default : $actor->scopes;
+    }
+
+    /**
+     * True when a caller presented a token and that token declares no scopes: somebody, holding nothing.
+     *
+     * Never true for `null` — a caller that presented nothing is not asked what it holds.
+     */
+    public static function declaresNoScopes(?AuthContext $identity): bool
+    {
+        $actor = $identity?->actor;
+
+        return $actor !== null && $actor->scopes === [];
+    }
+
+    /**
+     * A refusal as its caller reads it: the judge's sentence, and — for a token that declares no scopes — the way out.
+     *
+     * The judge says what the call needed and that the context has none. Only this door knows WHY it has none, and
+     * that no signature and no retry changes it: such a token was minted that way, and the remedy is another token.
+     * Every other caller reads the judge's sentence as it is.
+     */
+    public static function refusal(?AuthContext $identity, string $reason): string
+    {
+        $actor = $identity?->actor;
+        if ($actor === null || $actor->scopes !== []) {
+            return $reason;
+        }
+
+        return $reason . "\n"
+            . '  This token declares no scopes, so it holds none — and a signature does not widen a presented token.' . "\n"
+            . '  Mint one that names what it may do and present that one: '
+            . Capabilities::cli() . 'token:new --actor=' . escapeshellarg($actor->id) . " --scopes='[\"<scope>\"]' --sign";
     }
 }

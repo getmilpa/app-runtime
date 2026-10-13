@@ -654,7 +654,7 @@ final class Application
             $operacion->scopes,
         );
         if (!$scope->allowed) {
-            foreach ($renderer->presentError((string) $scope->reason) as $line) {
+            foreach ($renderer->presentError(PresentedToken::refusal($identity, (string) $scope->reason)) as $line) {
                 $this->line($line);
             }
 
@@ -663,6 +663,18 @@ final class Application
 
         $receipts = $this->recibos();
         $tokens = $this->tokens($operacion, $resto);
+        // A WORD GIVEN WITH NO FLAG, where the operation takes none that way, was dropped in silence — and an operation
+        // whose optional argument has a powerful default then ran on that default: `identity:invite agent:read` minted
+        // the widest invitation (greenhouse decisions/0616). An operation that closes its schema takes nothing it does
+        // not declare: a flag it does not know is refused by the runner, and a word with no place is refused here.
+        $surplus = ($operacion->inputSchema['additionalProperties'] ?? null) === false ? $this->surplus($operacion, $resto) : null;
+        if ($surplus !== null) {
+            foreach ($renderer->presentError($surplus) as $line) {
+                $this->line($line);
+            }
+
+            return 1;
+        }
         $caller = new ToolContext(
             principal: $identity->actor->id ?? $base->principal,
             channel: $base->channel,
@@ -799,6 +811,10 @@ final class Application
         $quien = static fn (string $id): ToolContext => $identidad !== null
             ? ToolContext::stdio($id, $identidad->actor->id ?? 'stdio', PresentedToken::scopes($identidad, ['*']))
             : ToolContext::stdio($id);
+        if (PresentedToken::declaresNoScopes($identidad)) {
+            // The client reads the judge's sentence call by call; whoever launched the server reads why, once, here.
+            fwrite(\STDERR, PresentedToken::refusal($identidad, 'milpa · ' . Capabilities::CLI . 'mcp — the token in ' . PresentedToken::ENV . ' verifies: every call that asks for a scope is refused.') . \PHP_EOL);
+        }
         $definicion->takeInIncluded();
 
         $escribir = static function (array $respuesta): void {
@@ -872,7 +888,7 @@ final class Application
         $entrada = array_diff_key(\is_array($params['arguments'] ?? null) ? $params['arguments'] : [], ['confirm_token' => true]);
         $sigue = new \stdClass();
         // Over MCP nobody holds the keys: a call continues only under a receipt its own operation signed (0546).
-        $r = $this->porLaPuertaSinFirma(Capabilities::CLI . 'mcp', $operacion, $entrada, static fn (): object => $sigue, soloSuRecibo: true);
+        $r = $this->porLaPuertaSinFirma(Capabilities::CLI . 'mcp', $operacion, $entrada, static fn (): object => $sigue, soloSuRecibo: true, judgedAfter: true);
         if ($r === $sigue) {
             return null;
         }
@@ -1698,6 +1714,29 @@ final class Application
     }
 
     /**
+     * The refusal for a word given with no flag that no required argument takes, or null when every word has a place.
+     *
+     * {@see tokens()} gives each bare word to the next REQUIRED argument, in order, and has always dropped the ones
+     * left over. This names the first of those, and the flags the operation does declare.
+     *
+     * @param list<string> $argv tokens after the command name
+     */
+    private function surplus(Operation $operacion, array $argv): ?string
+    {
+        $modelo = (new CliProjector())->project($operacion);
+        $required = \count(array_filter($modelo->flags, static fn (array $flag): bool => $flag['required']));
+        $words = array_values(array_filter($argv, static fn (string $token): bool => !str_starts_with($token, '--')));
+        if (!isset($words[$required])) {
+            return null;
+        }
+        $flags = array_map(static fn (string $name): string => '--' . str_replace('_', '-', $name), array_keys($modelo->flags));
+
+        return "«{$words[$required]}» was given without a flag, and «" . $this->commandName($operacion) . '» takes '
+            . ($required === 0 ? 'no argument' : "only {$required}") . ' that way. Nothing ran. '
+            . ($flags === [] ? 'It declares no flags.' : 'Name what it is: ' . implode(', ', $flags) . '.');
+    }
+
+    /**
      * Rearma los tokens que el runner espera, traduciendo de vuelta los nombres de la terminal.
      *
      * Lo OBLIGATORIO se escribe posicional —`make entity MiPlugin Cosa`— porque es la convención de
@@ -1975,7 +2014,11 @@ final class Application
      *
      * - a token the house minted is presented → the call runs, as it runs at the terminal with one: the token's actor
      *   and scopes are what the operation's own code and the gates read ({@see PresentedToken}); a consent is still a
-     *   signature over the call, and none travels here, so it is refused;
+     *   signature over the call, and none travels here, so it is refused. AND THE DOOR ASKS WHAT THE TOKEN HOLDS
+     *   ({@see admission()}) where nothing behind it does: the shell's form and the chat call the handler themselves,
+     *   and until v0.220.2 they asked only WHETHER a token was presented — a token holding one unrelated scope, or
+     *   none, made any lasting change that demands no consent (greenhouse decisions/0616). Over `coa mcp` the
+     *   server's registry judges the same token on every call, so the door leaves that verdict to it;
      * - the call continues a sequence whose receipt stands → it is cited through the terminal's runner
      *   ({@see citar()}), which re-verifies the receipt and runs it as its signer, or refuses — one judge, not two;
      * - it changes nothing that lasts → it runs as it always did;
@@ -1984,13 +2027,20 @@ final class Application
      * @param array<string, mixed>                  $entrada
      * @param \Closure(array<string, mixed>): mixed $correr       runs the call as the surface always did
      * @param bool                                  $soloSuRecibo cite only a receipt this very operation signed (`coa mcp`, 0546)
+     * @param bool                                  $judgedAfter  what runs the call judges a presented token itself (`coa mcp`: the server's registry)
      *
      * @return mixed what the call returned, or the refusal as the `{ok: false, error, sign}` every surface already paints
      */
-    private function porLaPuertaSinFirma(string $superficie, Operation $operacion, array $entrada, \Closure $correr, bool $soloSuRecibo = false): mixed
+    private function porLaPuertaSinFirma(string $superficie, Operation $operacion, array $entrada, \Closure $correr, bool $soloSuRecibo = false, bool $judgedAfter = false): mixed
     {
         $recibos = $this->recibos();
         $identidad = PresentedToken::identity($this->kernel()->container());
+        // SCOPE BEFORE CONSENT, as at the terminal (greenhouse decisions/0314): a call the token may not make is told
+        // so, never «sign it» — a signature does not widen a presented token.
+        $admitida = $identidad !== null && !$judgedAfter ? $this->admission($identidad, $operacion, $entrada) : null;
+        if ($admitida !== null && !$admitida->allowed) {
+            return ['ok' => false, 'error' => PresentedToken::refusal($identidad, (string) $admitida->reason)];
+        }
         $negativa = $identidad !== null && !\Milpa\Console\Consent::demanded($operacion, $entrada)
             ? null
             : UnsignedTerminal::refusalOver($superficie, $operacion, $entrada, $identidad !== null ? null : $recibos, $soloSuRecibo);
@@ -2007,6 +2057,48 @@ final class Application
         }
 
         return $correr($entrada);
+    }
+
+    /**
+     * What the judges say of a call made by the bearer of a presented token — the admission the terminal asks first.
+     *
+     * The same three questions {@see CliRunner} asks of a caller before it runs anything, over the token's own
+     * context: the scopes the operation declares ({@see PolicyGate::authorizeCall()}), the host's call policy, and —
+     * for an operation typed by `permission` and a caller without the wildcard — the host's permission judge. A door
+     * that runs a handler itself asks them here; nothing is decided here that the terminal decides otherwise.
+     *
+     * @param array<string, mixed> $input
+     */
+    private function admission(\Milpa\Auth\AuthContext $identity, Operation $operation, array $input): \Milpa\ToolRuntime\Policy\AuthorizationResult
+    {
+        $base = ToolContext::cli();
+        $caller = new ToolContext(
+            principal: $identity->actor->id ?? $base->principal,
+            channel: $base->channel,
+            scopes: PresentedToken::scopes($identity, $base->scopes),
+        );
+        $container = $this->kernel()->container();
+        $gate = new PolicyGate();
+        $host = $container->has(\Milpa\ToolRuntime\Contracts\CallPolicy::class) ? $container->get(\Milpa\ToolRuntime\Contracts\CallPolicy::class) : null;
+        if ($host instanceof \Milpa\ToolRuntime\Contracts\CallPolicy) {
+            $gate->setCallPolicy($host);
+        }
+        $verdict = $gate->authorizeCall($caller, new \Milpa\ToolRuntime\ToolDefinition(
+            McpProjector::toolName($operation->name),
+            $operation->description,
+            $operation->inputSchema ?? [],
+            $operation->handler,
+            scopes: $operation->scopes,
+            mutating: $operation->mutating,
+        ), $input);
+        if (!$verdict->allowed || $operation->permission === null || $caller->hasScope('*')) {
+            return $verdict;
+        }
+        $judge = $container->has(\Milpa\Console\OperationPermissionPolicy::class) ? $container->get(\Milpa\Console\OperationPermissionPolicy::class) : null;
+
+        return $judge instanceof \Milpa\Console\OperationPermissionPolicy
+            ? \Milpa\Console\PermissionCallPolicy::judge($judge, $operation, $caller, $input)
+            : \Milpa\ToolRuntime\Policy\AuthorizationResult::denied("Operation '{$operation->name}' requires the permission '{$operation->permission}' and this host wired no judge for it. Nothing ran.");
     }
 
     /**
