@@ -123,6 +123,45 @@ return $loader;
         self::assertFileExists($this->root . '/vendor/acme/Tool.php');
     }
 
+    /**
+     * A BOOT CANDIDATE, LIKE EVERY COPY OF THE HOUSE, CONTAINS NO BEARER-CREDENTIAL STORE (greenhouse decisions/0618).
+     * The stores are named once ({@see SecretFiles::BEARER_CREDENTIAL_STORES}) and the same rule every copier asks
+     * ({@see SecretFiles::withheldFromCopy}) leaves the confirm-token store out of a candidate too, as it leaves out
+     * the named secret files. A non-bearer file under `storage/` still travels (the control).
+     */
+    public function testACandidateNeverContainsABearerCredentialStore(): void
+    {
+        $canary = 'bearer-' . bin2hex(random_bytes(8));
+        mkdir($this->root . '/storage');
+        file_put_contents($this->root . '/storage/confirm-tokens.json', "{\"held\":\"{$canary}\"}\n");
+        file_put_contents($this->root . '/storage/app-data.json', "{\"ok\":true}\n");
+
+        $candidate = BootCandidate::of($this->root, ['src/New.php' => '<?php // new']);
+        try {
+            self::assertFileDoesNotExist($candidate->path . '/storage/confirm-tokens.json', 'the bearer store must not travel into a candidate');
+            self::assertFileExists($candidate->path . '/storage/app-data.json', 'the control: a non-secret storage file still travels');
+            self::assertSame([], self::filesHolding($candidate->path, $canary), 'no file of the candidate holds the bearer canary');
+        } finally {
+            $candidate->remove();
+        }
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function filesHolding(string $dir, string $needle): array
+    {
+        $hits = [];
+        $it = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS));
+        foreach ($it as $f) {
+            if ($f->isFile() && str_contains((string) @file_get_contents($f->getPathname()), $needle)) {
+                $hits[] = $f->getPathname();
+            }
+        }
+
+        return $hits;
+    }
+
     /** A link in the house stays a link in the candidate; a change that writes over a link writes a file, and the house's link is untouched. */
     public function testLinksAreCopiedAsLinksAndAWriteOverOneIsAFile(): void
     {

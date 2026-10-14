@@ -34,7 +34,10 @@ use Milpa\AppRuntime\Support\PhpBinary;
 final class TrialRunner
 {
     /** The namespaces every trial is confined by: its own network (none) and its own pids. */
-    private const NAMESPACES = ['--unshare-net', '--unshare-pid', '--die-with-parent'];
+    // `--unshare-ipc` (greenhouse CH, L-2): without it a confined process shares the host SysV/POSIX-shm IPC and
+    // could attach to another process's shared-memory segment. `--new-session` (L-3): a new session so the child
+    // keeps no controlling TTY of the launcher (a trial's child reads from pipes, not a tty, so this breaks nothing).
+    private const NAMESPACES = ['--unshare-net', '--unshare-pid', '--unshare-ipc', '--new-session', '--die-with-parent'];
 
     /**
      * Set in a trial's own environment (`--setenv`), so a boot check asked from INSIDE a trial does not build a SECOND
@@ -50,6 +53,9 @@ final class TrialRunner
      * @var list<string>|false|null
      */
     private array|false|null $namespaces = false;
+
+    /** Whether a fresh procfs mounts here (B5), probed once with the confining shape: null before the probe. */
+    private ?bool $procMountable = null;
 
     /** The PHP a trial runs — found by {@see PhpBinary}, because under FrankenPHP `PHP_BINARY` is empty (0505). */
     private readonly string $php;
@@ -122,6 +128,34 @@ final class TrialRunner
     }
 
     /**
+     * Can a fresh procfs be mounted here, under the shape this runner confines with? Probed once, then remembered —
+     * like {@see namespaces()}, and with the same shape, so a confinement is not claimed with `/proc` private in one
+     * place and imposed in another.
+     *
+     * `--proc /proc` (B5, {@see maskArgs()}) hides the host's other processes' command lines. It needs the pid
+     * namespace — which the probed shape carries — AND the kernel's leave to mount a procfs over the read-only root.
+     * On bare metal it mounts. In a default Docker container `/proc` is masked (the runtime's own read-only overlays
+     * and masked paths) and bwrap cannot mount a fresh one: the mount fails and takes the whole confinement with it,
+     * so NO trial booted in the `:dev` image (greenhouse CH, t-0110 C8). There `--proc` is skipped and the container's
+     * own pid namespace does the hiding the flag would — the host's processes are already out of this `/proc`.
+     *
+     * False when nothing can be confined here at all (no namespace shape): there is no confinement to add `/proc` to.
+     */
+    public function procMountable(): bool
+    {
+        if ($this->procMountable !== null) {
+            return $this->procMountable;
+        }
+        $namespaces = $this->namespaces();
+        if ($namespaces === null) {
+            return $this->procMountable = false;
+        }
+        $probe = ChildProcess::run([$this->bwrap, ...$namespaces, '--ro-bind', '/', '/', '--proc', '/proc', '--', $this->php, '-r', 'exit(0);']);
+
+        return $this->procMountable = ($probe !== null && $probe['exit'] === 0);
+    }
+
+    /**
      * This runner with another ceiling of time per call — the same bubblewrap, the same PHP, and the namespaces it
      * already probed. For a call the house makes on its own account and will not wait a whole minute for
      * ({@see CapabilityExercise}): it is no session's authoring call, so nothing observes its inputs for one.
@@ -130,6 +164,7 @@ final class TrialRunner
     {
         $runner = new self($this->bwrap, $seconds, $this->php);
         $runner->namespaces = $this->namespaces();
+        $runner->procMountable = $this->procMountable();
 
         return $runner;
     }
@@ -165,7 +200,7 @@ final class TrialRunner
             return null;
         }
 
-        return [$this->bwrap, ...$namespaces, '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null',
+        return [$this->bwrap, ...$namespaces, ...self::environmentFloor($tree, $tree), '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null',
             '--bind', $tree, $tree, ...$this->maskArgs($secretsRoot)];
     }
 
@@ -195,7 +230,7 @@ final class TrialRunner
             throw new \RuntimeException('Work runs confined to a declared state, and none was given.');
         }
         $command = ['timeout', '-k', '2', (string) $this->timeoutSeconds, $this->bwrap,
-            ...$this->namespaces() ?? self::NAMESPACES, '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null'];
+            ...$this->namespaces() ?? self::NAMESPACES, ...self::environmentFloor($scratch, $scratch), '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null'];
         foreach ($state as $relative) {
             $why = HouseWork::notAPlaceForState($house, $relative);
             if ($why !== null) {
@@ -210,7 +245,7 @@ final class TrialRunner
         if (! is_dir($scratch) || is_link($scratch)) {
             throw new \RuntimeException('Work needs a scratch directory of its own.');
         }
-        array_push($command, '--bind', $scratch, $scratch, '--setenv', 'TMPDIR', $scratch, '--setenv', self::INSIDE_TRIAL_ENV, '1');
+        array_push($command, '--bind', $scratch, $scratch); // TMPDIR/MILPA_TRIAL set by environmentFloor()
         $command = [...$command, ...$this->maskArgs($house)];
         array_push(
             $command,
@@ -269,7 +304,7 @@ final class TrialRunner
         // sink is bound back with its device; /dev/zero, /dev/tty and the rest stay closed.
         $house = (string) realpath($workspace->root);
         $command = ['timeout', '-k', '2', (string) $this->timeoutSeconds, $this->bwrap,
-            ...$this->namespaces() ?? self::NAMESPACES, '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null'];
+            ...$this->namespaces() ?? self::NAMESPACES, ...self::environmentFloor($temporary, $temporary), '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null'];
         if ($writePaths === null) {
             array_push($command, '--bind', $workspace->copy, $workspace->copy);
         } else {
@@ -307,12 +342,7 @@ final class TrialRunner
         $command = [...$command, ...$this->maskArgs($house)];
         array_push(
             $command,
-            '--setenv',
-            'TMPDIR',
-            $temporary,
-            '--setenv',
-            self::INSIDE_TRIAL_ENV,
-            '1',
+            // TMPDIR/MILPA_TRIAL set by environmentFloor()
             '--',
             $this->php,
             '-d',
@@ -472,8 +502,96 @@ final class TrialRunner
         foreach (self::keyringDirectories() as $directory) {
             array_push($args, '--tmpfs', $directory);
         }
+        // HUECO B3 (greenhouse CH): the host's path AF_UNIX sockets are reachable from a confined process — the
+        // root is bound read-only but `--unshare-net` does not cover a PATH socket (it is a filesystem object), so
+        // a confined call could connect to `docker.sock` (= root, with the operator in the `docker` group), to the
+        // ssh-agent (H-1, signs with the user's SSH keys), dbus, wayland, X11, pipewire or pulse. Each existing one
+        // is overlaid with `/dev/null` so the path is no longer a socket: a connect to the `/dev/null` character
+        // device is refused (ECONNREFUSED/111) — the connect fails regardless. Named by its real path; a leg needs
+        // none of them.
+        // MAINTENANCE: {@see hostSocketPaths()} and {@see environmentFloor()}'s whitelist are HAND-MAINTAINED lists
+        // that must track the code AND the deployment — a non-standard `DOCKER_HOST` path, or an ssh-agent outside
+        // the gnome default, is invisible to a path-pinned list and must be added here when the deployment uses it.
+        foreach (self::hostSocketPaths() as $socket) {
+            $real = realpath($socket);
+            // Mask only a socket this user could actually open (connect = W_OK): that is the one worth closing, and
+            // a socket whose parent directory the user cannot traverse (e.g. a root-only `/run/containerd`) both
+            // cannot be reached anyway AND makes bwrap fail to bind. `is_writable` on the real path answers both.
+            if ($real !== false && !is_dir($real) && @is_writable($real)) {
+                array_push($args, '--ro-bind', '/dev/null', $real);
+            }
+        }
+        // HUECO B5 (greenhouse CH): a fresh procfs so the confined process cannot read the command lines of the
+        // host's other processes. `--unshare-pid` already hid their environ; `/proc` was still the host's because
+        // `--ro-bind / /` carried it in. Mounted AFTER the root bind so it wins; needs the pid namespace, which the
+        // probed shape already carries. CONDITIONAL (t-0110 C8): added only where a procfs CAN be mounted — on bare
+        // metal. In a default container `/proc` is masked and bwrap cannot mount a fresh one; forcing it failed the
+        // whole confinement and no trial booted in the `:dev` image. There it is skipped and the container's own pid
+        // namespace already hides the host's processes, so B5's end holds without the flag ({@see procMountable()}).
+        if ($this->procMountable()) {
+            array_push($args, '--proc', '/proc');
+        }
 
         return $args;
+    }
+
+    /**
+     * HUECO B3: the class of host path AF_UNIX sockets a confined process must not reach. The daemon sockets whose
+     * connect is authority on the host — Docker and Podman and containerd, the session and system message buses,
+     * the display and audio servers — named by absolute path (the per-user ones under the real `XDG_RUNTIME_DIR`
+     * / `/run/user/<uid>`). The mask is SPECIFIC: a socket not on this list stays reachable, by design.
+     *
+     * @return list<string>
+     */
+    private static function hostSocketPaths(): array
+    {
+        $uid = function_exists('posix_getuid') ? posix_getuid() : (int) (getenv('UID') ?: 0);
+        $runtime = (string) (getenv('XDG_RUNTIME_DIR') ?: '/run/user/' . $uid);
+        $paths = [
+            '/var/run/docker.sock', '/run/docker.sock',
+            '/run/podman/podman.sock', $runtime . '/podman/podman.sock', '/run/containerd/containerd.sock',
+            '/run/dbus/system_bus_socket', $runtime . '/bus', $runtime . '/systemd/private',
+            $runtime . '/pipewire-0', $runtime . '/pulse/native',
+        ];
+        // THE SSH-AGENT (greenhouse CH, H-1): a socket whose connect signs with the user's private SSH keys (git
+        // push, server login) — the exact class B3 closes. Read the LAUNCHER's SSH_AUTH_SOCK from the PARENT's
+        // environment HERE, while the args are built, because `--clearenv` will have cleared it from the child; add
+        // the well-known gnome-keyring defaults an attacker can hard-code even without the variable.
+        $ssh = getenv('SSH_AUTH_SOCK');
+        if (is_string($ssh) && $ssh !== '') {
+            $paths[] = $ssh;
+        }
+        $paths[] = $runtime . '/gcr/ssh';
+        $paths[] = $runtime . '/keyring/ssh';
+        // DISPLAY/COMPOSITOR by glob (L-1): the instance number varies — cover every `wayland-N` and X display `XN`,
+        // not only `:0`.
+        foreach ([...(glob($runtime . '/wayland-*') ?: []), ...(glob('/tmp/.X11-unix/X*') ?: [])] as $display) {
+            $paths[] = $display;
+        }
+
+        return $paths;
+    }
+
+    /**
+     * HUECO B4 (greenhouse CH): the exact environment a confined child is allowed to see. The confinement did not
+     * clear the environment, so agent-authored code read by `getenv` whatever the process that opened the leg
+     * carried — the model provider's `MILPA_AGENT_BASIC_AUTH` and any third-party `*_KEY`/`*_TOKEN`. A trial runner
+     * and a `test` read nothing from the environment but a writable scratch and a working PATH; everything else is
+     * cleared. `$home`/`$tmp` are a writable directory of this call's own.
+     *
+     * @return list<string>
+     */
+    private static function environmentFloor(string $home, string $tmp): array
+    {
+        return [
+            '--clearenv',
+            '--setenv', 'PATH', '/usr/local/bin:/usr/bin:/bin',
+            '--setenv', 'HOME', $home,
+            '--setenv', 'TMPDIR', $tmp,
+            '--setenv', 'LANG', 'C.UTF-8',
+            '--setenv', 'LC_ALL', 'C.UTF-8',
+            '--setenv', self::INSIDE_TRIAL_ENV, '1',
+        ];
     }
 
     /** The smartcard daemon's socket directory the Desktop mounts into the house when it is present (0121). */

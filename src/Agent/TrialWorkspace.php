@@ -444,8 +444,14 @@ final class TrialWorkspace
         // …AND MINUS THE BOOK OF STANDING GRANTS AND ITS HEAD (greenhouse decisions/0615, decided by Rod 2026-10-12).
         // Every copy carried them, mode kept, for a confined process to read: every grant a person signed, every
         // call a seat made. The house's book is the house's; a rehearsal reads none and writes none.
+        //
+        // A COPY OF THE HOUSE NEVER CONTAINS A BEARER-CREDENTIAL STORE (greenhouse decisions/0618). The stores are
+        // named once ({@see SecretFiles::BEARER_CREDENTIAL_STORES}) and every copier leaves them out, as it leaves
+        // out the named secret files: `var/` is already excluded, and the store under `storage/` is withheld by
+        // {@see SecretFiles::withheldFromCopy}, the one rule every house-copier asks.
+        $withheld = array_merge(SecretFiles::under($root), SecretFiles::BEARER_CREDENTIAL_STORES, self::BOOK);
         if (self::hasRsync()) {
-            $secrets = implode(' ', array_map(static fn (string $rel): string => escapeshellarg('--exclude=/' . $rel), [...SecretFiles::under($root), ...self::BOOK]));
+            $secrets = implode(' ', array_map(static fn (string $rel): string => escapeshellarg('--exclude=/' . $rel), $withheld));
             $cmd = sprintf(
                 'rsync -a --exclude=/var/ --exclude=/vendor/ %s %s %s',
                 $secrets,
@@ -460,7 +466,7 @@ final class TrialWorkspace
 
         foreach (self::relFiles($root) as $rel) {
             $top = explode('/', $rel)[0];
-            if ($top === 'var' || SecretFiles::isSecret($rel) || \in_array($rel, self::BOOK, true)) {
+            if ($top === 'var' || SecretFiles::withheldFromCopy($rel) || \in_array($rel, self::BOOK, true)) {
                 continue;
             }
             $dest = $copy . '/' . $rel;

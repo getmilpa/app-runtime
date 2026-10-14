@@ -1945,11 +1945,24 @@ final class Application
     /** The shell's screen, as `coa shell` opens it: its catalogue behind the door ({@see operacionesDelShell()}). */
     private function pantallaDelShell(): OperationsScreen
     {
+        // N-1 (greenhouse CH, hueco C): the form runs with the session's presented-token context, exactly as the
+        // terminal builds it, so the authoring policy confines a FINITE principal instead of falling to the local
+        // wildcard and running `test`/`make` IN THE HOUSE. With no token this is the local wildcard (the operator,
+        // unchanged); with a token it is that token's actor and scopes.
+        $identity = PresentedToken::identity($this->kernel()->container());
+        $base = ToolContext::cli();
+        $caller = new ToolContext(
+            principal: $identity->actor->id ?? $base->principal,
+            channel: $base->channel,
+            scopes: PresentedToken::scopes($identity, $base->scopes),
+        );
+
         return new OperationsScreen(
             $this->operacionesDelShell(),
             $this->kernel()->container(),
             ...$this->tamano(),
             dispatcher: $this->kernel()->dispatcher(),
+            authority: $caller,
         );
     }
 
