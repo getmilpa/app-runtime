@@ -44,6 +44,18 @@ final class SecretFiles
      */
     public const BEARER_CREDENTIAL_STORES = ['var/passkey/sessions.json', 'storage/confirm-tokens.json'];
 
+    /**
+     * NON-BEARER STATE the house keeps that still names WHO MAY DO WHAT — the enrollment ledger (grants over
+     * public key fingerprints), the token store (sha256 hashes), the capabilities declaration, and the agent
+     * session log. None is a presented-and-it-opens bearer credential, so {@see isSecret()} does not name them
+     * and a copy still carries them; but a confined process reaching them through `--ro-bind / /` learns the
+     * house's authority map and reads whatever a session recorded. The confinement mask names them explicitly so
+     * agent-authored code cannot read them from the house or from a copy (greenhouse CH, hueco B2). A `test`/work
+     * call does not read these books, so masking them does not break a legitimate leg (measured; stated if it
+     * does). Kept apart from the bearer stores because the two answer different questions (0618).
+     */
+    public const NON_BEARER_STATE = ['storage/identity/enrollments.json', 'storage/tokens.json', 'storage/capabilities/declarations.json', 'var/agent-sessions.jsonl'];
+
     /** `.env*` names that are placeholders, not secrets. */
     private const TEMPLATES = ['.env.example', '.env.dist', '.env.template', '.env.sample'];
 
@@ -122,7 +134,7 @@ final class SecretFiles
                     $paths[] = $base . '/' . $rel;
                 }
             }
-            foreach (self::BEARER_CREDENTIAL_STORES as $store) {
+            foreach ([...self::BEARER_CREDENTIAL_STORES, ...self::NON_BEARER_STATE] as $store) {
                 $path = $base . '/' . $store;
                 if (is_file($path) && !is_link($path)) {
                     $paths[] = $path;
