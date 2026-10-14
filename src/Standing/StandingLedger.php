@@ -15,7 +15,6 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Standing;
 
 use Milpa\AppRuntime\Identity\IdentityKey;
-use Milpa\Command\Consent\OperationId;
 use Milpa\Command\Standing\Canonical;
 use Milpa\Command\Standing\ConditionReceipt;
 use Milpa\Command\Standing\StandingGrant;
@@ -79,7 +78,7 @@ use Milpa\ToolRuntime\Identity\OperationAuthorization;
  * of the file but its bytes — not its date, not its size.
  *
  * @phpstan-type Line array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}
- * @phpstan-type Mind array{kept: array<int, Line>, recent: array<int, Line>, lines: int, last: ?string, fault: ?string, calm: array<string, int>, refused: array<string, list<int>>, speaks: array<string, list<string>>, seats: array<string, list<string>>, spent: array<string, int>, halted: array<string, true>}
+ * @phpstan-type Mind array{kept: array<int, Line>, recent: array<int, Line>, lines: int, last: ?string, fault: ?string, calm: array<string, int>, refused: array<string, list<int>>, spent: array<string, int>, halted: array<string, string>}
  * @phpstan-type Reading array{bytes: \HashContext, upTo: int, number: int, head: array{lines: int, head: string}|string|null, mind: Mind}
  */
 final class StandingLedger
@@ -107,6 +106,12 @@ final class StandingLedger
     public const SUSPENDED = 'suspended';
     public const REINSTATED = 'reinstated';
     public const REVOKED = 'revoked';
+
+    /** The house's stop of a WRITER that spent its budget — it names the writer, not a grant (Option C). */
+    public const OVERSPENT = 'overspent';
+
+    /** A person's signed lift of a writer's {@see self::OVERSPENT} stop: it names the writer and that very stop. */
+    public const RESTORED = 'restored';
 
     /** How many of the book's last lines a reading keeps whole, for whoever asks what it said lately. */
     public const RECENT = 40;
@@ -210,55 +215,51 @@ final class StandingLedger
     }
 
     /**
-     * HOW MANY LINES THE SEATS OF A GRANT WROTE UNDER IT SINCE A PERSON LAST GAVE IT OR LIFTED IT, and whether a stop
-     * of it was written since (decided by Rod, 2026-10-13: D18 — «a SEAT has a budget of lines per grant»).
+     * HOW MANY LINES THIS WRITER HAS LEFT since a person last lifted its stop — or since it first wrote — and whether
+     * the house has stopped it for its budget (Option C, decided by Rod, 2026-10-14: THE BUDGET IS THE WRITER'S, not
+     * a grant's nor its seats').
      *
-     * Counted over the LINES of the book, the same by whoever reads it — never over where a grant stands today, which
-     * a process reads with its own keyring. Under a grant a seat of it writes: the acts it was lent and the refusals
-     * it was given, which name the grant; and every receipt and every sign of a watcher whose operation is one the
-     * grant's line says it is measured or watched by. The count starts again at the line that gives it and at each
-     * line that lifts it.
-     *
-     * WHAT SOMEBODY ELSE WRITES IS NOT COUNTED (the seventh review, 7-M1): it counted whoever measured, and a token
-     * the decided stop refuses stopped a seat's grant by measuring. The seats are the ones the grant's own signed
-     * document names ({@see self::grantIn()}), and a line says who wrote it.
+     * Counted over the LINES of the book, the same by whoever reads it — never over where anything stands today, which
+     * a process reads with its own keyring. Every line a writer leaves counts: a receipt, a sign of a watcher, an act
+     * it was lent, a refusal it was given. A writer is a NAME — a key, as the book normalizes it; a token's actor as
+     * it came; «local-shell» for the terminal — and the count is its own: what one writer leaves is never counted
+     * against another, so exhausting one's budget stops its own runs, never another writer's (this is what closes
+     * 7-M1 at the root — a token the stop refuses can no longer stop a seat's grant by measuring, because it was never
+     * counted under that grant). A no and a «fired» a run DID produce are written whatever was spent; what a writer
+     * that spent its budget would say does not run ({@see HouseStandingJudge::overspent()}).
      *
      * @return array{lines: int, stopped: bool}
      */
-    public function spentUnder(string $grant): array
+    public function spentBy(string $writer): array
     {
         $mind = $this->read();
+        $writer = self::writerOf($writer) ?? $writer;
 
-        return ['lines' => $mind['spent'][$grant] ?? 0, 'stopped' => isset($mind['halted'][$grant])];
+        return ['lines' => $mind['spent'][$writer] ?? 0, 'stopped' => isset($mind['halted'][$writer])];
     }
 
     /**
-     * The grants a receipt or a sign of this operation is written under when THIS caller says it: the ones whose line
-     * says the operation measures or watches them, and whose document names that caller as a seat
-     * ({@see self::spentUnder()}). None, for whoever is a seat of none of them.
-     *
-     * @param mixed $who the caller as a line names it
-     *
-     * @return list<string>
+     * The {@see self::OVERSPENT} stop the house has standing on this writer — the line a person's lift must name, so
+     * that a lift of an older stop does not bring back the budget this one took away — or `null`: none stands.
      */
-    public function spokenForBy(string $operation, mixed $who): array
+    public function haltedAt(string $writer): ?string
     {
-        return self::under($this->read(), $operation, $who);
+        $writer = self::writerOf($writer) ?? $writer;
+
+        return $this->read()['halted'][$writer] ?? null;
     }
 
     /**
-     * {@see self::spokenForBy()}, asked of a reading.
-     *
-     * @param Mind $mind
-     *
-     * @return list<string>
+     * The one writer a line is counted against: a key, as the book names it, normalized — or a token's actor as it
+     * came, or the terminal's own «local-shell». `null` for a line that says no writer.
      */
-    private static function under(array $mind, string $operation, mixed $who): array
+    public static function writerOf(mixed $who): ?string
     {
-        $named = (new OperationId($operation))->canonical;
-        $key = \is_string($who) && str_starts_with($who, 'key:') ? IdentityKey::normalize(substr($who, 4)) : null;
+        if (!\is_string($who) || $who === '') {
+            return null;
+        }
 
-        return array_keys(array_filter($mind['speaks'], static fn (array $by, string $grant): bool => \in_array($named, $by, true) && \in_array($key, $mind['seats'][$grant] ?? [], true), \ARRAY_FILTER_USE_BOTH));
+        return str_starts_with($who, 'key:') && \strlen($who) > 4 ? 'key:' . IdentityKey::normalize(substr($who, 4)) : $who;
     }
 
     /**
@@ -495,11 +496,13 @@ final class StandingLedger
     /**
      * How many bytes of book this house reads: past it the book is a fault, and is not read (decided by Rod, 2026-10-13: D18).
      *
-     * WHAT STILL REACHES IT (the seventh review; decided by Rod, 2026-10-13). No budget counts what narrows — a no and
-     * a «fired» are written whoever says them and whatever a grant spent — nor what somebody who is a seat of no grant
-     * writes. One caller with the word of an instrument writes its way here in about fifteen thousand runs. The house
-     * says so from half ({@see self::WARNS_FROM}); past this it lends nothing until a person keeps the book somewhere
-     * else.
+     * WHAT STILL REACHES IT (Option C; decided by Rod, 2026-10-14). Every writer has a budget of its own
+     * ({@see self::BUDGET}); past it the house will not run an instrument or a watcher for that writer, nor lend it
+     * an act, until a person lifts the writer's stop — so no one writer alone can grow the book past its budget. What
+     * remains is the SUM over NAMES: whoever can enrol keys or mint tokens has a budget per name, and what carries no
+     * name shares one. A no and a «fired» a run that was within budget DID say are still written, whatever was spent.
+     * The house says so from half ({@see self::WARNS_FROM}); past this it lends nothing until a person keeps the book
+     * somewhere else.
      */
     public const LONGEST = 8 * 1024 * 1024;
 
@@ -507,8 +510,8 @@ final class StandingLedger
     public const WARNS_FROM = 4 * 1024 * 1024;
 
     /**
-     * How many lines are written under one grant between two acts of a person — the one that gives it, and each one
-     * that lifts it (a PROPOSAL, not decided: the number; that there is one was decided by Rod, 2026-10-13: D18).
+     * How many lines ONE WRITER leaves before the house stops its runs, until a person lifts the stop (a PROPOSAL,
+     * not decided: the number; that the budget is the writer's was decided by Rod, 2026-10-14: Option C).
      */
     public const BUDGET = 3000;
 
@@ -613,7 +616,7 @@ final class StandingLedger
     /** @return Mind a reading that holds no line */
     private static function nothing(?string $fault): array
     {
-        return ['kept' => [], 'recent' => [], 'lines' => 0, 'last' => null, 'fault' => $fault, 'calm' => [], 'refused' => [], 'speaks' => [], 'seats' => [], 'spent' => [], 'halted' => []];
+        return ['kept' => [], 'recent' => [], 'lines' => 0, 'last' => null, 'fault' => $fault, 'calm' => [], 'refused' => [], 'spent' => [], 'halted' => []];
     }
 
     /**
@@ -629,30 +632,30 @@ final class StandingLedger
         $mind['last'] = $entry['hash'];
         $mind['recent'][$line % self::RECENT] = $entry;
         $data = $entry['data'];
-        $fired = $entry['type'] === self::WATCHED ? ($data['fired'] ?? null) : null;
-        // WHAT THE SEATS OF EACH GRANT HAVE SPENT ({@see self::spentUnder()}): told from the line alone.
-        $grant = \is_string($data['grant'] ?? null) ? $data['grant'] : null;
-        $speaker = $data[$entry['type'] === self::MEASURED ? 'by' : 'watcher'] ?? null;
-        if ($grant !== null && \in_array($entry['type'], [self::GRANTED, self::REINSTATED], true)) {
-            $mind['spent'][$grant] = 0;
-            unset($mind['halted'][$grant]);
-            if ($entry['type'] === self::GRANTED) {
-                $document = self::grantIn($data);
-                $mind['speaks'][$grant] = array_map(strval(...), array_keys(\is_array($data['instruments'] ?? null) ? $data['instruments'] : []));
-                $mind['seats'][$grant] = $document instanceof StandingGrant ? array_map(IdentityKey::normalize(...), $document->to) : [];
+        $type = $entry['type'];
+        $fired = $type === self::WATCHED ? ($data['fired'] ?? null) : null;
+        // THE BUDGET IS THE WRITER'S ({@see self::spentBy()}): told from the line alone. Every line a writer leaves is
+        // counted against it — a receipt, a sign of a watcher, an act it was lent, a refusal it was given. The house's
+        // stop of a writer names that writer and is kept so the count can be read as stopped; a person's lift of that
+        // very stop (never of an older one) starts the count again. A stop and a lift are not themselves counted.
+        if ($type === self::OVERSPENT) {
+            $writer = self::writerOf($data['writer'] ?? null);
+            if ($writer !== null) {
+                $mind['halted'][$writer] = $entry['hash'];
             }
-        } elseif ($grant !== null && $entry['type'] === self::SUSPENDED) {
-            $mind['halted'][$grant] = true;
-        } elseif ($grant !== null && \in_array($entry['type'], [self::ABSORBED, self::REFUSED], true)) {
-            if (\is_string($data['seat'] ?? null) && \in_array(IdentityKey::normalize($data['seat']), $mind['seats'][$grant] ?? [], true)) {
-                $mind['spent'][$grant] = ($mind['spent'][$grant] ?? 0) + 1;
+        } elseif ($type === self::RESTORED) {
+            $writer = self::writerOf($data['writer'] ?? null);
+            if ($writer !== null && ($mind['halted'][$writer] ?? null) === ($data['suspension'] ?? null)) {
+                $mind['spent'][$writer] = 0;
+                unset($mind['halted'][$writer]);
             }
-        } elseif (\in_array($entry['type'], [self::MEASURED, self::WATCHED], true) && \is_string($speaker)) {
-            foreach (self::under($mind, $speaker, $data['who'] ?? null) as $under) {
-                $mind['spent'][$under] = ($mind['spent'][$under] ?? 0) + 1;
+        } elseif (\in_array($type, [self::MEASURED, self::WATCHED, self::ABSORBED, self::REFUSED], true)) {
+            $writer = self::writerOf($data['who'] ?? null);
+            if ($writer !== null) {
+                $mind['spent'][$writer] = ($mind['spent'][$writer] ?? 0) + 1;
             }
         }
-        if ($entry['type'] === self::ABSORBED) {
+        if ($type === self::ABSORBED) {
             return;
         }
         if ($fired === false) {
@@ -800,6 +803,8 @@ final class StandingLedger
             self::ABSORBED, self::REFUSED => $says('grant', 'operation', 'seat'),
             self::SUSPENDED, self::REVOKED => $says('grant'),
             self::REINSTATED => $says('grant', 'suspension'),
+            self::OVERSPENT => $says('writer', 'by'),
+            self::RESTORED => $says('writer', 'suspension'),
             default => 'this house does not know what kind of line it is',
         };
 

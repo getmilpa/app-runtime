@@ -93,12 +93,15 @@ final class StandingOperations implements CommandProvider
             ),
             new Operation(
                 name: 'standing:reinstate',
-                description: 'Lift the suspension of a standing grant — a person\'s signed act that names the very suspension it lifts (greenhouse decisions/0615)',
-                handler: fn (array $input): array => $this->decide($input, 'standing:reinstate'),
+                description: 'Lift a stop that names the very stop it lifts — a person\'s signed act (greenhouse decisions/0615, Option C). Of a standing grant, by `grant`; or of a WRITER the house stopped for its budget, by `writer`',
+                handler: fn (array $input): array => \is_string($input['writer'] ?? null) && trim($input['writer']) !== ''
+                    ? $this->restore($input)
+                    : $this->decide($input, 'standing:reinstate'),
                 inputSchema: ['type' => 'object', 'properties' => [
                     'grant' => $id,
-                    'suspension' => ['type' => 'string', 'description' => 'The suspension to lift, by the digest `standing:granted` shows for it'],
-                ], 'required' => ['grant', 'suspension']],
+                    'writer' => ['type' => 'string', 'description' => 'A writer the house stopped for its budget — a key, as `standing:granted` shows it, or a token\'s actor. Give this OR `grant`'],
+                    'suspension' => ['type' => 'string', 'description' => 'The stop to lift, by the digest the house shows for it'],
+                ], 'required' => ['suspension']],
                 mutating: true,
                 requiresConfirmation: true,
                 scopes: [StandingBook::AUTHORITY],
@@ -442,6 +445,71 @@ final class StandingOperations implements CommandProvider
             'next' => $reinstating
                 ? "It lends nothing until its watcher gives a sign of life again: run `{$watcher}`. A sign from before the suspension does not count."
                 : 'It lends nothing from this moment. What the house absorbed under it stays absorbed.',
+        ];
+    }
+
+    /**
+     * A PERSON LIFTS A WRITER'S BUDGET STOP — a signed act that names the writer and the very stop it lifts (Option C,
+     * decided by Rod, 2026-10-14). The budget is the writer's ({@see StandingLedger::spentBy()}); the house stops a
+     * writer that spent it ({@see HouseStandingJudge::overspent()}), and a person starts its count again.
+     *
+     * Held to the standard of reinstating a grant: a person's signature, verified here and on every read, over the
+     * writer and the stop; it lifts the stop that stands on that writer and NO OTHER, so a lift of an older stop does
+     * not bring back a budget this one took away. Only a person may — stopping is anyone's, lifting is not — and the
+     * gate asks for the word that recognizes identities before this handler runs, so a seat or a token cannot lift the
+     * stop its own runs earned.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function restore(array $input): array
+    {
+        $writer = \is_string($input['writer'] ?? null) ? trim($input['writer']) : '';
+        $suspension = \is_string($input['suspension'] ?? null) ? trim($input['suspension']) : '';
+        $granted = $this->signature('standing:reinstate', ['suspension' => $suspension, 'writer' => $writer]);
+        if (\is_string($granted)) {
+            return self::no($granted . ' — nothing was lifted');
+        }
+        $root = $this->root();
+        $book = $root === null ? null : StandingBook::forRoot($root, $this->verifier);
+        $unverified = self::unverified($book);
+        if ($book === null || $unverified !== null) {
+            return self::no(($unverified ?? 'this house keeps no book of standing grants') . ' — nothing was lifted');
+        }
+        $stop = $book->ledger()->haltedAt($writer);
+        if ($stop === null) {
+            return self::no("no writer «{$writer}» is stopped for its budget in this house — nothing was lifted");
+        }
+        if ($stop !== $suspension) {
+            return self::no("the stop that stands on «{$writer}» is {$stop}; a signature lifts the one it names and no other — nothing was lifted");
+        }
+        $notAPerson = $book->notAPersonFor($granted->signer->fingerprint, []);
+        if ($notAPerson !== null) {
+            return self::no($notAPerson . ' — nothing was lifted');
+        }
+        try {
+            $entry = $book->ledger()->append(StandingLedger::RESTORED, [
+                'writer' => $writer,
+                'suspension' => $suspension,
+                'payload' => $granted->payload,
+                'signature' => $granted->signature,
+                'fingerprint' => $granted->signer->fingerprint,
+                // …and WHICH RECOGNITION of whoever signs it, so a person who leaves and is recognized again does not
+                // lift what the stop they earlier were takes (as a grant's reinstatement is — {@see StandingBook}).
+                'recognized' => $book->recognitions([$granted->signer->fingerprint]),
+            ]);
+        } catch (\RuntimeException $error) {
+            return self::no($error->getMessage() . ' — nothing was lifted');
+        }
+
+        return [
+            'ok' => true,
+            'writer' => $writer,
+            'by' => 'key:' . $granted->signer->fingerprint,
+            'at' => $entry['at'],
+            'stands_as' => 'in force',
+            'next' => "«{$writer}» writes again, and its budget starts over: its runs, and the acts it is lent, are no longer refused for this stop.",
         ];
     }
 

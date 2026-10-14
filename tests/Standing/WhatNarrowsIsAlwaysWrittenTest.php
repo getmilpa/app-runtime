@@ -11,20 +11,22 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
- * WHAT NARROWS AND WAS SAID IS WRITTEN (greenhouse decisions/0615 — the seventh review, 7-H1 and 7-M1; decided by
- * Rod, 2026-10-13).
+ * WHAT NARROWS AND WAS SAID IS WRITTEN (greenhouse decisions/0615 — the seventh review, 7-H1 and 7-M1; the eighth,
+ * 8-M1; Option C decided by Rod, 2026-10-14).
  *
- * Three times an economy of lines was put in front of the one write that may never be skipped: an «already said»
- * (6-M1), a bound on a name's length (6-M2), and the budget of D18 (7-H1) — a «fired» and a no said while a grant
- * was stopped for its budget were not written, a person lifted the stop the house named, and the act was lent. The
- * sentence «a line that narrows is always written» was a comment, and the no and the «fired» went down the same road
- * as every other line. So:
+ * Four times an economy of lines was put in front of the one write that may never be skipped: an «already said»
+ * (6-M1), a bound on a name's length (6-M2), the budget of D18 (7-H1), and — the other way — no bound at all on what
+ * narrows, nor on what a non-seat writes, so one caller filled the book to its ceiling and denied the feature to the
+ * whole house (8-M1). Option C answers the last pair by moving the budget off the grant and onto THE WRITER, and by
+ * asking it of the RUN, before any line exists — never in front of the write. So:
  *
- *   · A NO AND A «FIRED» ARE WRITTEN, whatever a grant stands as, from every door, whoever says them: the budget is
- *     not asked. Held here by a sweep, not by an example — every state a grant can stand in, the two doors a run
- *     comes through, every kind of caller, and the two things that narrow: one more line, and it is that one.
- *   · THE BUDGET OF A GRANT IS ITS SEATS': what somebody else writes is not counted under it, so whoever cannot stop
- *     a grant does not stop it by measuring.
+ *   · A NO AND A «FIRED» A RUN SAID ARE WRITTEN, whatever a grant stands as, from every door, whoever says them: the
+ *     write is not asked a budget. Held here by a sweep, not by an example — every state a grant can stand in, the two
+ *     doors a run comes through, every kind of caller, and the two things that narrow: one more line, and it is that
+ *     one. What the budget denies is the RUN of a writer that spent it — before it says anything ({@see
+ *     TheBudgetIsTheWritersTest}).
+ *   · THE BUDGET IS THE WRITER'S: what one writer leaves is counted against it, by name, never against a grant — so
+ *     whoever cannot stop a grant does not stop it by measuring; its runs spend only its own budget.
  *
  * @subject-in milpa/app-runtime
  */
@@ -87,15 +89,6 @@ final class WhatNarrowsIsAlwaysWrittenTest extends TestCase
                 $house->granted();
                 $house->hardenScanner();
             }, null],
-            'past its budget, the stop not written yet' => [static function (LabHouse $house): void {
-                $house->granted();
-                self::spendAllBut($house, 0);
-            }, GrantState::InForce],
-            'stopped for its budget' => [static function (LabHouse $house): void {
-                $house->granted();
-                self::spendAllBut($house, 0);
-                $house->as(LabHouse::SEAT, 'lab:scan', ['path' => $house->candidate('good.txt', "clean release\n")]);
-            }, GrantState::Suspended],
         ];
     }
 
@@ -133,9 +126,6 @@ final class WhatNarrowsIsAlwaysWrittenTest extends TestCase
         if ($standsAs !== null) {
             self::assertSame($standsAs, $this->house->book()->record('release-line')?->state, 'control: the state this cell is about was not staged');
         }
-        if ($state === 'stopped for its budget') {
-            self::assertSame('the house', $this->house->lines(StandingLedger::SUSPENDED)[0]['by'] ?? null, 'control: it is the house that stopped it');
-        }
         $context = self::callers()[$caller]($this->house);
         $red = $this->house->candidate('red.txt', "machine-name: one\n");
         [$name, $input, $answer] = $fired
@@ -159,86 +149,83 @@ final class WhatNarrowsIsAlwaysWrittenTest extends TestCase
         }
     }
 
-    // ── 7-H1, as it was found ────────────────────────────────────────────────────────────────────────────────
+    // ── 7-H1 under Option C: the budget denies the RUN, never the write of a no a run said ───────────────────
 
-    public function testALiftOfABudgetStopDoesNotBringBackWhatAFiredAndANoSaidWhileItStood(): void
+    public function testANoAWithinBudgetRunSaidIsWrittenAndItIsTheNextRunTheBudgetDenies(): void
     {
+        // 7-H1 was a no and a «fired» DROPPED while a grant was stopped for its budget; a person lifted the stop and
+        // the act was lent on a candidate a no had been said of. Under Option C nothing is dropped: the budget is
+        // asked of the RUN, and a no a run within budget said goes straight into the book.
         $this->house->granted();
         $good = $this->house->candidate('good.txt', "clean release\n");
         $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $good]);
         self::assertSame(['ok' => true], $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $good]), 'control: the green counts and the act is lent');
-        self::spendAllBut($this->house, 0);
-        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $this->house->candidate('other.txt', "another clean release\n")]);
-        $budgetStop = (string) $this->house->book()->record('release-line')?->suspension;
-        self::assertSame(['the house'], array_column($this->house->lines(StandingLedger::SUSPENDED), 'by'), 'control: the house stopped the grant for its budget');
 
-        // WHILE IT IS STOPPED: the falsifier fires and a person runs the watcher; a stricter run says no of the candidate.
-        $this->house->fired = true;
-        $this->house->as(LabHouse::PERSON, 'lab:watch');
-        $this->house->fired = false;
-        $lenient = $this->house->scanner;
+        // The seat is one line short of its budget; a stricter run says no — within budget, so it is written.
+        $this->spendSeatTo(StandingLedger::BUDGET - 1);
         $this->house->scanner = static fn (string $bytes): array => ['ok' => false];
-        $this->house->as(LabHouse::PERSON, 'lab:scan', ['path' => $good]);
-        $this->house->scanner = $lenient;
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $good]);
+        $noes = array_filter($this->house->lines(StandingLedger::MEASURED), fn (array $r): bool => $r['subject'] === $this->house->digestOf($good) && $r['ok'] === false);
+        self::assertCount(1, $noes, 'the no said by a run within budget was not written');
+        self::assertSame(['lines' => StandingLedger::BUDGET, 'stopped' => false], $this->house->ledger()->spentBy('key:' . LabHouse::SEAT));
 
-        self::assertSame([true], array_values(array_filter(array_column($this->house->lines(StandingLedger::WATCHED), 'fired'))), 'the «fired» said while the grant was stopped for its budget was not written');
-        $noes = array_filter($this->house->lines(StandingLedger::MEASURED), fn (array $receipt): bool => $receipt['subject'] === $this->house->digestOf($good) && $receipt['ok'] === false);
-        self::assertCount(1, $noes, 'the no said while the grant was stopped for its budget was not written');
+        // That no counts: the act is refused on that candidate until it is measured green again.
+        self::assertArrayHasKey('refused', $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $good]), 'an act was lent on a candidate a no was said of');
 
-        // The stop that stands is the «fired» now, and the lift of the budget stop — by its name — lifts nothing.
-        $lifted = $this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => $budgetStop]);
-        self::assertNotTrue($lifted['ok'] ?? null, 'the stop the house had named was lifted over a «fired» written after it');
-        self::assertSame(GrantState::Suspended, $this->house->book()->record('release-line')?->state);
+        // The seat's NEXT run of the instrument is the one the budget denies — before it says anything.
+        $before = \count($this->house->lines(StandingLedger::MEASURED));
+        $denied = $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $good]);
+        self::assertCount($before, $this->house->lines(StandingLedger::MEASURED), 'a run past the budget still said a no');
+        self::assertStringContainsString('spent its budget', (string) ($denied['refused'] ?? 'RAN'));
+        self::assertTrue($this->house->ledger()->spentBy('key:' . LabHouse::SEAT)['stopped']);
 
-        // A person lifts the stop that stands; the watcher is calm again; and the no still says no of that candidate.
-        self::assertTrue($this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['grant' => 'release-line', 'suspension' => (string) $this->house->book()->record('release-line')?->suspension])['ok'] ?? null);
-        $this->house->as(LabHouse::SEAT, 'lab:watch');
-        $merged = $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $good]);
-
-        self::assertArrayHasKey('refused', $merged, 'an act was lent on a candidate a no was said of, and never measured again');
-        self::assertCount(1, $this->house->done('merged'), 'and it ran');
+        // And a person lifts the writer's stop, by its name; the writer scans again.
+        $stop = (string) $this->house->ledger()->haltedAt('key:' . LabHouse::SEAT);
+        self::assertTrue($this->house->signed(LabHouse::PERSON, 'standing:reinstate', ['writer' => 'key:' . LabHouse::SEAT, 'suspension' => $stop])['ok'] ?? null);
+        $this->house->scanner = static fn (string $bytes): array => ['ok' => true];
+        $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $good]);
+        self::assertSame([true, false, true], array_column(array_filter($this->house->lines(StandingLedger::MEASURED), fn (array $r): bool => $r['subject'] === $this->house->digestOf($good)), 'ok'), 'after the lift the writer measures again (green, no, green)');
     }
 
-    // ── 7-M1: whose budget it is ─────────────────────────────────────────────────────────────────────────────
+    // ── 7-M1 at the root: the budget is the writer's, counted by name, never a grant's ──────────────────────
 
-    /** @return iterable<string, array{string, array<string, mixed>}> a line the house writes for somebody who is not a seat of the lab grant */
-    public static function whatSomebodyElseWrites(): iterable
+    /** @return iterable<string, array{string, string, array<string, mixed>}> a writer, and a line it leaves */
+    public static function whatEachWriterLeaves(): iterable
     {
         $receipt = static fn (string $who): array => ['by' => 'lab.scan', 'arguments' => ['path' => 'x'], 'subject' => 'sha256:x', 'ok' => true, 'instrument' => 'sha256:any', 'who' => $who, 'at' => '2026-10-11T12:00:00+00:00'];
-        yield 'a receipt of the person who gave it' => [StandingLedger::MEASURED, $receipt('key:' . LabHouse::PERSON)];
-        yield 'a receipt of another key of the house' => [StandingLedger::MEASURED, $receipt('key:' . LabHouse::OTHER_SEAT)];
-        yield 'a receipt of a token that is no key' => [StandingLedger::MEASURED, $receipt('ci')];
-        yield 'a receipt of the terminal of the house' => [StandingLedger::MEASURED, $receipt('local-shell')];
-        // The bearer of a token carries any actor's name — a seat's very key, without what says it is a key.
-        yield 'a receipt of a token that carries the name of its seat' => [StandingLedger::MEASURED, $receipt(LabHouse::SEAT)];
-        yield 'a receipt that does not say who measured' => [StandingLedger::MEASURED, array_diff_key($receipt('x'), ['who' => true])];
-        yield 'a sign of its watcher by another key' => [StandingLedger::WATCHED, ['watcher' => 'lab.watch', 'arguments' => [], 'fired' => false, 'who' => 'key:' . LabHouse::OTHER_SEAT, 'pin' => 'sha256:any']];
-        yield 'a «fired» of its watcher by a token' => [StandingLedger::WATCHED, ['watcher' => 'lab.watch', 'arguments' => [], 'fired' => true, 'who' => 'ci', 'pin' => null]];
-        yield 'a refusal it gave to a key that is not its seat' => [StandingLedger::REFUSED, ['grant' => 'release-line', 'operation' => 'lab.merge', 'seat' => LabHouse::OTHER_SEAT, 'subject' => 'sha256:x', 'check' => 'conditions', 'reason' => 'measured_red']];
+        $sign = static fn (string $who): array => ['watcher' => 'lab.watch', 'arguments' => [], 'fired' => false, 'who' => $who, 'pin' => 'sha256:any'];
+        yield 'a seat, by its key' => ['key:' . LabHouse::SEAT, StandingLedger::MEASURED, $receipt('key:' . LabHouse::SEAT)];
+        yield 'the person who gave it' => ['key:' . LabHouse::PERSON, StandingLedger::MEASURED, $receipt('key:' . LabHouse::PERSON)];
+        yield 'another key of the house' => ['key:' . LabHouse::OTHER_SEAT, StandingLedger::WATCHED, $sign('key:' . LabHouse::OTHER_SEAT)];
+        yield 'a token that is no key' => ['ci', StandingLedger::MEASURED, $receipt('ci')];
+        yield 'the terminal of the house' => ['local-shell', StandingLedger::WATCHED, $sign('local-shell')];
+        // The bearer of a token carries any actor's name — a seat's very key, without what says it is a key: another writer.
+        yield 'a token that carries the name of its seat' => [LabHouse::SEAT, StandingLedger::MEASURED, $receipt(LabHouse::SEAT)];
     }
 
     /** @param array<string, mixed> $line */
-    #[DataProvider('whatSomebodyElseWrites')]
-    public function testWhatSomebodyWhoIsNotASeatOfAGrantWritesIsNotCountedUnderIt(string $type, array $line): void
+    #[DataProvider('whatEachWriterLeaves')]
+    public function testWhatAWriterLeavesIsCountedAgainstItByNameAndNeverStopsAGrant(string $writer, string $type, array $line): void
     {
         $this->house->granted(watched: false);
 
         $this->house->writtenByHand($type, $line);
         $this->house->writtenByHand($type, $line);
 
-        self::assertSame(0, $this->house->ledger()->spentUnder('release-line')['lines']);
+        self::assertSame(2, $this->house->ledger()->spentBy($writer)['lines'], 'the two lines were not counted against the writer that left them');
+        self::assertSame([], $this->house->lines(StandingLedger::OVERSPENT), 'two lines stopped a writer');
+        self::assertSame(GrantState::InForce, $this->house->book()->record('release-line')?->state, 'what a writer wrote stopped a grant');
     }
 
-    public function testTheSeatsOfAGrantAreTheOnesItsOwnSignedDocumentNames(): void
+    public function testALineThatSaysNoWriterIsCountedAgainstNobody(): void
     {
-        $this->house->granted(['to' => [LabHouse::SEAT, LabHouse::OTHER_SEAT]], watched: false);
-        $receipt = static fn (string $who): array => ['by' => 'lab.scan', 'arguments' => ['path' => 'x'], 'subject' => 'sha256:x', 'ok' => true, 'instrument' => 'sha256:any', 'who' => $who, 'at' => '2026-10-11T12:00:00+00:00'];
+        $this->house->granted(watched: false);
+        $receipt = ['by' => 'lab.scan', 'arguments' => ['path' => 'x'], 'subject' => 'sha256:x', 'ok' => true, 'instrument' => 'sha256:any', 'at' => '2026-10-11T12:00:00+00:00'];
 
-        $this->house->writtenByHand(StandingLedger::MEASURED, $receipt('key:' . LabHouse::SEAT));
-        $this->house->writtenByHand(StandingLedger::MEASURED, $receipt('key:' . LabHouse::OTHER_SEAT));
-        $this->house->writtenByHand(StandingLedger::MEASURED, $receipt('key:' . LabHouse::PERSON));
+        $this->house->writtenByHand(StandingLedger::MEASURED, $receipt);
 
-        self::assertSame(2, $this->house->ledger()->spentUnder('release-line')['lines']);
+        self::assertSame([], $this->house->lines(StandingLedger::OVERSPENT));
+        self::assertSame(0, $this->house->ledger()->spentBy('local-shell')['lines'], 'a line that names no writer was counted against the terminal');
     }
 
     /** @return iterable<string, array{\Closure(LabHouse): ToolContext}> */
@@ -253,31 +240,34 @@ final class WhatNarrowsIsAlwaysWrittenTest extends TestCase
     #[DataProvider('whoIsNotItsSeat')]
     public function testWhoeverIsNotASeatOfAGrantDoesNotStopItByMeasuring(\Closure $context): void
     {
-        // Found with a token that the decided stop — `standing:suspend` — refuses: 2,997 of its measurements stopped
-        // a seat's grant. As many lines as a budget holds are written here as that caller's, and then it measures
-        // once more through the door.
+        // Found with a token the decided stop — `standing:suspend` — refuses: 2,997 of its measurements stopped a
+        // seat's grant (7-M1). Under Option C its measurements spend its OWN budget and stop its OWN runs; the grant is
+        // never stopped, and the seat is lent its act as before.
         $this->house->granted();
         $good = $this->house->candidate('good.txt', "clean release\n");
         $this->house->as(LabHouse::SEAT, 'lab:scan', ['path' => $good]);
         $caller = $context($this->house);
+        $who = $caller->principal ?? 'local-shell';
         for ($written = 0; $written < StandingLedger::BUDGET; ++$written) {
-            $this->house->writtenByHand(StandingLedger::MEASURED, ['by' => 'lab.scan', 'arguments' => ['path' => 'seen-' . $written . '.txt'], 'subject' => 'sha256:' . hash('sha256', (string) $written), 'ok' => true, 'instrument' => 'sha256:any', 'who' => $caller->principal ?? 'local-shell', 'at' => $this->house->now->format(\DATE_ATOM), 'arrived' => 'unsigned']);
+            $this->house->writtenByHand(StandingLedger::MEASURED, ['by' => 'lab.scan', 'arguments' => ['path' => 'seen-' . $written . '.txt'], 'subject' => 'sha256:' . hash('sha256', (string) $written), 'ok' => true, 'instrument' => 'sha256:any', 'who' => $who, 'at' => $this->house->now->format(\DATE_ATOM), 'arrived' => 'unsigned']);
         }
 
-        $this->house->through($caller, 'lab:scan', ['path' => $this->house->candidate('theirs.txt', "a release of theirs\n")]);
+        $measured = $this->house->through($caller, 'lab:scan', ['path' => $this->house->candidate('theirs.txt', "a release of theirs\n")]);
 
-        self::assertSame([], $this->house->lines(StandingLedger::SUSPENDED), 'a grant was stopped for what somebody who is not its seat wrote');
+        self::assertSame([], $this->house->lines(StandingLedger::SUSPENDED), 'a grant was stopped for what a writer that is not its seat wrote');
         self::assertSame(GrantState::InForce, $this->house->book()->record('release-line')?->state);
+        self::assertStringContainsString('spent its budget', (string) ($measured['refused'] ?? 'RAN'), 'the writer that measured was not the one stopped');
+        self::assertSame([$who], array_column($this->house->lines(StandingLedger::OVERSPENT), 'writer'), 'the stop did not name the writer that spent its budget');
         self::assertSame(['ok' => true], $this->house->as(LabHouse::SEAT, 'lab:merge', ['path' => $good]), 'and its seat was lent nothing');
     }
 
     // ── what these tests are staged with ────────────────────────────────────────────────────────────────────
 
-    /** Write, as the lab grant's own seat measuring content after content, the lines that leave this many of its budget unspent. */
-    private static function spendAllBut(LabHouse $house, int $left): void
+    /** Write, as the lab grant's own seat measuring content after content, lines until the seat has left this many. */
+    private function spendSeatTo(int $lines): void
     {
-        for ($spent = $house->ledger()->spentUnder('release-line')['lines']; $spent < StandingLedger::BUDGET - $left; ++$spent) {
-            $house->writtenByHand(StandingLedger::MEASURED, ['by' => 'lab.scan', 'arguments' => ['path' => 'seen-' . $spent . '.txt'], 'subject' => 'sha256:' . hash('sha256', (string) $spent), 'ok' => true, 'instrument' => 'sha256:any', 'who' => 'key:' . LabHouse::SEAT, 'at' => $house->now->format(\DATE_ATOM), 'arrived' => 'unsigned']);
+        for ($spent = $this->house->ledger()->spentBy('key:' . LabHouse::SEAT)['lines']; $spent < $lines; ++$spent) {
+            $this->house->writtenByHand(StandingLedger::MEASURED, ['by' => 'lab.scan', 'arguments' => ['path' => 'seen-' . $spent . '.txt'], 'subject' => 'sha256:' . hash('sha256', (string) $spent), 'ok' => true, 'instrument' => 'sha256:any', 'who' => 'key:' . LabHouse::SEAT, 'at' => $this->house->now->format(\DATE_ATOM), 'arrived' => 'unsigned']);
         }
     }
 }

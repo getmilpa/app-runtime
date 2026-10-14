@@ -493,10 +493,12 @@ final class LabHouse implements SignatureVerifier
      * A line appended by whoever holds the disk, with a link that verifies — what the chain does not stop.
      *
      * @param array<string, mixed> $data
+     *
+     * @return array{type: string, at: string, prev: ?string, hash: string, data: array<string, mixed>}
      */
-    public function writtenByHand(string $type, array $data): void
+    public function writtenByHand(string $type, array $data): array
     {
-        $this->ledger()->append($type, $data, $this->now);
+        return $this->ledger()->append($type, $data, $this->now);
     }
 
     /**

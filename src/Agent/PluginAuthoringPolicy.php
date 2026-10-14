@@ -755,6 +755,14 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         // instrument or a watcher leaves no trace here, and in a house with no grant nothing is even read.
         $standing = $this->standing();
         $noted = $standing->witnessing($operation, $input);
+        if ($noted !== null) {
+            // A RUN OF AN INSTRUMENT OR A WATCHER THE HOUSE WILL NOT RECORD FROM A WRITER THAT SPENT ITS BUDGET
+            // (Option C): the judge answers it with a no BEFORE it runs, so nothing is produced to drop.
+            $denied = $standing->overspent($authority);
+            if ($denied !== null) {
+                throw new \RuntimeException($denied);
+            }
+        }
         $result = $this->governed($operation, $input, $authority, $next);
         if ($noted !== null) {
             $standing->witnessed($noted, $operation, $input, $result, $authority, true);
@@ -859,6 +867,11 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
         // content that run read. A yes and a sign of calm are not — the house did not run that code, and for a green
         // a candidate is measured in the house.
         $noted = $standing->witnessing($operation, $input);
+        if ($noted !== null && ($denied = $standing->overspent($authority)) !== null) {
+            // The leg's instrument or watcher, run by a writer that spent its budget: refused before it runs, as it is
+            // at the terminal's door ({@see self::execute()}, Option C). Nothing ran, nothing is written.
+            throw new NotAbsorbed($denied);
+        }
         $heard = static function (mixed $result) use ($standing, $noted, $operation, $input, $answered, $authority): mixed {
             if ($noted !== null) {
                 $standing->witnessed($noted, $operation, $input, $answered($result), $authority, false);
@@ -895,6 +908,12 @@ final class PluginAuthoringPolicy implements CallPolicy, OperationBoundary
     private function underAGrant(ToolContext $context, Operation $operation, array $input, \Closure $run, ?\Closure $answered = null): mixed
     {
         $standing = $this->standing();
+        // AN ACT THE HOUSE WILL NOT LEND A WRITER THAT SPENT ITS BUDGET (Option C): refused before it is written down,
+        // so a writer that spent its budget is stopped across every grant it holds, not only at an instrument's run.
+        $denied = $standing->overspent($context);
+        if ($denied !== null) {
+            throw new NotAbsorbed($denied);
+        }
         try {
             $absorbed = $standing->absorbing($context, $operation, $input, $this->operationNamed(...), $this->answeredTwice(...));
         } catch (\RuntimeException $unwritten) {
