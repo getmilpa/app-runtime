@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.222.0](https://github.com/getmilpa/app-runtime/compare/v0.221.3...v0.222.0) (2026-10-14)
+
+
+### Features
+
+* the house judges a standing grant before a seat's act (greenhouse decisions/0615) ([#797](https://github.com/getmilpa/app-runtime/issues/797)) ([8a4896e](https://github.com/getmilpa/app-runtime/commit/8a4896ea4d84d8307d9f4e370075494d6ea93ad5))
+
 ## [0.221.3](https://github.com/getmilpa/app-runtime/compare/v0.221.2...v0.221.3) (2026-10-14)
 
 
