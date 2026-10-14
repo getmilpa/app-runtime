@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.221.3](https://github.com/getmilpa/app-runtime/compare/v0.221.2...v0.221.3) (2026-10-14)
+
+
+### Bug Fixes
+
+* **trial:** confine the escape surface — environment, host sockets, /proc, IPC, session, and the shell's authority ([#807](https://github.com/getmilpa/app-runtime/issues/807)) ([cb6e728](https://github.com/getmilpa/app-runtime/commit/cb6e728cf7cc09542499acab0bd22228231063e5))
+
 ## [0.221.2](https://github.com/getmilpa/app-runtime/compare/v0.221.1...v0.221.2) (2026-10-13)
 
 
