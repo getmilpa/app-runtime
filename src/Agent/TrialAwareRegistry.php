@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Agent;
 
 use Milpa\Agent\SessionStore;
 use Milpa\Agent\EffectObservation;
+use Milpa\AppRuntime\Standing\NotAbsorbed;
 use Milpa\AppRuntime\Web\ScreenDrafts;
 use Milpa\Command\Operation;
 use Milpa\ToolRuntime\ConfirmationTokenStore;
@@ -94,15 +95,24 @@ final class TrialAwareRegistry extends ToolRegistry
      *
      * @param array<string, mixed> $args
      */
-    private function workInTheHouse(string $name, WorkPlan $plan, array $args): ToolResult
+    private function workInTheHouse(string $name, WorkPlan $plan, array $args, Operation $operation, ?ToolContext $ctx): ToolResult
     {
-        if ($this->confinedWork === null) {
+        $confined = $this->confinedWork;
+        if ($confined === null) {
             return ToolResult::error("«{$plan->operation}» is work in the domain and this house has nothing to run it confined with; nothing ran");
         }
+        $ran = false;
         try {
-            $outcome = $this->confinedWork->run($plan, $args);
+            $outcome = $this->acrossTheJudge($ctx, $operation, $args, static function () use ($confined, $plan, $args, &$ran): WorkOutcome {
+                $outcome = $confined->run($plan, $args);
+                $ran = true;
+
+                return $outcome;
+            }, static fn (WorkOutcome $outcome): mixed => $outcome->run->output);
         } catch (\RuntimeException $refused) {
-            return ToolResult::error($refused->getMessage() . ' Nothing ran.');
+            // The judge's refusal and the house's own are both «nothing ran». What the judge could not write down
+            // AFTER the act is not: the act ran, and the sentence must not say otherwise.
+            return ToolResult::error($refused->getMessage() . ($ran ? '' : ' Nothing ran.'));
         }
         $this->landed[$name . '#' . EffectObservation::argumentsDigest($args)] = [
             'environment' => 'house',
@@ -127,6 +137,37 @@ final class TrialAwareRegistry extends ToolRegistry
             : 'This ran in the house and its state did not change: whatever it answered, nothing of it is in the house.'];
 
         return ToolResult::success($data, $outcome->changed ? 'ran in the house; its state changed' : 'ran in the house; its state did not change', $meta);
+    }
+
+    /**
+     * One run that leaves this process — a trial in a copy, work confined in the house — taken across the boundary of
+     * the judge of standing grants (greenhouse decisions/0615, «Lo que la segunda revisión encontró», 1).
+     *
+     * The process that runs it is handed no caller, so its own boundary says nothing: without this, an act a grant
+     * covers ran on a leg with nothing written before it, no judgment under the lock and no look afterwards. The
+     * house's policy is asked with the run in hand ({@see PluginAuthoringPolicy::crossing()}).
+     *
+     * THE JUDGE IS THE ONE THIS LEG WAS HANDED, NOT WHATEVER ITS GATE HOLDS (the fifth review, 5-M4): whoever builds
+     * a leg hands it the house's judge. A house that keeps a book and has none makes no leg for a seat at all
+     * ({@see PluginAuthoringPolicy::closedTo()} — the sixth review, 6-M4).
+     *
+     * @template T
+     *
+     * @param array<string, mixed> $args
+     * @param \Closure(): T        $run
+     * @param \Closure(T): mixed   $answered what the act itself answered, read out of the run
+     *
+     * @return T
+     *
+     * @throws NotAbsorbed the judge's refusal: nothing ran
+     */
+    private function acrossTheJudge(?ToolContext $ctx, Operation $operation, array $args, \Closure $run, \Closure $answered): mixed
+    {
+        // A leg in a house that does not judge is not made for a seat at all ({@see PluginAuthoringPolicy::closedTo()}).
+        if ($this->judge !== null) {
+            return $this->judge->crossing($ctx, $operation, $args, $run, $answered);
+        }
+        return $run();
     }
 
     /** The house's list, when this leg's loop plays the promotion of an admitted operation's trial ({@see houseApplies()}). */
@@ -195,6 +236,7 @@ final class TrialAwareRegistry extends ToolRegistry
         private readonly ?SessionStore $sessions = null,
         private readonly ?string $sessionId = null,
         private readonly ?\Closure $screenDrafts = null,
+        private readonly ?PluginAuthoringPolicy $judge = null,
     ) {
         parent::__construct(new NullLogger());
         $this->pendingMultipartPromotion = $this->recordedMultipartPromotion();
@@ -237,7 +279,7 @@ final class TrialAwareRegistry extends ToolRegistry
                 return ToolResult::error($work->refused);
             }
 
-            return $work->confined ? $this->workInTheHouse($name, $work, $args) : $this->inner->call($name, $args, $ctx);
+            return $work->confined ? $this->workInTheHouse($name, $work, $args, $operation, $ctx) : $this->inner->call($name, $args, $ctx);
         }
         $plan = $operation === null ? null : $this->router->planFor($operation, $args);
         if ($prepared !== null && $plan === null) {
@@ -268,12 +310,16 @@ final class TrialAwareRegistry extends ToolRegistry
 
         // THE CALL RUNS IN THE COPY, NOT ON THE HOST. The registered handler is never reached; what
         // the human gets back is the trial's output and, in the meta, the confinement and the diff.
-        $policy = $this->inner->getPolicyGate()->getCallPolicy();
+        // The house's policy BEHIND whatever the gate holds — the same question every door of a leg asks (greenhouse
+        // decisions/0615, the sweep of «are you the house's policy?»). This one asked it of the gate's policy itself:
+        // with one operation typed by `permission` in the catalogue the gate holds the console's guard around the
+        // house's, the answer was no, and a build call's write set was not named — the whole copy was writable.
+        $policy = PluginAuthoringPolicy::behind($this->inner->getPolicyGate()->getCallPolicy());
         // A custom registry policy cannot turn a source repair's named write set into a whole-copy write.
-        if ($prepared !== null && !$policy instanceof PluginAuthoringPolicy) {
+        if ($prepared !== null && $policy === null) {
             $policy = new PluginAuthoringPolicy($this->router->root());
         }
-        $paths = $policy instanceof PluginAuthoringPolicy && in_array($name, PluginAuthoringPolicy::BUILD, true)
+        $paths = $policy !== null && in_array($name, PluginAuthoringPolicy::BUILD, true)
             ? $policy->writePaths($ctx ?? ToolContext::cli(), $name, $args) : null;
         $observe = $this->sessions !== null && $this->sessionId !== null;
         $before = $observe ? FileEffectObserver::trialSnapshot($plan->workspace) : null;
@@ -287,7 +333,17 @@ final class TrialAwareRegistry extends ToolRegistry
             }
         }
         $authoring = AuthoringDiagnostic::prepare($executionName, $executionInput, $plan->workspace, $before, $paths);
-        $run = $this->router->runner()->run($plan->workspace, $executionName, $executionInput, $paths);
+        try {
+            $run = $this->acrossTheJudge(
+                $ctx,
+                $operation,
+                $args,
+                fn (): TrialRun => $this->router->runner()->run($plan->workspace, $executionName, $executionInput, $paths),
+                static fn (TrialRun $run): mixed => $run->output,
+            );
+        } catch (NotAbsorbed $refused) {
+            return ToolResult::error($refused->getMessage());
+        }
         if ($this->sessionId !== null) {
             $this->router->recordInputCall($this->sessionId, $name, $args, $run->inputWitness);
         }

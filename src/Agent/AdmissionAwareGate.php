@@ -37,12 +37,18 @@ final class AdmissionAwareGate extends PolicyGate
         parent::__construct();
     }
 
-    /** The caller as the wrapped gate is to see it for this one tool. */
-    public function contextFor(ToolContext $ctx, string $tool): ToolContext
+    /**
+     * The caller as the wrapped gate is to see it for this one tool — and, when the call's arguments are known, for
+     * this one call: a standing grant lends only to the call it names (greenhouse decisions/0615).
+     *
+     * @param array<string, mixed>|null $arguments null when only the tool is asked about
+     */
+    public function contextFor(ToolContext $ctx, string $tool, ?array $arguments = null): ToolContext
     {
-        $policy = $this->inner->getCallPolicy();
+        // The house's policy behind whatever this gate holds — a guard of permissions wraps it ({@see PluginAuthoringPolicy::behind()}).
+        $policy = PluginAuthoringPolicy::behind($this->inner->getCallPolicy());
 
-        return $policy instanceof PluginAuthoringPolicy ? $policy->contextFor($ctx, $tool) : $ctx;
+        return $policy !== null ? $policy->contextFor($ctx, $tool, $arguments) : $ctx;
     }
 
     /**
@@ -52,7 +58,9 @@ final class AdmissionAwareGate extends PolicyGate
      */
     public function authorize(ToolContext $ctx, ToolDefinition $tool, array $arguments = []): AuthorizationResult
     {
-        return $this->inner->authorize($this->contextFor($ctx, $tool->name), $tool, $arguments);
+        $seen = $this->contextFor($ctx, $tool->name, $arguments);
+
+        return $this->citing($seen, $tool, $arguments, $this->inner->authorize($seen, $tool, $arguments));
     }
 
     /**
@@ -74,7 +82,27 @@ final class AdmissionAwareGate extends PolicyGate
      */
     public function authorizeCall(ToolContext $ctx, ToolDefinition $tool, array $arguments): AuthorizationResult
     {
-        return $this->inner->authorizeCall($this->contextFor($ctx, $tool->name), $tool, $arguments);
+        $seen = $this->contextFor($ctx, $tool->name, $arguments);
+
+        return $this->citing($seen, $tool, $arguments, $this->inner->authorizeCall($seen, $tool, $arguments));
+    }
+
+    /**
+     * A refusal for the word a seat lacks, followed by why the standing grant that names the call lends nothing —
+     * when the house has that to say (greenhouse decisions/0615). This is a QUESTION about the call, so nothing is
+     * written down; the door that makes the call does that.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function citing(ToolContext $seen, ToolDefinition $tool, array $arguments, AuthorizationResult $result): AuthorizationResult
+    {
+        if ($result->allowed) {
+            return $result;
+        }
+        $policy = PluginAuthoringPolicy::behind($this->inner->getCallPolicy());
+        $refusal = $policy !== null ? $policy->refusalAtTheGate($seen, $tool->name, $tool->scopes, $arguments, $result->reason, written: false) : null;
+
+        return $refusal === null ? $result : AuthorizationResult::denied($refusal);
     }
 
     /** Forwards to the wrapped gate. */

@@ -472,6 +472,12 @@ final class TrialOperations implements CommandProvider
         if (isset($diff[AppliedTrials::PATH])) {
             return ['ok' => false, 'error' => 'a trial never carries the list of what the house applies on its own — a person admits an operation with sandbox:admit; nothing was promoted'];
         }
+        // NOR THE BOOK OF STANDING GRANTS (greenhouse decisions/0615): what a person granted, what the house measured
+        // and what it absorbed are written by the house as they happen, never carried in by a rehearsal. The book is
+        // two files — its lines and its head — and neither crosses.
+        if (isset($diff[\Milpa\AppRuntime\Standing\StandingLedger::PATH]) || isset($diff[\Milpa\AppRuntime\Standing\StandingLedger::PATH . \Milpa\AppRuntime\Standing\StandingLedger::HEAD])) {
+            return ['ok' => false, 'error' => 'a trial never carries the book of standing grants — a person gives one with standing:grant, and the house writes the rest itself; nothing was promoted'];
+        }
 
         // NO MERGE OF WHAT ACTUALLY COLLIDES (greenhouse decisions/0467, refining 0068). A moved keyed
         // declaration store is judged per key: the keys this trial touched merge into the house when the

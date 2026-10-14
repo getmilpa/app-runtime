@@ -318,6 +318,44 @@ final class FileEnrollmentStoreTest extends TestCase
         );
     }
 
+    /**
+     * How something written elsewhere names the recognition it was written over (greenhouse decisions/0615, decided
+     * by Rod 2026-10-12): the ledger keeps no clock, and a key that left and was recognized again has left once more.
+     */
+    public function testAKeyThatLeftAndWasRecognizedAgainHasLeftOnceMoreWhoeverRecognizedIt(): void
+    {
+        $store = $this->store();
+        self::assertNull($store->departuresOf(self::FP), 'a key the ledger never recognized');
+
+        $store->record(new IdentityEnrolled(self::FP, ['agent:run'], 'key:FIRST'));
+        self::assertSame(0, $store->departuresOf(self::FP));
+        self::assertSame(0, $store->departuresOf(strtolower(self::FP)), 'asked as the key is pasted, it is the same key');
+        // Its words typed again while it stays, and a verb admitted to it, are not departures.
+        $store->record(new IdentityEnrolled(self::FP, ['agent:run', 'agent:read'], 'key:FIRST'));
+        self::assertTrue($store->admit(self::FP, 'Prestamos', 'herramientas:write', ['v' => 'sha256:a'], 'key:FIRST'));
+        self::assertSame(0, $store->departuresOf(self::FP));
+
+        $store->revoke(self::FP, 'key:FIRST');
+        self::assertSame(1, $store->departuresOf(self::FP), 'out of the house, it has left once');
+        $store->record(new IdentityEnrolled(self::FP, ['agent:run'], 'key:SECOND'));
+        self::assertSame(1, $store->departuresOf(self::FP), 'recognized again, it is not the recognition that stood before');
+        $store->revoke(self::FP, 'key:SECOND');
+        $store->record(new IdentityEnrolled(self::FP, ['agent:run'], 'key:FIRST'));
+        self::assertSame(2, $store->departuresOf(self::FP));
+    }
+
+    public function testAStateTheLedgerCannotReadCountsAsADeparture(): void
+    {
+        // It is not the recognition that stood before it, whatever it was.
+        file_put_contents($this->path, (string) json_encode([self::FP => 'not a state']));
+        self::assertSame(1, $this->store()->departuresOf(self::FP));
+
+        $this->store()->record(new IdentityEnrolled(self::FP, ['agent:run'], 'key:FIRST'));
+        self::assertSame(1, $this->store()->departuresOf(self::FP), 'kept raw in the history, and still counted');
+        file_put_contents($this->path, 'not a ledger');
+        self::assertNull($this->store()->departuresOf(self::FP), 'a ledger that cannot be read says nothing of any key');
+    }
+
     private function store(): FileEnrollmentStore
     {
         return new FileEnrollmentStore($this->path);

@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Agent;
 
 use Milpa\AppRuntime\Config\SecretFiles;
+use Milpa\AppRuntime\Standing\StandingLedger;
 use Milpa\AppRuntime\Support\ChildProcess;
 use Milpa\Command\Effect\Subject;
 use Milpa\Plugin\Contracts\BootWitnessInterface;
@@ -48,6 +49,9 @@ final class TrialWorkspace
     // would fork the truth) and `vendor/` (bound READ-ONLY at run time, so a mutation cannot touch it,
     // and copying/hashing 160 MB of it is the tax decisions/0070 removes).
     private const PRUNE = ['var', 'vendor'];
+
+    /** The book of standing grants and its head: the house's own, never part of a copy ({@see self::copyTree()}). */
+    private const BOOK = [StandingLedger::PATH, StandingLedger::PATH . StandingLedger::HEAD];
 
     private function __construct(
         public readonly string $root,
@@ -236,7 +240,8 @@ final class TrialWorkspace
         try {
             $baseline = $this->manifest();
             $current = self::hashTree($this->root);
-            unset($current['.env']);
+            // …and the book of standing grants, which no copy carries and which the house writes with every act.
+            unset($current['.env'], $current[self::BOOK[0]], $current[self::BOOK[1]]);
             ksort($baseline);
 
             return $baseline === $current;
@@ -436,11 +441,15 @@ final class TrialWorkspace
         // IT WAS «MINUS .env» (greenhouse evidence/1161): the envelope `provider:declare` writes and Composer's
         // credentials came later and travelled with the rest. The list is the house's now, not this method's.
         //
+        // …AND MINUS THE BOOK OF STANDING GRANTS AND ITS HEAD (greenhouse decisions/0615, decided by Rod 2026-10-12).
+        // Every copy carried them, mode kept, for a confined process to read: every grant a person signed, every
+        // call a seat made. The house's book is the house's; a rehearsal reads none and writes none.
+        //
         // A COPY OF THE HOUSE NEVER CONTAINS A BEARER-CREDENTIAL STORE (greenhouse decisions/0618). The stores are
         // named once ({@see SecretFiles::BEARER_CREDENTIAL_STORES}) and every copier leaves them out, as it leaves
         // out the named secret files: `var/` is already excluded, and the store under `storage/` is withheld by
         // {@see SecretFiles::withheldFromCopy}, the one rule every house-copier asks.
-        $withheld = array_merge(SecretFiles::under($root), SecretFiles::BEARER_CREDENTIAL_STORES);
+        $withheld = array_merge(SecretFiles::under($root), SecretFiles::BEARER_CREDENTIAL_STORES, self::BOOK);
         if (self::hasRsync()) {
             $secrets = implode(' ', array_map(static fn (string $rel): string => escapeshellarg('--exclude=/' . $rel), $withheld));
             $cmd = sprintf(
@@ -457,7 +466,7 @@ final class TrialWorkspace
 
         foreach (self::relFiles($root) as $rel) {
             $top = explode('/', $rel)[0];
-            if ($top === 'var' || SecretFiles::withheldFromCopy($rel)) {
+            if ($top === 'var' || SecretFiles::withheldFromCopy($rel) || \in_array($rel, self::BOOK, true)) {
                 continue;
             }
             $dest = $copy . '/' . $rel;

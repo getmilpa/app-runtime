@@ -684,6 +684,15 @@ final class Application
         // and no token, a call that changes something that lasts either continues a sequence whose receipt stands — the
         // runner cites it or refuses — or demands consent, or is refused here before anything runs. Measured
         // (evidence/1050): with the seat's receipt released, 21 build operations of the resident ran as `local-shell`.
+        // …and the bearer of a token is asked the same one question as whoever signs ({@see autoridadDelFirmante()}).
+        $closed = \Milpa\AppRuntime\Agent\PluginAuthoringPolicy::closedTo($this->kernel()->container(), $this->root, $caller);
+        if ($closed !== null) {
+            foreach ($renderer->presentError($closed) as $line) {
+                $this->line($line);
+            }
+
+            return 1;
+        }
         if ($identity === null && !\in_array('--sign', $tokens, true)) {
             try {
                 $input = $operacion->inputSchema !== null ? (new CliRunner())->deriveInput($operacion, $tokens) : [];
@@ -700,12 +709,16 @@ final class Application
             }
         }
 
+        // A STOP IS NEVER REFUSED FOR ITS REASON — NOT BY THE SIGNATURE EITHER (greenhouse decisions/0615, D15; the
+        // fifth review, 5-L1): a reason that is not text is spelled before anybody is asked to sign the call.
+        $tokens = \Milpa\AppRuntime\Standing\StandingOperations::atATerminal($operacion->name, $tokens);
+
         return (new CliRunner(
             signer: $this->firmanteEfectivo(),
             renderer: $renderer,
             verifier: $this->verificador,
             callerAuthority: $caller,
-            signerAuthority: fn (VerifiedSigner $signer): ?ToolContext => $this->autoridadDelFirmante($signer, $identity, $operacion),
+            signerAuthority: fn (VerifiedSigner $signer): ?ToolContext => $this->autoridadDelFirmante($signer, $identity, $operacion, $tokens),
             // El despachador del kernel viaja al runner: sin él, un listener que audita operaciones
             // las vería por MCP y no por la terminal — que es el hueco que el runner vino a cerrar.
             dispatcher: $this->kernel()->dispatcher(),
@@ -1462,6 +1475,13 @@ final class Application
         $ensayos = $this->trialRunner ?? new TrialRunner();
         $this->line(Containment::of($delApp, $this->root)->said($ensayos->available(), $ensayos->installed()));
 
+        // WHAT A SERVER OF A HOUSE THAT LENDS RUNS IS NOT ASKED OF OPCACHE (greenhouse decisions/0615, the seventh
+        // review; decided by Rod, 2026-10-13: a limit of whoever operates the house, said here). One line, to a house
+        // that keeps a book of standing grants, and never a failure.
+        if (\Milpa\AppRuntime\Standing\StandingLedger::forRoot($this->root)->exists()) {
+            $this->line(\Milpa\AppRuntime\Support\CompiledCode::saidToAHouseThatLends(\ini_get('opcache.validate_timestamps'), \ini_get('opcache.revalidate_freq')));
+        }
+
         // A GRAPH THAT CLOSES IS NOT A HOUSE THAT BOOTS (greenhouse evidence/1067): a 0.200.3 house moved to
         // 0.201.0 died in a plugin's boot() while this said «✓ el grafo cierra», exit 0 — and `coa update` reads
         // this exit as its boot check, so it printed `boots: 1`. The same fresh process the recovery path asks.
@@ -1861,8 +1881,10 @@ final class Application
      * The enrollment ledger and the policy file are read from disk, never from the kernel: the same
      * judgment has to hold when the kernel does not boot ({@see recuperarSinKernel()}), and two copies
      * of it would disagree the day it matters.
+     *
+     * @param list<string> $tokens the call's own tokens, so that the house knows WHICH call of `$for` this is
      */
-    private function autoridadDelFirmante(VerifiedSigner $signer, ?\Milpa\Auth\AuthContext $identity, ?Operation $for = null): ?ToolContext
+    private function autoridadDelFirmante(VerifiedSigner $signer, ?\Milpa\Auth\AuthContext $identity, ?Operation $for = null, array $tokens = []): ?ToolContext
     {
         $signed = (new SignerAuthority(
             new FileEnrollmentStore($this->root . '/storage/identity/enrollments.json'),
@@ -1877,9 +1899,14 @@ final class Application
         $scopes = \in_array('*', $tokenScopes, true) ? $signedScopes
             : (\in_array('*', $signedScopes, true) ? $tokenScopes : array_values(array_intersect($tokenScopes, $signedScopes)));
 
-        $context = new ToolContext(principal: 'key:' . $signer->fingerprint, channel: 'cli', scopes: $scopes);
+        $context = new ToolContext(principal: 'key:' . $signer->fingerprint, channel: 'cli', scopes: $scopes, extra: ['signer.fingerprint' => $signer->fingerprint]);
         if ($for === null) {
-            return $context;
+            return $context; // the recovery door of a house that does not boot: it has no kernel to ask
+        }
+        // THE ONE QUESTION, where this door reads who is calling (greenhouse decisions/0615, the sixth review, 6-M4).
+        $closed = \Milpa\AppRuntime\Agent\PluginAuthoringPolicy::closedTo($this->kernel()->container(), $this->root, $context);
+        if ($closed !== null) {
+            throw new \RuntimeException($closed);
         }
         // THIS PROCESS RUNS ONE OPERATION, and when a seat signs for a verb a capability of this house declares,
         // what decides is whether a person admitted it — not the word the verb declares, which the runner asks for
@@ -1888,9 +1915,31 @@ final class Application
         $policy = $this->kernel()->container()->has(\Milpa\ToolRuntime\Contracts\CallPolicy::class)
             ? $this->kernel()->container()->get(\Milpa\ToolRuntime\Contracts\CallPolicy::class) : null;
 
-        return $policy instanceof \Milpa\AppRuntime\Agent\PluginAuthoringPolicy
-            ? $policy->contextFor($context, McpProjector::toolName($for->name))
-            : $context;
+        if (!$policy instanceof \Milpa\AppRuntime\Agent\PluginAuthoringPolicy) {
+            return $context;
+        }
+        // A STANDING GRANT LENDS TO THE CALL IT NAMES, so the policy is told which call this process is about to make
+        // (greenhouse decisions/0615, «Lo que la revisión encontró», 1): the same input the runner derives from the
+        // same tokens — for an operation with no schema too, where the runner hands on every flag it was typed with
+        // and this used to say «nothing» ({@see RunnerInput}). A call whose input cannot be derived runs nothing,
+        // and is lent nothing.
+        try {
+            $arguments = RunnerInput::of($for, $tokens);
+        } catch (\Throwable) {
+            $arguments = [];
+        }
+
+        $tool = McpProjector::toolName($for->name);
+        $context = $policy->contextFor($context, $tool, $arguments);
+        // A GRANT THAT DOES NOT STAND LENDS NOTHING, and the runner's gate would refuse this seat for the word it
+        // lacks without a word about why. The house says it here, in the refusal the runner prints: the gate's own
+        // sentence, then the judge's reason — and writes that refusal down.
+        $refusal = $policy->refusalAtTheGate($context, $tool, $for->scopes, $arguments);
+        if ($refusal !== null) {
+            throw new \RuntimeException($refusal);
+        }
+
+        return $context;
     }
 
     /** The shell's screen, as `coa shell` opens it: its catalogue behind the door ({@see operacionesDelShell()}). */

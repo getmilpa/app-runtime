@@ -457,6 +457,74 @@ final class FileEnrollmentStore implements EnrollmentStore
     }
 
     /**
+     * How many times this key has LEFT the house: the revocation that stands on its entry and the ones its history
+     * keeps — or `null` for a key the ledger never recognized.
+     *
+     * The ledger keeps no clock, so this is how something written elsewhere names THE RECOGNITION it was written
+     * over (greenhouse decisions/0615, decided by Rod 2026-10-12): a key that left and was recognized again has left
+     * once more than it had, whoever recognized it. A state the store cannot read counts as one — it is not the
+     * recognition that stood before it.
+     */
+    public function departuresOf(string $fingerprint): ?int
+    {
+        $entry = ($this->read() ?? [])[IdentityKey::normalize($fingerprint)] ?? null;
+        if ($entry === null) {
+            return null;
+        }
+        $left = static fn (mixed $state): int => \is_array($state) && ($state['revoked_by'] ?? null) === null && !\array_key_exists('raw', $state) ? 0 : 1;
+        $departures = $left($entry);
+        foreach (\is_array($entry) && \is_array($entry['history'] ?? null) ? $entry['history'] : [] as $before) {
+            $departures += $left($before);
+        }
+
+        return $departures;
+    }
+
+    /**
+     * Which state of this key's entry stands now — how many it has had before it — or `null` for a key the ledger
+     * never recognized.
+     *
+     * The ledger keeps no clock, so this is how something written elsewhere names THE RECOGNITION it was written
+     * over (greenhouse decisions/0615, the fifth review, 5-M1): every write over a key keeps the state it replaces,
+     * in order, so «since then» is every state from that one on ({@see self::statesSince()}). Counting how many
+     * times a key LEFT ({@see self::departuresOf()}) saw one way of ceasing to be what it was, and not the others.
+     */
+    public function stateOf(string $fingerprint): ?int
+    {
+        $entry = ($this->read() ?? [])[IdentityKey::normalize($fingerprint)] ?? null;
+        if ($entry === null) {
+            return null;
+        }
+
+        return \is_array($entry) && \is_array($entry['history'] ?? null) ? \count($entry['history']) : 0;
+    }
+
+    /**
+     * Every state this key has had from that one on, oldest first and the one that stands last, each without the
+     * history it carried — or `null` when the ledger never recognized the key or it never had that state.
+     *
+     * A state the store cannot read is given as it was found: it is not for this to say what it was.
+     *
+     * @return list<mixed>|null
+     */
+    public function statesSince(string $fingerprint, int $state): ?array
+    {
+        $entry = ($this->read() ?? [])[IdentityKey::normalize($fingerprint)] ?? null;
+        if ($entry === null) {
+            return null;
+        }
+        $history = \is_array($entry) && \is_array($entry['history'] ?? null) ? array_values($entry['history']) : [];
+        if ($state < 0 || $state > \count($history)) {
+            return null;
+        }
+        if (\is_array($entry)) {
+            unset($entry['history']);
+        }
+
+        return [...\array_slice($history, $state), $entry];
+    }
+
+    /**
      * True when nothing has ever been recognized — any entry, revoked or not, seals it. So does content
      * the store cannot read: a ledger it cannot read is not a greenfield to mint a root over.
      */

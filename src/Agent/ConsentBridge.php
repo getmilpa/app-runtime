@@ -613,7 +613,12 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
      */
     private function scopesOfTheCaller(): array
     {
-        return $this->authority->scopes ?? PresentedToken::scopes($this->identity, ToolContext::cli()->scopes);
+        // WHAT A STANDING GRANT LENT THIS CALLER WAS FOR THE CALL THAT OPENED THIS DOOR, AND FOR NOTHING THROUGH IT
+        // (greenhouse decisions/0615, «Lo que la revisión encontró», 1): the door calls for its caller as it is on its
+        // own. Rebuilt from the scopes alone, the word lent for one call authorized every step that asked for it.
+        return $this->authority !== null
+            ? \Milpa\AppRuntime\Standing\HouseStandingJudge::withoutLent($this->authority)->scopes
+            : PresentedToken::scopes($this->identity, ToolContext::cli()->scopes);
     }
 
     /**

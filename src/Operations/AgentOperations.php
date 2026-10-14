@@ -2146,6 +2146,13 @@ class AgentOperations implements CommandProvider
         // the passkey the door verified, and every effect the agent materialises on this turn is his.
         $this->contextoDeLaVuelta = $context;
         $this->toolAuthority = $authority;
+        // THE ONE QUESTION, where a leg is made (greenhouse decisions/0615, the sixth review, 6-M4): in a house that
+        // keeps a book of standing grants and does not judge them, none is made for a key that is not a person.
+        $house = $this->container->has(Kernel::class) ? $this->container->get(Kernel::class) : null;
+        $closed = $authority === null || !$house instanceof Kernel ? null : \Milpa\AppRuntime\Agent\PluginAuthoringPolicy::closedTo($this->container, $house->root(), $authority);
+        if ($closed !== null) {
+            return ['ok' => false, 'error' => $closed];
+        }
         // THE LEG'S MEMORY IS THE HOUSE'S, declared before the first read of its session (greenhouse decisions/0511):
         // every surface that runs a leg passes here, and php.ini's 128 MB is where 1036's session died.
         $this->memoriaDeLaPierna = LegMemory::declare();
@@ -2855,6 +2862,9 @@ class AgentOperations implements CommandProvider
                 $store,
                 $sessionId !== '' ? $sessionId : null,
                 fn (): ?ScreenDrafts => $this->container->has(ScreenDrafts::class) ? $this->container->get(ScreenDrafts::class) : null,
+                // The judge of standing grants, handed over: what leaves this leg's process does not pass through
+                // the house's boundary, and is not to ask its gate who judges it (greenhouse decisions/0615).
+                \Milpa\AppRuntime\Agent\PluginAuthoringPolicy::judgeOf($kernel->container()),
             );
             // WORK IN THE DOMAIN RUNS IN THE HOUSE, NOT IN A COPY (greenhouse decisions/0588) — the SAME work layer
             // the gate judges the call with, so the plan the gate judged is the plan this registry runs.

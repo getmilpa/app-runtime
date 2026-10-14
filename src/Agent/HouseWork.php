@@ -51,7 +51,7 @@ final class HouseWork
     public const PRE_IMAGE_LIMIT = 8 * 1024 * 1024;
 
     /** The house's own operations are never work, whatever they declare: the same names a trial never rehearses. */
-    private const HOUSE_PREFIXES = ['agent:', 'session:', 'capabilities:', 'sandbox:', 'foundation:', 'identity:', 'config:', 'screen:', 'work:'];
+    private const HOUSE_PREFIXES = ['agent:', 'session:', 'capabilities:', 'sandbox:', 'foundation:', 'identity:', 'standing:', 'config:', 'screen:', 'work:'];
 
     /** Where state never lives: code, configuration, dependencies, the record of decisions, authority, the house's own records. */
     private const NEVER_UNDER = [

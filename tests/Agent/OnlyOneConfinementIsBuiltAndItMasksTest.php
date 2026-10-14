@@ -125,6 +125,45 @@ final class OnlyOneConfinementIsBuiltAndItMasksTest extends TestCase
         }
     }
 
+    public function testTheMaskHidesTheBookOfStandingGrantsAndItsHead(): void
+    {
+        // Mode 600 keeps the book from other users of the machine, not from the processes the house itself starts
+        // for a seat: under `--ro-bind / /` a rehearsal and a run of work read every grant and every call
+        // (greenhouse decisions/0615, «Lo que la tercera revisión encontró»; decided by Rod 2026-10-12).
+        $house = sys_get_temp_dir() . '/milpa-guard-book-' . bin2hex(random_bytes(4));
+        $copy = $house . '/var/trials/t1/copy';
+        $candidate = $house . '/var/boot-candidates/c1';
+        mkdir($house . '/storage/identity', 0o700, true);
+        mkdir($copy . '/storage/identity', 0o700, true);
+        mkdir($candidate . '/storage/identity', 0o700, true);
+        $book = \Milpa\AppRuntime\Standing\StandingLedger::PATH;
+        $head = $book . \Milpa\AppRuntime\Standing\StandingLedger::HEAD;
+
+        try {
+            // A confinement of 0.221.3 masks more than the house's own files: it overlays the host's path sockets with
+            // /dev/null (greenhouse CH, hueco B3) and each keyring with a tmpfs, so an empty house does not mask «no
+            // file» — it masks those. The book is the house's OWN file, so this isolates it by looking only at the
+            // masks UNDER the house. Control: before the book is written, the house masks none of its own files.
+            $ownMasks = static fn (): array => array_values(array_filter(
+                self::devNullMasks((new TrialRunner())->maskArgs($house)),
+                static fn (string $path): bool => str_starts_with($path, $house . '/'),
+            ));
+            self::assertSame([], $ownMasks(), 'control: with no book written, the house masks none of its own files');
+
+            file_put_contents($house . '/' . $book, "{}\n");
+            file_put_contents($house . '/' . $head, "{}\n");
+            file_put_contents($copy . '/' . $book, "{}\n"); // a copy a version before this one made
+            symlink($house . '/' . $head, $candidate . '/' . $head); // bwrap does not mount onto a link: its target is masked
+
+            // Writing the book masks exactly it, its head, and a copy a version before this one left. Measured against a
+            // real bwrap read: the masked book's path under `--ro-bind / /` is /dev/null, so a confined process reads it
+            // empty while an unmasked file beside it stays visible.
+            self::assertSame([$house . '/' . $book, $house . '/' . $head, $copy . '/' . $book], $ownMasks());
+        } finally {
+            exec('rm -rf ' . escapeshellarg($house));
+        }
+    }
+
     /** @param list<string> $argv */
     private static function indexOfPair(array $argv, string $flag, string $value): ?int
     {
@@ -135,5 +174,24 @@ final class OnlyOneConfinementIsBuiltAndItMasksTest extends TestCase
         }
 
         return null;
+    }
+
+    /**
+     * The targets a confinement masks with `--ro-bind /dev/null`, in the order the mask lists them.
+     *
+     * @param list<string> $argv
+     *
+     * @return list<string>
+     */
+    private static function devNullMasks(array $argv): array
+    {
+        $masked = [];
+        foreach ($argv as $i => $arg) {
+            if ($arg === '--ro-bind' && ($argv[$i + 1] ?? null) === '/dev/null') {
+                $masked[] = (string) ($argv[$i + 2] ?? '');
+            }
+        }
+
+        return $masked;
     }
 }

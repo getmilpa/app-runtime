@@ -59,7 +59,19 @@ final class AdmissionAwareRegistry extends ToolRegistry
      */
     public function call(string $name, array $args, ?ToolContext $ctx = null): ToolResult
     {
-        return $this->inner->call($name, $args, $ctx === null ? null : $this->gate->contextFor($ctx, $name));
+        $seen = $ctx === null ? null : $this->gate->contextFor($ctx, $name, $args);
+        $result = $this->inner->call($name, $args, $seen);
+        if ($result->success || $seen === null) {
+            return $result;
+        }
+        // REFUSED FOR A WORD THE SEAT LACKS, UNDER A STANDING GRANT THAT DOES NOT STAND (greenhouse decisions/0615):
+        // nothing was lent, and the refusal says why — and, this being the call itself, the house writes it down.
+        $policy = PluginAuthoringPolicy::behind($this->inner->getPolicyGate()->getCallPolicy());
+        $refusal = $policy !== null
+            ? $policy->refusalAtTheGate($seen, $name, $this->inner->getDefinition($name)->scopes ?? [], $args, $result->error)
+            : null;
+
+        return $refusal === null ? $result : new ToolResult(false, $result->data, null, $refusal, $result->meta);
     }
 
     /** The wrapped registry's gate, asked the house's way. */

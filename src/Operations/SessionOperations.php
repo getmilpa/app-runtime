@@ -98,7 +98,12 @@ final class SessionOperations implements CommandProvider
         // the agent from the terminal before anybody could be enrolled (evidence/1024, B3).
         $operations = $this->declared();
 
-        return Capabilities::installed('agent') ? $operations : self::withoutTheAgent($operations);
+        // AND STANDING GRANTS, FOR THE SAME REASON AS IDENTITY (greenhouse decisions/0615): giving one, restoring it,
+        // withdrawing it and stopping it read and write a ledger of identity and nothing of the agent's.
+        return [
+            ...(Capabilities::installed('agent') ? $operations : self::withoutTheAgent($operations)),
+            ...(new \Milpa\AppRuntime\Standing\StandingOperations($this->container))->operations(),
+        ];
     }
 
     /** The operations of this provider that need nothing of `milpa/agent` (greenhouse decisions/0498). */
