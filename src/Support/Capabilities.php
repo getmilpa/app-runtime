@@ -1424,7 +1424,7 @@ final class Capabilities
                 $runner = static function (string $cmd) use ($raiz): array {
                     $salida = [];
                     $codigo = 1;
-                    exec('cd ' . escapeshellarg($raiz) . ' && ' . $cmd . ' --no-interaction 2>&1', $salida, $codigo);
+                    exec('cd ' . ShellArgument::quote($raiz) . ' && ' . $cmd . ' --no-interaction 2>&1', $salida, $codigo);
 
                     return [$codigo, $salida];
                 };

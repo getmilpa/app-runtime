@@ -2069,7 +2069,7 @@ final class Application
                 'ok' => false,
                 'error' => implode("\n", $negativa),
                 'refused' => \Milpa\Console\Consent::demanded($operacion, $entrada) ? 'consent' : 'unsigned',
-                'sign' => UnsignedTerminal::signedLine($operacion, $entrada),
+                'sign' => UnsignedTerminal::signedLineOrNull($operacion, $entrada),
             ];
         }
         if ($identidad === null && UnsignedTerminal::continuesASignedSequence($operacion, $entrada, $recibos, $soloSuRecibo)) {

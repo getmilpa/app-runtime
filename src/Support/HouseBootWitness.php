@@ -189,7 +189,7 @@ final class HouseBootWitness implements BootWitnessInterface
         $run ??= static function (string $cmd, string $cwd): array {
             $out = [];
             $code = 1;
-            exec('cd ' . escapeshellarg($cwd) . ' && ' . $cmd . ' 2>&1', $out, $code);
+            exec('cd ' . ShellArgument::quote($cwd) . ' && ' . $cmd . ' 2>&1', $out, $code);
 
             return [$code, $out];
         };
@@ -352,7 +352,7 @@ final class HouseBootWitness implements BootWitnessInterface
         }
         $out = [];
         $code = 1;
-        @exec('mv --exchange --no-target-directory ' . escapeshellarg($a) . ' ' . escapeshellarg($b) . ' 2>&1', $out, $code);
+        @exec('mv --exchange --no-target-directory ' . ShellArgument::quote($a) . ' ' . ShellArgument::quote($b) . ' 2>&1', $out, $code);
 
         return $code === 0;
     }

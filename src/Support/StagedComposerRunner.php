@@ -56,7 +56,7 @@ final class StagedComposerRunner
         if (!str_starts_with($command, 'composer ') || preg_match('/\s--dry-run\b/', $command) === 1) {
             $out = [];
             $code = 1;
-            exec('cd ' . escapeshellarg($this->root) . ' && ' . $command . ' 2>&1', $out, $code);
+            exec('cd ' . ShellArgument::quote($this->root) . ' && ' . $command . ' 2>&1', $out, $code);
 
             return [$code, $out];
         }

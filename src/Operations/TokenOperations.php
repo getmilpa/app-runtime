@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Operations;
 use Milpa\AppRuntime\Auth\ApiToken;
 use Milpa\AppRuntime\Auth\TokenVerifier;
 use Milpa\AppRuntime\Support\Capabilities;
+use Milpa\AppRuntime\Support\ShellArgument;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\EffectProfile;
@@ -201,7 +202,7 @@ final readonly class TokenOperations implements CommandProvider
         // text all end here, said before a secret exists; every scope is still one word away, asked for by name.
         if ($scopes === []) {
             return ['ok' => false, 'error' => 'missing `scopes`: a token holds only the scopes it is minted with, and one that names none holds none. '
-                . 'Name what it may do: ' . Capabilities::cli() . 'token:new --actor=' . escapeshellarg($actor) . " --scopes='[\"<scope>\"]' --sign"
+                . 'Name what it may do: ' . Capabilities::cli() . 'token:new --actor=' . ShellArgument::quote($actor) . " --scopes='[\"<scope>\"]' --sign"
                 . ' — `*` in place of a scope grants every one.'];
         }
 

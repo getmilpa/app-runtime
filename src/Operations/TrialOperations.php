@@ -15,19 +15,18 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Operations;
 
 use Milpa\Agent\SessionStore;
-use Milpa\Command\InvocationContext;
-use Milpa\ToolRuntime\Contracts\ToolContext;
 use Milpa\AppRuntime\Agent\AppliedTrials;
 use Milpa\AppRuntime\Agent\HouseRouteObserver;
-use Milpa\AppRuntime\Agent\RouteFailureCause;
-use Milpa\AppRuntime\Agent\PluginAuthoringPolicy;
-use Milpa\AppRuntime\Agent\RouteRegression;
 use Milpa\AppRuntime\Agent\KeyedDeclarations;
+use Milpa\AppRuntime\Agent\PluginAuthoringPolicy;
+use Milpa\AppRuntime\Agent\RouteFailureCause;
+use Milpa\AppRuntime\Agent\RouteRegression;
 use Milpa\AppRuntime\Agent\TrialWorkspace;
 use Milpa\AppRuntime\Support\BootCandidate;
 use Milpa\AppRuntime\Support\BootProbe;
-use Milpa\AppRuntime\Support\HouseBootWitness;
 use Milpa\AppRuntime\Support\CompiledCode;
+use Milpa\AppRuntime\Support\HouseBootWitness;
+use Milpa\AppRuntime\Support\ShellArgument;
 use Milpa\Command\CommandProvider;
 use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\EffectProfile;
@@ -35,9 +34,11 @@ use Milpa\Command\Effect\Externality;
 use Milpa\Command\Effect\Mutation;
 use Milpa\Command\Effect\Reversibility;
 use Milpa\Command\Effect\Subject;
+use Milpa\Command\InvocationContext;
 use Milpa\Command\Operation;
 use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\Runtime\Kernel;
+use Milpa\ToolRuntime\Contracts\ToolContext;
 use Milpa\ToolRuntime\Identity\GrantedAuthorization;
 
 /**
@@ -706,7 +707,7 @@ final class TrialOperations implements CommandProvider
      */
     private function rolledBack(string $preDir, array $paths, array $said): array
     {
-        exec('rm -rf ' . escapeshellarg($preDir));
+        exec('rm -rf ' . ShellArgument::quote($preDir));
         $boots = ($said['house_boots'] ?? false) === true;
 
         return [

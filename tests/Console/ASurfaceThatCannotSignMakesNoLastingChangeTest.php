@@ -334,6 +334,90 @@ final class ASurfaceThatCannotSignMakesNoLastingChangeTest extends TestCase
     }
 
     /**
+     * The client picks the argument NAMES, so a name cannot break the line a person is offered to sign
+     * (greenhouse decisions/0624). A name that is not a plain flag travels quoted as one token: the shell hands it to
+     * the command as one argument, nothing after it runs, and `--sign` is not commented out.
+     */
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function namesThatTryToRunSomethingElse(): iterable
+    {
+        yield 'a comment that hides --sign' => ['x; touch %s #'];
+        yield 'a tail that looks like a plain flag' => ['x; touch %s; --a'];
+        yield 'a head that looks like a plain flag' => ['--a; touch %s'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('namesThatTryToRunSomethingElse')]
+    public function testOverMcpAnArgumentNameCannotBreakTheLineOfferedToSign(string $name): void
+    {
+        $app = $this->application();
+        $planted = sys_get_temp_dir() . '/c11-keyinj-' . bin2hex(random_bytes(4));
+        $key = sprintf($name, $planted);
+
+        $answer = $this->privately($app, 'mcpPorLaPuerta', ['jsonrpc' => '2.0', 'id' => 12, 'method' => 'tools/call', 'params' => ['name' => 'agent_role_declare', 'arguments' => ['name' => 'r1', $key => 'v']]], $this->tools($app));
+
+        $line = (string) json_decode($answer['result']['content'][0]['text'], true)['meta']['sign'];
+        $prefix = 'php bin/coa agent:role:declare ';
+        self::assertStringStartsWith($prefix, $line);
+        $argv = (string) shell_exec("printf '<%s>\\n' " . substr($line, \strlen($prefix)));
+
+        self::assertFileDoesNotExist($planted, 'a name made the line run another command');
+        self::assertSame("<--name=r1>\n<--" . str_replace('_', '-', $key) . "=v>\n<--sign>\n", $argv);
+        self::assertSame([], $this->ran);
+    }
+
+    /**
+     * A name that ENDS in a newline looked plain to a `$`-anchored pattern and split the line in two: the first line
+     * ran unsigned and the second started with a value the client chose (zsh expands `=word` to a command on PATH).
+     * Each such name travels quoted as one token, so the line stays one line.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function namesEndingInALineBreak(): iterable
+    {
+        yield 'a newline' => ["x\n"];
+        yield 'a carriage return' => ["x\r"];
+        yield 'newline then text' => ["x\nid"];
+        yield 'a leading dash and a newline' => ["-n\n"];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('namesEndingInALineBreak')]
+    public function testOverMcpANameEndingInALineBreakStaysOnOneLine(string $key): void
+    {
+        $app = $this->application();
+
+        $answer = $this->privately($app, 'mcpPorLaPuerta', ['jsonrpc' => '2.0', 'id' => 13, 'method' => 'tools/call', 'params' => ['name' => 'agent_role_declare', 'arguments' => ['name' => 'r1', $key => 'env']]], $this->tools($app));
+
+        $line = (string) json_decode($answer['result']['content'][0]['text'], true)['meta']['sign'];
+        $prefix = 'php bin/coa agent:role:declare ';
+        $argv = (string) shell_exec("printf '<%s>\\n' " . substr($line, \strlen($prefix)));
+        $flag = '--' . str_replace('_', '-', $key);
+
+        self::assertStringEndsWith(' --sign', $line);
+        self::assertSame("<--name=r1>\n<{$flag}=env>\n<--sign>\n", $argv, 'the line was split or a token was lost');
+        self::assertSame([], $this->ran);
+    }
+
+    /**
+     * A NUL byte cannot travel in a shell argument. A read is not refused for it — it passes to the server as it did —
+     * and a lasting change is refused with a sentence, not with an exception that ends the loop.
+     */
+    public function testOverMcpANulInANameIsRefusedInWordsAndAReadStillPasses(): void
+    {
+        $app = $this->application();
+
+        self::assertNull($this->privately($app, 'mcpPorLaPuerta', ['id' => 14, 'params' => ['name' => 'agent_role_list', 'arguments' => ["a\0b" => 'v']]], $this->tools($app)));
+
+        $answer = $this->privately($app, 'mcpPorLaPuerta', ['jsonrpc' => '2.0', 'id' => 15, 'method' => 'tools/call', 'params' => ['name' => 'agent_role_declare', 'arguments' => ['name' => 'r1', "a\0b" => 'v']]], $this->tools($app));
+        $text = json_decode($answer['result']['content'][0]['text'], true);
+
+        self::assertTrue($answer['result']['isError']);
+        self::assertStringContainsString('a NUL byte cannot travel in a terminal line', $text['error']);
+        self::assertSame([], $this->ran);
+    }
+
+    /**
      * Over MCP a call cites only a receipt its own operation signed (greenhouse decisions/0546). Answering the question
      * a signed session asked is a person's act: the chat, the shell and the terminal have one at the keys; an MCP
      * client is whatever process holds the pipe — a model included. So an `agent` receipt does not answer over MCP.
