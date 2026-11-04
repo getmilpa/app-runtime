@@ -14,6 +14,8 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Framework;
 
+use Milpa\AppRuntime\Support\ShellArgument;
+
 /**
  * THE THIRD POINT: what a `milpa/framework` release actually ships — asked, cached, never on paint.
  *
@@ -203,9 +205,9 @@ final class FrameworkRelease
         $tree = sys_get_temp_dir() . '/milpa-release-' . $version . '-' . bin2hex(random_bytes(4));
         $command = \sprintf(
             'composer create-project --no-install --no-scripts --no-plugins --quiet %s:%s %s 2>&1',
-            escapeshellarg('milpa/framework'),
-            escapeshellarg($version),
-            escapeshellarg($tree),
+            ShellArgument::quote('milpa/framework'),
+            ShellArgument::quote($version),
+            ShellArgument::quote($tree),
         );
         exec($command, $output, $status);
         if ($status !== 0 || !is_dir($tree)) {

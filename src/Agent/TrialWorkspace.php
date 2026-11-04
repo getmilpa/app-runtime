@@ -17,6 +17,7 @@ namespace Milpa\AppRuntime\Agent;
 use Milpa\AppRuntime\Config\SecretFiles;
 use Milpa\AppRuntime\Standing\StandingLedger;
 use Milpa\AppRuntime\Support\ChildProcess;
+use Milpa\AppRuntime\Support\ShellArgument;
 use Milpa\Command\Effect\Subject;
 use Milpa\Plugin\Contracts\BootWitnessInterface;
 
@@ -451,12 +452,12 @@ final class TrialWorkspace
         // {@see SecretFiles::withheldFromCopy}, the one rule every house-copier asks.
         $withheld = array_merge(SecretFiles::under($root), SecretFiles::BEARER_CREDENTIAL_STORES, self::BOOK);
         if (self::hasRsync()) {
-            $secrets = implode(' ', array_map(static fn (string $rel): string => escapeshellarg('--exclude=/' . $rel), $withheld));
+            $secrets = implode(' ', array_map(static fn (string $rel): string => ShellArgument::quote('--exclude=/' . $rel), $withheld));
             $cmd = sprintf(
                 'rsync -a --exclude=/var/ --exclude=/vendor/ %s %s %s',
                 $secrets,
-                escapeshellarg(rtrim($root, '/') . '/'),
-                escapeshellarg(rtrim($copy, '/') . '/'),
+                ShellArgument::quote(rtrim($root, '/') . '/'),
+                ShellArgument::quote(rtrim($copy, '/') . '/'),
             );
             exec($cmd, $_, $code);
             if ($code === 0) {

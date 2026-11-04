@@ -265,7 +265,7 @@ final class BootCandidate
         $out = [];
         $code = 1;
         if (\function_exists('exec')) {
-            @exec('cp -a --reflink=auto ' . escapeshellarg($from) . ' ' . escapeshellarg($to) . ' 2>&1', $out, $code);
+            @exec('cp -a --reflink=auto ' . ShellArgument::quote($from) . ' ' . ShellArgument::quote($to) . ' 2>&1', $out, $code);
         }
         if ($code === 0 && is_dir($to)) {
             return;

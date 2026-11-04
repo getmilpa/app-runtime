@@ -18,6 +18,7 @@ use Milpa\AppRuntime\Config\SecretFiles;
 use Milpa\AppRuntime\Standing\StandingLedger;
 use Milpa\AppRuntime\Support\ChildProcess;
 use Milpa\AppRuntime\Support\PhpBinary;
+use Milpa\AppRuntime\Support\ShellArgument;
 
 /**
  * What makes the confinement TRUE and not merely claimed: it runs the trial's operation in a
@@ -258,7 +259,7 @@ final class TrialRunner
             $operation,
             json_encode($input, \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES) ?: '{}'
         );
-        [$exit, $stdout, $stderr] = $this->exec(implode(' ', array_map('escapeshellarg', $command)));
+        [$exit, $stdout, $stderr] = $this->exec(implode(' ', array_map(ShellArgument::quote(...), $command)));
         if ($exit === 124 || $exit === 137) {
             $stderr = trim($stderr . "\ntimeout: the call exceeded {$this->timeoutSeconds}s and was killed");
         }
@@ -351,7 +352,7 @@ final class TrialRunner
             $operation,
             $json
         );
-        $cmd = implode(' ', array_map('escapeshellarg', $command));
+        $cmd = implode(' ', array_map(ShellArgument::quote(...), $command));
 
         $attempt = new TrialInputAttempt(bin2hex(random_bytes(16)), $workspace->root, $workspace->copy, $operation, $input);
         $witnessType = $operation === 'test' ? TestInputWitness::class : AuthoringInputWitness::class;
@@ -459,7 +460,7 @@ final class TrialRunner
         if (str_contains($bin, '/')) {
             return is_file($bin) && is_executable($bin);
         }
-        exec('command -v ' . escapeshellarg($bin) . ' 2>/dev/null', $_, $code);
+        exec('command -v ' . ShellArgument::quote($bin) . ' 2>/dev/null', $_, $code);
 
         return $code === 0;
     }

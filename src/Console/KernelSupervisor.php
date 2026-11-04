@@ -14,6 +14,8 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Console;
 
+use Milpa\AppRuntime\Support\ShellArgument;
+
 /**
  * Holds what a long-lived client sees — an MCP pipe, a terminal — while a CHILD holds the kernel, and starts a clean
  * child whenever the one serving went stale.
@@ -306,7 +308,7 @@ final class KernelSupervisor
     private static function restoreTerminal(?string $settings): void
     {
         if ($settings !== null) {
-            shell_exec('stty ' . escapeshellarg($settings) . ' 2>/dev/null');
+            shell_exec('stty ' . ShellArgument::quote($settings) . ' 2>/dev/null');
         }
     }
 

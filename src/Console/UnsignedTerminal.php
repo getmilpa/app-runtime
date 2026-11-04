@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Console;
 
 use Milpa\AppRuntime\Support\Capabilities;
+use Milpa\AppRuntime\Support\ShellArgument;
 use Milpa\Command\Effect\Mutation;
 use Milpa\Command\Operation;
 use Milpa\Console\Consent;
@@ -200,8 +201,8 @@ final class UnsignedTerminal
             $line .= match (true) {
                 $value === true => ' ' . $flag,
                 $value === false || $value === null => '',
-                \is_scalar($value) => ' ' . $flag . '=' . escapeshellarg((string) $value),
-                default => ' ' . $flag . '=' . escapeshellarg((string) json_encode($value, \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE)),
+                \is_scalar($value) => ' ' . $flag . '=' . ShellArgument::quote((string) $value),
+                default => ' ' . $flag . '=' . ShellArgument::quote((string) json_encode($value, \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE)),
             };
         }
 

@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Auth;
 
 use Milpa\AppRuntime\Support\Capabilities;
+use Milpa\AppRuntime\Support\ShellArgument;
 use Milpa\Auth\AuthContext;
 use Milpa\Auth\Credential;
 use Milpa\Data\RepositoryInterface;
@@ -151,6 +152,6 @@ final class PresentedToken
         return $reason . "\n"
             . '  This token declares no scopes, so it holds none — and a signature does not widen a presented token.' . "\n"
             . '  Mint one that names what it may do and present that one: '
-            . Capabilities::cli() . 'token:new --actor=' . escapeshellarg($actor->id) . " --scopes='[\"<scope>\"]' --sign";
+            . Capabilities::cli() . 'token:new --actor=' . ShellArgument::quote($actor->id) . " --scopes='[\"<scope>\"]' --sign";
     }
 }
