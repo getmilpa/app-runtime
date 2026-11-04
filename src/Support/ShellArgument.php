@@ -17,8 +17,9 @@ namespace Milpa\AppRuntime\Support;
 /**
  * One argument for a POSIX shell, quoted byte for byte (greenhouse decisions/0624).
  *
- * `escapeshellarg()` reads LC_CTYPE: on PHP 8.3 under the C locale — what a PHP started by cron or systemd without
- * LANG gets — it drops the bytes it cannot place, so `escapeshellarg('sí')` is `'s'`. The line a person was offered
+ * `escapeshellarg()` reads LC_CTYPE: under the C locale (measured on PHP 8.2 to 8.5) it drops the bytes it cannot
+ * place, so `escapeshellarg('sí')` is `'s'`. PHP itself starts at C.UTF-8; a process reaches C when something calls
+ * setlocale() from a C/POSIX environment, or where libc has no C.UTF-8. The line a person was offered
  * to sign then named another answer, and a path with an accent named another path. This quotes the same way
  * (single quotes, each `'` closed, escaped and reopened) without asking the locale anything.
  */

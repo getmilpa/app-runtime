@@ -197,13 +197,23 @@ final class UnsignedTerminal
     {
         $line = Capabilities::cli() . CommandName::of($op->name);
         foreach ($input as $name => $value) {
+            if ($value === false || $value === null) {
+                continue;
+            }
             $flag = '--' . str_replace('_', '-', (string) $name);
-            $line .= match (true) {
-                $value === true => ' ' . $flag,
-                $value === false || $value === null => '',
-                \is_scalar($value) => ' ' . $flag . '=' . ShellArgument::quote((string) $value),
-                default => ' ' . $flag . '=' . ShellArgument::quote((string) json_encode($value, \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE)),
+            $text = match (true) {
+                $value === true => null,
+                \is_scalar($value) => (string) $value,
+                default => (string) json_encode($value, \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE),
             };
+            // The client picks the NAMES too (greenhouse decisions/0624): a name that is not a plain flag travels
+            // quoted as one token, so the shell hands it to the command as one argument and nothing after it runs.
+            if (preg_match('/^--[A-Za-z0-9][A-Za-z0-9-]*$/', $flag) !== 1) {
+                $line .= ' ' . ShellArgument::quote($text === null ? $flag : $flag . '=' . $text);
+
+                continue;
+            }
+            $line .= ' ' . ($text === null ? $flag : $flag . '=' . ShellArgument::quote($text));
         }
 
         return $line . ' --sign';

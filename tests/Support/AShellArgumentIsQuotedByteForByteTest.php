@@ -24,10 +24,10 @@ use PHPUnit\Framework\TestCase;
 /**
  * A shell argument is quoted byte for byte, whatever the locale (greenhouse decisions/0624, evidence/1208).
  *
- * `escapeshellarg()` reads LC_CTYPE: on PHP 8.3 under the C locale it drops the bytes it cannot place, so
+ * `escapeshellarg()` reads LC_CTYPE: under the C locale (PHP 8.2 to 8.5) it drops the bytes it cannot place, so
  * `escapeshellarg('sí')` is `'s'`. That turned the line a person is offered to sign into a call with ANOTHER answer,
  * and a path with an accent into another path — one of them under `rm -rf`. Every case here runs under LC_CTYPE=C,
- * the locale a PHP started by cron or systemd without LANG gets.
+ * set by the test: PHP starts at C.UTF-8, and C is what a setlocale() from a C/POSIX environment gives.
  */
 final class AShellArgumentIsQuotedByteForByteTest extends TestCase
 {
@@ -83,6 +83,15 @@ final class AShellArgumentIsQuotedByteForByteTest extends TestCase
         $line = UnsignedTerminal::signedLine($op, ['session' => 'j.sub', 'answer' => 'sí']);
 
         self::assertStringContainsString(" --answer='sí' --sign", $line);
+    }
+
+    public function testAListInTheLineOfferedToSignKeepsEveryByte(): void
+    {
+        $op = new Operation('token:new', 'Mints.', static fn (): array => [], effects: EffectProfile::readOnly());
+
+        $line = UnsignedTerminal::signedLine($op, ['actor' => 'ops', 'scopes' => ['ops:run', 'señal', "it's"]]);
+
+        self::assertStringContainsString(" --scopes='[\"ops:run\",\"señal\",\"it'\\''s\"]' --sign", $line);
     }
 
     public function testNoSourceFileQuotesThroughTheLocale(): void

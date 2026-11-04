@@ -334,6 +334,29 @@ final class ASurfaceThatCannotSignMakesNoLastingChangeTest extends TestCase
     }
 
     /**
+     * The client picks the argument NAMES, so a name cannot break the line a person is offered to sign
+     * (greenhouse decisions/0624). A name that is not a plain flag travels quoted as one token: the shell hands it to
+     * the command as one argument, nothing after it runs, and `--sign` is not commented out.
+     */
+    public function testOverMcpAnArgumentNameCannotBreakTheLineOfferedToSign(): void
+    {
+        $app = $this->application();
+        $planted = sys_get_temp_dir() . '/c11-keyinj-' . bin2hex(random_bytes(4));
+        $key = "x; touch {$planted} #";
+
+        $answer = $this->privately($app, 'mcpPorLaPuerta', ['jsonrpc' => '2.0', 'id' => 12, 'method' => 'tools/call', 'params' => ['name' => 'agent_role_declare', 'arguments' => ['name' => 'r1', $key => 'v']]], $this->tools($app));
+
+        $line = (string) json_decode($answer['result']['content'][0]['text'], true)['meta']['sign'];
+        $prefix = 'php bin/coa agent:role:declare ';
+        self::assertStringStartsWith($prefix, $line);
+        $argv = (string) shell_exec("printf '<%s>\\n' " . substr($line, \strlen($prefix)));
+
+        self::assertFileDoesNotExist($planted, 'a name made the line run another command');
+        self::assertSame("<--name=r1>\n<--{$key}=v>\n<--sign>\n", $argv);
+        self::assertSame([], $this->ran);
+    }
+
+    /**
      * Over MCP a call cites only a receipt its own operation signed (greenhouse decisions/0546). Answering the question
      * a signed session asked is a person's act: the chat, the shell and the terminal have one at the keys; an MCP
      * client is whatever process holds the pipe — a model included. So an `agent` receipt does not answer over MCP.
