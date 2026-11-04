@@ -357,6 +357,38 @@ final class ASurfaceThatCannotSignMakesNoLastingChangeTest extends TestCase
     }
 
     /**
+     * A name that ENDS in a newline looked plain to a `$`-anchored pattern and split the line in two: the first line
+     * ran unsigned and the second started with a value the client chose (zsh expands `=word` to a command on PATH).
+     * Each such name travels quoted as one token, so the line stays one line.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function namesEndingInALineBreak(): iterable
+    {
+        yield 'a newline' => ["x\n"];
+        yield 'a carriage return' => ["x\r"];
+        yield 'newline then text' => ["x\nid"];
+        yield 'a leading dash and a newline' => ["-n\n"];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('namesEndingInALineBreak')]
+    public function testOverMcpANameEndingInALineBreakStaysOnOneLine(string $key): void
+    {
+        $app = $this->application();
+
+        $answer = $this->privately($app, 'mcpPorLaPuerta', ['jsonrpc' => '2.0', 'id' => 13, 'method' => 'tools/call', 'params' => ['name' => 'agent_role_declare', 'arguments' => ['name' => 'r1', $key => 'env']]], $this->tools($app));
+
+        $line = (string) json_decode($answer['result']['content'][0]['text'], true)['meta']['sign'];
+        $prefix = 'php bin/coa agent:role:declare ';
+        $argv = (string) shell_exec("printf '<%s>\\n' " . substr($line, \strlen($prefix)));
+        $flag = '--' . str_replace('_', '-', $key);
+
+        self::assertStringEndsWith(' --sign', $line);
+        self::assertSame("<--name=r1>\n<{$flag}=env>\n<--sign>\n", $argv, 'the line was split or a token was lost');
+        self::assertSame([], $this->ran);
+    }
+
+    /**
      * Over MCP a call cites only a receipt its own operation signed (greenhouse decisions/0546). Answering the question
      * a signed session asked is a person's act: the chat, the shell and the terminal have one at the keys; an MCP
      * client is whatever process holds the pipe — a model included. So an `agent` receipt does not answer over MCP.

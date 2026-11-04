@@ -208,7 +208,8 @@ final class UnsignedTerminal
             };
             // The client picks the NAMES too (greenhouse decisions/0624): a name that is not a plain flag travels
             // quoted as one token, so the shell hands it to the command as one argument and nothing after it runs.
-            if (preg_match('/^--[A-Za-z0-9][A-Za-z0-9-]*$/', $flag) !== 1) {
+            // Anchored with \A and \z: `$` also matches before a final newline, and that newline split the line.
+            if (preg_match('/\A--[A-Za-z0-9][A-Za-z0-9-]*\z/', $flag) !== 1) {
                 $line .= ' ' . ShellArgument::quote($text === null ? $flag : $flag . '=' . $text);
 
                 continue;
