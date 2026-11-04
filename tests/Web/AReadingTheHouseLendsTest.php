@@ -163,6 +163,18 @@ final class AReadingTheHouseLendsTest extends TestCase
         self::assertSame(422, $this->show(['live:act'])->getStatusCode());
     }
 
+    /**
+     * A reading's name is checked as it is written: `$` also matched before a final newline, so "rows\n" was registered
+     * as a kebab-case name (greenhouse decisions/0624, point 3).
+     */
+    public function testANameWithAFinalNewlineIsNotKebabCase(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('kebab-case');
+
+        HouseReadings::in($this->container)->register(new LentBalance(ReadingAudience::members(), "rows\n"));
+    }
+
     public function testTheReadingsAreDiscoverable(): void
     {
         foreach ((new LivePlugin($this->container))->operations() as $operation) {

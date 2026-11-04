@@ -135,13 +135,13 @@ final class SkillRegistry
     /** Parse one SKILL.md into a Skill, or null if it does not parse or declares no description. */
     public static function parse(string $content, string $fallbackName, string $directory = '', string $origin = self::HOUSE): ?Skill
     {
-        if (preg_match('/^---\R(.*?)\R---\R(.*)$/s', trim($content), $m) !== 1) {
+        if (preg_match('/\A---\R(.*?)\R---\R(.*)\z/s', trim($content), $m) !== 1) {
             return null;
         }
         $front = [];
         foreach (explode("\n", $m[1]) as $line) {
             // Keys may carry hyphens (`disable-model-invocation`), unlike RoleRegistry's `[a-z_]`.
-            if (preg_match('/^\s*([a-z0-9_-]+)\s*:\s*(.*)$/i', $line, $pair) !== 1) {
+            if (preg_match('/\A\s*([a-z0-9_-]+)\s*:\s*(.*)\z/i', $line, $pair) !== 1) {
                 continue;
             }
             $front[strtolower($pair[1])] = trim($pair[2]);

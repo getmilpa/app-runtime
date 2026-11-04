@@ -52,7 +52,7 @@ final class EntityName
         }
         $segments = explode('\\', $written);
         foreach ($segments as $segment) {
-            if (! preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $segment)) {
+            if (! preg_match('/\A[A-Za-z_][A-Za-z0-9_]*\z/', $segment)) {
                 return $written;
             }
         }

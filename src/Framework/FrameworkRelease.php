@@ -92,7 +92,7 @@ final class FrameworkRelease
         foreach ($versions as $entry) {
             $version = \is_array($entry) && \is_string($entry['version'] ?? null) ? $entry['version'] : '';
             $version = ltrim($version, 'v');
-            if (preg_match('/^\d+\.\d+\.\d+$/', $version) === 1) {
+            if (preg_match('/\A\d+\.\d+\.\d+\z/', $version) === 1) {
                 return $version;
             }
         }

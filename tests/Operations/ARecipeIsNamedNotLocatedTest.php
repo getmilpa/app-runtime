@@ -45,6 +45,7 @@ final class ARecipeIsNamedNotLocatedTest extends TestCase
             'the parent itself' => ['..'],
             'the current directory' => ['.'],
             'a hidden dotfile' => ['.env'],
+            'a path hidden after a newline' => ["my-recipe\n../../etc/passwd"],
         ];
     }
 

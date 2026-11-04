@@ -358,7 +358,7 @@ final class TrialOperations implements CommandProvider
     /** Whether `$path` is a concrete path of this house: a leading `/`, no host, fragment, space or control. */
     private static function isPath(mixed $path): bool
     {
-        return \is_string($path) && \strlen($path) <= 2048 && preg_match('~^/(?!/)[^\s#{}\x00-\x1f\x7f]*$~', $path) === 1;
+        return \is_string($path) && \strlen($path) <= 2048 && preg_match('~\A/(?!/)[^\s#{}\x00-\x1f\x7f]*\z~', $path) === 1;
     }
 
     /**
@@ -385,7 +385,7 @@ final class TrialOperations implements CommandProvider
             return 'body must be at most ' . self::BODY_MAX . ' bytes';
         }
         $type = $input['content_type'] ?? ($body !== null ? 'application/json' : null);
-        if ($type !== null && (!\is_string($type) || preg_match('~^[\w.+-]+/[\w.+-]+(?:;[^\x00-\x1f\x7f]*)?$~', $type) !== 1)) {
+        if ($type !== null && (!\is_string($type) || preg_match('~\A[\w.+-]+/[\w.+-]+(?:;[^\x00-\x1f\x7f]*)?\z~', $type) !== 1)) {
             return 'content_type must be a media type, e.g. application/json';
         }
         $then = $input['then'] ?? [];

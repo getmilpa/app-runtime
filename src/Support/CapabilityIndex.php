@@ -103,7 +103,7 @@ final class CapabilityIndex
             // Each segment starts AND ends alphanumeric — «../evil» matched the loose class and
             // walked the p2 URL up a directory. Found by the test that existed to cover this line.
             if (!\is_string($name)
-                || preg_match('#^[a-z0-9](?:[a-z0-9_.-]*[a-z0-9])?/[a-z0-9](?:[a-z0-9_.-]*[a-z0-9])?$#i', $name) !== 1) {
+                || preg_match('#\A[a-z0-9](?:[a-z0-9_.-]*[a-z0-9])?/[a-z0-9](?:[a-z0-9_.-]*[a-z0-9])?\z#i', $name) !== 1) {
                 continue;
             }
 

@@ -304,7 +304,7 @@ final class ComponentWords
         $type = (string) ($node['type'] ?? '');
         $props = \is_array($node['props'] ?? null) ? $node['props'] : [];
         foreach ($props as $prop => $value) {
-            if (! \is_string($value) || ! preg_match('/^\$([a-zA-Z0-9_]+)$/', $value, $match) || ! isset($inputs[$match[1]])) {
+            if (! \is_string($value) || ! preg_match('/\A\$([a-zA-Z0-9_]+)\z/', $value, $match) || ! isset($inputs[$match[1]])) {
                 continue;
             }
             $declared = \is_string($schemas[$type][$prop]['type'] ?? null) ? $schemas[$type][$prop]['type'] : '';
@@ -373,7 +373,7 @@ final class ComponentWords
         $found = [];
         foreach ($node as $key => $value) {
             $at = $path . '.' . $key;
-            if (\is_string($value) && preg_match('/^\$([a-zA-Z0-9_]+)$/', $value, $match)) {
+            if (\is_string($value) && preg_match('/\A\$([a-zA-Z0-9_]+)\z/', $value, $match)) {
                 $found[$match[1]] ??= $at;
             } elseif (\is_array($value)) {
                 $found += self::references($value, $at);
@@ -392,7 +392,7 @@ final class ComponentWords
     private static function substitute(array $node, array $given): array
     {
         foreach ($node as $key => $value) {
-            if (\is_string($value) && preg_match('/^\$([a-zA-Z0-9_]+)$/', $value, $match) && \array_key_exists($match[1], $given)) {
+            if (\is_string($value) && preg_match('/\A\$([a-zA-Z0-9_]+)\z/', $value, $match) && \array_key_exists($match[1], $given)) {
                 $node[$key] = $given[$match[1]];
             } elseif (\is_array($value)) {
                 $node[$key] = self::substitute($value, $given);
