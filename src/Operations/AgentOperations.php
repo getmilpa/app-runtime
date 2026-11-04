@@ -1501,7 +1501,8 @@ class AgentOperations implements CommandProvider
         $port = 8000;
         if (\array_key_exists('port', $input)) {
             $given = $input['port'];
-            if (\is_string($given) && preg_match('/\A-?\d+\z/', $given) === 1) {
+            // `\n?\z`: the built-in server honours "4\n" as 4, so this keeps what `$` accepted (greenhouse decisions/0624).
+            if (\is_string($given) && preg_match('/\A-?\d+\n?\z/', $given) === 1) {
                 $given = (int) $given;
             }
             if (!\is_int($given)) {
@@ -1574,7 +1575,8 @@ class AgentOperations implements CommandProvider
     {
         if (\array_key_exists('workers', $input)) {
             $given = $input['workers'];
-            if (\is_string($given) && preg_match('/\A-?\d+\z/', $given) === 1) {
+            // `\n?\z`: the built-in server honours "4\n" as 4, so this keeps what `$` accepted (greenhouse decisions/0624).
+            if (\is_string($given) && preg_match('/\A-?\d+\n?\z/', $given) === 1) {
                 $given = (int) $given;
             }
             if (!\is_int($given) || $given < 1 || $given > 256) {

@@ -28,7 +28,7 @@ namespace Milpa\AppRuntime\Web;
  */
 final class ScreenStore
 {
-    private const NAME = '/^[a-z][a-z0-9-]{0,40}$/';
+    private const NAME = '/\A[a-z][a-z0-9-]{0,40}\z/';
 
     /** A declaration with no `type` is a data-table — the shape the store shipped with (decisions/0159). */
     public const DEFAULT_TYPE = 'data-table';

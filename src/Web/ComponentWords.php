@@ -49,9 +49,9 @@ final class ComponentWords
     /** The input types a word may declare — the scalar values a composition can place in a prop. */
     public const INPUT_TYPES = ['string', 'integer', 'number', 'boolean'];
 
-    private const NAME = '/^[a-z][a-z0-9-]{0,40}$/';
+    private const NAME = '/\A[a-z][a-z0-9-]{0,40}\z/';
 
-    private const INPUT = '/^[a-z][a-zA-Z0-9_]{0,40}$/';
+    private const INPUT = '/\A[a-z][a-zA-Z0-9_]{0,40}\z/';
 
     public function __construct(private readonly string $path, private readonly string $lockPath)
     {
@@ -333,7 +333,8 @@ final class ComponentWords
     {
         foreach ($node as $key => $value) {
             $at = $path . '.' . $key;
-            if (\is_string($key) && preg_match('/(^html$|Html$)/i', $key)) {
+            // A REFUSAL: `\n?\z` keeps refusing "html\n" as `$` did; a bare `\z` would let it through (greenhouse decisions/0624).
+            if (\is_string($key) && preg_match('/(^html\n?\z|Html\n?\z)/i', $key)) {
                 throw new InvalidScreenTree($at, 'a word composes components; it never carries markup');
             }
             if (\is_array($value)) {

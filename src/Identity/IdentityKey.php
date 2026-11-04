@@ -26,7 +26,9 @@ namespace Milpa\AppRuntime\Identity;
  */
 final class IdentityKey
 {
-    private const HEX_FINGERPRINT = '/^[0-9a-fA-F ]{40,}$/';
+    // `\n?\z`, written out, is exactly what `$` used to accept (greenhouse decisions/0624, point 3). Here a stricter end
+    // would WIDEN authority: a seat that stops being a fingerprint stops having its ledger closures applied.
+    private const HEX_FINGERPRINT = '/\A[0-9a-fA-F ]{40,}\n?\z/';
 
     /** Whether this key is a gpg fingerprint — a signing key, as a resident's seat is — rather than a passkey's id. */
     public static function isFingerprint(string $key): bool
