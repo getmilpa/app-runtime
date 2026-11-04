@@ -15,6 +15,8 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Tests\Support;
 
 use Milpa\AppRuntime\Identity\IdentityKey;
+use Milpa\AppRuntime\Web\ComponentWords;
+use Milpa\AppRuntime\Web\InvalidScreenTree;
 use Milpa\AppRuntime\Web\LocalPath;
 use PHPUnit\Framework\TestCase;
 
@@ -37,6 +39,7 @@ final class APatternThatJudgesAWholeValueEndsAtTheEndTest extends TestCase
     {
         $src = \dirname(__DIR__, 2) . '/src';
         $found = [];
+        $seen = [];
         $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($src, \FilesystemIterator::SKIP_DOTS));
         foreach ($files as $file) {
             if ($file->getExtension() !== 'php') {
@@ -47,13 +50,33 @@ final class APatternThatJudgesAWholeValueEndsAtTheEndTest extends TestCase
                     continue;
                 }
                 $value = (string) eval('return ' . $token[1] . ';');
-                if (self::isPattern($value) && self::admitsAFinalNewline($value)) {
+                if (!self::isPattern($value)) {
+                    continue;
+                }
+                $seen[] = $value;
+                if (self::admitsAFinalNewline($value)) {
                     $found[] = substr($file->getPathname(), \strlen($src) + 1) . ':' . $token[2] . '  ' . $token[1];
                 }
             }
         }
 
+        // THE SCAN'S OWN POSITIVE CONTROL: a scan that sees nothing passes everything. It must see the sign-in rule
+        // and the hundreds of patterns around it.
+        self::assertContains((new \ReflectionClassConstant(LocalPath::class, 'PATTERN'))->getValue(), $seen, 'the scan did not see a known pattern');
+        self::assertGreaterThan(100, \count($seen), 'the scan saw too few patterns to be reading src/');
         self::assertSame([], $found, 'end a pattern that judges a whole value with \z: $ also matches before a final newline');
+    }
+
+    /**
+     * The REFUSAL keeps its direction: a word named "html\n" is still markup, as it was under `$`. A bare `\z` there
+     * would satisfy the guard and let it through, so this pins the answer itself.
+     */
+    public function testAWordNamedHtmlWithAFinalNewlineIsStillRefusedAsMarkup(): void
+    {
+        $refuse = new \ReflectionMethod(ComponentWords::class, 'refuseMarkup');
+
+        $this->expectException(InvalidScreenTree::class);
+        $refuse->invoke(null, ["html\n" => []], 'word');
     }
 
     /**
@@ -61,7 +84,10 @@ final class APatternThatJudgesAWholeValueEndsAtTheEndTest extends TestCase
      */
     public function testTheGuardNamesWhatItIsAbout(): void
     {
-        foreach (['/^[a-z]+$/', '~^/(?:a|$)~i', '#^x$#u', '/\A[a-z]+$/', '/^[a-z]+\Z/', '/(?i)^[a-z]+$/', '/(?:^[a-z]+)$/', '/(^[a-z]+$)/'] as $bad) {
+        foreach (['/^[a-z]+$/', '~^/(?:a|$)~i', '#^x$#u', '/\A[a-z]+$/', '/^[a-z]+\Z/', '/(?i)^[a-z]+$/', '/(?:^[a-z]+)$/', '/(^[a-z]+$)/',
+            '/(?<n>^[a-z]+$)/', '/(?P<n>^[a-z]+$)/', "/(?'n'^[a-z]+$)/", '/(?|^[a-z]+$)/', '/(?>^[a-z]+$)/', '/(?-i)^[a-z]+$/',
+            '/(?i-m:^[a-z]+$)/', '/(*UTF)^[a-z]+$/', '/[a-z]+$/A', '/\G[a-z]+$/', '|^[a-z]+$|', ' /^[a-z]+$/', '/^[a-z]+$ /x',
+            '/^[a-z]+$(?#end)/'] as $bad) {
             self::assertTrue(self::admitsAFinalNewline($bad), $bad);
         }
         foreach (['/\A[a-z]+\z/', '/^[a-z]+$/D', '/^key: (.*)$/m', '/^\$[a-z]+\z/', '/(Fatal error):\s*(.+)$/', '/^[$]x\z/', '/\A\d+\n?\z/'] as $good) {
@@ -91,10 +117,15 @@ final class APatternThatJudgesAWholeValueEndsAtTheEndTest extends TestCase
         self::assertFalse(IdentityKey::isFingerprint($fp . "\n\n"));
     }
 
-    /** A literal that compiles as a delimited PCRE pattern. */
+    /**
+     * A literal that compiles as a delimited PCRE pattern — any delimiter PHP accepts, after any leading whitespace.
+     * Heredoc, nowdoc, interpolated and concatenated patterns are not string tokens and stay out of sight; there are
+     * none in src/ that judge a whole value.
+     */
     private static function isPattern(string $value): bool
     {
-        if (\strlen($value) < 3 || !\in_array($value[0], ['/', '~', '#', '@', '%', '!', '{', '('], true)) {
+        $trimmed = ltrim($value);
+        if (\strlen($trimmed) < 3 || ctype_alnum($trimmed[0]) || $trimmed[0] === '\\') {
             return false;
         }
 
@@ -107,6 +138,7 @@ final class APatternThatJudgesAWholeValueEndsAtTheEndTest extends TestCase
      */
     private static function admitsAFinalNewline(string $pattern): bool
     {
+        $pattern = ltrim($pattern);
         $delimiter = $pattern[0];
         $close = ['(' => ')', '{' => '}', '[' => ']', '<' => '>'][$delimiter] ?? $delimiter;
         $end = strrpos($pattern, $close);
@@ -118,10 +150,13 @@ final class APatternThatJudgesAWholeValueEndsAtTheEndTest extends TestCase
         if (str_contains($flags, 'm') || str_contains($flags, 'D')) {
             return false;
         }
-        $head = (string) preg_replace('/\A(?:\(\?[a-zA-Z]*[:)]|\()*/', '', $regex);
-        if (!str_starts_with($head, '^') && !str_starts_with($head, '\A')) {
+        // Opening groups of any kind, inline flags (with a minus too) and leading verbs come off before the start.
+        $head = (string) preg_replace('/\A(?:\(\*[A-Z_=0-9]+\)|\(\?(?:<[a-zA-Z_]\w*>|P<[a-zA-Z_]\w*>|\'[a-zA-Z_]\w*\'|[a-zA-Z^-]*[:)]|\||>)|\()*/', '', $regex);
+        $anchored = str_contains($flags, 'A') || str_starts_with($head, '^') || str_starts_with($head, '\A') || str_starts_with($head, '\G');
+        if (!$anchored) {
             return false;
         }
+        $extended = str_contains($flags, 'x');
         $inClass = false;
         for ($i = 0, $n = \strlen($regex); $i < $n; ++$i) {
             $c = $regex[$i];
@@ -140,8 +175,12 @@ final class APatternThatJudgesAWholeValueEndsAtTheEndTest extends TestCase
             }
             if ($c === '[') {
                 $inClass = true;
-            } elseif ($c === '$' && \in_array($regex[$i + 1] ?? '', ['', ')', '|'], true)) {
-                return true;
+            } elseif ($c === '$') {
+                $next = $regex[$i + 1] ?? '';
+                if (\in_array($next, ['', ')', '|'], true) || str_starts_with(substr($regex, $i + 1), '(?#')
+                    || ($extended && (ctype_space($next) || $next === '#'))) {
+                    return true;
+                }
             }
         }
 

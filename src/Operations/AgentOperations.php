@@ -1589,8 +1589,9 @@ class AgentOperations implements CommandProvider
         if ($inherited === false || $inherited === '') {
             return self::SERVE_WORKERS;
         }
-        // The built-in server ignores anything but an integer above 1 and serves one request at a time.
-        if (preg_match('/\A\d+\z/', $inherited) !== 1 || (int) $inherited < 2) {
+        // The built-in server ignores anything but an integer above 1 and serves one request at a time. It honours
+        // "4\n" as 4, so `\n?\z` keeps what `$` accepted (greenhouse decisions/0624).
+        if (preg_match('/\A\d+\n?\z/', $inherited) !== 1 || (int) $inherited < 2) {
             return self::SERVE_WORKERS_ENV . '=' . $inherited . ' is set in this environment, and the built-in server would ignore it and serve one request at a time — unset it, or pass workers (1 for one at a time)';
         }
 

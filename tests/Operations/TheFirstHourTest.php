@@ -175,6 +175,37 @@ final class TheFirstHourTest extends TestCase
         self::assertNotContains('php bin/coa serve', $commands);
     }
 
+    /**
+     * The port and the workers keep what `$` accepted (greenhouse decisions/0624): the built-in server honours "4\n" as
+     * 4, so a count with one final newline is that count, given or inherited — and two newlines are not.
+     */
+    #[Test]
+    public function a_count_with_one_final_newline_is_that_count_given_or_inherited(): void
+    {
+        $operations = $this->booted();
+        mkdir($this->root . '/public');
+
+        $answer = $operations->serve(['dry_run' => true, 'port' => "8731\n", 'workers' => "4\n"]);
+        self::assertTrue($answer['ok'] ?? null, (string) ($answer['error'] ?? ''));
+        self::assertStringStartsWith('PHP_CLI_SERVER_WORKERS=4 ', $answer['command']);
+        self::assertStringContainsString(' -S 127.0.0.1:8731 ', $answer['command']);
+
+        $previous = getenv(AgentOperations::SERVE_WORKERS_ENV);
+        putenv(AgentOperations::SERVE_WORKERS_ENV . "=4\n");
+        try {
+            $answer = $operations->serve(['dry_run' => true]);
+            self::assertTrue($answer['ok'] ?? null, (string) ($answer['error'] ?? ''));
+            self::assertStringStartsWith('PHP_CLI_SERVER_WORKERS=4 ', $answer['command']);
+
+            putenv(AgentOperations::SERVE_WORKERS_ENV . "=4\n\n");
+            self::assertFalse($operations->serve(['dry_run' => true])['ok'] ?? null);
+        } finally {
+            putenv($previous === false ? AgentOperations::SERVE_WORKERS_ENV : AgentOperations::SERVE_WORKERS_ENV . '=' . $previous);
+        }
+
+        self::assertFalse($operations->serve(['dry_run' => true, 'port' => "8731\n\n"])['ok'] ?? null);
+    }
+
     #[Test]
     public function serve_builds_the_command_from_what_the_app_ships(): void
     {
