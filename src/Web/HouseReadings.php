@@ -45,7 +45,7 @@ final class HouseReadings
     public function register(HouseReading $reading): void
     {
         $name = $reading->name();
-        if (preg_match('/^[a-z][a-z0-9-]*$/', $name) !== 1) {
+        if (preg_match('/\A[a-z][a-z0-9-]*\z/', $name) !== 1) {
             throw new \InvalidArgumentException("a reading is named in kebab-case: «{$name}»");
         }
         if (isset($this->readings[$name])) {

@@ -259,7 +259,7 @@ final class Foundation
         if ('' === $said || mb_strtolower($said) === $field) {
             return 'placeholder';
         }
-        if (1 === preg_match('/^(?:<[^<>]*>|\[[^\[\]]*\]|\{+[^{}]*\}+)$/u', $value)) {
+        if (1 === preg_match('/\A(?:<[^<>]*>|\[[^\[\]]*\]|\{+[^{}]*\}+)\z/u', $value)) {
             return 'placeholder';
         }
 

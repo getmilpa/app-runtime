@@ -336,7 +336,7 @@ final class Capabilities
 
         // ONLY A CARET ON A 0.x, which is the one Composer writes and the only one that is a minor
         // ceiling. A range somebody chose on purpose is left exactly as they chose it.
-        if (!\is_string($current) || preg_match('/^\^0\.(\d+(?:\.\d+)*)$/', $current, $m) !== 1) {
+        if (!\is_string($current) || preg_match('/\A\^0\.(\d+(?:\.\d+)*)\z/', $current, $m) !== 1) {
             return null;
         }
 

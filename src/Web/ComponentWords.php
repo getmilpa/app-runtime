@@ -49,9 +49,9 @@ final class ComponentWords
     /** The input types a word may declare — the scalar values a composition can place in a prop. */
     public const INPUT_TYPES = ['string', 'integer', 'number', 'boolean'];
 
-    private const NAME = '/^[a-z][a-z0-9-]{0,40}$/';
+    private const NAME = '/\A[a-z][a-z0-9-]{0,40}\z/';
 
-    private const INPUT = '/^[a-z][a-zA-Z0-9_]{0,40}$/';
+    private const INPUT = '/\A[a-z][a-zA-Z0-9_]{0,40}\z/';
 
     public function __construct(private readonly string $path, private readonly string $lockPath)
     {
@@ -304,7 +304,7 @@ final class ComponentWords
         $type = (string) ($node['type'] ?? '');
         $props = \is_array($node['props'] ?? null) ? $node['props'] : [];
         foreach ($props as $prop => $value) {
-            if (! \is_string($value) || ! preg_match('/^\$([a-zA-Z0-9_]+)$/', $value, $match) || ! isset($inputs[$match[1]])) {
+            if (! \is_string($value) || ! preg_match('/\A\$([a-zA-Z0-9_]+)\z/', $value, $match) || ! isset($inputs[$match[1]])) {
                 continue;
             }
             $declared = \is_string($schemas[$type][$prop]['type'] ?? null) ? $schemas[$type][$prop]['type'] : '';
@@ -333,7 +333,8 @@ final class ComponentWords
     {
         foreach ($node as $key => $value) {
             $at = $path . '.' . $key;
-            if (\is_string($key) && preg_match('/(^html$|Html$)/i', $key)) {
+            // A REFUSAL: `\n?\z` keeps refusing "html\n" as `$` did; a bare `\z` would let it through (greenhouse decisions/0624).
+            if (\is_string($key) && preg_match('/(^html\n?\z|Html\n?\z)/i', $key)) {
                 throw new InvalidScreenTree($at, 'a word composes components; it never carries markup');
             }
             if (\is_array($value)) {
@@ -373,7 +374,7 @@ final class ComponentWords
         $found = [];
         foreach ($node as $key => $value) {
             $at = $path . '.' . $key;
-            if (\is_string($value) && preg_match('/^\$([a-zA-Z0-9_]+)$/', $value, $match)) {
+            if (\is_string($value) && preg_match('/\A\$([a-zA-Z0-9_]+)\z/', $value, $match)) {
                 $found[$match[1]] ??= $at;
             } elseif (\is_array($value)) {
                 $found += self::references($value, $at);
@@ -392,7 +393,7 @@ final class ComponentWords
     private static function substitute(array $node, array $given): array
     {
         foreach ($node as $key => $value) {
-            if (\is_string($value) && preg_match('/^\$([a-zA-Z0-9_]+)$/', $value, $match) && \array_key_exists($match[1], $given)) {
+            if (\is_string($value) && preg_match('/\A\$([a-zA-Z0-9_]+)\z/', $value, $match) && \array_key_exists($match[1], $given)) {
                 $node[$key] = $given[$match[1]];
             } elseif (\is_array($value)) {
                 $node[$key] = self::substitute($value, $given);

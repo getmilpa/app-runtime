@@ -38,7 +38,7 @@ final readonly class ScreenDrafts
      */
     public function draft(string $name, string $type, array $props): array
     {
-        if (!preg_match('/^[a-z][a-z0-9-]{0,40}$/', $name)) {
+        if (!preg_match('/\A[a-z][a-z0-9-]{0,40}\z/', $name)) {
             throw new \DomainException('invalid_name');
         }
         ($this->validate)($name, $type, $props);
@@ -54,7 +54,7 @@ final readonly class ScreenDrafts
      */
     public function load(string $id): array
     {
-        if (!preg_match('/^[a-f0-9]{64}$/', $id) || !is_file($this->directory . '/' . $id . '.json')) {
+        if (!preg_match('/\A[a-f0-9]{64}\z/', $id) || !is_file($this->directory . '/' . $id . '.json')) {
             throw new \DomainException('revision_missing');
         }
         try {

@@ -164,13 +164,13 @@ final class RoleRegistry
      */
     public static function parse(string $content, string $fallbackName, string $origin): ?AgentRole
     {
-        if (preg_match('/^---\R(.*?)\R---\R(.*)$/s', trim($content), $m) !== 1) {
+        if (preg_match('/\A---\R(.*?)\R---\R(.*)\z/s', trim($content), $m) !== 1) {
             return null;
         }
 
         $front = [];
         foreach (explode("\n", $m[1]) as $line) {
-            if (preg_match('/^\s*([a-z_]+)\s*:\s*(.*)$/i', $line, $pair) !== 1) {
+            if (preg_match('/\A\s*([a-z_]+)\s*:\s*(.*)\z/i', $line, $pair) !== 1) {
                 continue;
             }
             $front[strtolower($pair[1])] = trim($pair[2]);

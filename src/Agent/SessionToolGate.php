@@ -832,7 +832,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      */
     private static function namesItsShortName(string $standing, string $value): bool
     {
-        if (preg_match('/^\\\\?(?:[A-Za-z_][A-Za-z0-9_]*\\\\)+([A-Za-z_][A-Za-z0-9_]*)$/', $value, $match) !== 1) {
+        if (preg_match('/\A\\\\?(?:[A-Za-z_][A-Za-z0-9_]*\\\\)+([A-Za-z_][A-Za-z0-9_]*)\z/', $value, $match) !== 1) {
             return false;
         }
 

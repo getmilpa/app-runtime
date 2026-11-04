@@ -45,7 +45,7 @@ use Milpa\ToolRuntime\SchemaValidator;
 final class ArtifactCheck
 {
     /** JSON is often delivered wrapped in a fence even when the brief says not to. */
-    private const FENCE = '/^\s*```(?:json)?\s*(.+?)\s*```\s*$/s';
+    private const FENCE = '/\A\s*```(?:json)?\s*(.+?)\s*```\s*\z/s';
 
     public function __construct(private readonly SchemaValidator $validator = new SchemaValidator())
     {

@@ -26,7 +26,7 @@ namespace Milpa\AppRuntime\Web;
  */
 final class LocalPath
 {
-    private const PATTERN = '~^/(?!/)[^\\\\\s\x00-\x1f\x7f]*$~';
+    private const PATTERN = '~\A/(?!/)[^\\\\\s\x00-\x1f\x7f]*\z~';
 
     /** The candidate when it is a local absolute path, otherwise `/` — the safe default, never an error. */
     public static function orRoot(mixed $candidate): string

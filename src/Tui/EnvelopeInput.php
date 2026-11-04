@@ -40,7 +40,7 @@ final class EnvelopeInput
     {
         $envelope = [];
         foreach (preg_split('/\s*,\s*/', trim($text)) ?: [] as $pair) {
-            if (! preg_match('/^\s*([a-zA-Z_]+)\s*[:=]\s*(.+?)\s*$/', $pair, $m)) {
+            if (! preg_match('/\A\s*([a-zA-Z_]+)\s*[:=]\s*(.+?)\s*\z/', $pair, $m)) {
                 continue;
             }
             $axis = strtolower($m[1]);

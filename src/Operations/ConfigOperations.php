@@ -338,7 +338,7 @@ final class ConfigOperations implements CommandProvider, CatalogueBorrower
     private function declareSecret(array $input): array
     {
         $key = \is_string($input['key'] ?? null) ? trim($input['key']) : '';
-        if ($key === '' || preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$/', $key) !== 1) {
+        if ($key === '' || preg_match('/\A[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*\z/', $key) !== 1) {
             return ['ok' => false, 'error' => '`key` must be a dotted configuration path, as Config::get asks for it — e.g. agent.apiKey'];
         }
 

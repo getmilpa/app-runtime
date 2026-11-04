@@ -151,7 +151,7 @@ final class LaunchGrants
         foreach ($arguments as $key => $value) {
             $type = \is_array($properties[$key] ?? null) ? ($properties[$key]['type'] ?? null) : null;
             $typed[$key] = match ($type) {
-                'integer' => preg_match('/^-?\\d+$/', $value) === 1 ? (int) $value : $value,
+                'integer' => preg_match('/\A-?\\d+\z/', $value) === 1 ? (int) $value : $value,
                 'number' => is_numeric($value) ? $value + 0 : $value,
                 'boolean' => \in_array(strtolower($value), ['true', 'false', '1', '0'], true) ? \in_array(strtolower($value), ['true', '1'], true) : $value,
                 default => $value,

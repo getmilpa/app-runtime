@@ -1495,13 +1495,14 @@ class AgentOperations implements CommandProvider
         }
         $ipv6 = str_starts_with($host, '[') && str_ends_with($host, ']')
             && filter_var(substr($host, 1, -1), \FILTER_VALIDATE_IP, \FILTER_FLAG_IPV6) !== false;
-        if (!$ipv6 && preg_match('/^[A-Za-z0-9][A-Za-z0-9.-]{0,63}$/', $host) !== 1) {
+        if (!$ipv6 && preg_match('/\A[A-Za-z0-9][A-Za-z0-9.-]{0,63}\z/', $host) !== 1) {
             return ['ok' => false, 'error' => 'the host must be an address (IPv6 in brackets, e.g. [::1]) or a name, not «' . $host . '»'];
         }
         $port = 8000;
         if (\array_key_exists('port', $input)) {
             $given = $input['port'];
-            if (\is_string($given) && preg_match('/^-?\d+$/', $given) === 1) {
+            // `\n?\z`: the built-in server honours "4\n" as 4, so this keeps what `$` accepted (greenhouse decisions/0624).
+            if (\is_string($given) && preg_match('/\A-?\d+\n?\z/', $given) === 1) {
                 $given = (int) $given;
             }
             if (!\is_int($given)) {
@@ -1574,7 +1575,8 @@ class AgentOperations implements CommandProvider
     {
         if (\array_key_exists('workers', $input)) {
             $given = $input['workers'];
-            if (\is_string($given) && preg_match('/^-?\d+$/', $given) === 1) {
+            // `\n?\z`: the built-in server honours "4\n" as 4, so this keeps what `$` accepted (greenhouse decisions/0624).
+            if (\is_string($given) && preg_match('/\A-?\d+\n?\z/', $given) === 1) {
                 $given = (int) $given;
             }
             if (!\is_int($given) || $given < 1 || $given > 256) {
@@ -1588,7 +1590,7 @@ class AgentOperations implements CommandProvider
             return self::SERVE_WORKERS;
         }
         // The built-in server ignores anything but an integer above 1 and serves one request at a time.
-        if (preg_match('/^\d+$/', $inherited) !== 1 || (int) $inherited < 2) {
+        if (preg_match('/\A\d+\z/', $inherited) !== 1 || (int) $inherited < 2) {
             return self::SERVE_WORKERS_ENV . '=' . $inherited . ' is set in this environment, and the built-in server would ignore it and serve one request at a time — unset it, or pass workers (1 for one at a time)';
         }
 
@@ -5448,7 +5450,7 @@ class AgentOperations implements CommandProvider
         }
 
         $name = strtolower(trim((string) ($input['name'] ?? '')));
-        if ($name === '' || preg_match('/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/', $name) !== 1) {
+        if ($name === '' || preg_match('/\A[a-z0-9]([a-z0-9-]*[a-z0-9])?\z/', $name) !== 1) {
             return ['ok' => false, 'error' => 'name must be lowercase letters, numbers and single hyphens'];
         }
         $prompt = trim((string) ($input['prompt'] ?? ''));

@@ -842,7 +842,7 @@ final class AgentScreen implements SurfaceBroadcaster
         // El crudo, no el nombre canónico: éste viene en minúscula para que un atajo declarado como
         // `l` case con `L`, y una pregunta al agente sin mayúsculas se lee como un telegrama.
         $crudo = $loop->lastRawKey();
-        if (mb_strlen($crudo) === 1 && preg_match('/^[[:print:]]$/u', $crudo) === 1) {
+        if (mb_strlen($crudo) === 1 && preg_match('/\A[[:print:]]\z/u', $crudo) === 1) {
             $this->entrada .= $crudo;
             // ESCRIBIR ES ELEGIR LA TERCERA. Nadie teclea una respuesta para después tener que
             // caminar hasta la opción de escribirla.
