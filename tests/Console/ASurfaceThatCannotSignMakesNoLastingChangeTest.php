@@ -338,11 +338,22 @@ final class ASurfaceThatCannotSignMakesNoLastingChangeTest extends TestCase
      * (greenhouse decisions/0624). A name that is not a plain flag travels quoted as one token: the shell hands it to
      * the command as one argument, nothing after it runs, and `--sign` is not commented out.
      */
-    public function testOverMcpAnArgumentNameCannotBreakTheLineOfferedToSign(): void
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function namesThatTryToRunSomethingElse(): iterable
+    {
+        yield 'a comment that hides --sign' => ['x; touch %s #'];
+        yield 'a tail that looks like a plain flag' => ['x; touch %s; --a'];
+        yield 'a head that looks like a plain flag' => ['--a; touch %s'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('namesThatTryToRunSomethingElse')]
+    public function testOverMcpAnArgumentNameCannotBreakTheLineOfferedToSign(string $name): void
     {
         $app = $this->application();
         $planted = sys_get_temp_dir() . '/c11-keyinj-' . bin2hex(random_bytes(4));
-        $key = "x; touch {$planted} #";
+        $key = sprintf($name, $planted);
 
         $answer = $this->privately($app, 'mcpPorLaPuerta', ['jsonrpc' => '2.0', 'id' => 12, 'method' => 'tools/call', 'params' => ['name' => 'agent_role_declare', 'arguments' => ['name' => 'r1', $key => 'v']]], $this->tools($app));
 
@@ -352,7 +363,7 @@ final class ASurfaceThatCannotSignMakesNoLastingChangeTest extends TestCase
         $argv = (string) shell_exec("printf '<%s>\\n' " . substr($line, \strlen($prefix)));
 
         self::assertFileDoesNotExist($planted, 'a name made the line run another command');
-        self::assertSame("<--name=r1>\n<--{$key}=v>\n<--sign>\n", $argv);
+        self::assertSame("<--name=r1>\n<--" . str_replace('_', '-', $key) . "=v>\n<--sign>\n", $argv);
         self::assertSame([], $this->ran);
     }
 
@@ -385,6 +396,24 @@ final class ASurfaceThatCannotSignMakesNoLastingChangeTest extends TestCase
 
         self::assertStringEndsWith(' --sign', $line);
         self::assertSame("<--name=r1>\n<{$flag}=env>\n<--sign>\n", $argv, 'the line was split or a token was lost');
+        self::assertSame([], $this->ran);
+    }
+
+    /**
+     * A NUL byte cannot travel in a shell argument. A read is not refused for it — it passes to the server as it did —
+     * and a lasting change is refused with a sentence, not with an exception that ends the loop.
+     */
+    public function testOverMcpANulInANameIsRefusedInWordsAndAReadStillPasses(): void
+    {
+        $app = $this->application();
+
+        self::assertNull($this->privately($app, 'mcpPorLaPuerta', ['id' => 14, 'params' => ['name' => 'agent_role_list', 'arguments' => ["a\0b" => 'v']]], $this->tools($app)));
+
+        $answer = $this->privately($app, 'mcpPorLaPuerta', ['jsonrpc' => '2.0', 'id' => 15, 'method' => 'tools/call', 'params' => ['name' => 'agent_role_declare', 'arguments' => ['name' => 'r1', "a\0b" => 'v']]], $this->tools($app));
+        $text = json_decode($answer['result']['content'][0]['text'], true);
+
+        self::assertTrue($answer['result']['isError']);
+        self::assertStringContainsString('a NUL byte cannot travel in a terminal line', $text['error']);
         self::assertSame([], $this->ran);
     }
 

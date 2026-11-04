@@ -152,11 +152,18 @@ final class UnsignedTerminal
         if (self::continuesASignedSequence($op, $input, $receipts, $ownReceiptOnly)) {
             return null;
         }
-        $line = '  Run it signed from the terminal: ' . self::signedLine($op, $input);
+        // Built only where the call IS refused: a read passes as it always did, whatever its arguments hold.
+        $line = static function () use ($op, $input): string {
+            $signed = self::signedLineOrNull($op, $input);
+
+            return $signed !== null
+                ? '  Run it signed from the terminal: ' . $signed
+                : '  It cannot be offered signed: a NUL byte cannot travel in a terminal line. Nothing ran.';
+        };
         if (Consent::demanded($op, $input)) {
             return [
                 "«{$op->name}» demands consent, and consent is a signature over THIS call — {$surface} cannot carry one. Nothing ran.",
-                $line,
+                $line(),
             ];
         }
         if (!self::lasts($op, $input)) {
@@ -171,7 +178,7 @@ final class UnsignedTerminal
             return [
                 "This call is not signed, and an unsigned call changes nothing that lasts: «{$op->name}» {$declared}.",
                 "  The receipt standing for «{$sequence}» signed «{$another['operation']}»; over {$surface} a call continues only under a receipt its own operation signed. Nothing ran.",
-                $line,
+                $line(),
                 '  Or answer from the chat or the terminal, where the receipt of the session covers it.',
             ];
         }
@@ -181,11 +188,25 @@ final class UnsignedTerminal
             $sequence !== null
                 ? "  No signed receipt stands for «{$sequence}», so it does not continue as anyone, and over {$surface} it does not run as the terminal. Nothing ran."
                 : "  Over {$surface} it does not run as the terminal either. Nothing ran.",
-            $line,
+            $line(),
             $sequence !== null
                 ? "  One signed call opens «{$sequence}»; the calls after it — here too — continue under its receipt."
                 : '  Or present a token the house minted with token:new (MILPA_TOKEN, an opaque secret, not a JWT): its scopes are what the call runs with.',
         ];
+    }
+
+    /**
+     * The signed line, or null when no terminal line can carry the call (a NUL byte in a name or a value).
+     *
+     * @param array<string, mixed> $input
+     */
+    public static function signedLineOrNull(Operation $op, array $input): ?string
+    {
+        try {
+            return self::signedLine($op, $input);
+        } catch (\ValueError) {
+            return null;
+        }
     }
 
     /**
