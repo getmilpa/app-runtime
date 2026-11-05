@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [0.222.1](https://github.com/getmilpa/app-runtime/compare/v0.222.0...v0.222.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* a pattern that judges a whole value ends at the end ([#812](https://github.com/getmilpa/app-runtime/issues/812)) ([3e935ab](https://github.com/getmilpa/app-runtime/commit/3e935abc2d668bf504bf2f5626d30fe9f3ee9bfd))
+* quote shell arguments byte for byte, whatever the locale ([#810](https://github.com/getmilpa/app-runtime/issues/810)) ([b299a66](https://github.com/getmilpa/app-runtime/commit/b299a669be6b1b29d3c4a4b97dac48c3a5a7cb9b))
+* the low findings of the anchors review ([#813](https://github.com/getmilpa/app-runtime/issues/813)) ([b1c0795](https://github.com/getmilpa/app-runtime/commit/b1c0795d19099bebb68431383b8a15aeaeccfe9c))
+
 ## [0.222.0](https://github.com/getmilpa/app-runtime/compare/v0.221.3...v0.222.0) (2026-10-14)
 
 
