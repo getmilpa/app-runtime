@@ -22,6 +22,7 @@ use Milpa\AppRuntime\Agent\PluginAuthoringPolicy;
 use Milpa\AppRuntime\Agent\RouteFailureCause;
 use Milpa\AppRuntime\Agent\RouteRegression;
 use Milpa\AppRuntime\Agent\TrialWorkspace;
+use Milpa\AppRuntime\Config\SecretFiles;
 use Milpa\AppRuntime\Support\BootCandidate;
 use Milpa\AppRuntime\Support\BootProbe;
 use Milpa\AppRuntime\Support\CompiledCode;
@@ -478,6 +479,14 @@ final class TrialOperations implements CommandProvider
         // two files — its lines and its head — and neither crosses.
         if (isset($diff[\Milpa\AppRuntime\Standing\StandingLedger::PATH]) || isset($diff[\Milpa\AppRuntime\Standing\StandingLedger::PATH . \Milpa\AppRuntime\Standing\StandingLedger::HEAD])) {
             return ['ok' => false, 'error' => 'a trial never carries the book of standing grants — a person gives one with standing:grant, and the house writes the rest itself; nothing was promoted'];
+        }
+        // NOR ANYTHING NO COPY CARRIES (greenhouse decisions/0625 §4): the house's secret files, its bearer stores and
+        // its books of who may do what. No copy carries them, so a trial that has one CREATED it — and promoting it
+        // would write a rehearsal's enrollment ledger, token store or declaration ledger over the house's own.
+        $carried = array_values(array_filter(array_keys($diff), static fn (string $rel): bool => SecretFiles::withheldFromCopy($rel)));
+        if ($carried !== []) {
+            return ['ok' => false, 'error' => 'a trial never carries what no copy of the house carries — ' . implode(', ', array_map(static fn (string $rel): string => "«{$rel}»", $carried))
+                . ' is the house\'s own, written by the house and never by a rehearsal; nothing was promoted'];
         }
 
         // NO MERGE OF WHAT ACTUALLY COLLIDES (greenhouse decisions/0467, refining 0068). A moved keyed

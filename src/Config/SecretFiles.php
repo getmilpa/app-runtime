@@ -46,13 +46,19 @@ final class SecretFiles
 
     /**
      * NON-BEARER STATE the house keeps that still names WHO MAY DO WHAT — the enrollment ledger (grants over
-     * public key fingerprints), the token store (sha256 hashes), the capabilities declaration, and the agent
-     * session log. None is a presented-and-it-opens bearer credential, so {@see isSecret()} does not name them
-     * and a copy still carries them; but a confined process reaching them through `--ro-bind / /` learns the
-     * house's authority map and reads whatever a session recorded. The confinement mask names them explicitly so
-     * agent-authored code cannot read them from the house or from a copy (greenhouse CH, hueco B2). A `test`/work
-     * call does not read these books, so masking them does not break a legitimate leg (measured; stated if it
-     * does). Kept apart from the bearer stores because the two answer different questions (0618).
+     * public key fingerprints), the token store (sha256 hashes), the declaration ledger (what the house's
+     * declaration writers wrote into its config lists, {@see \Milpa\AppRuntime\Support\DeclarationLedger}), and
+     * the agent session log. None is a presented-and-it-opens bearer credential, so {@see isSecret()} does not
+     * name them; but a confined process reaching them through `--ro-bind / /` learns the house's authority map
+     * and reads whatever a session recorded. The confinement mask names them explicitly so agent-authored code
+     * cannot read them from the house (greenhouse CH, hueco B2), and NO COPY OF THE HOUSE CARRIES THEM
+     * ({@see withheldFromCopy()}, greenhouse decisions/0625).
+     *
+     * THE LEG THE MASK BROKE, STATED (greenhouse evidence/1205 and 1209): while copies still carried them, a writer
+     * inside a trial built a boot candidate that tried to copy a masked book, failed, and refused the whole write —
+     * in an equipped house the agent's seat could write nothing. A boot does not read these books (the declaration
+     * ledger is read only by `capabilities:enable`), so a copy that leaves them out boots the same. Kept apart from
+     * the bearer stores because the two answer different questions (0618).
      */
     public const NON_BEARER_STATE = ['storage/identity/enrollments.json', 'storage/tokens.json', 'storage/capabilities/declarations.json', 'var/agent-sessions.jsonl'];
 
@@ -86,14 +92,28 @@ final class SecretFiles
 
     /**
      * Whether a path, relative to a house, must be left OUT of any COPY of the house: a file that holds a secret
-     * ({@see isSecret}, any depth) OR a bearer-credential store ({@see BEARER_CREDENTIAL_STORES}). A copy of the
-     * house never contains a bearer-credential store. The stores are named once ({@see BEARER_CREDENTIAL_STORES})
-     * and every copier leaves them out, as it leaves out the named secret files — `TrialWorkspace` (trials and
-     * exercises) and `BootCandidate` (boot candidates) ask this one rule (greenhouse decisions/0618).
+     * ({@see isSecret}, any depth), a bearer-credential store ({@see BEARER_CREDENTIAL_STORES}, decisions/0618), or a
+     * book of who may do what ({@see NON_BEARER_STATE}, decisions/0625). Every copier leaves them out and asks
+     * this one rule — `TrialWorkspace` (trials and exercises, by either of its two ways) and `BootCandidate` (boot
+     * candidates and Composer stages) — and what no copy carries, no promotion carries back (`sandbox:promote`).
      */
     public static function withheldFromCopy(string $relative): bool
     {
-        return self::isSecret($relative) || \in_array($relative, self::BEARER_CREDENTIAL_STORES, true);
+        return self::isSecret($relative)
+            || \in_array($relative, self::BEARER_CREDENTIAL_STORES, true)
+            || \in_array($relative, self::NON_BEARER_STATE, true);
+    }
+
+    /**
+     * The paths, relative to a house root, that {@see withheldFromCopy()} names for this house: every secret file
+     * that exists under it ({@see under()}), and every store and book by its name, present or not. For a copier that
+     * needs the list up front (rsync's `--exclude`) instead of asking path by path — the same rule, never a second.
+     *
+     * @return list<string>
+     */
+    public static function withheldUnder(string $root): array
+    {
+        return array_values(array_unique([...self::under($root), ...self::BEARER_CREDENTIAL_STORES, ...self::NON_BEARER_STATE]));
     }
 
     /**

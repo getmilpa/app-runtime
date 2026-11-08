@@ -241,8 +241,10 @@ final class TrialWorkspace
         try {
             $baseline = $this->manifest();
             $current = self::hashTree($this->root);
-            // …and the book of standing grants, which no copy carries and which the house writes with every act.
-            unset($current['.env'], $current[self::BOOK[0]], $current[self::BOOK[1]]);
+            // …minus what no copy carries (greenhouse decisions/0625 §3): the secret files, the stores, the books of who
+            // may do what and the book of standing grants. The house writes some of them with every act; comparing
+            // them against a copy that never had them made every copy stale the moment the house issued a token.
+            $current = array_filter($current, static fn (string $rel): bool => !self::withheld($rel), \ARRAY_FILTER_USE_KEY);
             ksort($baseline);
 
             return $baseline === $current;
@@ -446,11 +448,12 @@ final class TrialWorkspace
         // Every copy carried them, mode kept, for a confined process to read: every grant a person signed, every
         // call a seat made. The house's book is the house's; a rehearsal reads none and writes none.
         //
-        // A COPY OF THE HOUSE NEVER CONTAINS A BEARER-CREDENTIAL STORE (greenhouse decisions/0618). The stores are
-        // named once ({@see SecretFiles::BEARER_CREDENTIAL_STORES}) and every copier leaves them out, as it leaves
-        // out the named secret files: `var/` is already excluded, and the store under `storage/` is withheld by
-        // {@see SecretFiles::withheldFromCopy}, the one rule every house-copier asks.
-        $withheld = array_merge(SecretFiles::under($root), SecretFiles::BEARER_CREDENTIAL_STORES, self::BOOK);
+        // A COPY OF THE HOUSE NEVER CONTAINS A BEARER-CREDENTIAL STORE (greenhouse decisions/0618), NOR A BOOK OF WHO
+        // MAY DO WHAT (decisions/0625): what the trial cannot read, no copy carries. Both ways of copying ask the one
+        // rule, {@see SecretFiles::withheldFromCopy} — rsync through its list ({@see SecretFiles::withheldUnder}),
+        // the walk path by path ({@see withheld()}). The rsync way once kept a list of its own, and a host with
+        // rsync would have copied the books the walk left out (decisions/0625 §2).
+        $withheld = array_merge(SecretFiles::withheldUnder($root), self::BOOK);
         if (self::hasRsync()) {
             $secrets = implode(' ', array_map(static fn (string $rel): string => ShellArgument::quote('--exclude=/' . $rel), $withheld));
             $cmd = sprintf(
@@ -467,7 +470,7 @@ final class TrialWorkspace
 
         foreach (self::relFiles($root) as $rel) {
             $top = explode('/', $rel)[0];
-            if ($top === 'var' || SecretFiles::withheldFromCopy($rel) || \in_array($rel, self::BOOK, true)) {
+            if ($top === 'var' || self::withheld($rel)) {
                 continue;
             }
             $dest = $copy . '/' . $rel;
@@ -477,6 +480,12 @@ final class TrialWorkspace
             }
             copy($root . '/' . $rel, $dest);
         }
+    }
+
+    /** Whether no copy of the house carries this path: the one rule ({@see SecretFiles::withheldFromCopy}), and the book of standing grants (0615). */
+    private static function withheld(string $rel): bool
+    {
+        return SecretFiles::withheldFromCopy($rel) || \in_array($rel, self::BOOK, true);
     }
 
     private static function hasRsync(): bool
