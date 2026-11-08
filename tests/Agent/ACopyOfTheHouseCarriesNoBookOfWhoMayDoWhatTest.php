@@ -47,6 +47,7 @@ final class ACopyOfTheHouseCarriesNoBookOfWhoMayDoWhatTest extends TestCase
     /** The books a house keeps under its tree; the session log lives in `var/`, which no copy carries anyway. */
     private const BOOKS = [
         'storage/identity/enrollments.json' => '{"seats":{"FINGERPRINT":{"label":"resident"}}}',
+        'storage/identity/invitations.json' => '{"inv1":{"hash":"sha256:abc","redeemed_by":"key:FINGERPRINT"}}',
         'storage/tokens.json' => '{"tokens":{"sha256:abc":{"scopes":["agent:run"]}}}',
         'storage/capabilities/declarations.json' => '{"files":{"config/plugins.php":{"writes":1}}}',
     ];

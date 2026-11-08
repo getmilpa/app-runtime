@@ -46,7 +46,8 @@ final class SecretFiles
 
     /**
      * NON-BEARER STATE the house keeps that still names WHO MAY DO WHAT — the enrollment ledger (grants over
-     * public key fingerprints), the token store (sha256 hashes), the declaration ledger (what the house's
+     * public key fingerprints), the invitation ledger (the root of trust: every key that redeemed an invitation is
+     * rooted), the token store (sha256 hashes), the declaration ledger (what the house's
      * declaration writers wrote into its config lists, {@see \Milpa\AppRuntime\Support\DeclarationLedger}), and
      * the agent session log. None is a presented-and-it-opens bearer credential, so {@see isSecret()} does not
      * name them; but a confined process reaching them through `--ro-bind / /` learns the house's authority map
@@ -60,7 +61,7 @@ final class SecretFiles
      * ledger is read only by `capabilities:enable`), so a copy that leaves them out boots the same. Kept apart from
      * the bearer stores because the two answer different questions (0618).
      */
-    public const NON_BEARER_STATE = ['storage/identity/enrollments.json', 'storage/tokens.json', 'storage/capabilities/declarations.json', 'var/agent-sessions.jsonl'];
+    public const NON_BEARER_STATE = ['storage/identity/enrollments.json', 'storage/identity/invitations.json', 'storage/tokens.json', 'storage/capabilities/declarations.json', 'var/agent-sessions.jsonl'];
 
     /** `.env*` names that are placeholders, not secrets. */
     private const TEMPLATES = ['.env.example', '.env.dist', '.env.template', '.env.sample'];
