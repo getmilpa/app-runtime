@@ -245,6 +245,9 @@ final class TrialWorkspace
             // may do what and the book of standing grants. The house writes some of them with every act; comparing
             // them against a copy that never had them made every copy stale the moment the house issued a token.
             $current = array_filter($current, static fn (string $rel): bool => !self::withheld($rel), \ARRAY_FILTER_USE_KEY);
+            // …and the same on the copy's side: a copier that let one in (a secret kept as a link, by rsync) must not
+            // make a fresh copy look stale (the review of 0625, L2).
+            $baseline = array_filter($baseline, static fn (string $rel): bool => !self::withheld($rel), \ARRAY_FILTER_USE_KEY);
             ksort($baseline);
 
             return $baseline === $current;
@@ -485,7 +488,7 @@ final class TrialWorkspace
     /** Whether no copy of the house carries this path: the one rule ({@see SecretFiles::withheldFromCopy}), and the book of standing grants (0615). */
     private static function withheld(string $rel): bool
     {
-        return SecretFiles::withheldFromCopy($rel) || \in_array($rel, self::BOOK, true);
+        return SecretFiles::withheldFromCopy($rel) || SecretFiles::names(self::BOOK, $rel);
     }
 
     private static function hasRsync(): bool

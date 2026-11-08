@@ -471,13 +471,15 @@ final class TrialOperations implements CommandProvider
         $diff = $ws->diff();
         // A TRIAL NEVER CARRIES WHAT THE HOUSE APPLIES ON ITS OWN (greenhouse decisions/0586). That list is a
         // person's act; a seat does not write it through a rehearsal, whatever it may write.
-        if (isset($diff[AppliedTrials::PATH])) {
+        if (array_filter(array_keys($diff), static fn (string $rel): bool => SecretFiles::names([AppliedTrials::PATH], $rel)) !== []) {
             return ['ok' => false, 'error' => 'a trial never carries the list of what the house applies on its own — a person admits an operation with sandbox:admit; nothing was promoted'];
         }
         // NOR THE BOOK OF STANDING GRANTS (greenhouse decisions/0615): what a person granted, what the house measured
         // and what it absorbed are written by the house as they happen, never carried in by a rehearsal. The book is
         // two files — its lines and its head — and neither crosses.
-        if (isset($diff[\Milpa\AppRuntime\Standing\StandingLedger::PATH]) || isset($diff[\Milpa\AppRuntime\Standing\StandingLedger::PATH . \Milpa\AppRuntime\Standing\StandingLedger::HEAD])) {
+        // Every refusal by name compares as a case-insensitive filesystem resolves the path (the review of 0625, M1).
+        $book = [\Milpa\AppRuntime\Standing\StandingLedger::PATH, \Milpa\AppRuntime\Standing\StandingLedger::PATH . \Milpa\AppRuntime\Standing\StandingLedger::HEAD];
+        if (array_filter(array_keys($diff), static fn (string $rel): bool => SecretFiles::names($book, $rel)) !== []) {
             return ['ok' => false, 'error' => 'a trial never carries the book of standing grants — a person gives one with standing:grant, and the house writes the rest itself; nothing was promoted'];
         }
         // NOR ANYTHING NO COPY CARRIES (greenhouse decisions/0625 §4): the house's secret files, its bearer stores and

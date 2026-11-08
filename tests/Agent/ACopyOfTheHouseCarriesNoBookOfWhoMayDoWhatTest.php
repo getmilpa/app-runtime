@@ -14,10 +14,12 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tests\Agent;
 
+use Milpa\AppRuntime\Agent\AppliedTrials;
 use Milpa\AppRuntime\Agent\TrialRunner;
 use Milpa\AppRuntime\Agent\TrialWorkspace;
 use Milpa\AppRuntime\Config\SecretFiles;
 use Milpa\AppRuntime\Operations\TrialOperations;
+use Milpa\AppRuntime\Standing\StandingLedger;
 use Milpa\AppRuntime\Support\BootCandidate;
 use Milpa\AppRuntime\Tests\Fixtures\TinyHouse;
 use Milpa\Container\DIContainer;
@@ -123,6 +125,47 @@ final class ACopyOfTheHouseCarriesNoBookOfWhoMayDoWhatTest extends TestCase
 
         file_put_contents($this->root . '/config/app.php', "<?php return ['moved' => true];\n");
         self::assertFalse($workspace->hasCurrentInputs(), 'the control: a file the copy carries moved, so the copy is stale');
+    }
+
+    public function testAPromotionNeverCarriesABookUnderAnotherCase(): void
+    {
+        // THE REVIEW OF 0625, M1: on a case-insensitive filesystem (macOS, the Desktop's) `storage/Tokens.json` IS the
+        // token store. Every refusal by name — the books, the book of standing grants, the list the house applies on its
+        // own — is asked with the case changed. On this (case-sensitive) filesystem the path is another file, so what
+        // is measured is the refusal itself.
+        $named = [...array_keys(self::BOOKS), StandingLedger::PATH, StandingLedger::PATH . StandingLedger::HEAD, AppliedTrials::PATH];
+        foreach ($named as $i => $relative) {
+            $variant = implode('/', array_map('ucfirst', explode('/', $relative)));
+            self::assertNotSame($relative, $variant, 'control: the variant differs in case');
+            $id = 'books-case-' . $i;
+            $trial = TrialWorkspace::materialize($this->root, $id, \dirname(__DIR__) . '/Fixtures/trial-stub-runner.php');
+            @mkdir(\dirname($trial->copy . '/' . $variant), 0o777, true);
+            file_put_contents($trial->copy . '/' . $variant, '{"written":"in a rehearsal"}' . "\n");
+            $promote = (new TrialOperations(new DIContainer(), root: $this->root))->operations()[0];
+
+            $promoted = ($promote->handler)(['workspace' => $id], null, new ToolContext(principal: 'worker', channel: 'cli', scopes: ['*']));
+
+            self::assertFalse($promoted['ok'], "a promotion carried {$variant}: " . json_encode($promoted));
+            self::assertFileDoesNotExist($this->root . '/' . $variant, "{$variant} did not cross");
+        }
+        self::assertTrue(SecretFiles::withheldFromCopy('STORAGE/TOKENS.JSON'), 'the rule folds case, as isSecret() does');
+        self::assertTrue(SecretFiles::withheldFromCopy('storage\\identity\\Enrollments.json'), 'and normalises the separator');
+    }
+
+    public function testACopierThatLetAWithheldFileInDoesNotMakeAFreshCopyStale(): void
+    {
+        // THE REVIEW OF 0625, L2: rsync can carry a secret kept as a link. The reuse comparison drops what no copy
+        // carries from BOTH sides, so a fresh copy that holds one is not reported stale.
+        file_put_contents($this->root . '/.env.local', "A=1\n");
+        $workspace = TrialWorkspace::materialize($this->root, 'books-letin', \dirname(__DIR__) . '/Fixtures/trial-stub-runner.php');
+        $manifest = \dirname($workspace->copy) . '/manifest.json';
+        $baseline = json_decode((string) file_get_contents($manifest), true);
+        self::assertIsArray($baseline);
+        $baseline['.env.local'] = (string) hash_file('sha256', $this->root . '/.env.local');
+        $baseline['storage/tokens.json'] = (string) hash_file('sha256', $this->root . '/storage/tokens.json');
+        file_put_contents($manifest, (string) json_encode($baseline, \JSON_UNESCAPED_SLASHES));
+
+        self::assertTrue($workspace->hasCurrentInputs(), 'a withheld path in the baseline is dropped as on the house side');
     }
 
     public function testAPromotionNeverCarriesABookIntoTheHouse(): void

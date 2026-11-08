@@ -99,9 +99,28 @@ final class SecretFiles
      */
     public static function withheldFromCopy(string $relative): bool
     {
-        return self::isSecret($relative)
-            || \in_array($relative, self::BEARER_CREDENTIAL_STORES, true)
-            || \in_array($relative, self::NON_BEARER_STATE, true);
+        // Case-insensitively, as {@see isSecret()}: on a case-insensitive filesystem (macOS, the Desktop's)
+        // `storage/Tokens.json` IS the token store, and a rule that missed it let a promotion write over it
+        // (the independent review of decisions/0625, M1).
+        return self::isSecret($relative) || self::names([...self::BEARER_CREDENTIAL_STORES, ...self::NON_BEARER_STATE], $relative);
+    }
+
+    /**
+     * Whether `$relative` names one of `$paths` (relative to a house), compared as a case-insensitive filesystem
+     * resolves it: slashes normalised, case folded. For every guardian that refuses a path by its name.
+     *
+     * @param list<string> $paths
+     */
+    public static function names(array $paths, string $relative): bool
+    {
+        $relative = strtolower(str_replace('\\', '/', $relative));
+        foreach ($paths as $path) {
+            if (strtolower($path) === $relative) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
