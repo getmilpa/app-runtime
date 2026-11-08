@@ -324,10 +324,12 @@ final class TrialOperations implements CommandProvider
         }
         // A request that may write runs where nothing but its copy can be written: the copy LINKS the house's vendor/ and
         // secrets, and a write through a link would land in the live house (decisions/0549 §9).
-        $confined = $method !== 'GET' || $then !== [];
-        if ($confined && !$observer->confines()) {
-            return ['ok' => false, 'error' => "a {$method} is observed only where its copy can be confined, and this host cannot "
-                . 'confine one (bubblewrap with a user namespace, as the trials use)'];
+        // …and every request in a rehearsal runs confined, a GET too: the copy carries code nobody applied yet, and it is
+        // never run as a plain process of the house (greenhouse decisions/0626).
+        $confined = true;
+        if (!$observer->confines()) {
+            return ['ok' => false, 'error' => "a {$method} in a rehearsal is observed only where its copy can be confined, and this host cannot "
+                . 'confine one (bubblewrap with a user namespace, as the trials use); promote and observe the house with GET'];
         }
         // The house AS THE TRIAL WOULD LEAVE IT, built beside it — the trial's own copy has no vendor/ to boot with.
         $writes = [];

@@ -201,6 +201,34 @@ return $loader;
     }
 
     /**
+     * THE CANDIDATE IS ASKED CONFINED (greenhouse decisions/0626). It carries code nobody applied yet, so the routes the
+     * promotion is judged on are requested the way a trial runs: the envelope of the house reads empty. The control
+     * — the house without the promotion — is asked the same way, so the two are compared under one mask.
+     */
+    public function testThePromotionAsksItsCandidateWithTheEnvelopeMasked(): void
+    {
+        if (!(new \Milpa\AppRuntime\Agent\TrialRunner())->available()) {
+            self::markTestSkipped('this host offers no unprivileged user namespace for bwrap');
+        }
+        $canary = 'canary-route-judge-' . bin2hex(random_bytes(4));
+        mkdir($this->root . '/.milpa');
+        // The canary sits where the cause logger's redaction does not reach (it hides an `apiKey`, so a canary there
+        // would not show even when it was read — the first form of this test was blind to its own defect).
+        file_put_contents($this->root . '/.milpa/secrets.json', '{"note":"' . $canary . '"}');
+
+        $receipt = $this->promote(['src/Plugins/Blog/Controller.php' => self::controller('Blog',
+            'throw new \\RuntimeException("envelope: " . (string) @file_get_contents(dirname(__DIR__, 3) . "/.milpa/secrets.json"));')]);
+
+        self::assertFalse($receipt['ok'], 'control: a route taken to 500 is refused: ' . json_encode($receipt));
+        self::assertSame(['route' => 'GET /blog', 'before' => 200, 'after' => 500], array_diff_key($receipt['regressed'][0], ['cause' => 0]), 'the control answered 200 under the same mask');
+        self::assertStringContainsString('envelope: ', (string) $receipt['error'], 'control: the cause the copy logged is read');
+        self::assertStringNotContainsString($canary, (string) json_encode($receipt), 'the candidate read the envelope of the house: it was not asked confined');
+        // The logger redacts what it recognises as a secret, so the canary alone cannot tell a read from no read; the
+        // message can: unconfined it carries the envelope's shape (`{"note":"[secret]"}`), confined nothing.
+        self::assertSame('envelope:', $receipt['regressed'][0]['cause']['message'] ?? null, 'the envelope reads empty under the mask: ' . json_encode($receipt['regressed'][0]['cause'] ?? null));
+    }
+
+    /**
      * The rows without the cause S2 reads (decisions/0539) — its message is asserted where it teaches something.
      *
      * @param list<array<string, mixed>> $rows

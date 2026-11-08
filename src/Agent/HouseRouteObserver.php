@@ -379,11 +379,14 @@ final class HouseRouteObserver
      * `capabilities` is what the capabilities built in the touched plugins declare ({@see capabilitiesOf()},
      * decisions/0595) — said by the same process that lists the routes, and also by a house with no front controller.
      *
+     * `$confined` runs the listing and every request the way a trial is confined ({@see confineWith()}): a copy that
+     * carries code nobody applied yet is never run as a plain process of the house (greenhouse decisions/0626).
+     *
      * @param list<string> $paths paths relative to the house root, as a promotion names them
      *
      * @return array{observed: list<array<string, mixed>>, capabilities?: list<array<string, mixed>>, error?: string, unobserved?: int}
      */
-    public function observe(string $root, array $paths): array
+    public function observe(string $root, array $paths, bool $confined = false, ?string $secretsRoot = null): array
     {
         $dirs = self::touchedPlugins($paths);
         $mounted = self::mountedScreens($root, $paths);
@@ -397,7 +400,7 @@ final class HouseRouteObserver
 
         $listed = ['routes' => []];
         if ($dirs !== []) {
-            [$exit, $listed] = $this->run(['routes', $root, (string) json_encode($dirs)]);
+            [$exit, $listed] = $this->run(['routes', $root, (string) json_encode($dirs)], $confined ? $root : null, $secretsRoot);
             if ($exit !== 0 || !\is_array($listed['routes'] ?? null)) {
                 if (!$front) {
                     return ['observed' => []];
@@ -422,7 +425,7 @@ final class HouseRouteObserver
         $routes = array_values($routes);
         $observed = [];
         foreach (\array_slice($routes, 0, self::MAX_ROUTES) as $route) {
-            $observed[] = $this->request($root, $route['path'], 0, 'GET', null, null, false)['entry'];
+            $observed[] = $this->request($root, $route['path'], 0, 'GET', null, null, $confined, $secretsRoot)['entry'];
         }
 
         return ['observed' => $observed] + $declares + (\count($routes) > self::MAX_ROUTES ? ['unobserved' => \count($routes) - self::MAX_ROUTES] : []);
@@ -496,7 +499,7 @@ final class HouseRouteObserver
         $subject = explode('?', $path, 2)[0];
         // A mounted screen is judged on the whole page it served (greenhouse decisions/0576), so the whole page is asked.
         $screen = self::screenAt($root, $subject);
-        $judged = $method === 'GET' && ! $confined && $screen !== null;
+        $judged = $method === 'GET' && $screen !== null;
         $arguments = ['request', $root, $method, $path, (string) ($judged ? max($excerpt, self::JUDGED_MAX) : $excerpt), ...($bodyFile !== null ? [$bodyFile, (string) $contentType] : [])];
         [$exit, $answer, $stderr] = $this->run($arguments, $confined ? $root : null, $secretsRoot);
         $page = $judged && \is_string($answer['head'] ?? null) ? (string) base64_decode($answer['head'], true) : null;

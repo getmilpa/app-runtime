@@ -54,14 +54,17 @@ final class RouteRegression
      */
     public function judge(string $root, string $candidate, array $paths): array
     {
-        $after = $this->observer->observe($candidate, $paths)['observed'];
+        // The candidate carries code nobody applied yet: it is asked confined wherever this host can confine, and the
+        // control is asked the same way, so the two are compared under one mask (greenhouse decisions/0626).
+        $confined = $this->observer->confines();
+        $after = $this->observer->observe($candidate, $paths, $confined, $root)['observed'];
         if (array_filter($after, self::broken(...)) === []) {
             return ['regressed' => [], 'unjudged' => []];
         }
 
         $control = BootCandidate::of($root, []);
         try {
-            $before = $this->observer->observe($control->path, $paths)['observed'];
+            $before = $this->observer->observe($control->path, $paths, $confined, $root)['observed'];
         } finally {
             $control->remove();
         }
