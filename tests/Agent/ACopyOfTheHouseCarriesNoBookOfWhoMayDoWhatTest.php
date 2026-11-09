@@ -38,7 +38,9 @@ use PHPUnit\Framework\TestCase;
  *
  * @guards in a leg's trial a witnessed write lands in a house that holds every book; no trial copy and no boot
  *         candidate carries a book, as a file or as a link; a write of the house to a book does not make a copy
- *         stale; a promotion never carries a book into the house
+ *         stale; a promotion never carries a book into the house, under any spelling a case-folding filesystem
+ *         resolves to it; the rsync way sweeps what its excludes missed; no boot candidate carries the book of
+ *         standing grants
  *
  * @subject-in milpa/app-runtime
  */
@@ -128,29 +130,102 @@ final class ACopyOfTheHouseCarriesNoBookOfWhoMayDoWhatTest extends TestCase
         self::assertFalse($workspace->hasCurrentInputs(), 'the control: a file the copy carries moved, so the copy is stale');
     }
 
-    public function testAPromotionNeverCarriesABookUnderAnotherCase(): void
+    public function testAPromotionNeverCarriesABookUnderAnotherSpelling(): void
     {
-        // THE REVIEW OF 0625, M1: on a case-insensitive filesystem (macOS, the Desktop's) `storage/Tokens.json` IS the
-        // token store. Every refusal by name — the books, the book of standing grants, the list the house applies on its
-        // own — is asked with the case changed. On this (case-sensitive) filesystem the path is another file, so what
-        // is measured is the refusal itself.
-        $named = [...array_keys(self::BOOKS), StandingLedger::PATH, StandingLedger::PATH . StandingLedger::HEAD, AppliedTrials::PATH];
-        foreach ($named as $i => $relative) {
-            $variant = implode('/', array_map('ucfirst', explode('/', $relative)));
-            self::assertNotSame($relative, $variant, 'control: the variant differs in case');
-            $id = 'books-case-' . $i;
-            $trial = TrialWorkspace::materialize($this->root, $id, \dirname(__DIR__) . '/Fixtures/trial-stub-runner.php');
-            @mkdir(\dirname($trial->copy . '/' . $variant), 0o777, true);
-            file_put_contents($trial->copy . '/' . $variant, '{"written":"in a rehearsal"}' . "\n");
-            $promote = (new TrialOperations(new DIContainer(), root: $this->root))->operations()[0];
+        // THE REVIEWS OF 0625, M1: a case-insensitive filesystem (macOS, the Desktop's) folds Unicode, so
+        // `storage/Tokens.json`, `storage/to\u{212A}ens.json` (KELVIN SIGN) and `storage/token\u{017F}.json` (LONG S)
+        // all ARE the token store there. Every refusal by name — the books, the bearer store, the secret files, the
+        // book of standing grants, the list the house applies on its own — is asked under each spelling. What is
+        // measured is the refusal and the house left as it was: on a case-sensitive filesystem a spelling is another
+        // file, on a case-folding one it is the house's own book, and the snapshot holds on both.
+        $named = [...array_keys(self::BOOKS), 'storage/confirm-tokens.json', '.milpa/secrets.json', 'auth.json', StandingLedger::PATH, StandingLedger::PATH . StandingLedger::HEAD, AppliedTrials::PATH];
+        $before = self::snapshot($this->root);
+        $i = 0;
+        foreach ($named as $relative) {
+            foreach (self::spellings($relative) as $spelling) {
+                self::assertNotSame($relative, $spelling, 'control: the spelling differs');
+                $id = 'books-spelling-' . $i++;
+                $trial = TrialWorkspace::materialize($this->root, $id, \dirname(__DIR__) . '/Fixtures/trial-stub-runner.php');
+                @mkdir(\dirname($trial->copy . '/' . $spelling), 0o777, true);
+                file_put_contents($trial->copy . '/' . $spelling, '{"written":"in a rehearsal"}' . "\n");
+                $promote = (new TrialOperations(new DIContainer(), root: $this->root))->operations()[0];
 
-            $promoted = ($promote->handler)(['workspace' => $id], null, new ToolContext(principal: 'worker', channel: 'cli', scopes: ['*']));
+                $promoted = ($promote->handler)(['workspace' => $id], null, new ToolContext(principal: 'worker', channel: 'cli', scopes: ['*']));
 
-            self::assertFalse($promoted['ok'], "a promotion carried {$variant}: " . json_encode($promoted));
-            self::assertFileDoesNotExist($this->root . '/' . $variant, "{$variant} did not cross");
+                self::assertFalse($promoted['ok'], "a promotion carried {$spelling}: " . json_encode($promoted));
+                self::assertStringStartsWith('a trial never carries', (string) ($promoted['error'] ?? ''), "{$spelling} was refused by its name, not by another check");
+                self::assertSame($before, self::snapshot($this->root), "{$spelling}: the house is as it was");
+            }
         }
-        self::assertTrue(SecretFiles::withheldFromCopy('STORAGE/TOKENS.JSON'), 'the rule folds case, as isSecret() does');
-        self::assertTrue(SecretFiles::withheldFromCopy('storage\\identity\\Enrollments.json'), 'and normalises the separator');
+    }
+
+    public function testThePromotionOfAnythingElseStillLands(): void
+    {
+        // The control of the refusals by name: the same promotion, with a file no rule names, writes it.
+        $trial = TrialWorkspace::materialize($this->root, 'books-control', \dirname(__DIR__) . '/Fixtures/trial-stub-runner.php');
+        file_put_contents($trial->copy . '/config/app.php', "<?php return ['promoted' => true];\n");
+        $promote = (new TrialOperations(new DIContainer(), root: $this->root))->operations()[0];
+
+        $promoted = ($promote->handler)(['workspace' => 'books-control'], null, new ToolContext(principal: 'worker', channel: 'cli', scopes: ['*']));
+
+        self::assertTrue($promoted['ok'], (string) json_encode($promoted));
+        self::assertSame("<?php return ['promoted' => true];\n", file_get_contents($this->root . '/config/app.php'));
+    }
+
+    public function testTheRuleComparesNamesAsACaseFoldingFilesystemDoes(): void
+    {
+        foreach (['STORAGE/TOKENS.JSON', 'storage\\identity\\Enrollments.json', "storage/to\u{212A}ens.json", "storage/identity/invitation\u{017F}.json",
+            ".milpa/\u{017F}ecrets.json", "auth.j\u{017F}on", "var/pa\u{00DF}key/sessions.json", "storage/identity/\u{FB06}anding.jsonl", ".ENV.LOCAL"] as $spelling) {
+            self::assertTrue(SecretFiles::withheldFromCopy($spelling), "the rule lets {$spelling} into a copy");
+        }
+        // The controls: a name that folds to no named file is not withheld, accented or not.
+        foreach (['config/plugins.php', "storage/tok\u{00E9}ns.json", "storage/to\u{043A}ens.json", '.env.example'] as $other) {
+            self::assertFalse(SecretFiles::withheldFromCopy($other), "the rule withholds {$other}, which names no file it keeps");
+        }
+    }
+
+    public function testTheRsyncWayLeavesOutWhatTheRuleNamesUnderAnySpelling(): void
+    {
+        // THE SECOND REVIEW OF 0625, L-A and L1: rsync's excludes compare names exactly. A house on a case-folding
+        // filesystem may hold its token store as `storage/Tokens.json`, and a secret may be kept as a link; the copy
+        // is swept with the rule after rsync. On this filesystem `storage/Tokens.json` is another file the rule
+        // still names, which is what makes the sweep measurable here.
+        exec('command -v rsync', $_, $code);
+        if ($code !== 0) {
+            self::markTestSkipped('this host has no rsync; the walk asks the rule path by path');
+        }
+        file_put_contents($this->root . '/storage/Tokens.json', '{"tokens":{}}' . "\n");
+        file_put_contents($this->root . '/.env', "A=1\n");
+        symlink($this->root . '/.env', $this->root . '/.env.prod');
+        symlink('plugins.php', $this->root . '/config/linked.php');
+
+        $workspace = TrialWorkspace::materialize($this->root, 'books-rsync', \dirname(__DIR__) . '/Fixtures/trial-stub-runner.php');
+
+        self::assertTrue(is_link($workspace->copy . '/config/linked.php'), 'the control: rsync made this copy (the walk copies a link as a file)');
+        self::assertSame([], array_values(array_filter(scandir($workspace->copy . '/storage') ?: [], static fn (string $n): bool => SecretFiles::withheldFromCopy('storage/' . $n))), 'the copy carries a book under another spelling');
+        self::assertFalse(is_link($workspace->copy . '/.env.prod') || file_exists($workspace->copy . '/.env.prod'), 'the copy carries a secret kept as a link');
+        self::assertFileExists($workspace->copy . '/config/plugins.php', 'the control: the copy carries the rest of the house');
+    }
+
+    public function testABootCandidateCarriesNoBookOfStandingGrants(): void
+    {
+        // THE SECOND REVIEW OF 0625, L-B: the book of standing grants is in the one rule, so a boot candidate leaves
+        // it out as a trial copy does.
+        foreach ([StandingLedger::PATH, StandingLedger::PATH . StandingLedger::HEAD] as $relative) {
+            file_put_contents($this->root . '/' . $relative, '{"grant":"given"}' . "\n");
+            chmod($this->root . '/' . $relative, 0o600);
+        }
+        foreach (['of' => static fn (string $root): BootCandidate => BootCandidate::of($root, ['config/app.php' => "<?php return [];\n"]), 'staged' => BootCandidate::staged(...)] as $way => $make) {
+            $candidate = $make($this->root);
+            try {
+                foreach ([StandingLedger::PATH, StandingLedger::PATH . StandingLedger::HEAD] as $relative) {
+                    self::assertFalse(file_exists($candidate->path . '/' . $relative) || is_link($candidate->path . '/' . $relative), "{$way}: the candidate carries {$relative}");
+                }
+                self::assertFileExists($candidate->path . '/config/plugins.php', "{$way}: the control: the candidate carries the rest of the house");
+            } finally {
+                $candidate->remove();
+            }
+        }
     }
 
     public function testACopierThatLetAWithheldFileInDoesNotMakeAFreshCopyStale(): void
@@ -188,5 +263,44 @@ final class ACopyOfTheHouseCarriesNoBookOfWhoMayDoWhatTest extends TestCase
             self::assertSame(self::BOOKS[$relative] . "\n", file_get_contents($this->root . '/' . $relative), "the house's {$relative} is untouched");
             self::assertFileDoesNotExist($this->root . '/src/Plugins/Shop/Shop.php', 'nothing of that trial crossed');
         }
+    }
+
+    /**
+     * Spellings of a named path a case-folding filesystem resolves to it: each segment capitalised, the last `s`
+     * as LONG S (every named path ends in `json`/`jsonl`/`head`… and holds an `s`), and a `k` as KELVIN SIGN.
+     *
+     * @return list<string>
+     */
+    private static function spellings(string $relative): array
+    {
+        $spellings = [implode('/', array_map('ucfirst', explode('/', $relative)))];
+        $s = strrpos($relative, 's');
+        self::assertNotFalse($s, "control: {$relative} holds an s");
+        $spellings[] = substr_replace($relative, "\u{017F}", $s, 1);
+        if (($k = strpos($relative, 'k')) !== false) {
+            $spellings[] = substr_replace($relative, "\u{212A}", $k, 1);
+        }
+
+        return $spellings;
+    }
+
+    /**
+     * Every file of a house outside `var/`, by the name it is stored under, with its digest.
+     *
+     * @return array<string, string>
+     */
+    private static function snapshot(string $root): array
+    {
+        $files = [];
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS)) as $file) {
+            /** @var \SplFileInfo $file */
+            $relative = substr($file->getPathname(), \strlen($root) + 1);
+            if (!str_starts_with($relative, 'var/') && $file->isFile()) {
+                $files[$relative] = (string) hash_file('sha256', $file->getPathname());
+            }
+        }
+        ksort($files);
+
+        return $files;
     }
 }

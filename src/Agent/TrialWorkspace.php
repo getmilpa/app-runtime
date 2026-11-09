@@ -15,7 +15,6 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Agent;
 
 use Milpa\AppRuntime\Config\SecretFiles;
-use Milpa\AppRuntime\Standing\StandingLedger;
 use Milpa\AppRuntime\Support\ChildProcess;
 use Milpa\AppRuntime\Support\ShellArgument;
 use Milpa\Command\Effect\Subject;
@@ -50,9 +49,6 @@ final class TrialWorkspace
     // would fork the truth) and `vendor/` (bound READ-ONLY at run time, so a mutation cannot touch it,
     // and copying/hashing 160 MB of it is the tax decisions/0070 removes).
     private const PRUNE = ['var', 'vendor'];
-
-    /** The book of standing grants and its head: the house's own, never part of a copy ({@see self::copyTree()}). */
-    private const BOOK = [StandingLedger::PATH, StandingLedger::PATH . StandingLedger::HEAD];
 
     private function __construct(
         public readonly string $root,
@@ -456,9 +452,13 @@ final class TrialWorkspace
         // rule, {@see SecretFiles::withheldFromCopy} — rsync through its list ({@see SecretFiles::withheldUnder}),
         // the walk path by path ({@see withheld()}). The rsync way once kept a list of its own, and a host with
         // rsync would have copied the books the walk left out (decisions/0625 §2).
-        $withheld = array_merge(SecretFiles::withheldUnder($root), self::BOOK);
+        //
+        // rsync's `--exclude` compares names exactly, and the rule compares them as a case-insensitive filesystem
+        // does: there a house can hold `storage/Tokens.json`, the token store, which no exclude names. So after rsync
+        // the copy is swept with the rule, path by path, as the walk asks it — and that also takes out a secret
+        // rsync carried as a link (the second independent review of decisions/0625, L-A and L1).
         if (self::hasRsync()) {
-            $secrets = implode(' ', array_map(static fn (string $rel): string => ShellArgument::quote('--exclude=/' . $rel), $withheld));
+            $secrets = implode(' ', array_map(static fn (string $rel): string => ShellArgument::quote('--exclude=/' . $rel), SecretFiles::withheldUnder($root)));
             $cmd = sprintf(
                 'rsync -a --exclude=/var/ --exclude=/vendor/ %s %s %s',
                 $secrets,
@@ -467,6 +467,8 @@ final class TrialWorkspace
             );
             exec($cmd, $_, $code);
             if ($code === 0) {
+                self::sweep($copy);
+
                 return;
             }
         }
@@ -485,10 +487,29 @@ final class TrialWorkspace
         }
     }
 
-    /** Whether no copy of the house carries this path: the one rule ({@see SecretFiles::withheldFromCopy}), and the book of standing grants (0615). */
+    /** Whether no copy of the house carries this path: the one rule ({@see SecretFiles::withheldFromCopy}). */
     private static function withheld(string $rel): bool
     {
-        return SecretFiles::withheldFromCopy($rel) || SecretFiles::names(self::BOOK, $rel);
+        return SecretFiles::withheldFromCopy($rel);
+    }
+
+    /**
+     * Take out of a copy every file and link the rule withholds, whatever spelling it was copied under. Links are
+     * removed, never followed.
+     */
+    private static function sweep(string $copy): void
+    {
+        $base = \strlen($copy);
+        $entries = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($copy, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST,
+        );
+        foreach ($entries as $entry) {
+            /** @var \SplFileInfo $entry */
+            if (($entry->isLink() || ! $entry->isDir()) && self::withheld(ltrim(substr($entry->getPathname(), $base), '/'))) {
+                unlink($entry->getPathname());
+            }
+        }
     }
 
     private static function hasRsync(): bool
