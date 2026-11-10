@@ -640,12 +640,21 @@ final class TrialWorkspace
         if (! is_dir($path)) {
             return;
         }
-        $it = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
-            \RecursiveIteratorIterator::CHILD_FIRST,
-        );
-        foreach ($it as $f) {
-            $f->isDir() ? rmdir($f->getPathname()) : unlink($f->getPathname());
+        // A copy keeps the house's modes (rsync -a), and a read-only directory in it would keep its entries — a trial
+        // that could not be made stayed on disk, and every listing of the house's trials failed on it (the fourth
+        // independent review of greenhouse decisions/0625, L-G). Each directory is made writable by its owner before
+        // it is emptied; a link is removed, never followed.
+        @chmod($path, 0o700);
+        foreach (scandir($path) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            $full = $path . '/' . $entry;
+            if (is_dir($full) && ! is_link($full)) {
+                self::rmrf($full);
+            } else {
+                unlink($full);
+            }
         }
         rmdir($path);
     }

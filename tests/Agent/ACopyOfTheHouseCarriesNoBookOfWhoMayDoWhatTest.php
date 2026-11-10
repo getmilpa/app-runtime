@@ -259,6 +259,65 @@ final class ACopyOfTheHouseCarriesNoBookOfWhoMayDoWhatTest extends TestCase
         self::assertFileExists($copy . '/config/locked/app.php');
     }
 
+    public function testATrialThatCouldNotBeMadeLeavesNothingBehind(): void
+    {
+        // THE FOURTH REVIEW OF 0625, L-G: rsync keeps a read-only directory read-only, so when the sweep refused the
+        // copy the cleanup could not empty it either; the half-made trial stayed, and every listing of the house's
+        // trials failed on it. Through materialize() itself, as a non-root user with rsync.
+        if (\function_exists('posix_geteuid') && posix_geteuid() === 0) {
+            self::markTestSkipped('root removes an entry from a read-only directory; the refusal is not reachable');
+        }
+        exec('command -v rsync', $_, $code);
+        if ($code !== 0) {
+            self::markTestSkipped('this host has no rsync; the walk does not keep a directory read-only');
+        }
+        file_put_contents($this->root . '/.env', "A=1\n");
+        mkdir($this->root . '/conf2');
+        symlink('../.env', $this->root . '/conf2/.env.prod');
+        file_put_contents($this->root . '/conf2/plain.php', "<?php return [];\n");
+        chmod($this->root . '/conf2', 0o555);
+        $refused = null;
+        try {
+            TrialWorkspace::materialize($this->root, 'books-unmade', \dirname(__DIR__) . '/Fixtures/trial-stub-runner.php');
+        } catch (\RuntimeException $e) {
+            $refused = $e->getMessage();
+        } finally {
+            chmod($this->root . '/conf2', 0o755);
+        }
+
+        self::assertNotNull($refused, 'a copy that still holds conf2/.env.prod was made');
+        self::assertStringContainsString('could not leave «conf2/.env.prod» out of the copy', $refused);
+        self::assertDirectoryDoesNotExist($this->root . '/var/trials/books-unmade', 'the half-made trial stayed on disk');
+        self::assertSame([], TrialWorkspace::ids($this->root), 'a trial that could not be made is listed');
+        $list = null;
+        foreach ((new TrialOperations(new DIContainer(), root: $this->root))->operations() as $op) {
+            if ($op->name === 'sandbox:list') {
+                $list = ($op->handler)([], null, new ToolContext(principal: 'worker', channel: 'cli', scopes: ['*']));
+            }
+        }
+        self::assertIsArray($list, 'the control: the house still lists its trials');
+    }
+
+    public function testRemovingATrialEmptiesADirectoryItKeptReadOnly(): void
+    {
+        // The cleanup itself, on any host: a read-only directory inside a trial's directory, and a link to a
+        // directory outside it, which is removed and never followed.
+        if (\function_exists('posix_geteuid') && posix_geteuid() === 0) {
+            self::markTestSkipped('root empties a read-only directory anyway; the case is not reachable');
+        }
+        $base = $this->root . '/var/trials/books-rmrf';
+        mkdir($base . '/copy/locked/deeper', 0o777, true);
+        file_put_contents($base . '/copy/locked/deeper/file.php', "<?php\n");
+        symlink($this->root . '/config', $base . '/copy/locked/config-link');
+        chmod($base . '/copy/locked/deeper', 0o555);
+        chmod($base . '/copy/locked', 0o555);
+
+        (new \ReflectionMethod(TrialWorkspace::class, 'rmrf'))->invoke(null, $base);
+
+        self::assertDirectoryDoesNotExist($base, 'the trial directory stayed');
+        self::assertFileExists($this->root . '/config/plugins.php', 'the control: the link was removed, not followed');
+    }
+
     public function testABootCandidateCarriesNoBookOfStandingGrants(): void
     {
         // THE SECOND REVIEW OF 0625, L-B: the book of standing grants is in the one rule, so a boot candidate leaves
