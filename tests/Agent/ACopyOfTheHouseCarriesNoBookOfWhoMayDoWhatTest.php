@@ -39,8 +39,8 @@ use PHPUnit\Framework\TestCase;
  * @guards in a leg's trial a witnessed write lands in a house that holds every book; no trial copy and no boot
  *         candidate carries a book, as a file or as a link; a write of the house to a book does not make a copy
  *         stale; a promotion never carries a book into the house, under any spelling a case-folding filesystem
- *         resolves to it; the rsync way sweeps what its excludes missed; no boot candidate carries the book of
- *         standing grants
+ *         resolves to it, and never a path whose name is not plain ASCII; the rsync way sweeps what its excludes
+ *         missed, and a sweep that cannot refuses the copy; no boot candidate carries the book of standing grants
  *
  * @subject-in milpa/app-runtime
  */
@@ -132,9 +132,10 @@ final class ACopyOfTheHouseCarriesNoBookOfWhoMayDoWhatTest extends TestCase
 
     public function testAPromotionNeverCarriesABookUnderAnotherSpelling(): void
     {
-        // THE REVIEWS OF 0625, M1: a case-insensitive filesystem (macOS, the Desktop's) folds Unicode, so
-        // `storage/Tokens.json`, `storage/to\u{212A}ens.json` (KELVIN SIGN) and `storage/token\u{017F}.json` (LONG S)
-        // all ARE the token store there. Every refusal by name — the books, the bearer store, the secret files, the
+        // THE REVIEWS OF 0625, M1: a case-insensitive filesystem (macOS, the Desktop's) folds Unicode and ignores
+        // invisible characters, so `storage/Tokens.json`, `storage/to\u{212A}ens.json` (KELVIN SIGN),
+        // `storage/token\u{017F}.json` (LONG S) and `storage/tokens\u{200B}.json` (ZERO WIDTH SPACE) all ARE the token
+        // store there. Every refusal by name — the books, the bearer store, the secret files, the
         // book of standing grants, the list the house applies on its own — is asked under each spelling. What is
         // measured is the refusal and the house left as it was: on a case-sensitive filesystem a spelling is another
         // file, on a case-folding one it is the house's own book, and the snapshot holds on both.
@@ -172,15 +173,35 @@ final class ACopyOfTheHouseCarriesNoBookOfWhoMayDoWhatTest extends TestCase
         self::assertSame("<?php return ['promoted' => true];\n", file_get_contents($this->root . '/config/app.php'));
     }
 
-    public function testTheRuleComparesNamesAsACaseFoldingFilesystemDoes(): void
+    public function testTheRuleFoldsAsciiCaseAndSeparators(): void
     {
-        foreach (['STORAGE/TOKENS.JSON', 'storage\\identity\\Enrollments.json', "storage/to\u{212A}ens.json", "storage/identity/invitation\u{017F}.json",
-            ".milpa/\u{017F}ecrets.json", "auth.j\u{017F}on", "var/pa\u{00DF}key/sessions.json", "storage/identity/\u{FB06}anding.jsonl", ".ENV.LOCAL"] as $spelling) {
+        foreach (['STORAGE/TOKENS.JSON', 'storage\\identity\\Enrollments.json', 'Storage/Identity/Standing.jsonl', '.MILPA/SECRETS.JSON', 'config/Auth.json', '.ENV.LOCAL'] as $spelling) {
             self::assertTrue(SecretFiles::withheldFromCopy($spelling), "the rule lets {$spelling} into a copy");
         }
-        // The controls: a name that folds to no named file is not withheld, accented or not.
-        foreach (['config/plugins.php', "storage/tok\u{00E9}ns.json", "storage/to\u{043A}ens.json", '.env.example'] as $other) {
+        // The controls: a name that names no file the rule keeps is not withheld.
+        foreach (['config/plugins.php', 'storage/tokens.json.bak', 'storage/tokens', '.env.example'] as $other) {
             self::assertFalse(SecretFiles::withheldFromCopy($other), "the rule withholds {$other}, which names no file it keeps");
+        }
+    }
+
+    public function testAPromotionCarriesPlainNamesOnly(): void
+    {
+        // THE THIRD REVIEW OF 0625, M1: rather than predict how each filesystem folds and what it ignores, a promotion
+        // carries printable ASCII names only. A name that names nothing is refused too, and the refusal shows it
+        // escaped, so an invisible character can be seen.
+        $before = self::snapshot($this->root);
+        foreach (["resources/t\u{00ED}tulos.php" => '"resources/t\\u00edtulos.php"', "src/Plugins/Sh\u{200B}op.php" => '"src/Plugins/Sh\\u200bop.php"', "config/tab\tbed.php" => '"config/tab\\tbed.php"', "config/\xFFbyte.php" => '"config/\\ufffdbyte.php"'] as $relative => $shown) {
+            $id = 'books-plain-' . bin2hex(random_bytes(3));
+            $trial = TrialWorkspace::materialize($this->root, $id, \dirname(__DIR__) . '/Fixtures/trial-stub-runner.php');
+            @mkdir(\dirname($trial->copy . '/' . $relative), 0o777, true);
+            file_put_contents($trial->copy . '/' . $relative, "<?php // written in a rehearsal\n");
+            $promote = (new TrialOperations(new DIContainer(), root: $this->root))->operations()[0];
+
+            $promoted = ($promote->handler)(['workspace' => $id], null, new ToolContext(principal: 'worker', channel: 'cli', scopes: ['*']));
+
+            self::assertFalse($promoted['ok'], "a promotion carried {$shown}: " . json_encode($promoted));
+            self::assertStringContainsString('not plain printable ASCII — ' . $shown, (string) ($promoted['error'] ?? ''));
+            self::assertSame($before, self::snapshot($this->root), "{$shown}: the house is as it was");
         }
     }
 
@@ -205,6 +226,37 @@ final class ACopyOfTheHouseCarriesNoBookOfWhoMayDoWhatTest extends TestCase
         self::assertSame([], array_values(array_filter(scandir($workspace->copy . '/storage') ?: [], static fn (string $n): bool => SecretFiles::withheldFromCopy('storage/' . $n))), 'the copy carries a book under another spelling');
         self::assertFalse(is_link($workspace->copy . '/.env.prod') || file_exists($workspace->copy . '/.env.prod'), 'the copy carries a secret kept as a link');
         self::assertFileExists($workspace->copy . '/config/plugins.php', 'the control: the copy carries the rest of the house');
+    }
+
+    public function testASweepThatCannotRemoveAWithheldEntryRefusesTheCopy(): void
+    {
+        // THE THIRD REVIEW OF 0625, L-E: the sweep after rsync failed open — a withheld link inside a read-only
+        // directory stayed in the copy with a warning. Now the copy is not made.
+        if (\function_exists('posix_geteuid') && posix_geteuid() === 0) {
+            self::markTestSkipped('root removes an entry from a read-only directory; the refusal is not reachable');
+        }
+        $copy = $this->root . '/var/sweep-copy';
+        mkdir($copy . '/config/locked', 0o777, true);
+        file_put_contents($copy . '/config/locked/.env', "A=1\n");
+        file_put_contents($copy . '/config/locked/app.php', "<?php return [];\n");
+        chmod($copy . '/config/locked', 0o555);
+        $sweep = new \ReflectionMethod(TrialWorkspace::class, 'sweep');
+        // The assertion stays outside the try: PHPUnit's own failure is a RuntimeException too, and a catch around it
+        // would swallow it (this test passed on the sweep it guards against until it was written this way).
+        $refused = null;
+        try {
+            $sweep->invoke(null, $copy);
+        } catch (\RuntimeException $e) {
+            $refused = $e->getMessage();
+        } finally {
+            chmod($copy . '/config/locked', 0o755);
+        }
+        self::assertNotNull($refused, 'a copy that still holds config/locked/.env was made');
+        self::assertStringContainsString('could not leave «config/locked/.env» out of the copy', $refused);
+        // The control: with the directory writable, the same sweep takes the entry out and keeps the rest.
+        $sweep->invoke(null, $copy);
+        self::assertFileDoesNotExist($copy . '/config/locked/.env');
+        self::assertFileExists($copy . '/config/locked/app.php');
     }
 
     public function testABootCandidateCarriesNoBookOfStandingGrants(): void
@@ -267,7 +319,7 @@ final class ACopyOfTheHouseCarriesNoBookOfWhoMayDoWhatTest extends TestCase
 
     /**
      * Spellings of a named path a case-folding filesystem resolves to it: each segment capitalised, the last `s`
-     * as LONG S (every named path ends in `json`/`jsonl`/`head`… and holds an `s`), and a `k` as KELVIN SIGN.
+     * as LONG S (every named path holds an `s`), a `k` as KELVIN SIGN, and a ZERO WIDTH SPACE before the last dot.
      *
      * @return list<string>
      */
@@ -280,6 +332,7 @@ final class ACopyOfTheHouseCarriesNoBookOfWhoMayDoWhatTest extends TestCase
         if (($k = strpos($relative, 'k')) !== false) {
             $spellings[] = substr_replace($relative, "\u{212A}", $k, 1);
         }
+        $spellings[] = substr_replace($relative, "\u{200B}", (int) strrpos($relative, '.'), 0);
 
         return $spellings;
     }

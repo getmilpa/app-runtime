@@ -469,6 +469,18 @@ final class TrialOperations implements CommandProvider
         }
 
         $diff = $ws->diff();
+        // A TRIAL CARRIES PLAIN NAMES ONLY (the third independent review of greenhouse decisions/0625, M1). A
+        // case-folding filesystem resolves a name by rules of its own — it folds Unicode case and ignores invisible
+        // characters — so a name that differs from the house's token store or its `.env` only by such characters IS
+        // that file there. Rather than predict every filesystem, a promotion carries printable ASCII paths only; over
+        // those, folding is ASCII case alone and every refusal by name below is exact. The path is shown escaped, so
+        // an invisible character can be seen in the refusal.
+        $unplain = array_values(array_filter(array_keys($diff), static fn (string $rel): bool => preg_match('/[^\x20-\x7E]/', $rel) === 1));
+        if ($unplain !== []) {
+            return ['ok' => false, 'error' => 'a trial never carries a path whose name is not plain printable ASCII — '
+                . implode(', ', array_map(static fn (string $rel): string => (string) json_encode($rel, \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE), $unplain))
+                . '; rename it in the trial and promote again; nothing was promoted'];
+        }
         // A TRIAL NEVER CARRIES WHAT THE HOUSE APPLIES ON ITS OWN (greenhouse decisions/0586). That list is a
         // person's act; a seat does not write it through a rehearsal, whatever it may write.
         if (array_filter(array_keys($diff), static fn (string $rel): bool => SecretFiles::names([AppliedTrials::PATH], $rel)) !== []) {

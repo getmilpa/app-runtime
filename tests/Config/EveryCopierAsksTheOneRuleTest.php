@@ -47,9 +47,8 @@ final class EveryCopierAsksTheOneRuleTest extends TestCase
                 self::assertTrue(SecretFiles::withheldFromCopy($path), "the list names {$path}, which the rule does not withhold");
             }
             self::assertFalse(SecretFiles::withheldFromCopy('config/plugins.php'), 'the control: the rule does not withhold the rest of the house');
-            // The fold compares names by Unicode case folding, not by decomposition. Decomposition maps only `;` and
-            // `` ` `` to ASCII beyond what folding does (U+037E, U+1FEF), so a named path that held neither stays
-            // fully compared. Every one holds only lowercase ASCII letters, digits and `._/-`.
+            // The rule folds ASCII case only, and `sandbox:promote` carries plain ASCII names only, so a named path
+            // must itself be plain lowercase ASCII for the comparison to be exact.
             foreach ($list as $path) {
                 self::assertMatchesRegularExpression('#^[a-z0-9._/-]+$#', $path, "{$path} holds a character the fold does not account for");
             }

@@ -134,16 +134,18 @@ final class SecretFiles
     }
 
     /**
-     * A path as a case-insensitive filesystem compares it: separators normalised, then FULL Unicode case folding.
-     * `strtolower` folds ASCII only, but such a filesystem folds Unicode, so a name spelled with a character that
-     * folds to an ASCII letter (KELVIN SIGN to `k`, LONG S to `s`, `ß` to `ss`, the `ﬆ` ligatures…) resolves to the
-     * named file (the second independent review of decisions/0625, M1). Full folding covers every character simple
-     * folding maps to ASCII. Decomposition (APFS) adds only `;` and `` ` ``, which no named path holds; a test
-     * guards that.
+     * A path as a case-insensitive filesystem compares a PLAIN name: separators normalised, ASCII case folded.
+     *
+     * Only plain names. A case-folding filesystem also folds Unicode case and ignores invisible characters
+     * (zero-width space, soft hyphen, the BOM…), each by rules of its own, so a name that differs from a named file
+     * only by such characters IS that file there. Two reviews found a new spelling each time the fold tried to
+     * follow those rules (decisions/0625, M1). It no longer tries: what writes into the house from a rehearsal
+     * carries printable ASCII names only (`sandbox:promote`), and over those this comparison is exact on any
+     * filesystem.
      */
     private static function fold(string $path): string
     {
-        return mb_convert_case(str_replace('\\', '/', $path), \MB_CASE_FOLD, 'UTF-8');
+        return strtolower(str_replace('\\', '/', $path));
     }
 
     /**

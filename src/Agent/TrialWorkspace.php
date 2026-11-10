@@ -95,7 +95,13 @@ final class TrialWorkspace
             throw new \RuntimeException("could not make the trial directory at {$copy}");
         }
 
-        self::copyTree($root, $copy);
+        try {
+            self::copyTree($root, $copy);
+        } catch (\RuntimeException $e) {
+            self::rmrf($base);
+
+            throw $e;
+        }
         // THE BASE OF THE KEYED STORES (decisions/0467): what this trial saw of the house's declarations,
         // so its promotion can be judged per key and not per file.
         KeyedDeclarations::snapshot($root, $base . '/base');
@@ -495,7 +501,10 @@ final class TrialWorkspace
 
     /**
      * Take out of a copy every file and link the rule withholds, whatever spelling it was copied under. Links are
-     * removed, never followed.
+     * removed, never followed. A withheld entry that cannot be removed refuses the whole copy: a copy that still
+     * holds it is not made (the third independent review of decisions/0625, L-E).
+     *
+     * @throws \RuntimeException when a withheld entry cannot be removed
      */
     private static function sweep(string $copy): void
     {
@@ -506,8 +515,10 @@ final class TrialWorkspace
         );
         foreach ($entries as $entry) {
             /** @var \SplFileInfo $entry */
-            if (($entry->isLink() || ! $entry->isDir()) && self::withheld(ltrim(substr($entry->getPathname(), $base), '/'))) {
-                unlink($entry->getPathname());
+            $rel = ltrim(substr($entry->getPathname(), $base), '/');
+            // Silenced: the failure is said by the exception.
+            if (($entry->isLink() || ! $entry->isDir()) && self::withheld($rel) && ! @unlink($entry->getPathname())) {
+                throw new \RuntimeException("could not leave «{$rel}» out of the copy, so the copy was not made");
             }
         }
     }
