@@ -214,6 +214,69 @@ return $loader;
         self::assertStringStartsWith('a trial: confined', RouteRegression::room(true));
     }
 
+    /**
+     * M-A (review round 2): the listing of a candidate is masked on the HOUSE, not on the copy. The candidate's plugin
+     * names, in the route it lists, what it read — the house's envelope by its own path, the copy's link to it, and the
+     * launcher's environment. Control: listed plain, it reads all three.
+     */
+    public function testTheListingOfACandidateMasksTheHousesEnvelope(): void
+    {
+        $this->requireConfinement();
+        $candidate = BootCandidate::of($this->root, ['src/Plugins/Blog/Blog.php' => $this->pluginThatSaysWhatItReads()]);
+        try {
+            $plain = (new HouseRouteObserver())->observe($candidate->path, ['src/Plugins/Blog/Blog.php']);
+            $confined = (new HouseRouteObserver())->observe($candidate->path, ['src/Plugins/Blog/Blog.php'], true, $this->root);
+        } finally {
+            $candidate->remove();
+        }
+
+        self::assertContains('/read-abs-READ-copy-READ-env-READ', self::subjects($plain), 'control: listed plain, the plugin reads what it names: ' . json_encode(self::subjects($plain)));
+        self::assertContains('/read-abs-masked-copy-masked-env-cleared', self::subjects($confined), (string) json_encode(self::subjects($confined)));
+    }
+
+    /** M-A (review round 2): the content judge of a candidate's page is masked on the HOUSE too, and runs as a trial. */
+    public function testTheContentJudgeOfACandidateMasksTheHousesEnvelope(): void
+    {
+        $this->requireConfinement();
+        $candidate = BootCandidate::of($this->root, [
+            'src/Plugins/Blog/Blog.php' => $this->pluginThatSaysWhatItReads(),
+            'config/screens.json' => (string) json_encode(['posts' => ['type' => 'data-table', 'props' => ['columns' => [], 'rows' => []], 'route' => '/blog']]),
+        ]);
+        try {
+            $plain = (new HouseRouteObserver())->observeRoute($candidate->path, '/blog', 100);
+            $confined = (new HouseRouteObserver())->observeRoute($candidate->path, '/blog', 100, 'GET', null, null, true, $this->root);
+        } finally {
+            $candidate->remove();
+        }
+
+        self::assertStringContainsString($this->canary, (string) ($plain['entry']['content']['abs'] ?? ''), 'control: judged plain, the page\'s process reads the envelope: ' . json_encode($plain));
+        self::assertSame(['abs' => '', 'copy' => '', 'env' => '', 'trial' => '1'], $confined['entry']['content'] ?? null, (string) json_encode($confined));
+    }
+
+    /** L-A (review round 2): a confinement that cannot be built — no namespace, or no house to mask — runs nothing. */
+    public function testAConfinementThatCannotBeBuiltRunsNothing(): void
+    {
+        $confineWith = new \ReflectionMethod(HouseRouteObserver::class, 'confineWith');
+
+        self::assertSame([], $confineWith->invoke(new HouseRouteObserver(), null, null), 'control: an unconfined request has no prefix');
+        self::assertSame(['false'], $confineWith->invoke(new HouseRouteObserver(bwrap: '/nonexistent/bwrap-' . bin2hex(random_bytes(4))), $this->root . '/var', $this->root));
+        self::assertSame(['false'], $confineWith->invoke(new HouseRouteObserver(), $this->root . '/var', null), 'a confinement that does not name whose secrets to mask');
+    }
+
+    /** L-B (review round 2): a listing that started and failed still says a process of the house was asked. */
+    public function testAListingThatFailsStillSaysItAsked(): void
+    {
+        file_put_contents($this->root . '/src/Plugins/Blog/Blog.php', str_replace('public function routes(): array
+    {', 'public function routes(): array
+    {
+        throw new \RuntimeException("the listing breaks");', $this->plugin(false)));
+
+        $seen = (new HouseRouteObserver())->observe($this->root, ['src/Plugins/Blog/Blog.php']);
+
+        self::assertArrayHasKey('error', $seen, (string) json_encode($seen));
+        self::assertTrue($seen['asked'] ?? false, (string) json_encode($seen));
+    }
+
     private function requireConfinement(): void
     {
         if (!(new TrialRunner())->available()) {
@@ -260,6 +323,38 @@ return $loader;
         }
 
         return array_values(array_map(static fn (string $line): array => (array) json_decode($line, true), array_filter(explode("\n", (string) file_get_contents($file)))));
+    }
+
+    /**
+     * The plugin, saying in band what it read: listing, it adds a route named after it; judging a page, it answers the
+     * content judge itself, on the observer's own channel, at the end of the process.
+     */
+    private function pluginThatSaysWhatItReads(): string
+    {
+        $read = '$h = dirname(__DIR__, 3); $abs = (string) @file_get_contents(' . var_export($this->root . '/.milpa/secrets.json', true) . '); $copy = (string) @file_get_contents($h . "/.milpa/secrets.json"); $env = (string) getenv("' . self::ENV . '");';
+        $content = 'if (($GLOBALS["argv"][1] ?? "") === "content") { ' . $read . ' register_shutdown_function(static function () use ($abs, $copy, $env): void { echo "\n" . ' . var_export(HouseRouteObserver::MARK, true) . ' . json_encode(["ok" => true, "content" => ["abs" => $abs, "copy" => $copy, "env" => $env, "trial" => (string) getenv("MILPA_TRIAL")]]) . "\n"; }); }';
+        $listed = 'if (($GLOBALS["argv"][1] ?? "") === "routes") { ' . $read . ' $said = "/read-abs-" . (str_contains($abs, ' . var_export($this->canary, true) . ') ? "READ" : "masked") . "-copy-" . (str_contains($copy, ' . var_export($this->canary, true) . ') ? "READ" : "masked") . "-env-" . ($env !== "" ? "READ" : "cleared"); $routes[] = new Route($said, HttpMethod::GET, "read", [], new HandlerReference(Controller::class, "env")); }';
+        $plugin = str_replace('public function boot(): void { ', 'public function boot(): void { ' . $content . ' ', $this->plugin(false));
+
+        return str_replace('        return [
+            new Route("/blog", HttpMethod::GET', '        $routes = [
+            new Route("/blog", HttpMethod::GET', str_replace('            new Route("/env", HttpMethod::GET, "env", [], new HandlerReference(Controller::class, "env")),
+        ];
+    }', '            new Route("/env", HttpMethod::GET, "env", [], new HandlerReference(Controller::class, "env")),
+        ];
+        ' . $listed . '
+        return $routes;
+    }', $plugin));
+    }
+
+    /**
+     * @param array<string, mixed> $observation
+     *
+     * @return list<string>
+     */
+    private static function subjects(array $observation): array
+    {
+        return array_values(array_map(static fn (array $entry): string => (string) ($entry['subject'] ?? ''), $observation['observed'] ?? []));
     }
 
     private function plugin(bool $logs): string

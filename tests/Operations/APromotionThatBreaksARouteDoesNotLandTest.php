@@ -152,7 +152,8 @@ return $loader;
         $receipt = $this->promote(['src/Plugins/Blog/Controller.php' => self::controller('Blog', 'throw new \RuntimeException("still broken");')]);
 
         self::assertTrue($receipt['ok'], (string) json_encode($receipt));
-        self::assertSame([['route' => 'GET /blog', 'before' => 500, 'after' => 500]], self::withoutCause($receipt['unjudged']));
+        self::assertSame([['route' => 'GET /blog', 'before' => 500, 'after' => 500]], self::withoutCause(self::withoutWhy($receipt['unjudged'])));
+        self::assertSame(self::maskedWhy(), $receipt['unjudged'][0]['why'] ?? null, 'under the mask the receipt says the route was not judged, not that it is not the promotion\'s doing');
         self::assertSame('still broken', $receipt['unjudged'][0]['cause']['message'] ?? null, 'the cause is the promotion\'s copy, not the house\'s');
         self::assertStringContainsString('still broken', (string) file_get_contents($this->root . '/src/Plugins/Blog/Controller.php'));
     }
@@ -170,7 +171,8 @@ return $loader;
         $receipt = $this->promote(['src/Plugins/Blog/Controller.php' => self::controller('Blog', sprintf($needsState, 'v2'))]);
 
         self::assertTrue($receipt['ok'], (string) json_encode($receipt));
-        self::assertSame([['route' => 'GET /blog', 'before' => 500, 'after' => 500]], self::withoutCause($receipt['unjudged']));
+        self::assertSame([['route' => 'GET /blog', 'before' => 500, 'after' => 500]], self::withoutCause(self::withoutWhy($receipt['unjudged'])));
+        self::assertSame(self::maskedWhy(), $receipt['unjudged'][0]['why'] ?? null, 'under the mask the receipt says the route was not judged, not that it is not the promotion\'s doing');
         self::assertSame('served', $receipt['observed'][0]['predicate'] ?? null, 'in the house it serves');
     }
 
@@ -232,9 +234,11 @@ return $loader;
     }
 
     /**
-     * ONE MASK FOR BOTH (greenhouse decisions/0626, review round 1, L-3, mutant 2b). A route that needs the envelope
-     * answers 5xx under the mask, with the promotion and without it: asked the same way, the two agree and the promotion
-     * is not blamed. Were the control asked plain, it would answer 200 and the promotion would be refused for the mask.
+     * ONE MASK FOR BOTH, AND ITS BLIND SPOT SAID (greenhouse decisions/0626, review round 1, L-3, mutant 2b; review
+     * round 2, M-B, Rod's option A). A route that needs the envelope answers 5xx under the mask, with the promotion and
+     * without it: asked the same way, the two agree and the promotion is not blamed — were the control asked plain, it
+     * would answer 200 and the promotion would be refused for the mask. The price is that such a route is not judged:
+     * the promotion lands, and the receipt says why that route was not judged, instead of calling it «not its doing».
      */
     public function testTheControlIsAskedUnderTheSameMaskAsTheCandidate(): void
     {
@@ -249,7 +253,19 @@ return $loader;
         $receipt = $this->promote(['src/Plugins/Blog/Controller.php' => $needsTheEnvelope('after')]);
 
         self::assertTrue($receipt['ok'], 'the control was not asked under the candidate\'s mask: ' . json_encode($receipt));
-        self::assertSame([['route' => 'GET /blog', 'before' => 500, 'after' => 500]], self::withoutCause($receipt['unjudged'] ?? []), (string) json_encode($receipt));
+        self::assertSame([['route' => 'GET /blog', 'before' => 500, 'after' => 500, 'why' => RouteRegression::MASKED]], self::withoutCause($receipt['unjudged'] ?? []), (string) json_encode($receipt));
+    }
+
+    /** Without confinement the routes are asked plain, so a 5xx on both sides is the house's own — no mask to blame. */
+    public function testWithoutConfinementAnUnjudgedRouteBlamesNoMask(): void
+    {
+        file_put_contents($this->root . '/src/Plugins/Blog/Controller.php', self::controller('Blog', 'throw new \\RuntimeException("broken before");'));
+        $unconfined = new RouteRegression(new HouseRouteObserver(bwrap: '/nonexistent/bwrap-' . bin2hex(random_bytes(4))));
+
+        $receipt = $this->promote(['src/Plugins/Blog/Controller.php' => self::controller('Blog', 'throw new \\RuntimeException("broken after");')], routes: $unconfined);
+
+        self::assertTrue($receipt['ok'], (string) json_encode($receipt));
+        self::assertSame([['route' => 'GET /blog', 'before' => 500, 'after' => 500]], self::withoutCause($receipt['unjudged'] ?? []), 'a route already broken is not the promotion\'s doing, and no mask hid anything: ' . json_encode($receipt));
     }
 
     /**
@@ -292,6 +308,22 @@ return $loader;
     private static function withoutCause(array $rows): array
     {
         return array_map(static fn (array $row): array => array_diff_key($row, ['cause' => 0]), $rows);
+    }
+
+    /**
+     * @param list<array<string, mixed>> $rows
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function withoutWhy(array $rows): array
+    {
+        return array_map(static fn (array $row): array => array_diff_key($row, ['why' => 0]), $rows);
+    }
+
+    /** Where this host confines, an unjudged route says the mask did not judge it (greenhouse decisions/0626, M-B, option A). */
+    private static function maskedWhy(): ?string
+    {
+        return (new \Milpa\AppRuntime\Agent\TrialRunner())->available() ? RouteRegression::MASKED : null;
     }
 
     private static function pluginsFile(string ...$plugins): string

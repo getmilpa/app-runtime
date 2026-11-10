@@ -613,8 +613,9 @@ final class HouseRouteObserver
      * one place ({@see TrialRunner::confinement()}): the namespaces a trial found here, the root read-only, the
      * writable tree bound, the mask after that bind (greenhouse evidence/1161), and the environment floor — a
      * request of a copy reads no credential of the launcher's environment, as a trial does not (decisions/0619 B4;
-     * greenhouse decisions/0626, review round 1, M-1). `$secretsRoot` is the real house root whose files are masked;
-     * without it the writable tree is its own root (an unconfined caller passes no writable and gets `[]`).
+     * greenhouse decisions/0626, review round 1, M-1). `$secretsRoot` is the real house root whose files are masked,
+     * and a confined caller must name it: a mask anchored on the copy would leave the house's envelope readable by its
+     * own path and through the copy's link (review round 2, M-A). An unconfined caller passes no writable and gets `[]`.
      *
      * @return list<string>
      */
@@ -624,8 +625,9 @@ final class HouseRouteObserver
             return [];
         }
 
-        // Where nothing can be confined the request does not run at all: a confinement that was asked for never
-        // degrades to a plain process. Callers ask {@see confines()} first and refuse or say so.
-        return $this->trialRunner()->confinement($writable, $secretsRoot ?? $writable) ?? ['false'];
+        // Where nothing can be confined — or the caller did not say whose secrets to mask — the request does not run at
+        // all: a confinement that was asked for never degrades to a plain process, nor to a mask on the wrong house.
+        // Callers ask {@see confines()} first and refuse or say so.
+        return $secretsRoot === null ? ['false'] : $this->trialRunner()->confinement($writable, $secretsRoot) ?? ['false'];
     }
 }

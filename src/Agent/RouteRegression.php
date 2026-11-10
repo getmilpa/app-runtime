@@ -76,8 +76,23 @@ final class RouteRegression
             $control->remove();
         }
 
-        return self::relative(self::compare($after, $before), $root) + $room;
+        $judged = self::compare($after, $before);
+        if ($confined) {
+            // THE MASK'S BLIND SPOT, SAID (greenhouse decisions/0626, Rod's answer to review round 2, M-B: option A). Both
+            // copies are asked without the envelope and without the launcher's environment, so a route that reads its
+            // configuration from either answers 5xx on both sides whether or not this promotion broke it. That is not
+            // «not its doing»: it is «not judged here», and the receipt says so — the house answers it after landing.
+            $judged['unjudged'] = array_map(static fn (array $row): array => $row + ['why' => self::MASKED], $judged['unjudged']);
+        }
+
+        return self::relative($judged, $root) + $room;
     }
+
+    /** Why a route that answered 5xx on both sides under the mask was not judged — the receipt's words. */
+    public const MASKED = 'it answered 5xx with and without the promotion, both asked in a copy under the mask: a route '
+        . 'that needs what such a copy does not carry — the envelope, the launcher\'s environment, the house\'s state — '
+        . 'answers the same either way, so this one was not judged here; what the house answered after landing is in '
+        . '`observed` (greenhouse decisions/0626)';
 
     /**
      * Where the routes of a promotion were asked, in the words a receipt carries.
