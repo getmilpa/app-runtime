@@ -52,19 +52,21 @@ final class RouteRegression
      *
      * `room` says where the routes were asked, for the receipt to carry: confined like a trial, or — on a host that
      * cannot confine (no bwrap) — UNCONFINED, said rather than refused, the way the boot check says it (decisions/0607;
-     * greenhouse decisions/0626, Rod's answer (a)).
+     * greenhouse decisions/0626, Rod's answer (a)). It is there only when a process of the candidate was started: a
+     * change no route answers for asked nothing, and has no room to say.
      *
-     * @return array{regressed: list<array<string, mixed>>, unjudged: list<array<string, mixed>>, room: string}
+     * @return array{regressed: list<array<string, mixed>>, unjudged: list<array<string, mixed>>, room?: string}
      */
     public function judge(string $root, string $candidate, array $paths): array
     {
         // The candidate carries code nobody applied yet: it is asked confined wherever this host can confine, and the
         // control is asked the same way, so the two are compared under one mask (greenhouse decisions/0626).
         $confined = $this->observer->confines();
-        $room = self::room($confined);
-        $after = $this->observer->observe($candidate, $paths, $confined, $root)['observed'];
+        $asked = $this->observer->observe($candidate, $paths, $confined, $root);
+        $room = isset($asked['asked']) ? ['room' => self::room($confined)] : [];
+        $after = $asked['observed'];
         if (array_filter($after, self::broken(...)) === []) {
-            return ['regressed' => [], 'unjudged' => [], 'room' => $room];
+            return ['regressed' => [], 'unjudged' => []] + $room;
         }
 
         $control = BootCandidate::of($root, []);
@@ -74,7 +76,7 @@ final class RouteRegression
             $control->remove();
         }
 
-        return self::relative(self::compare($after, $before), $root) + ['room' => $room];
+        return self::relative(self::compare($after, $before), $root) + $room;
     }
 
     /**
@@ -82,11 +84,15 @@ final class RouteRegression
      */
     public static function room(bool $confined): string
     {
-        return $confined
-            ? 'a trial: confined, no network, the envelope and the keyring masked'
-            : 'UNCONFINED: this machine has no unprivileged namespace (no bwrap), so the routes of the change were requested '
+        return match (true) {
+            $confined => 'a trial: confined, no network, the environment cleared, the envelope and the keyring masked',
+            // Inside a trial no confinement nests (evidence/1186), and none is needed: the enclosing one already
+            // confines these requests — the boot check names the same room (decisions/0607).
+            TrialRunner::insideTrial() => 'within the enclosing trial: it already confines these requests (no network, the mask), so they ran plain inside it (decisions/0607)',
+            default => 'UNCONFINED: this machine has no unprivileged namespace (no bwrap), so the routes of the change were requested '
                 . 'with the envelope readable and the network open — contain the house in its own container or say so '
-                . '(decisions/0607; greenhouse decisions/0626)';
+                . '(decisions/0607; greenhouse decisions/0626)',
+        };
     }
 
     /**

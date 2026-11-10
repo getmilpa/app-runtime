@@ -78,7 +78,7 @@ final class AWriterBootsItsCopyInsideATrialTest extends TestCase
     {
         file_put_contents($this->root . '/public/index.php', "<?php\n");
 
-        self::assertSame(['observed' => []], $this->withoutDevices('observe')['routes'], 'the house booted to list its routes (it declares none)');
+        self::assertSame(['observed' => [], 'asked' => true], $this->withoutDevices('observe')['routes'], 'the house booted to list its routes (it declares none)');
     }
 
     public function testALegsTrialOpensDevNullAndNoOtherDevice(): void

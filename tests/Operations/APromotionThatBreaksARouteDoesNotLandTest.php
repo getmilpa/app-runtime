@@ -232,6 +232,27 @@ return $loader;
     }
 
     /**
+     * ONE MASK FOR BOTH (greenhouse decisions/0626, review round 1, L-3, mutant 2b). A route that needs the envelope
+     * answers 5xx under the mask, with the promotion and without it: asked the same way, the two agree and the promotion
+     * is not blamed. Were the control asked plain, it would answer 200 and the promotion would be refused for the mask.
+     */
+    public function testTheControlIsAskedUnderTheSameMaskAsTheCandidate(): void
+    {
+        if (!(new \Milpa\AppRuntime\Agent\TrialRunner())->available()) {
+            self::markTestSkipped('this host offers no unprivileged user namespace for bwrap');
+        }
+        mkdir($this->root . '/.milpa');
+        file_put_contents($this->root . '/.milpa/secrets.json', '{"note":"the envelope"}');
+        $needsTheEnvelope = static fn (string $said): string => self::controller('Blog', 'if (!str_contains((string) @file_get_contents(dirname(__DIR__, 3) . "/.milpa/secrets.json"), "the envelope")) { throw new \\RuntimeException("no envelope"); } return new \\Nyholm\\Psr7\\Response(200, [], "' . $said . '");');
+        file_put_contents($this->root . '/src/Plugins/Blog/Controller.php', $needsTheEnvelope('before'));
+
+        $receipt = $this->promote(['src/Plugins/Blog/Controller.php' => $needsTheEnvelope('after')]);
+
+        self::assertTrue($receipt['ok'], 'the control was not asked under the candidate\'s mask: ' . json_encode($receipt));
+        self::assertSame([['route' => 'GET /blog', 'before' => 500, 'after' => 500]], self::withoutCause($receipt['unjudged'] ?? []), (string) json_encode($receipt));
+    }
+
+    /**
      * WHERE THE HOST CANNOT CONFINE, THE RECEIPT SAYS SO (greenhouse decisions/0626, Rod's answer (a)). With no bwrap the
      * routes are still judged — a promotion is not refused for the host it runs on (decisions/0607) — but unconfined,
      * and the receipt of the landing carries that sentence, the way a writer's answer carries the boot check's room.

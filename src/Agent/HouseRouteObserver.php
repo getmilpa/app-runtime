@@ -313,14 +313,18 @@ final class HouseRouteObserver
      * to compare — no screen is mounted there, it binds no entity's rows — or the house could not be asked. The page
      * travels in a file that does not outlive the question.
      *
+     * `$confined` boots that process the way the request it judges was run ({@see confineWith()}): the fresh process
+     * boots every plugin of `$root`, and a copy that carries code nobody applied yet is never booted plain (greenhouse
+     * decisions/0626, review round 1, H-1). Confined, the page travels in the copy's own `var/`, the one place it writes.
+     *
      * @return array<string, mixed>|null
      */
-    public function content(string $root, string $route, string $body = ''): ?array
+    public function content(string $root, string $route, string $body = '', bool $confined = false, ?string $secretsRoot = null): ?array
     {
-        $file = (string) tempnam(sys_get_temp_dir(), 'milpa-page-');
+        $file = $confined ? rtrim($root, '/') . '/var/route-observe-page-' . bin2hex(random_bytes(4)) : (string) tempnam(sys_get_temp_dir(), 'milpa-page-');
         file_put_contents($file, $body);
         try {
-            [, $answer] = $this->run(['content', $root, $route, $file]);
+            [, $answer] = $this->run(['content', $root, $route, $file], $confined ? $root : null, $secretsRoot);
         } finally {
             @unlink($file);
         }
@@ -384,7 +388,10 @@ final class HouseRouteObserver
      *
      * @param list<string> $paths paths relative to the house root, as a promotion names them
      *
-     * @return array{observed: list<array<string, mixed>>, capabilities?: list<array<string, mixed>>, error?: string, unobserved?: int}
+     * `asked` is true once a process of the house was started — the listing or a request — so a caller can say where it
+     * ran only when something ran.
+     *
+     * @return array{observed: list<array<string, mixed>>, capabilities?: list<array<string, mixed>>, error?: string, unobserved?: int, asked?: true}
      */
     public function observe(string $root, array $paths, bool $confined = false, ?string $secretsRoot = null): array
     {
@@ -403,17 +410,17 @@ final class HouseRouteObserver
             [$exit, $listed] = $this->run(['routes', $root, (string) json_encode($dirs)], $confined ? $root : null, $secretsRoot);
             if ($exit !== 0 || !\is_array($listed['routes'] ?? null)) {
                 if (!$front) {
-                    return ['observed' => []];
+                    return ['observed' => [], 'asked' => true];
                 }
                 $why = \is_string($listed['error'] ?? null) ? $listed['error'] : 'exit ' . $exit;
 
-                return ['observed' => [], 'error' => "the house did not boot to list its routes after the change ({$why})"];
+                return ['observed' => [], 'error' => "the house did not boot to list its routes after the change ({$why})", 'asked' => true];
             }
         }
         $capabilities = array_values(array_filter(\is_array($listed['capabilities'] ?? null) ? $listed['capabilities'] : [], 'is_array'));
         $declares = $capabilities === [] ? [] : ['capabilities' => $capabilities];
         if (!$front) {
-            return ['observed' => []] + $declares;
+            return ['observed' => [], 'asked' => true] + $declares;
         }
 
         $routes = [];
@@ -428,7 +435,7 @@ final class HouseRouteObserver
             $observed[] = $this->request($root, $route['path'], 0, 'GET', null, null, $confined, $secretsRoot)['entry'];
         }
 
-        return ['observed' => $observed] + $declares + (\count($routes) > self::MAX_ROUTES ? ['unobserved' => \count($routes) - self::MAX_ROUTES] : []);
+        return ['observed' => $observed, 'asked' => true] + $declares + (\count($routes) > self::MAX_ROUTES ? ['unobserved' => \count($routes) - self::MAX_ROUTES] : []);
     }
 
     /**
@@ -521,7 +528,7 @@ final class HouseRouteObserver
                 $entry['surface'] = ['kind' => 'visual', 'screen' => $screen];
             }
             // A page longer than the house read is not judged on the part it read.
-            $content = $page !== null && \strlen($page) === $entry['bytes'] ? $this->content($root, $subject, $page) : null;
+            $content = $page !== null && \strlen($page) === $entry['bytes'] ? $this->content($root, $subject, $page, $confined, $secretsRoot) : null;
             if ($content !== null) {
                 $entry['content'] = $content;
             }
@@ -602,11 +609,12 @@ final class HouseRouteObserver
 
     /**
      * The bubblewrap prefix for a confined request, or `[]` when nothing is confined. A confined request runs the
-     * copy's own controllers — code a session may have written — under `--ro-bind / /`, so the trial runner's mask
-     * goes on here too, built in ONE place ({@see TrialRunner::maskArgs()}) and placed AFTER the writable bind, so
-     * a `--bind` cannot re-expose a real secret the copy carries: a controller reads no secret file of the house
-     * (greenhouse evidence/1161). `$secretsRoot` is the real house root whose files are masked; without it the
-     * writable tree is its own root (an unconfined caller passes no writable and gets `[]`).
+     * copy's own controllers — code a session may have written — so it is confined by THE trial confinement, built in
+     * one place ({@see TrialRunner::confinement()}): the namespaces a trial found here, the root read-only, the
+     * writable tree bound, the mask after that bind (greenhouse evidence/1161), and the environment floor — a
+     * request of a copy reads no credential of the launcher's environment, as a trial does not (decisions/0619 B4;
+     * greenhouse decisions/0626, review round 1, M-1). `$secretsRoot` is the real house root whose files are masked;
+     * without it the writable tree is its own root (an unconfined caller passes no writable and gets `[]`).
      *
      * @return list<string>
      */
@@ -616,8 +624,8 @@ final class HouseRouteObserver
             return [];
         }
 
-        return [$this->bwrap, ...$this->trialRunner()->namespaces() ?? ['--unshare-net', '--unshare-pid', '--die-with-parent'],
-            '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null', '--bind', $writable, $writable,
-            ...$this->trialRunner()->maskArgs($secretsRoot ?? $writable)];
+        // Where nothing can be confined the request does not run at all: a confinement that was asked for never
+        // degrades to a plain process. Callers ask {@see confines()} first and refuse or say so.
+        return $this->trialRunner()->confinement($writable, $secretsRoot ?? $writable) ?? ['false'];
     }
 }
