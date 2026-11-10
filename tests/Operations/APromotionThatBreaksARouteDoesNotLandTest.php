@@ -220,8 +220,10 @@ return $loader;
         // would not show even when it was read — the first form of this test was blind to its own defect).
         file_put_contents($this->root . '/.milpa/secrets.json', '{"note":"' . $canary . '"}');
 
-        $receipt = $this->promote(['src/Plugins/Blog/Controller.php' => self::controller('Blog',
-            'throw new \\RuntimeException("envelope: " . (string) @file_get_contents(dirname(__DIR__, 3) . "/.milpa/secrets.json"));')]);
+        $receipt = $this->promote(['src/Plugins/Blog/Controller.php' => self::controller(
+            'Blog',
+            'throw new \\RuntimeException("envelope: " . (string) @file_get_contents(dirname(__DIR__, 3) . "/.milpa/secrets.json"));'
+        )]);
 
         self::assertFalse($receipt['ok'], 'control: a route taken to 500 is refused: ' . json_encode($receipt));
         self::assertSame(['route' => 'GET /blog', 'before' => 200, 'after' => 500], array_diff_key($receipt['regressed'][0], ['cause' => 0]), 'the control answered 200 under the same mask');
