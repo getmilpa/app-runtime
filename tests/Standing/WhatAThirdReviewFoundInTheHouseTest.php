@@ -340,6 +340,9 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
         $this->house->granted();
         $path = $this->measured();
         self::assertFileExists($this->house->root . '/' . StandingLedger::PATH . StandingLedger::HEAD, 'control: the house keeps both');
+        // A file beside the book that is no book of the house: the control that leaving the book out is narrow. It was
+        // the enrollment ledger until no copy carried that either (greenhouse decisions/0625).
+        file_put_contents($this->house->root . '/storage/identity/beside.json', "{}\n");
         $was = getenv('PATH');
         if (!$rsync) {
             putenv('PATH=/nonexistent'); // a host with no rsync copies by its own walk
@@ -351,7 +354,8 @@ final class WhatAThirdReviewFoundInTheHouseTest extends TestCase
         }
 
         self::assertFileExists($trial->copy . '/' . $path, 'control: the copy holds the house');
-        self::assertFileExists($trial->copy . '/storage/identity/enrollments.json', 'control: and what sits beside the book');
+        self::assertFileExists($trial->copy . '/storage/identity/beside.json', 'control: and what sits beside the book');
+        self::assertFileDoesNotExist($trial->copy . '/storage/identity/enrollments.json', 'nor the enrollment ledger (decisions/0625)');
         self::assertFileDoesNotExist($trial->copy . '/' . StandingLedger::PATH);
         self::assertFileDoesNotExist($trial->copy . '/' . StandingLedger::PATH . StandingLedger::HEAD);
         self::assertSame([], $trial->diff(), 'a copy that leaves the book out does not propose to delete it');

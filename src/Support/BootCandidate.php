@@ -31,8 +31,10 @@ use Milpa\AppRuntime\Config\SecretFiles;
  *
  * A copy of the house's tree under `var/boot-candidates/<id>/`, with the change applied, minus what a
  * boot never reads and what is too heavy or too private to copy: `var/` (state; an empty one is made, as a
- * trial's), `.git/`, `node_modules/`, and every file that holds a secret ({@see SecretFiles}: LINKED, never copied: a secret does
- * not get a second file).
+ * trial's), `.git/`, `node_modules/`, every file that holds a secret ({@see SecretFiles}: LINKED, never copied: a secret does
+ * not get a second file), and the bearer stores and books of who may do what, which a boot never reads
+ * ({@see SecretFiles::withheldFromCopy}: LEFT OUT, never linked — a book is written, and a write through a link
+ * would land in the live house; greenhouse decisions/0625).
  *
  * `vendor/` is the one subtle part. Composer's autoloader resolves the app's own classes from the directory
  * its `vendor/composer/` files live in — PHP resolves symlinks in `__DIR__` — so a linked `vendor/` would

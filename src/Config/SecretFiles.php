@@ -14,6 +14,8 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Config;
 
+use Milpa\AppRuntime\Standing\StandingLedger;
+
 /**
  * THE FILES OF A HOUSE THAT HOLD SECRETS — said once, for every copy the house makes of itself.
  *
@@ -46,15 +48,29 @@ final class SecretFiles
 
     /**
      * NON-BEARER STATE the house keeps that still names WHO MAY DO WHAT — the enrollment ledger (grants over
-     * public key fingerprints), the token store (sha256 hashes), the capabilities declaration, and the agent
-     * session log. None is a presented-and-it-opens bearer credential, so {@see isSecret()} does not name them
-     * and a copy still carries them; but a confined process reaching them through `--ro-bind / /` learns the
-     * house's authority map and reads whatever a session recorded. The confinement mask names them explicitly so
-     * agent-authored code cannot read them from the house or from a copy (greenhouse CH, hueco B2). A `test`/work
-     * call does not read these books, so masking them does not break a legitimate leg (measured; stated if it
-     * does). Kept apart from the bearer stores because the two answer different questions (0618).
+     * public key fingerprints), the invitation ledger (the root of trust: every key that redeemed an invitation is
+     * rooted), the token store (sha256 hashes), the declaration ledger (what the house's
+     * declaration writers wrote into its config lists, {@see \Milpa\AppRuntime\Support\DeclarationLedger}), and
+     * the agent session log. None is a presented-and-it-opens bearer credential, so {@see isSecret()} does not
+     * name them; but a confined process reaching them through `--ro-bind / /` learns the house's authority map
+     * and reads whatever a session recorded. The confinement mask names them explicitly so agent-authored code
+     * cannot read them from the house (greenhouse CH, hueco B2), and NO COPY OF THE HOUSE CARRIES THEM
+     * ({@see withheldFromCopy()}, greenhouse decisions/0625).
+     *
+     * THE LEG THE MASK BROKE, STATED (greenhouse evidence/1205 and 1209): while copies still carried them, a writer
+     * inside a trial built a boot candidate that tried to copy a masked book, failed, and refused the whole write —
+     * in an equipped house the agent's seat could write nothing. A boot does not read these books (the declaration
+     * ledger is read only by `capabilities:enable`), so a copy that leaves them out boots the same. Kept apart from
+     * the bearer stores because the two answer different questions (0618).
      */
-    public const NON_BEARER_STATE = ['storage/identity/enrollments.json', 'storage/tokens.json', 'storage/capabilities/declarations.json', 'var/agent-sessions.jsonl'];
+    public const NON_BEARER_STATE = ['storage/identity/enrollments.json', 'storage/identity/invitations.json', 'storage/tokens.json', 'storage/capabilities/declarations.json', 'var/agent-sessions.jsonl'];
+
+    /**
+     * The book of standing grants and its head (greenhouse decisions/0615): what a person granted, what the house
+     * measured and what it absorbed. No copy carries it either. The trial runner does not mask it (a separate
+     * question, 0615), so it is kept apart from {@see NON_BEARER_STATE}, which the mask reads.
+     */
+    private const STANDING_BOOK = [StandingLedger::PATH, StandingLedger::PATH . StandingLedger::HEAD];
 
     /** `.env*` names that are placeholders, not secrets. */
     private const TEMPLATES = ['.env.example', '.env.dist', '.env.template', '.env.sample'];
@@ -63,18 +79,17 @@ final class SecretFiles
     private const SKIP = ['var', 'vendor', '.git', 'node_modules'];
 
     /**
-     * Whether a path from the root of a house names a file the house keeps a secret in. Matched
-     * case-insensitively, because a case-insensitive filesystem (macOS, the Desktop's) resolves `.ENV` and
-     * `.Milpa/Secrets.json` to the real file.
+     * Whether a path from the root of a house names a file the house keeps a secret in. Matched as a
+     * case-insensitive filesystem (macOS, the Desktop's) resolves it ({@see fold()}), because such a filesystem
+     * resolves `.ENV` and `.Milpa/Secrets.json` to the real file.
      */
     public static function isSecret(string $relative): bool
     {
-        $relative = str_replace('\\', '/', $relative);
-        $base = strtolower(basename($relative));
+        $low = self::fold($relative);
+        $base = basename($low);
         if (str_starts_with($base, '.env') && ! \in_array($base, self::TEMPLATES, true)) {
             return true;
         }
-        $low = strtolower($relative);
         foreach (self::PATHS as $tail) {
             if ($low === $tail || str_ends_with($low, '/' . $tail)) {
                 return true;
@@ -86,14 +101,63 @@ final class SecretFiles
 
     /**
      * Whether a path, relative to a house, must be left OUT of any COPY of the house: a file that holds a secret
-     * ({@see isSecret}, any depth) OR a bearer-credential store ({@see BEARER_CREDENTIAL_STORES}). A copy of the
-     * house never contains a bearer-credential store. The stores are named once ({@see BEARER_CREDENTIAL_STORES})
-     * and every copier leaves them out, as it leaves out the named secret files — `TrialWorkspace` (trials and
-     * exercises) and `BootCandidate` (boot candidates) ask this one rule (greenhouse decisions/0618).
+     * ({@see isSecret}, any depth), a bearer-credential store ({@see BEARER_CREDENTIAL_STORES}, decisions/0618), a
+     * book of who may do what ({@see NON_BEARER_STATE}, decisions/0625), or the book of standing grants
+     * ({@see STANDING_BOOK}, decisions/0615). Every copier leaves them out and asks this one rule —
+     * `TrialWorkspace` (trials and exercises, by either of its two ways) and `BootCandidate` (boot candidates and
+     * Composer stages) — and what no copy carries, no promotion carries back (`sandbox:promote`).
      */
     public static function withheldFromCopy(string $relative): bool
     {
-        return self::isSecret($relative) || \in_array($relative, self::BEARER_CREDENTIAL_STORES, true);
+        // As a case-insensitive filesystem resolves the path ({@see fold()}): there `storage/Tokens.json` IS the
+        // token store, and a rule that missed it let a promotion write over it (the independent review of
+        // decisions/0625, M1).
+        return self::isSecret($relative) || self::names([...self::BEARER_CREDENTIAL_STORES, ...self::NON_BEARER_STATE, ...self::STANDING_BOOK], $relative);
+    }
+
+    /**
+     * Whether `$relative` names one of `$paths` (relative to a house), compared as a case-insensitive filesystem
+     * resolves it ({@see fold()}). For every guardian that refuses a path by its name.
+     *
+     * @param list<string> $paths
+     */
+    public static function names(array $paths, string $relative): bool
+    {
+        $relative = self::fold($relative);
+        foreach ($paths as $path) {
+            if (self::fold($path) === $relative) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * A path as a case-insensitive filesystem compares a PLAIN name: separators normalised, ASCII case folded.
+     *
+     * Only plain names. A case-folding filesystem also folds Unicode case and ignores invisible characters
+     * (zero-width space, soft hyphen, the BOM…), each by rules of its own, so a name that differs from a named file
+     * only by such characters IS that file there. Two reviews found a new spelling each time the fold tried to
+     * follow those rules (decisions/0625, M1). It no longer tries: what writes into the house from a rehearsal
+     * carries printable ASCII names only (`sandbox:promote`), and over those this comparison is exact on any
+     * filesystem.
+     */
+    private static function fold(string $path): string
+    {
+        return strtolower(str_replace('\\', '/', $path));
+    }
+
+    /**
+     * The paths, relative to a house root, that {@see withheldFromCopy()} names for this house: every secret file
+     * that exists under it ({@see under()}), and every store and book by its name, present or not. For a copier that
+     * needs the list up front (rsync's `--exclude`) instead of asking path by path — the same rule, never a second.
+     *
+     * @return list<string>
+     */
+    public static function withheldUnder(string $root): array
+    {
+        return array_values(array_unique([...self::under($root), ...self::BEARER_CREDENTIAL_STORES, ...self::NON_BEARER_STATE, ...self::STANDING_BOOK]));
     }
 
     /**

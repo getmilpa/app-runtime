@@ -15,7 +15,6 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Agent;
 
 use Milpa\AppRuntime\Config\SecretFiles;
-use Milpa\AppRuntime\Standing\StandingLedger;
 use Milpa\AppRuntime\Support\ChildProcess;
 use Milpa\AppRuntime\Support\ShellArgument;
 use Milpa\Command\Effect\Subject;
@@ -50,9 +49,6 @@ final class TrialWorkspace
     // would fork the truth) and `vendor/` (bound READ-ONLY at run time, so a mutation cannot touch it,
     // and copying/hashing 160 MB of it is the tax decisions/0070 removes).
     private const PRUNE = ['var', 'vendor'];
-
-    /** The book of standing grants and its head: the house's own, never part of a copy ({@see self::copyTree()}). */
-    private const BOOK = [StandingLedger::PATH, StandingLedger::PATH . StandingLedger::HEAD];
 
     private function __construct(
         public readonly string $root,
@@ -99,7 +95,13 @@ final class TrialWorkspace
             throw new \RuntimeException("could not make the trial directory at {$copy}");
         }
 
-        self::copyTree($root, $copy);
+        try {
+            self::copyTree($root, $copy);
+        } catch (\RuntimeException $e) {
+            self::rmrf($base);
+
+            throw $e;
+        }
         // THE BASE OF THE KEYED STORES (decisions/0467): what this trial saw of the house's declarations,
         // so its promotion can be judged per key and not per file.
         KeyedDeclarations::snapshot($root, $base . '/base');
@@ -241,8 +243,13 @@ final class TrialWorkspace
         try {
             $baseline = $this->manifest();
             $current = self::hashTree($this->root);
-            // …and the book of standing grants, which no copy carries and which the house writes with every act.
-            unset($current['.env'], $current[self::BOOK[0]], $current[self::BOOK[1]]);
+            // …minus what no copy carries (greenhouse decisions/0625 §3): the secret files, the stores, the books of who
+            // may do what and the book of standing grants. The house writes some of them with every act; comparing
+            // them against a copy that never had them made every copy stale the moment the house issued a token.
+            $current = array_filter($current, static fn (string $rel): bool => !self::withheld($rel), \ARRAY_FILTER_USE_KEY);
+            // …and the same on the copy's side: a copier that let one in (a secret kept as a link, by rsync) must not
+            // make a fresh copy look stale (the review of 0625, L2).
+            $baseline = array_filter($baseline, static fn (string $rel): bool => !self::withheld($rel), \ARRAY_FILTER_USE_KEY);
             ksort($baseline);
 
             return $baseline === $current;
@@ -446,13 +453,18 @@ final class TrialWorkspace
         // Every copy carried them, mode kept, for a confined process to read: every grant a person signed, every
         // call a seat made. The house's book is the house's; a rehearsal reads none and writes none.
         //
-        // A COPY OF THE HOUSE NEVER CONTAINS A BEARER-CREDENTIAL STORE (greenhouse decisions/0618). The stores are
-        // named once ({@see SecretFiles::BEARER_CREDENTIAL_STORES}) and every copier leaves them out, as it leaves
-        // out the named secret files: `var/` is already excluded, and the store under `storage/` is withheld by
-        // {@see SecretFiles::withheldFromCopy}, the one rule every house-copier asks.
-        $withheld = array_merge(SecretFiles::under($root), SecretFiles::BEARER_CREDENTIAL_STORES, self::BOOK);
+        // A COPY OF THE HOUSE NEVER CONTAINS A BEARER-CREDENTIAL STORE (greenhouse decisions/0618), NOR A BOOK OF WHO
+        // MAY DO WHAT (decisions/0625): what the trial cannot read, no copy carries. Both ways of copying ask the one
+        // rule, {@see SecretFiles::withheldFromCopy} — rsync through its list ({@see SecretFiles::withheldUnder}),
+        // the walk path by path ({@see withheld()}). The rsync way once kept a list of its own, and a host with
+        // rsync would have copied the books the walk left out (decisions/0625 §2).
+        //
+        // rsync's `--exclude` compares names exactly, and the rule compares them as a case-insensitive filesystem
+        // does: there a house can hold `storage/Tokens.json`, the token store, which no exclude names. So after rsync
+        // the copy is swept with the rule, path by path, as the walk asks it — and that also takes out a secret
+        // rsync carried as a link (the second independent review of decisions/0625, L-A and L1).
         if (self::hasRsync()) {
-            $secrets = implode(' ', array_map(static fn (string $rel): string => ShellArgument::quote('--exclude=/' . $rel), $withheld));
+            $secrets = implode(' ', array_map(static fn (string $rel): string => ShellArgument::quote('--exclude=/' . $rel), SecretFiles::withheldUnder($root)));
             $cmd = sprintf(
                 'rsync -a --exclude=/var/ --exclude=/vendor/ %s %s %s',
                 $secrets,
@@ -461,13 +473,15 @@ final class TrialWorkspace
             );
             exec($cmd, $_, $code);
             if ($code === 0) {
+                self::sweep($copy);
+
                 return;
             }
         }
 
         foreach (self::relFiles($root) as $rel) {
             $top = explode('/', $rel)[0];
-            if ($top === 'var' || SecretFiles::withheldFromCopy($rel) || \in_array($rel, self::BOOK, true)) {
+            if ($top === 'var' || self::withheld($rel)) {
                 continue;
             }
             $dest = $copy . '/' . $rel;
@@ -476,6 +490,36 @@ final class TrialWorkspace
                 mkdir($dir, 0o777, true);
             }
             copy($root . '/' . $rel, $dest);
+        }
+    }
+
+    /** Whether no copy of the house carries this path: the one rule ({@see SecretFiles::withheldFromCopy}). */
+    private static function withheld(string $rel): bool
+    {
+        return SecretFiles::withheldFromCopy($rel);
+    }
+
+    /**
+     * Take out of a copy every file and link the rule withholds, whatever spelling it was copied under. Links are
+     * removed, never followed. A withheld entry that cannot be removed refuses the whole copy: a copy that still
+     * holds it is not made (the third independent review of decisions/0625, L-E).
+     *
+     * @throws \RuntimeException when a withheld entry cannot be removed
+     */
+    private static function sweep(string $copy): void
+    {
+        $base = \strlen($copy);
+        $entries = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($copy, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST,
+        );
+        foreach ($entries as $entry) {
+            /** @var \SplFileInfo $entry */
+            $rel = ltrim(substr($entry->getPathname(), $base), '/');
+            // Silenced: the failure is said by the exception.
+            if (($entry->isLink() || ! $entry->isDir()) && self::withheld($rel) && ! @unlink($entry->getPathname())) {
+                throw new \RuntimeException("could not leave «{$rel}» out of the copy, so the copy was not made");
+            }
         }
     }
 
@@ -593,15 +637,31 @@ final class TrialWorkspace
 
     private static function rmrf(string $path): void
     {
+        // The path itself too: a trial directory that is a link is removed as a link, and whatever it points at is
+        // left as it was (the fifth independent review of greenhouse decisions/0625, L-I).
+        if (is_link($path)) {
+            unlink($path);
+
+            return;
+        }
         if (! is_dir($path)) {
             return;
         }
-        $it = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
-            \RecursiveIteratorIterator::CHILD_FIRST,
-        );
-        foreach ($it as $f) {
-            $f->isDir() ? rmdir($f->getPathname()) : unlink($f->getPathname());
+        // A copy keeps the house's modes (rsync -a), and a read-only directory in it would keep its entries — a trial
+        // that could not be made stayed on disk, and every listing of the house's trials failed on it (the fourth
+        // independent review of greenhouse decisions/0625, L-G). Each directory is made writable by its owner before
+        // it is emptied; a link is removed, never followed.
+        @chmod($path, 0o700);
+        foreach (scandir($path) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            $full = $path . '/' . $entry;
+            if (is_dir($full) && ! is_link($full)) {
+                self::rmrf($full);
+            } else {
+                unlink($full);
+            }
         }
         rmdir($path);
     }

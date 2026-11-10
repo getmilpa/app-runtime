@@ -22,6 +22,7 @@ use Milpa\AppRuntime\Agent\PluginAuthoringPolicy;
 use Milpa\AppRuntime\Agent\RouteFailureCause;
 use Milpa\AppRuntime\Agent\RouteRegression;
 use Milpa\AppRuntime\Agent\TrialWorkspace;
+use Milpa\AppRuntime\Config\SecretFiles;
 use Milpa\AppRuntime\Support\BootCandidate;
 use Milpa\AppRuntime\Support\BootProbe;
 use Milpa\AppRuntime\Support\CompiledCode;
@@ -468,16 +469,38 @@ final class TrialOperations implements CommandProvider
         }
 
         $diff = $ws->diff();
+        // A TRIAL CARRIES PLAIN NAMES ONLY (the third independent review of greenhouse decisions/0625, M1). A
+        // case-folding filesystem resolves a name by rules of its own — it folds Unicode case and ignores invisible
+        // characters — so a name that differs from the house's token store or its `.env` only by such characters IS
+        // that file there. Rather than predict every filesystem, a promotion carries printable ASCII paths only; over
+        // those, folding is ASCII case alone and every refusal by name below is exact. The path is shown escaped, so
+        // an invisible character can be seen in the refusal.
+        $unplain = array_values(array_filter(array_keys($diff), static fn (string $rel): bool => preg_match('/[^\x20-\x7E]/', $rel) === 1));
+        if ($unplain !== []) {
+            return ['ok' => false, 'error' => 'a trial never carries a path whose name is not plain printable ASCII — '
+                . implode(', ', array_map(static fn (string $rel): string => (string) json_encode($rel, \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE), $unplain))
+                . '; rename it in the trial and promote again; nothing was promoted'];
+        }
         // A TRIAL NEVER CARRIES WHAT THE HOUSE APPLIES ON ITS OWN (greenhouse decisions/0586). That list is a
         // person's act; a seat does not write it through a rehearsal, whatever it may write.
-        if (isset($diff[AppliedTrials::PATH])) {
+        if (array_filter(array_keys($diff), static fn (string $rel): bool => SecretFiles::names([AppliedTrials::PATH], $rel)) !== []) {
             return ['ok' => false, 'error' => 'a trial never carries the list of what the house applies on its own — a person admits an operation with sandbox:admit; nothing was promoted'];
         }
         // NOR THE BOOK OF STANDING GRANTS (greenhouse decisions/0615): what a person granted, what the house measured
         // and what it absorbed are written by the house as they happen, never carried in by a rehearsal. The book is
         // two files — its lines and its head — and neither crosses.
-        if (isset($diff[\Milpa\AppRuntime\Standing\StandingLedger::PATH]) || isset($diff[\Milpa\AppRuntime\Standing\StandingLedger::PATH . \Milpa\AppRuntime\Standing\StandingLedger::HEAD])) {
+        // Every refusal by name compares as a case-insensitive filesystem resolves the path (the review of 0625, M1).
+        $book = [\Milpa\AppRuntime\Standing\StandingLedger::PATH, \Milpa\AppRuntime\Standing\StandingLedger::PATH . \Milpa\AppRuntime\Standing\StandingLedger::HEAD];
+        if (array_filter(array_keys($diff), static fn (string $rel): bool => SecretFiles::names($book, $rel)) !== []) {
             return ['ok' => false, 'error' => 'a trial never carries the book of standing grants — a person gives one with standing:grant, and the house writes the rest itself; nothing was promoted'];
+        }
+        // NOR ANYTHING NO COPY CARRIES (greenhouse decisions/0625 §4): the house's secret files, its bearer stores and
+        // its books of who may do what. No copy carries them, so a trial that has one CREATED it — and promoting it
+        // would write a rehearsal's enrollment ledger, token store or declaration ledger over the house's own.
+        $carried = array_values(array_filter(array_keys($diff), static fn (string $rel): bool => SecretFiles::withheldFromCopy($rel)));
+        if ($carried !== []) {
+            return ['ok' => false, 'error' => 'a trial never carries what no copy of the house carries — ' . implode(', ', array_map(static fn (string $rel): string => "«{$rel}»", $carried))
+                . ' is the house\'s own, written by the house and never by a rehearsal; nothing was promoted'];
         }
 
         // NO MERGE OF WHAT ACTUALLY COLLIDES (greenhouse decisions/0467, refining 0068). A moved keyed
