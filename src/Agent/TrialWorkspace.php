@@ -637,6 +637,13 @@ final class TrialWorkspace
 
     private static function rmrf(string $path): void
     {
+        // The path itself too: a trial directory that is a link is removed as a link, and whatever it points at is
+        // left as it was (the fifth independent review of greenhouse decisions/0625, L-I).
+        if (is_link($path)) {
+            unlink($path);
+
+            return;
+        }
         if (! is_dir($path)) {
             return;
         }

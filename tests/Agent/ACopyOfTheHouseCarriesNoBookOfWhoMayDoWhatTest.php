@@ -318,6 +318,26 @@ final class ACopyOfTheHouseCarriesNoBookOfWhoMayDoWhatTest extends TestCase
         self::assertFileExists($this->root . '/config/plugins.php', 'the control: the link was removed, not followed');
     }
 
+    public function testATrialDirectoryThatIsALinkIsRemovedAsALink(): void
+    {
+        // THE FIFTH REVIEW OF 0625, L-I: the cleanup removed links inside a trial directory without following them,
+        // but not the trial directory itself — a `var/trials/<id>` that was a link had the directory it points at
+        // emptied and its mode changed.
+        $outside = $this->root . '/elsewhere';
+        mkdir($outside . '/inner', 0o755, true);
+        file_put_contents($outside . '/inner/kept.txt', "kept\n");
+        chmod($outside, 0o751);
+        mkdir($this->root . '/var/trials', 0o777, true);
+        symlink($outside, $this->root . '/var/trials/books-linked');
+
+        (new \ReflectionMethod(TrialWorkspace::class, 'rmrf'))->invoke(null, $this->root . '/var/trials/books-linked');
+
+        self::assertFalse(is_link($this->root . '/var/trials/books-linked') || file_exists($this->root . '/var/trials/books-linked'), 'the link stayed');
+        self::assertSame("kept\n", file_get_contents($outside . '/inner/kept.txt'), 'what the link points at was emptied');
+        clearstatcache();
+        self::assertSame(0o751, fileperms($outside) & 0o777, 'what the link points at had its mode changed');
+    }
+
     public function testABootCandidateCarriesNoBookOfStandingGrants(): void
     {
         // THE SECOND REVIEW OF 0625, L-B: the book of standing grants is in the one rule, so a boot candidate leaves
