@@ -14,6 +14,8 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tests\Operations;
 
+use Milpa\AppRuntime\Agent\HouseRouteObserver;
+use Milpa\AppRuntime\Agent\RouteRegression;
 use Milpa\AppRuntime\Agent\TrialWorkspace;
 use Milpa\AppRuntime\Operations\TrialOperations;
 use Milpa\AppRuntime\Support\BootProbe;
@@ -185,14 +187,14 @@ return $loader;
      *
      * @return array<string, mixed>
      */
-    private function promote(array $files, bool $probeBeforeWriting = true): array
+    private function promote(array $files, bool $probeBeforeWriting = true, ?RouteRegression $routes = null): array
     {
         $ws = TrialWorkspace::materialize($this->root, 'w1', \dirname(__DIR__) . '/Fixtures/trial-stub-runner.php');
         foreach ($files as $path => $contents) {
             @mkdir(\dirname($ws->copy . '/' . $path), 0o777, true);
             file_put_contents($ws->copy . '/' . $path, $contents);
         }
-        foreach ((new TrialOperations(new DIContainer(), null, $this->root, bootProbe: new BootProbe(), probeBeforeWriting: $probeBeforeWriting))->operations() as $op) {
+        foreach ((new TrialOperations(new DIContainer(), null, $this->root, bootProbe: new BootProbe(), probeBeforeWriting: $probeBeforeWriting, routes: $routes ?? new RouteRegression()))->operations() as $op) {
             if ($op->name === 'sandbox:promote') {
                 return ($op->handler)(['workspace' => 'w1']);
             }
@@ -226,6 +228,37 @@ return $loader;
         // The logger redacts what it recognises as a secret, so the canary alone cannot tell a read from no read; the
         // message can: unconfined it carries the envelope's shape (`{"note":"[secret]"}`), confined nothing.
         self::assertSame('envelope:', $receipt['regressed'][0]['cause']['message'] ?? null, 'the envelope reads empty under the mask: ' . json_encode($receipt['regressed'][0]['cause'] ?? null));
+        self::assertStringStartsWith('a trial: confined', (string) ($receipt['route_room'] ?? ''), 'the refusal says where the routes were asked');
+    }
+
+    /**
+     * WHERE THE HOST CANNOT CONFINE, THE RECEIPT SAYS SO (greenhouse decisions/0626, Rod's answer (a)). With no bwrap the
+     * routes are still judged — a promotion is not refused for the host it runs on (decisions/0607) — but unconfined,
+     * and the receipt of the landing carries that sentence, the way a writer's answer carries the boot check's room.
+     */
+    public function testWithoutConfinementThePromotionSaysItsRoutesWereAskedUnconfined(): void
+    {
+        $unconfined = new RouteRegression(new HouseRouteObserver(bwrap: '/nonexistent/bwrap-' . bin2hex(random_bytes(4))));
+
+        $receipt = $this->promote(['src/Plugins/Blog/Controller.php' => self::controller('Blog', 'return new \\Nyholm\\Psr7\\Response(200, [], "changed");')], routes: $unconfined);
+
+        self::assertTrue($receipt['ok'], (string) json_encode($receipt));
+        self::assertStringStartsWith('UNCONFINED', (string) ($receipt['route_room'] ?? ''), 'the landing says its routes were asked unconfined: ' . json_encode($receipt));
+    }
+
+    /**
+     * Control of the one above: where the host confines, the same landing says its routes were asked as a trial.
+     */
+    public function testWithConfinementThePromotionSaysItsRoutesWereAskedAsATrial(): void
+    {
+        if (!(new \Milpa\AppRuntime\Agent\TrialRunner())->available()) {
+            self::markTestSkipped('this host offers no unprivileged user namespace for bwrap');
+        }
+
+        $receipt = $this->promote(['src/Plugins/Blog/Controller.php' => self::controller('Blog', 'return new \\Nyholm\\Psr7\\Response(200, [], "changed");')]);
+
+        self::assertTrue($receipt['ok'], (string) json_encode($receipt));
+        self::assertStringStartsWith('a trial: confined', (string) ($receipt['route_room'] ?? ''), (string) json_encode($receipt));
     }
 
     /**

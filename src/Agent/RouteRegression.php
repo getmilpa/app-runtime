@@ -50,16 +50,21 @@ final class RouteRegression
      *
      * @param list<string> $paths paths relative to the house root, as the promotion names them
      *
-     * @return array{regressed: list<array<string, mixed>>, unjudged: list<array<string, mixed>>}
+     * `room` says where the routes were asked, for the receipt to carry: confined like a trial, or — on a host that
+     * cannot confine (no bwrap) — UNCONFINED, said rather than refused, the way the boot check says it (decisions/0607;
+     * greenhouse decisions/0626, Rod's answer (a)).
+     *
+     * @return array{regressed: list<array<string, mixed>>, unjudged: list<array<string, mixed>>, room: string}
      */
     public function judge(string $root, string $candidate, array $paths): array
     {
         // The candidate carries code nobody applied yet: it is asked confined wherever this host can confine, and the
         // control is asked the same way, so the two are compared under one mask (greenhouse decisions/0626).
         $confined = $this->observer->confines();
+        $room = self::room($confined);
         $after = $this->observer->observe($candidate, $paths, $confined, $root)['observed'];
         if (array_filter($after, self::broken(...)) === []) {
-            return ['regressed' => [], 'unjudged' => []];
+            return ['regressed' => [], 'unjudged' => [], 'room' => $room];
         }
 
         $control = BootCandidate::of($root, []);
@@ -69,7 +74,19 @@ final class RouteRegression
             $control->remove();
         }
 
-        return self::relative(self::compare($after, $before), $root);
+        return self::relative(self::compare($after, $before), $root) + ['room' => $room];
+    }
+
+    /**
+     * Where the routes of a promotion were asked, in the words a receipt carries.
+     */
+    public static function room(bool $confined): string
+    {
+        return $confined
+            ? 'a trial: confined, no network, the envelope and the keyring masked'
+            : 'UNCONFINED: this machine has no unprivileged namespace (no bwrap), so the routes of the change were requested '
+                . 'with the envelope readable and the network open — contain the house in its own container or say so '
+                . '(decisions/0607; greenhouse decisions/0626)';
     }
 
     /**
@@ -78,9 +95,11 @@ final class RouteRegression
      * A cause is read in the copy (decisions/0539), so its `at` and its message name the copy's files — or, through the
      * copy's linked `vendor/`, the live house's by their absolute name. Both are cut the way a boot reason is (0512).
      *
-     * @param array{regressed: list<array<string, mixed>>, unjudged: list<array<string, mixed>>} $judged
+     * @template T of array{regressed: list<array<string, mixed>>, unjudged: list<array<string, mixed>>}
      *
-     * @return array{regressed: list<array<string, mixed>>, unjudged: list<array<string, mixed>>}
+     * @param T $judged
+     *
+     * @return T
      */
     public static function relative(array $judged, string $root): array
     {
