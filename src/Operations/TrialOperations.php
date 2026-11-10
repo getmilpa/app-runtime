@@ -324,10 +324,12 @@ final class TrialOperations implements CommandProvider
         }
         // A request that may write runs where nothing but its copy can be written: the copy LINKS the house's vendor/ and
         // secrets, and a write through a link would land in the live house (decisions/0549 §9).
-        $confined = $method !== 'GET' || $then !== [];
-        if ($confined && !$observer->confines()) {
-            return ['ok' => false, 'error' => "a {$method} is observed only where its copy can be confined, and this host cannot "
-                . 'confine one (bubblewrap with a user namespace, as the trials use)'];
+        // …and every request in a rehearsal runs confined, a GET too: the copy carries code nobody applied yet, and it is
+        // never run as a plain process of the house (greenhouse decisions/0626).
+        $confined = true;
+        if (!$observer->confines()) {
+            return ['ok' => false, 'error' => "a {$method} in a rehearsal is observed only where its copy can be confined, and this host cannot "
+                . 'confine one (bubblewrap with a user namespace, as the trials use); promote and observe the house with GET'];
         }
         // The house AS THE TRIAL WOULD LEAVE IT, built beside it — the trial's own copy has no vendor/ to boot with.
         $writes = [];
@@ -597,6 +599,7 @@ final class TrialOperations implements CommandProvider
         // first live run (evidence/1071, B3, seq 291): the house booted, GET /blog went 200 → 500, and the receipt said
         // `ok: true`. A route that answered without the promotion and answers 5xx with it — or is new and born 5xx —
         // is the promotion's doing: nothing is written.
+        /** @var array{regressed: list<array<string, mixed>>, unjudged: list<array<string, mixed>>, room?: string} $routes */
         $routes = ['regressed' => [], 'unjudged' => []];
         $judge = $this->routes === null ? null : function (string $candidate) use ($root, $paths, &$routes): ?string {
             $routes = $this->routes->judge($root, $candidate, $paths);
@@ -609,7 +612,7 @@ final class TrialOperations implements CommandProvider
             $boot = (new HouseBootWitness($root, $this->bootProbe, $this->probeBeforeWriting))
                 ->writeIfItBoots(array_diff_key($payload, array_flip($deletes)), $land, recovery: false, deletes: $deletes, judge: $judge);
             if (isset($boot['said']['judged'])) {
-                return $this->refuseBrokenRoutes($paths, $routes['regressed']);
+                return $this->refuseBrokenRoutes($paths, $routes['regressed'], $routes['room'] ?? null);
             }
             if ($boot['refused'] !== null) {
                 return isset($boot['said']['rolled_back'])
@@ -661,6 +664,9 @@ final class TrialOperations implements CommandProvider
             ...(($observation['capabilities'] ?? []) !== [] ? ['capabilities' => $observation['capabilities']] : []),
             // Routes that answered 5xx in the copy WITH the promotion and WITHOUT it too: not its doing, so not refused (0540).
             ...($routes['unjudged'] !== [] ? ['unjudged' => $routes['unjudged']] : []),
+            // Where the routes were judged: confined, or UNCONFINED on a host without bwrap — said, never silent
+            // (greenhouse decisions/0626, Rod's answer (a); the boot check's `boot_room`, decisions/0607).
+            ...(isset($routes['room']) ? ['route_room' => $routes['room']] : []),
             ...(isset($observation['error']) ? ['observation_error' => $observation['error']] : []),
             'note' => 'Promoted into the house. What the trial observed (served, passed) was observed in the '
                 . 'copy; observe it here before claiming it about the house.' . self::whatTheHouseSowed($sown['seeded']) . self::whatTheHouseSaw($observation),
@@ -700,15 +706,17 @@ final class TrialOperations implements CommandProvider
      *
      * @param list<string>               $paths
      * @param list<array<string, mixed>> $regressed rows of {@see RouteRegression::compare()}
+     * @param null|string                $room      where the routes were asked ({@see RouteRegression::room()})
      *
      * @return array<string, mixed>
      */
-    private function refuseBrokenRoutes(array $paths, array $regressed): array
+    private function refuseBrokenRoutes(array $paths, array $regressed, ?string $room = null): array
     {
         return [
             'ok' => false,
             'error' => RouteRegression::sentence($regressed),
             'regressed' => $regressed,
+            ...($room !== null ? ['route_room' => $room] : []),
             'unwritten' => $paths,
             'house_boots' => true,
             'note' => 'Nothing was written: the house was built as it would be, beside it, and it booted — but the routes '

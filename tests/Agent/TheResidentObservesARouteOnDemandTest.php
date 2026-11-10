@@ -461,6 +461,38 @@ final class Blog implements \Milpa\Interfaces\Plugin\PluginInterface, \Milpa\Run
         self::assertStringContainsString('plain=<?php return [];', $leak, 'a file that is not a secret still reads');
     }
 
+    public function testAGetObservedInATrialCannotReadTheEnvelopeEither(): void
+    {
+        // A GET in a rehearsal runs the copy's code too, code nobody applied yet: it is confined as a POST is (decisions/0626).
+        $canary = 'canary-route-observe-get-' . bin2hex(random_bytes(4));
+        mkdir($this->root . '/.milpa');
+        file_put_contents($this->root . '/.milpa/secrets.json', '{"agent":{"apiKey":"' . $canary . '"}}');
+        file_put_contents($this->root . '/.env', "APP_KEY={$canary}\n");
+        $this->trial('wget');
+
+        $seen = $this->observe(['path' => '/leak', 'workspace' => 'wget']);
+
+        $leak = (string) ($seen['excerpt'] ?? '');
+        self::assertStringNotContainsString($canary, $leak, 'a controller in a trial read the envelope or .env through a GET: ' . $leak);
+        self::assertStringContainsString('leak: none|none|none|', $leak, 'the secret reads come back empty (masked), and the route still answered');
+        self::assertSame(200, $seen['observed'][0]['status'] ?? null, (string) json_encode($seen));
+    }
+
+    public function testWithoutConfinementAGetInARehearsalIsNotObservedEither(): void
+    {
+        $this->trial('w8');
+        $observer = new HouseRouteObserver(bwrap: '/nonexistent/bwrap');
+        $ops = (new TrialOperations(new DIContainer(), null, $this->root, $observer))->operations();
+        $op = array_values(array_filter($ops, static fn (Operation $o): bool => $o->name === 'route:observe'))[0];
+
+        $seen = ($op->handler)(['path' => '/blog', 'workspace' => 'w8']);
+        $house = ($op->handler)(['path' => '/blog']);
+
+        self::assertFalse($seen['ok'] ?? true, (string) json_encode($seen));
+        self::assertStringContainsString('confine', (string) ($seen['error'] ?? ''));
+        self::assertSame(200, $house['observed'][0]['status'] ?? null, 'control: the house itself is still observed with GET');
+    }
+
     public function testWithoutConfinementARequestThatWritesIsNotObserved(): void
     {
         $this->trial('w7');

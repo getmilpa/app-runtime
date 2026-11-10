@@ -34,7 +34,7 @@ final class OnlyOneConfinementIsBuiltAndItMasksTest extends TestCase
 
     /** Who builds a confinement — said once. A file here either masks, or is only the namespace probe. */
     private const BUILDERS = [
-        'src/Agent/HouseRouteObserver.php',
+        // The route observer asks TrialRunner::confinement() for its own (greenhouse decisions/0626, review round 1, M-1).
         'src/Agent/TrialRunner.php',
     ];
 

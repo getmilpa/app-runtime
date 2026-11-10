@@ -50,23 +50,64 @@ final class RouteRegression
      *
      * @param list<string> $paths paths relative to the house root, as the promotion names them
      *
-     * @return array{regressed: list<array<string, mixed>>, unjudged: list<array<string, mixed>>}
+     * `room` says where the routes were asked, for the receipt to carry: confined like a trial, or — on a host that
+     * cannot confine (no bwrap) — UNCONFINED, said rather than refused, the way the boot check says it (decisions/0607;
+     * greenhouse decisions/0626, Rod's answer (a)). It is there only when a process of the candidate was started: a
+     * change no route answers for asked nothing, and has no room to say.
+     *
+     * @return array{regressed: list<array<string, mixed>>, unjudged: list<array<string, mixed>>, room?: string}
      */
     public function judge(string $root, string $candidate, array $paths): array
     {
-        $after = $this->observer->observe($candidate, $paths)['observed'];
+        // The candidate carries code nobody applied yet: it is asked confined wherever this host can confine, and the
+        // control is asked the same way, so the two are compared under one mask (greenhouse decisions/0626).
+        $confined = $this->observer->confines();
+        $asked = $this->observer->observe($candidate, $paths, $confined, $root);
+        $room = isset($asked['asked']) ? ['room' => self::room($confined)] : [];
+        $after = $asked['observed'];
         if (array_filter($after, self::broken(...)) === []) {
-            return ['regressed' => [], 'unjudged' => []];
+            return ['regressed' => [], 'unjudged' => []] + $room;
         }
 
         $control = BootCandidate::of($root, []);
         try {
-            $before = $this->observer->observe($control->path, $paths)['observed'];
+            $before = $this->observer->observe($control->path, $paths, $confined, $root)['observed'];
         } finally {
             $control->remove();
         }
 
-        return self::relative(self::compare($after, $before), $root);
+        $judged = self::compare($after, $before);
+        if ($confined) {
+            // THE MASK'S BLIND SPOT, SAID (greenhouse decisions/0626, Rod's answer to review round 2, M-B: option A). Both
+            // copies are asked without the envelope and without the launcher's environment, so a route that reads its
+            // configuration from either answers 5xx on both sides whether or not this promotion broke it. That is not
+            // «not its doing»: it is «not judged here», and the receipt says so — the house answers it after landing.
+            $judged['unjudged'] = array_map(static fn (array $row): array => $row + ['why' => self::MASKED], $judged['unjudged']);
+        }
+
+        return self::relative($judged, $root) + $room;
+    }
+
+    /** Why a route that answered 5xx on both sides under the mask was not judged — the receipt's words. */
+    public const MASKED = 'it answered 5xx with and without the promotion, both asked in a copy under the mask: a route '
+        . 'that needs what such a copy does not carry — the envelope, the launcher\'s environment, the house\'s state — '
+        . 'answers the same either way, so this one was not judged here; what the house answered after landing is in '
+        . '`observed` (greenhouse decisions/0626)';
+
+    /**
+     * Where the routes of a promotion were asked, in the words a receipt carries.
+     */
+    public static function room(bool $confined): string
+    {
+        return match (true) {
+            $confined => 'a trial: confined, no network, the environment cleared, the envelope and the keyring masked',
+            // Inside a trial no confinement nests (evidence/1186), and none is needed: the enclosing one already
+            // confines these requests — the boot check names the same room (decisions/0607).
+            TrialRunner::insideTrial() => 'within the enclosing trial: it already confines these requests (no network, the mask), so they ran plain inside it (decisions/0607)',
+            default => 'UNCONFINED: this machine has no unprivileged namespace (no bwrap), so the routes of the change were requested '
+                . 'with the envelope readable and the network open — contain the house in its own container or say so '
+                . '(decisions/0607; greenhouse decisions/0626)',
+        };
     }
 
     /**
@@ -75,9 +116,11 @@ final class RouteRegression
      * A cause is read in the copy (decisions/0539), so its `at` and its message name the copy's files — or, through the
      * copy's linked `vendor/`, the live house's by their absolute name. Both are cut the way a boot reason is (0512).
      *
-     * @param array{regressed: list<array<string, mixed>>, unjudged: list<array<string, mixed>>} $judged
+     * @template T of array{regressed: list<array<string, mixed>>, unjudged: list<array<string, mixed>>}
      *
-     * @return array{regressed: list<array<string, mixed>>, unjudged: list<array<string, mixed>>}
+     * @param T $judged
+     *
+     * @return T
      */
     public static function relative(array $judged, string $root): array
     {

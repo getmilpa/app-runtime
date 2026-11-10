@@ -153,6 +153,27 @@ return $loader;
         );
     }
 
+    /**
+     * A CONFINED REQUEST IS JUDGED ON ITS PAGE TOO (greenhouse decisions/0626, change 1; review round 1, L-3 mutant 5).
+     * A rehearsal's GET runs confined, and the process that reads what the page had to list runs confined with it —
+     * so the judgment a seat gets of its own page is the same, asked the way code nobody applied must be asked.
+     */
+    public function testAConfinedRequestIsJudgedOnItsPageToo(): void
+    {
+        if (!(new \Milpa\AppRuntime\Agent\TrialRunner())->available()) {
+            self::markTestSkipped('this host offers no unprivileged user namespace for bwrap');
+        }
+        $this->store([['id' => 1, 'title' => 'Hello, blog', 'published' => true], ['id' => 2, 'title' => 'A draft', 'published' => false]]);
+
+        $seen = (new HouseRouteObserver())->observeRoute($this->root, '/pages', confined: true, secretsRoot: $this->root);
+
+        self::assertSame(
+            ['entity' => 'Blog/Post', 'public' => 1, 'shown' => 1, 'withheld' => 1, 'leaked' => 0, 'withholding' => 'exercised'],
+            $seen['entry']['content'] ?? null,
+            (string) json_encode($seen),
+        );
+    }
+
     public function testWhoeverAsksForAnExcerptGetsTheExcerptItAskedFor(): void
     {
         $this->store([['id' => 1, 'title' => 'Hello, blog', 'published' => true]]);

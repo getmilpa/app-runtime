@@ -89,7 +89,7 @@ final class ATrialRunsInAnUnprivilegedContainerTest extends TestCase
         $observer = new HouseRouteObserver(php: \PHP_BINARY, script: $this->observeScript($root), bwrap: $bwrap);
 
         self::assertTrue($observer->confines());
-        $seen = $observer->observeRoute($root, '/blog', confined: true);
+        $seen = $observer->observeRoute($root, '/blog', confined: true, secretsRoot: $root);
 
         self::assertSame('served', $seen['entry']['predicate'] ?? null, json_encode($seen) ?: '');
         $argv = $this->calls($root);
