@@ -116,18 +116,7 @@ final class BootProbe
             return ['why' => 'the house as it would be could not be built to boot it: ' . self::short($e->getMessage(), $root),
                 'room' => 'the house as it would be could not be built', 'confined' => false, 'mounted_less' => [], 'new_plugins' => []];
         }
-        // A boot check asked from INSIDE a trial must not build a SECOND confinement: a user namespace nested in the
-        // trial's own is instant on a host but, in a container, waits forever — the 0.219.0 trial timeout t-0104
-        // measured (greenhouse evidence/1186). The enclosing trial already confines (no network, the mask), so the
-        // candidate boots PLAIN within it. `make` reaches here this way: it runs in a trial, and the house it
-        // scaffolds is checked by {@see HouseBootWitness::writeIfItBoots}.
-        $insideTrial = TrialRunner::insideTrial();
-        $confinement = $insideTrial ? null : $this->runner->confinement($candidate->path, $root);
-        $room = match (true) {
-            $insideTrial => 'within the enclosing trial: it already confines this boot (no network, the mask), so the check boots plain inside it rather than nesting a confinement that would never return in a container (decisions/0607; evidence/1186)',
-            $confinement === null => 'UNCONFINED: this machine has no unprivileged namespace (no bwrap), so the change booted with the envelope readable and the network open — contain the house in its own container or say so (decisions/0607)',
-            default => 'a trial: confined, no network, the envelope and the keyring masked',
-        };
+        [$confinement, $room, $confined] = $this->roomFor($candidate->path, $root);
         try {
             ['why' => $why, 'routes' => $withoutSecret] = $this->boot($candidate->path, $confinement);
             if ($why === null && $whileItStands !== null) {
@@ -149,8 +138,61 @@ final class BootProbe
             }
         }
 
-        return ['why' => $why === null ? null : self::short($why, $root), 'room' => $room, 'confined' => $insideTrial || $confinement !== null,
+        return ['why' => $why === null ? null : self::short($why, $root), 'room' => $room, 'confined' => $confined,
             'mounted_less' => $mountedLess, 'new_plugins' => $newPlugins];
+    }
+
+    /**
+     * The boot check of a tree that is ALREADY BUILT and that nobody applied — the stage Composer wrote — run as a
+     * trial, as {@see check()} runs a candidate (greenhouse decisions/0627, after 0607 A).
+     *
+     * Composer's stage was booted with {@see whyNot()}, the PLAIN boot an applied house gets, although its `vendor/`
+     * is exactly what nobody has applied yet; evidence/1210 measured it boot with the house's environment, its
+     * secrets readable through the stage's links and the network open. It boots here in the same room a candidate
+     * does: the one confinement, with THE HOUSE's secrets masked (`$root`), which the stage's links resolve to.
+     *
+     * The caller decides what happens where this machine cannot confine — {@see canConfine()} asks first; this one
+     * only says, by `confined`, where the boot actually ran.
+     *
+     * @return array{why: ?string, room: string, confined: bool}
+     */
+    public function checkTree(string $tree, string $root): array
+    {
+        [$confinement, $room, $confined] = $this->roomFor($tree, $root);
+        $why = $this->boot($tree, $confinement)['why'];
+
+        return ['why' => $why === null ? null : self::short($why, $tree), 'room' => $room, 'confined' => $confined];
+    }
+
+    /** Whether a boot of code nobody applied would run confined here: inside a trial, or with a namespace to build one. */
+    public function canConfine(): bool
+    {
+        return TrialRunner::insideTrial() || $this->runner->available();
+    }
+
+    /**
+     * Where a boot of `$tree` runs, said once for every door: the confinement (null to boot plain), the ROOM, and
+     * whether that room confines.
+     *
+     * A boot check asked from INSIDE a trial must not build a SECOND confinement: a user namespace nested in the
+     * trial's own is instant on a host but, in a container, waits forever — the 0.219.0 trial timeout t-0104
+     * measured (greenhouse evidence/1186). The enclosing trial already confines (no network, the mask), so the
+     * candidate boots PLAIN within it. `make` reaches here this way: it runs in a trial, and the house it
+     * scaffolds is checked by {@see HouseBootWitness::writeIfItBoots}.
+     *
+     * @return array{0: list<string>|null, 1: string, 2: bool}
+     */
+    private function roomFor(string $tree, string $root): array
+    {
+        $insideTrial = TrialRunner::insideTrial();
+        $confinement = $insideTrial ? null : $this->runner->confinement($tree, $root);
+        $room = match (true) {
+            $insideTrial => 'within the enclosing trial: it already confines this boot (no network, the mask), so the check boots plain inside it rather than nesting a confinement that would never return in a container (decisions/0607; evidence/1186)',
+            $confinement === null => 'UNCONFINED: this machine has no unprivileged namespace (no bwrap), so the change booted with the envelope readable and the network open — contain the house in its own container or say so (decisions/0607)',
+            default => 'a trial: confined, no network, the envelope and the keyring masked',
+        };
+
+        return [$confinement, $room, $insideTrial || $confinement !== null];
     }
 
     /**

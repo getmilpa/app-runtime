@@ -1413,8 +1413,14 @@ final class Capabilities
                     'command' => $comando,
                     'error' => $composed['refused'],
                     'installed' => false,
-                    'hint' => 'the house does not boot with what composer would install, so nothing was installed: '
-                        . 'the house boots as before. Fix the package, or require a version that boots.',
+                    // A refusal for want of confinement booted nothing, and the console acceptance it names cannot add a
+                    // capability: say so (decisions/0627; C11 review of 0627, L-1 and its round 2, L-C).
+                    'hint' => \array_key_exists('unconfined_accepted', $composed['said']) && $composed['said']['unconfined_accepted'] === null
+                        ? 'this machine cannot confine (no bwrap), and enabling a capability has no acceptance of an unconfined boot: not from '
+                            . 'an operation an agent calls, and not yet from the console. Enable it where bwrap can confine — Linux, or the house '
+                            . 'in its own container. Nothing was installed.'
+                        : 'the house does not boot with what composer would install, so nothing was installed: '
+                            . 'the house boots as before. Fix the package, or require a version that boots.',
                 ] + $composed['said'];
             }
             [$codigo, $salida] = [$composed['code'], $composed['output']];

@@ -250,7 +250,8 @@ final class Application
      *                                                                        without a kernel ({@see recuperarSinKernel()}); null is gpg
      * @param \Milpa\ToolRuntime\Identity\SignatureVerifier|null $verificador who verifies it; null is gpg. Both exist so the two doors can be
      *                                                                        asked the same question with the same key (greenhouse decisions/0506)
-     * @param BootProbe|null                                     $bootProbe   who asks a fresh process whether the house boots, for `coa doctor`;
+     * @param BootProbe|null                                     $bootProbe   who asks a fresh process whether the house boots, for `coa doctor` — and
+     *                                                                        whether the stage of `coa update`/`coa repair` can boot confined (0627);
      *                                                                        null is the real one (greenhouse decisions/0533)
      * @param TrialRunner|null                                   $trialRunner who says whether this machine can confine a trial, for `coa doctor`;
      *                                                                        null is the one the house runs its trials with (greenhouse decisions/0607)
@@ -1291,17 +1292,23 @@ final class Application
      * otro imprimió — y para que se pueda probar sin capturar salida.
      */
     /**
-     * `coa update [paquete…] [--dry-run]` — sin kernel, y en seco por defecto no: se pide.
+     * `coa update [paquete…] [--dry-run] [--accept-unconfined=<risk>]` — sin kernel, y en seco por defecto no: se pide.
      *
      * @param list<string> $resto
      */
     private function actualizarSinKernel(array $resto): int
     {
+        [$aceptado, $malDicho] = self::unconfinedAccepted($resto);
+        if ($malDicho !== null) {
+            $this->line('✗ ' . $malDicho);
+
+            return 1;
+        }
         $seco = \in_array('--dry-run', $resto, true);
         $paquetes = array_values(array_filter($resto, static fn (string $a): bool => !str_starts_with($a, '-')));
 
         // THE UPDATE BOOTS A STAGE BEFORE IT LANDS (greenhouse decisions/0527): no kernel is needed for that either.
-        $staged = new StagedComposerRunner($this->root, new HouseBootWitness($this->root));
+        $staged = new StagedComposerRunner($this->root, new HouseBootWitness($this->root, $this->bootProbe ?? new BootProbe(), unconfinedAccepted: $aceptado));
         $r = \Milpa\DevTools\Doctor\Update::apply($this->root, $seco, $paquetes, $staged) + $staged->said();
 
         foreach ($r as $clave => $valor) {
@@ -1328,12 +1335,49 @@ final class Application
     }
 
     /**
-     * `coa repair <paquete>` — sin kernel, por lo mismo que {@see doctor()}.
+     * The risk a person accepts BY NAME with `--accept-unconfined="<the risk>"` — what lets the boot of what Composer
+     * would install run unconfined on a machine that cannot confine it (greenhouse decisions/0627, Rod's answer 1).
+     * This console is the only door that carries it: no operation an agent calls does (C11 review of 0627, H-1).
+     * Whether the words name a risk is the witness's to judge ({@see HouseBootWitness::acceptance()}).
+     *
+     * The flag without `=` is refused, not read: its words would become a package name. Given twice, it is refused
+     * too — which of the two was meant is not this parser's to guess (C11 review of 0627, L-2).
+     *
+     * @param list<string> $resto
+     *
+     * @return array{0: ?string, 1: ?string} the words given (null when none), and why the flag was refused (null when it was not)
+     */
+    private static function unconfinedAccepted(array $resto): array
+    {
+        $dichos = [];
+        foreach ($resto as $arg) {
+            if ($arg === '--accept-unconfined') {
+                return [null, '--accept-unconfined takes its words after "=": --accept-unconfined="<the risk you accept>". Nothing ran.'];
+            }
+            if (str_starts_with($arg, '--accept-unconfined=')) {
+                $dichos[] = substr($arg, \strlen('--accept-unconfined='));
+            }
+        }
+        if (\count($dichos) > 1) {
+            return [null, '--accept-unconfined was given more than once: say the risk you accept once. Nothing ran.'];
+        }
+
+        return [$dichos[0] ?? null, null];
+    }
+
+    /**
+     * `coa repair <paquete> [--accept-unconfined=<risk>]` — sin kernel, por lo mismo que {@see doctor()}.
      *
      * @param list<string> $resto
      */
     private function repararSinKernel(array $resto): int
     {
+        [$aceptado, $malDicho] = self::unconfinedAccepted($resto);
+        if ($malDicho !== null) {
+            $this->line('✗ ' . $malDicho);
+
+            return 1;
+        }
         $paquete = '';
         $seco = false;
         foreach ($resto as $arg) {
@@ -1354,7 +1398,7 @@ final class Application
         }
 
         // As recovery (decisions/0527): what a repair installs is what a house that may not boot is missing.
-        $staged = new StagedComposerRunner($this->root, new HouseBootWitness($this->root), recovery: true);
+        $staged = new StagedComposerRunner($this->root, new HouseBootWitness($this->root, $this->bootProbe ?? new BootProbe(), unconfinedAccepted: $aceptado), recovery: true);
         $r = Repair::apply($this->root, $paquete, $seco, null, $staged) + $staged->said();
 
         foreach ($r as $clave => $valor) {
