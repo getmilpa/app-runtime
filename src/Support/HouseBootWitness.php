@@ -51,15 +51,29 @@ final class HouseBootWitness implements BootWitnessInterface
 {
     private readonly string $root;
 
+    private readonly ?string $unconfinedAccepted;
+
+    /** What was given to accept the risk and did not count as naming it — said back, so nobody believes it accepted. */
+    private readonly ?string $acceptanceRefused;
+
     /**
-     * @param bool $probeBefore false skips the copy and keeps only the ask after the write — 0506's order, kept
-     *                          as the positive control of the window a copy closes (decisions/0512)
+     * @param bool        $probeBefore        false skips the copy and keeps only the ask after the write — 0506's order, kept
+     *                                        as the positive control of the window a copy closes (decisions/0512)
+     * @param string|null $unconfinedAccepted the risk someone accepted BY NAME so that, on a machine that cannot confine,
+     *                                        the boot of what Composer would install runs unconfined anyway — null, or
+     *                                        words that name nothing ({@see acceptance()}), refuses that boot there
+     *                                        instead (decisions/0627, Rod's answer 1). Only a person gives it, on the
+     *                                        console: no operation an agent calls carries it (C11 review of 0627, H-1)
      */
     public function __construct(
         string $root,
         private readonly BootProbe $probe = new BootProbe(),
         private readonly bool $probeBefore = true,
+        ?string $unconfinedAccepted = null,
     ) {
+        $this->unconfinedAccepted = self::acceptance($unconfinedAccepted);
+        $given = $unconfinedAccepted === null ? '' : trim($unconfinedAccepted);
+        $this->acceptanceRefused = $this->unconfinedAccepted === null && $given !== '' ? self::shown($given) : null;
         // THE ROOT BY ITS REAL NAME (greenhouse evidence/1061). The house's root often arrives spelled through its own
         // `vendor/` (`…/vendor/composer/../..`, how Capabilities::raizDeLaApp() finds it); once a swap renames
         // `vendor/` away that spelling resolves to nothing, and every path after it with it.
@@ -179,6 +193,23 @@ final class HouseBootWitness implements BootWitnessInterface
      * A Composer failure (a conflict, no network) is Composer's answer, returned as `code`/`output` — and it
      * touched only the stage.
      *
+     * ── WHAT NOBODY APPLIED BOOTS CONFINED HERE TOO (greenhouse decisions/0627; evidence/1210) ─────────
+     *
+     * The stage's `vendor/` is code nobody has applied yet, so its boot is a trial's: {@see BootProbe::checkTree()},
+     * the one confinement, with the house's secrets masked, and `boot_room` says where it ran. Where this machine
+     * cannot confine (no bwrap), the door REFUSES before Composer runs — saying UNCONFINED is not authorizing — unless
+     * a person accepted that risk in words (`$unconfinedAccepted`, {@see acceptance()}); then the stage boots
+     * unconfined, and the answer carries both the room and the risk accepted (`unconfined_accepted`). That acceptance
+     * reaches this class only from the console a person types on (`coa update|repair --accept-unconfined=…`); no
+     * operation an agent calls carries it (decisions/0627, Rod's answer 1; C11 review of 0627, H-1). The live house's
+     * ask after the swap stays plain: that one IS the applied house (decisions/0606 §3).
+     *
+     * Composer runs on the stage, and on a rerun, with `--no-plugins --no-scripts` (0627 answer 2, measured in 1210:
+     * no installable capability declares scripts or ships a plugin, and every one installs and boots without them).
+     * A package that IS a plugin then lands unloaded, and a later plain `composer install` will meet `allow-plugins`:
+     * the answer says which (`plugins_not_loaded`) instead of dropping Composer's line. The house's first install,
+     * with no `vendor/` yet, is another door and keeps its command as it was.
+     *
      * @param string                                                        $command the Composer command, without `--no-interaction`
      * @param null|callable(string, string): array{0: int, 1: list<string>} $run     runs a command in a directory
      *
@@ -193,14 +224,35 @@ final class HouseBootWitness implements BootWitnessInterface
 
             return [$code, $out];
         };
-        $command .= ' --no-interaction';
         if (!is_file($this->root . '/vendor/autoload.php')) {
-            [$code, $out] = $run($command, $this->root);
+            [$code, $out] = $run($command . ' --no-interaction', $this->root);
 
             return ['refused' => null, 'said' => [], 'code' => $code, 'output' => $out];
         }
+        $command .= ' --no-plugins --no-scripts --no-interaction';
         $files = ['composer.json', 'composer.lock'];
         $paths = [...$files, 'vendor/'];
+
+        // ASKED BEFORE COMPOSER RUNS: a boot that will not be run unconfined makes the install pointless, and the
+        // refusal can say that nothing ran at all.
+        $recorded = [];
+        if ($this->probeBefore && !$this->probe->canConfine()) {
+            if ($this->unconfinedAccepted === null) {
+                return $this->refusedUnconfined($paths, 0, []);
+            }
+            // THE ACCEPTANCE STAYS IN THE RECORD next to the UNCONFINED (0627, Rod's answer 1; C11 review of 0627, L-D),
+            // written BEFORE anything runs unconfined: a boot that cannot be recorded is not run.
+            if (!$this->record($command)) {
+                return [
+                    'refused' => 'The acceptance of an unconfined boot could not be recorded in ' . self::JOURNAL . ', so that boot is not run '
+                        . '(decisions/0627). Nothing was written; the house is as it was.',
+                    'said' => ['unwritten' => $paths, 'unconfined_accepted' => $this->unconfinedAccepted],
+                    'code' => 1,
+                    'output' => [],
+                ];
+            }
+            $recorded = ['unconfined_recorded_in' => self::JOURNAL];
+        }
 
         try {
             $stage = BootCandidate::staged($this->root);
@@ -219,15 +271,27 @@ final class HouseBootWitness implements BootWitnessInterface
                 return ['refused' => null, 'said' => ['unwritten' => $paths], 'code' => $code, 'output' => $out];
             }
 
-            $why = $this->probeBefore ? $this->probe->whyNot($stage->path) : null;
-            $why = $why === null ? null : BootProbe::oneLine($why, $stage->path);
+            $why = null;
+            $plugins = self::pluginsNotLoaded($out);
+            $room = $plugins === [] ? [] : ['plugins_not_loaded' => $plugins];
+            if ($this->probeBefore) {
+                $check = $this->probe->checkTree($stage->path, $this->root);
+                if (!$check['confined'] && $this->unconfinedAccepted === null) {
+                    // The machine lost its namespace between the two asks: still not run unconfined unaccepted.
+                    return $this->refusedUnconfined($paths, $code, $out);
+                }
+                $why = $check['why'];
+                $room = ['boot_room' => $check['room']]
+                    + ($check['confined'] ? [] : ['unconfined_accepted' => $this->unconfinedAccepted] + $recorded)
+                    + $room;
+            }
             if ($why !== null) {
                 $now = $this->probe->whyNot($this->root);
                 if (!$recovery || $now === null) {
                     return [
                         'refused' => 'The house does not boot with this change: ' . rtrim($why, '.') . '. Nothing was written; the house '
                             . ($now === null ? 'boots as it is.' : 'does not boot as it is either: ' . $now . '.'),
-                        'said' => ['unwritten' => $paths, 'house_boots' => $now === null, 'reason' => $why],
+                        'said' => ['unwritten' => $paths, 'house_boots' => $now === null, 'reason' => $why] + $room,
                         'code' => $code,
                         'output' => $out,
                     ];
@@ -243,24 +307,24 @@ final class HouseBootWitness implements BootWitnessInterface
                 [$code, $out] = $run($command, $this->root);
                 $landedBy = 'rerun';
                 if ($code !== 0) {
-                    return ['refused' => null, 'said' => ['landed_by' => $landedBy], 'code' => $code, 'output' => $out];
+                    return ['refused' => null, 'said' => ['landed_by' => $landedBy] + $room, 'code' => $code, 'output' => $out];
                 }
             }
             CompiledCode::forget($this->root, ['vendor/autoload.php', ...self::composerMaps($this->root)]);
 
             $after = $this->probe->whyNot($this->root);
             if ($after === null) {
-                return ['refused' => null, 'said' => ['house_boots' => true, 'landed_by' => $landedBy], 'code' => $code, 'output' => $out];
+                return ['refused' => null, 'said' => ['house_boots' => true, 'landed_by' => $landedBy] + $room, 'code' => $code, 'output' => $out];
             }
             if ($recovery && $why !== null) {
-                return ['refused' => null, 'said' => ['house_boots' => false, 'still_broken' => $after, 'landed_by' => $landedBy], 'code' => $code, 'output' => $out];
+                return ['refused' => null, 'said' => ['house_boots' => false, 'still_broken' => $after, 'landed_by' => $landedBy] + $room, 'code' => $code, 'output' => $out];
             }
             $this->putBack($stage, $before);
             CompiledCode::forget($this->root, ['vendor/autoload.php', ...self::composerMaps($this->root)]);
 
             return [
                 'refused' => 'The house did not boot after this change was written: ' . rtrim($after, '.') . '. It was put back to what it held.',
-                'said' => ['rolled_back' => $paths, 'house_boots' => $this->probe->whyNot($this->root) === null, 'reason' => $after],
+                'said' => ['rolled_back' => $paths, 'house_boots' => $this->probe->whyNot($this->root) === null, 'reason' => $after] + $room,
                 'code' => $code,
                 'output' => $out,
             ];
@@ -275,6 +339,113 @@ final class HouseBootWitness implements BootWitnessInterface
                 $stage->remove();
             }
         }
+    }
+
+    /**
+     * The refusal of a boot that would run unconfined with nobody having accepted it (decisions/0627, answer 1).
+     *
+     * @param list<string> $paths
+     * @param list<string> $out
+     *
+     * @return array{refused: string, said: array<string, mixed>, code: int, output: list<string>}
+     */
+    private function refusedUnconfined(array $paths, int $code, array $out): array
+    {
+        $room = 'UNCONFINED: this machine has no unprivileged namespace (no bwrap), so what Composer would install cannot boot confined here (decisions/0627)';
+
+        return [
+            'refused' => 'This machine cannot confine the boot of what Composer would install (no bwrap), and that boot is not run unconfined '
+                . 'unless a person accepts the risk by name — saying UNCONFINED is not authorizing (decisions/0627). '
+                . ($this->acceptanceRefused === null ? '' : 'What was given («' . $this->acceptanceRefused . '») does not name a risk: it takes words, two at least. ')
+                . 'Nothing was written; the house is as it was.',
+            'said' => ['unwritten' => $paths, 'boot_room' => $room, 'unconfined_accepted' => null]
+                + ($this->acceptanceRefused === null ? [] : ['acceptance_refused' => $this->acceptanceRefused])
+                + ['hint' => 'run it where bwrap can confine (Linux, or the house in its own container); or a person, on the console, accepts the risk '
+                    . 'in words: `' . Capabilities::cli() . 'update <package> --accept-unconfined="<the risk you accept>"` (or `' . Capabilities::cli() . 'repair`). '
+                    . 'No operation an agent calls carries that acceptance.'],
+            'code' => $code,
+            'output' => $out,
+        ];
+    }
+
+    /**
+     * What counts as accepting the risk BY NAME (decisions/0627, Rod's answer 1; C11 review of 0627, M-1 and its round 2,
+     * L-A and L-B): words that say something, after trimming every Unicode blank. Two of them at least must be words —
+     * two letters or more — that are not a token: not `false`, `no`, `not` or `0` (a script's "off" would turn it on),
+     * not `yes` or `ok`, and not the room's own word — saying UNCONFINED, even twice, is not authorizing. No control or
+     * format character inside: what is accepted is printed back and recorded, and must read as what it is. Null when it
+     * names nothing.
+     */
+    public static function acceptance(?string $given): ?string
+    {
+        if ($given === null) {
+            return null;
+        }
+        $words = preg_replace('/\A[\s\p{Z}\p{Cc}\p{Cf}]+|[\s\p{Z}\p{Cc}\p{Cf}]+\z/u', '', $given);
+        if (!\is_string($words) || preg_match('/[\p{Cc}\p{Cf}]/u', $words) === 1) {
+            return null;
+        }
+        $named = array_filter(
+            preg_split('/[\s\p{Z}]+/u', $words) ?: [],
+            static function (string $word): bool {
+                $letters = (string) preg_replace('/\P{L}+/u', '', $word);
+
+                return preg_match_all('/\p{L}/u', $letters) >= 2 && preg_match(self::TOKENS, $letters) !== 1;
+            },
+        );
+
+        return \count($named) >= 2 ? $words : null;
+    }
+
+    /** Words that answer a question instead of naming a risk. */
+    private const string TOKENS = '/\A(?:false|no|not|nope|none|null|nil|off|zero|yes|yep|true|on|ok|okay|sure|si|sí|unconfined|confined)\z/iu';
+
+    /** Where each accepted unconfined boot is recorded, under the house's root, one JSON line each. */
+    public const string JOURNAL = 'var/unconfined-acceptances.jsonl';
+
+    /** One line in {@see JOURNAL}: when, what Composer was about to do, where it boots, and the words accepted. */
+    private function record(string $command): bool
+    {
+        $line = json_encode([
+            'at' => gmdate('Y-m-d\TH:i:s\Z'),
+            'command' => $command,
+            'boot_room' => 'UNCONFINED: no bwrap on this machine (decisions/0627)',
+            'unconfined_accepted' => $this->unconfinedAccepted,
+        ], \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE);
+        $path = $this->root . '/' . self::JOURNAL;
+        if ($line === false || (!is_dir(\dirname($path)) && !@mkdir(\dirname($path), 0o775, true))) {
+            return false;
+        }
+
+        return @file_put_contents($path, $line . "\n", \FILE_APPEND | \LOCK_EX) !== false;
+    }
+
+    /** What was given, said back with its control and format characters escaped, so the answer reads as what it is. */
+    private static function shown(string $given): string
+    {
+        return preg_replace_callback('/[\p{Cc}\p{Cf}]/u', static fn (array $m): string => trim((string) json_encode($m[0]), '"'), $given)
+            ?? 'not valid UTF-8: ' . bin2hex(substr($given, 0, 48));
+    }
+
+    /**
+     * The plugins Composer did not load because the stage runs it with `--no-plugins` (decisions/0627; evidence/1210):
+     * the install lands without them, and a later plain `composer install` will meet `allow-plugins` — said, not dropped
+     * (C11 review of 0627, L-3).
+     *
+     * @param list<string> $out
+     *
+     * @return list<string>
+     */
+    private static function pluginsNotLoaded(array $out): array
+    {
+        $names = [];
+        foreach ($out as $line) {
+            if (preg_match('/The "([^"]+)" plugin was not loaded/', $line, $m) === 1) {
+                $names[] = $m[1];
+            }
+        }
+
+        return array_values(array_unique($names));
     }
 
     /**

@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Tests\Support;
 
+use Milpa\AppRuntime\Agent\TrialRunner;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\HouseBootWitness;
 use Milpa\AppRuntime\Support\StagedComposerRunner;
@@ -90,6 +91,45 @@ final class ComposerBootsAStageFirstTest extends TestCase
         };
     }
 
+    /**
+     * The house's witness. Where this machine cannot confine (no bwrap), the stage's boot is refused unless a risk is
+     * accepted by name (greenhouse decisions/0627), so these tests — about staging and landing, not the room — accept
+     * it there: a stand-in house with no secret in it. The room itself is tested in TheComposerStageBootsConfinedTest.
+     */
+    private function witness(?string $root = null, bool $probeBefore = true): HouseBootWitness
+    {
+        return new HouseBootWitness(
+            $root ?? $this->root,
+            probeBefore: $probeBefore,
+            unconfinedAccepted: (new TrialRunner())->available() ? null : 'a stand-in test house with no secret in it'
+        );
+    }
+
+    /** @return array<string, mixed> what a stage that booted says of its room, here */
+    private static function room(): array
+    {
+        return (new TrialRunner())->available()
+            ? ['boot_room' => 'a trial: confined, no network, the envelope and the keyring masked']
+            : ['boot_room' => 'UNCONFINED: this machine has no unprivileged namespace (no bwrap), so the change booted with the envelope readable and the network open — contain the house in its own container or say so (decisions/0607)',
+                'unconfined_accepted' => 'a stand-in test house with no secret in it',
+                'unconfined_recorded_in' => HouseBootWitness::JOURNAL];
+    }
+
+    /**
+     * The room and the risk are said on this return path too (decisions/0627; C11 review of 0627, M-4).
+     *
+     * @param array<string, mixed> $said
+     */
+    private static function assertSaysItsRoom(array $said): void
+    {
+        foreach (self::room() as $key => $value) {
+            self::assertSame($value, $said[$key] ?? null, $key);
+        }
+        if (!\array_key_exists('unconfined_accepted', self::room())) {
+            self::assertArrayNotHasKey('unconfined_accepted', $said, 'nothing to accept: it was confined');
+        }
+    }
+
     /** A line run by the autoloader, before it returns its loader — where Composer's `files` run. */
     private static function before(string $autoload, string $line): string
     {
@@ -124,7 +164,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
     {
         $before = $this->tree();
 
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots(
+        $composed = ($this->witness())->composeIfItBoots(
             'composer require lab/poison',
             $this->composer("throw new \\RuntimeException('lab/poison cannot start');"),
         );
@@ -133,6 +173,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
         self::assertStringContainsString('boots as it is', (string) $composed['refused']);
         self::assertSame(['composer.json', 'composer.lock', 'vendor/'], $composed['said']['unwritten']);
         self::assertTrue($composed['said']['house_boots']);
+        self::assertSaysItsRoom($composed['said']);
         self::assertStringNotContainsString($this->root . '/', (string) $composed['said']['reason'], 'a reason names house-relative paths');
         self::assertSame($before, $this->tree(), 'the live vendor/, composer.json and composer.lock: same inodes, same bytes');
         self::assertCount(1, $this->ranIn);
@@ -149,7 +190,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
         file_put_contents($this->root . '/vendor/lab/existing/code.php', "<?php // live bytes\n");
         $before = $this->tree();
 
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/poison', function (string $command, string $cwd): array {
+        $composed = ($this->witness())->composeIfItBoots('composer require lab/poison', function (string $command, string $cwd): array {
             $handle = fopen($cwd . '/vendor/lab/existing/code.php', 'r+');
             self::assertIsResource($handle);
             fwrite($handle, "<?php // STAGE bytes\n");
@@ -166,7 +207,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
     {
         $autoload = fileinode($this->root . '/vendor/autoload.php');
 
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/good', $this->composer('$labGood = true;'));
+        $composed = ($this->witness())->composeIfItBoots('composer require lab/good', $this->composer('$labGood = true;'));
 
         self::assertNull($composed['refused']);
         self::assertTrue($composed['said']['house_boots']);
@@ -184,9 +225,9 @@ final class ComposerBootsAStageFirstTest extends TestCase
     {
         putenv('MILPA_WITNESS_NO_EXCHANGE=1');
 
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/good', $this->composer());
+        $composed = ($this->witness())->composeIfItBoots('composer require lab/good', $this->composer());
 
-        self::assertSame(['house_boots' => true, 'landed_by' => 'swap'], $composed['said']);
+        self::assertSame(['house_boots' => true, 'landed_by' => 'swap'] + self::room(), $composed['said']);
         self::assertFileExists($this->root . '/vendor/lab/good/files.php');
     }
 
@@ -203,9 +244,9 @@ final class ComposerBootsAStageFirstTest extends TestCase
             self::markTestSkipped('this system has no `mv --exchange` (coreutils 9.5+): the two-rename arm is tested above');
         }
 
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/good', $this->composer());
+        $composed = ($this->witness())->composeIfItBoots('composer require lab/good', $this->composer());
 
-        self::assertSame(['house_boots' => true, 'landed_by' => 'exchange'], $composed['said']);
+        self::assertSame(['house_boots' => true, 'landed_by' => 'exchange'] + self::room(), $composed['said']);
         self::assertFileExists($this->root . '/vendor/lab/good/files.php');
         self::assertDirectoryDoesNotExist($this->root . '/var/boot-candidates', 'the previous vendor/ went with the stage');
     }
@@ -216,7 +257,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
         file_put_contents($this->root . '/var/poison', '1');
         $before = $this->tree();
 
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/stateful', $this->composer(
+        $composed = ($this->witness())->composeIfItBoots('composer require lab/stateful', $this->composer(
             "if (is_file(dirname(__DIR__, 3) . '/var/poison')) { throw new \\RuntimeException('var/poison says no'); }",
         ));
 
@@ -229,13 +270,14 @@ final class ComposerBootsAStageFirstTest extends TestCase
         file_put_contents($this->root . '/var/poison', '1');
         $before = $this->tree();
 
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/stateful', $this->composer(
+        $composed = ($this->witness())->composeIfItBoots('composer require lab/stateful', $this->composer(
             "if (is_file(dirname(__DIR__, 3) . '/var/poison')) { throw new \\RuntimeException('var/poison says no'); }",
         ));
 
         self::assertStringContainsString('var/poison says no', (string) $composed['refused'], 'the stage booted; the live house did not');
         self::assertSame(['composer.json', 'composer.lock', 'vendor/'], $composed['said']['rolled_back']);
         self::assertTrue($composed['said']['house_boots'], 'and it boots again once put back');
+        self::assertSaysItsRoom($composed['said']);
         self::assertSame($before, $this->tree(), 'the previous vendor/ is back: same inodes, same bytes');
         self::assertDirectoryDoesNotExist($this->root . '/var/boot-candidates');
     }
@@ -244,7 +286,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
     {
         // The positive control of the stage: 0506's order (ask only after) lets the poisoned tree onto the live
         // house before the net puts it back — exactly the window the stage closes.
-        $composed = (new HouseBootWitness($this->root, probeBefore: false))->composeIfItBoots(
+        $composed = ($this->witness(probeBefore: false))->composeIfItBoots(
             'composer require lab/poison',
             $this->composer("throw new \\RuntimeException('lab/poison cannot start');"),
         );
@@ -258,11 +300,12 @@ final class ComposerBootsAStageFirstTest extends TestCase
     {
         $this->breakTheHouse();
 
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/missing', $this->composer(), recovery: true);
+        $composed = ($this->witness())->composeIfItBoots('composer require lab/missing', $this->composer(), recovery: true);
 
         self::assertNull($composed['refused']);
         self::assertFalse($composed['said']['house_boots']);
         self::assertStringContainsString('already broken', (string) $composed['said']['still_broken']);
+        self::assertSaysItsRoom($composed['said']);
         self::assertFileExists($this->root . '/vendor/lab/missing/files.php', 'written: it may be one step of several');
     }
 
@@ -271,7 +314,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
         $this->breakTheHouse();
         $before = $this->tree();
 
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/missing', $this->composer());
+        $composed = ($this->witness())->composeIfItBoots('composer require lab/missing', $this->composer());
 
         self::assertStringContainsString('does not boot as it is either', (string) $composed['refused']);
         self::assertFalse($composed['said']['house_boots']);
@@ -282,7 +325,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
     {
         $before = $this->tree();
 
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots(
+        $composed = ($this->witness())->composeIfItBoots(
             'composer require lab/poison',
             $this->composer("throw new \\RuntimeException('lab/poison cannot start');"),
             recovery: true,
@@ -297,7 +340,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
     {
         $before = $this->tree();
 
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/nowhere', $this->composer('', 2));
+        $composed = ($this->witness())->composeIfItBoots('composer require lab/nowhere', $this->composer('', 2));
 
         self::assertNull($composed['refused'], 'composer refused, not the witness');
         self::assertSame(2, $composed['code']);
@@ -309,7 +352,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
     {
         unlink($this->root . '/vendor/autoload.php');
 
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer install', $this->composer());
+        $composed = ($this->witness())->composeIfItBoots('composer install', $this->composer());
 
         self::assertNull($composed['refused']);
         self::assertSame([], $composed['said']);
@@ -322,7 +365,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
         file_put_contents($this->root . '/composer.json', $json);
         $seen = null;
 
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/x', function (string $command, string $cwd) use (&$seen): array {
+        $composed = ($this->witness())->composeIfItBoots('composer require lab/x', function (string $command, string $cwd) use (&$seen): array {
             $seen = (string) file_get_contents($cwd . '/composer.json');
             $recorded = str_replace('"require": {}', '"require": {"lab/x": "*"}', $seen);
             file_put_contents($cwd . '/composer.json', $recorded);
@@ -363,7 +406,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
         mkdir($outside);
 
         try {
-            $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/linked', function (string $command, string $cwd) use ($outside): array {
+            $composed = ($this->witness())->composeIfItBoots('composer require lab/linked', function (string $command, string $cwd) use ($outside): array {
                 self::assertSame($this->root . '/packages/kept', readlink($cwd . '/vendor/lab/kept'), 'in the stage, it resolves to the house');
                 // What Composer does for a path repository: a link relative to where it runs.
                 $from = explode('/', trim($cwd . '/vendor/lab', '/'));
@@ -392,7 +435,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
         $ctime = filectime($this->root . '/composer.json');
         sleep(1);
 
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer update', function (string $command, string $cwd): array {
+        $composed = ($this->witness())->composeIfItBoots('composer update', function (string $command, string $cwd): array {
             file_put_contents($cwd . '/composer.lock', "{\n    \"content-hash\": \"2\"\n}\n");
 
             return [0, []];
@@ -413,7 +456,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
         putenv('MILPA_WITNESS_NO_EXCHANGE=1');
         mkdir($this->root . '/vendor/composer', 0o777, true);
 
-        $composed = (new HouseBootWitness($this->root . '/vendor/composer/../..'))->composeIfItBoots('composer require lab/good', $this->composer());
+        $composed = ($this->witness($this->root . '/vendor/composer/../..'))->composeIfItBoots('composer require lab/good', $this->composer());
 
         self::assertNull($composed['refused'], (string) $composed['refused']);
         self::assertContains($composed['said']['landed_by'], ['exchange', 'swap']);
@@ -428,7 +471,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
         mkdir($this->root . '/vendor/lab', 0o777, true);
         symlink('../../packages/kept/', $this->root . '/vendor/lab/kept');
 
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer update', function (string $command, string $cwd): array {
+        $composed = ($this->witness())->composeIfItBoots('composer update', function (string $command, string $cwd): array {
             // What Composer did in run 1: the stage's url is absolute, so the link it re-made is absolute too.
             unlink($cwd . '/vendor/lab/kept');
             symlink($this->root . '/packages/kept/', $cwd . '/vendor/lab/kept');
@@ -445,7 +488,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
         file_put_contents($this->root . '/var/boot-candidates', 'a file where the stages would live');
         $before = $this->tree();
 
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/good', $this->composer());
+        $composed = ($this->witness())->composeIfItBoots('composer require lab/good', $this->composer());
 
         self::assertStringContainsString('could not be staged', (string) $composed['refused']);
         self::assertSame(['composer.json', 'composer.lock', 'vendor/'], $composed['said']['unwritten']);
@@ -457,7 +500,9 @@ final class ComposerBootsAStageFirstTest extends TestCase
     {
         putenv('MILPA_WITNESS_NO_EXCHANGE=1');
         $composer = $this->composer();
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/good', function (string $command, string $cwd) use ($composer): array {
+        $commands = [];
+        $composed = ($this->witness())->composeIfItBoots('composer require lab/good', function (string $command, string $cwd) use ($composer, &$commands): array {
+            $commands[] = $command;
             if (str_contains($cwd, '/var/boot-candidates/')) {
                 // Something already sits where the house's vendor/ would be set aside: the rename cannot happen.
                 mkdir($cwd . '/vendor.previous/in-the-way', 0o777, true);
@@ -471,6 +516,8 @@ final class ComposerBootsAStageFirstTest extends TestCase
         self::assertTrue($composed['said']['house_boots']);
         self::assertCount(2, $this->ranIn);
         self::assertSame($this->root, $this->ranIn[1], 'the second run is on the house');
+        // In the LIVE house, unconfined: the rerun is the stage's command, flags and all (C11 review of 0627, M-3).
+        self::assertSame(array_fill(0, 2, 'composer require lab/good --no-plugins --no-scripts --no-interaction'), $commands);
         self::assertFileExists($this->root . '/vendor/lab/good/files.php');
     }
 
@@ -479,7 +526,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
         putenv('MILPA_WITNESS_NO_EXCHANGE=1');
         $calls = 0;
         $composer = $this->composer();
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/good', function (string $command, string $cwd) use ($composer, &$calls): array {
+        $composed = ($this->witness())->composeIfItBoots('composer require lab/good', function (string $command, string $cwd) use ($composer, &$calls): array {
             if (++$calls === 2) {
                 return [3, ['the network went away']];
             }
@@ -490,12 +537,12 @@ final class ComposerBootsAStageFirstTest extends TestCase
 
         self::assertNull($composed['refused']);
         self::assertSame(3, $composed['code']);
-        self::assertSame(['landed_by' => 'rerun'], $composed['said']);
+        self::assertSame(['landed_by' => 'rerun'] + self::room(), $composed['said']);
     }
 
     public function testAFileComposerRemovedIsRemovedFromTheHouse(): void
     {
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer update', static function (string $command, string $cwd): array {
+        $composed = ($this->witness())->composeIfItBoots('composer update', static function (string $command, string $cwd): array {
             unlink($cwd . '/composer.lock');
 
             return [0, []];
@@ -510,7 +557,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
         unlink($this->root . '/composer.lock');
         file_put_contents($this->root . '/var/poison', '1');
 
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/stateful', $this->composer(
+        $composed = ($this->witness())->composeIfItBoots('composer require lab/stateful', $this->composer(
             "if (is_file(dirname(__DIR__, 3) . '/var/poison')) { throw new \\RuntimeException('var/poison says no'); }",
         ));
 
@@ -527,7 +574,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
         symlink('../lab/tool/bin/run', $this->root . '/vendor/bin/run');
         symlink(sys_get_temp_dir(), $this->root . '/vendor/lab/tmp');
 
-        $composed = (new HouseBootWitness($this->root))->composeIfItBoots('composer require lab/good', $this->composer());
+        $composed = ($this->witness())->composeIfItBoots('composer require lab/good', $this->composer());
 
         self::assertNull($composed['refused']);
         self::assertSame('../lab/tool/bin/run', readlink($this->root . '/vendor/bin/run'));
@@ -551,7 +598,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
 
     public function testTheRunnerHandsBackComposersAnswerWhenTheStageLanded(): void
     {
-        $runner = new StagedComposerRunner($this->root, new HouseBootWitness($this->root), run: $this->composer());
+        $runner = new StagedComposerRunner($this->root, $this->witness(), run: $this->composer());
 
         [$code, $out] = $runner('composer require lab/good --no-interaction');
 
@@ -563,7 +610,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
 
     public function testTheRunnerDevtoolsIsHandedStagesComposerAndRunsTheRestInTheHouse(): void
     {
-        $runner = new StagedComposerRunner($this->root, new HouseBootWitness($this->root));
+        $runner = new StagedComposerRunner($this->root, $this->witness());
 
         [$code, $out] = $runner('echo "$PWD"');
         self::assertSame(0, $code);
@@ -574,7 +621,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
         self::assertSame([], $runner->said(), 'a dry run writes nothing, and is not staged');
 
         $asked = '';
-        $poisoned = new StagedComposerRunner($this->root, new HouseBootWitness($this->root), recovery: true, run: function (string $command, string $cwd) use (&$asked): array {
+        $poisoned = new StagedComposerRunner($this->root, $this->witness(), recovery: true, run: function (string $command, string $cwd) use (&$asked): array {
             $asked = $command;
 
             return $this->composer("throw new \\RuntimeException('lab/poison cannot start');")($command, $cwd);
@@ -582,7 +629,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
         [$code, $out] = $poisoned('composer require lab/poison --no-interaction');
         self::assertSame(1, $code);
         self::assertStringContainsString('lab/poison cannot start', $out[0]);
-        self::assertSame('composer require lab/poison --no-interaction', $asked, 'one --no-interaction: the witness adds it');
+        self::assertSame('composer require lab/poison --no-plugins --no-scripts --no-interaction', $asked, 'one --no-interaction, and no plugin or script: the witness adds them (decisions/0627)');
         self::assertSame(['composer.json', 'composer.lock', 'vendor/'], $poisoned->said()['unwritten'], 'what the witness said is joined');
         self::assertTrue($poisoned->said()['house_boots'], 'a recovery that would break a booting house is still refused');
     }
@@ -592,7 +639,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
         [$vendor, $index] = $this->registry();
         $before = $this->tree();
 
-        $answer = Capabilities::install('lab/poison', $vendor, $this->composer("throw new \\RuntimeException('lab/poison cannot start');"), index: $index, root: $this->root, witness: new HouseBootWitness($this->root));
+        $answer = Capabilities::install('lab/poison', $vendor, $this->composer("throw new \\RuntimeException('lab/poison cannot start');"), index: $index, root: $this->root, witness: $this->witness());
 
         self::assertFalse($answer['ok']);
         self::assertFalse($answer['installed']);
@@ -605,7 +652,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
     {
         [$vendor, $index] = $this->registry();
 
-        $answer = Capabilities::install('lab/good', $vendor, $this->composer(), index: $index, vendorAfter: $this->delivered('lab/good'), root: $this->root, witness: new HouseBootWitness($this->root));
+        $answer = Capabilities::install('lab/good', $vendor, $this->composer(), index: $index, vendorAfter: $this->delivered('lab/good'), root: $this->root, witness: $this->witness());
 
         self::assertTrue($answer['ok'], (string) ($answer['error'] ?? ''));
         self::assertTrue($answer['composer']['house_boots']);
@@ -617,7 +664,7 @@ final class ComposerBootsAStageFirstTest extends TestCase
     {
         [$vendor, $index] = $this->registry();
 
-        $answer = Capabilities::install('lab/good', $vendor, $this->composer('', 1), index: $index, root: $this->root, witness: new HouseBootWitness($this->root));
+        $answer = Capabilities::install('lab/good', $vendor, $this->composer('', 1), index: $index, root: $this->root, witness: $this->witness());
 
         self::assertFalse($answer['ok']);
         self::assertSame(['composer.json', 'composer.lock', 'vendor/'], $answer['unwritten']);

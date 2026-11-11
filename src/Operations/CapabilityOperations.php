@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Operations;
 
 use Milpa\AppRuntime\Identity\InstallIdentity;
+use Milpa\AppRuntime\Support\BootProbe;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\HouseBootWitness;
 use Milpa\AppRuntime\Support\StagedComposerRunner;
@@ -351,28 +352,42 @@ final readonly class CapabilityOperations implements CommandProvider
     }
 
     /**
-     * @param array<string, mixed> $input
+     * @param array<string, mixed>      $input
+     * @param string|null               $house test seam: the house's root (null is the app's)
+     * @param array<string, mixed>|null $index test seam: the index (null reads the app's)
+     * @param BootProbe|null            $probe test seam: who boots the stage (null is the real one). No acceptance
+     *                                         of an unconfined boot enters here, from the input or anywhere: only a
+     *                                         person gives it, on the console (decisions/0627; C11 review of 0627,
+     *                                         H-1 and its round 2, M-A)
      *
      * @return array<string, mixed>
      */
-    private function enable(array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array
-    {
+    private function enable(
+        array $input,
+        ?InvocationContext $context = null,
+        ?ToolContext $authority = null,
+        ?string $house = null,
+        ?array $index = null,
+        ?BootProbe $probe = null,
+    ): array {
         $dryRun = ($input['dry_run'] ?? false) === true;
         $result = Capabilities::install(
             \is_string($input['capability'] ?? null) ? $input['capability'] : '',
+            vendor: $house === null ? null : $house . '/vendor',
             dryRun: $dryRun,
             // The dated index, when one was derived: it widens `available` to what the registry
             // publishes, and it is the PROMISE the delivery gets compared against afterwards.
-            index: CapabilityIndex::read(),
+            index: $index ?? CapabilityIndex::read(),
+            root: $house,
             // What it declares boots in a copy of the house before it lands (greenhouse decisions/0515).
-            witness: new HouseBootWitness(Capabilities::raizDeLaApp()),
+            witness: new HouseBootWitness($house ?? Capabilities::raizDeLaApp(), $probe ?? new BootProbe()),
         );
         if ($dryRun || ($result['ok'] ?? false) !== true) {
             return $result;
         }
 
         // What the install means for the person who made it (greenhouse decisions/0498).
-        return InstallIdentity::settle($result, Capabilities::raizDeLaApp(), null, $context, $authority);
+        return InstallIdentity::settle($result, $house ?? Capabilities::raizDeLaApp(), null, $context, $authority);
     }
 
     /**
@@ -396,10 +411,13 @@ final readonly class CapabilityOperations implements CommandProvider
      * @param array<string, mixed>                                  $input
      * @param null|list<string>                                     $recomendados costura de prueba, la misma que en {@see Repair}
      * @param null|callable(string): array{0: int, 1: list<string>} $corredor     costura de prueba
+     * @param string|null                                           $house        test seam: the house's root (null is the app's)
+     * @param BootProbe|null                                        $probe        test seam: who boots the stage. No acceptance of an
+     *                                                                            unconfined boot enters here (0627; C11 of 0627, M-A)
      *
      * @return array<string, mixed>
      */
-    private function repair(array $input, ?array $recomendados = null, ?callable $corredor = null): array
+    private function repair(array $input, ?array $recomendados = null, ?callable $corredor = null, ?string $house = null, ?BootProbe $probe = null): array
     {
         // MISMA GUARDA QUE EN LA CLI: las dev tools son opt-in, y un `Class not found` es un fatal
         // donde tendría que haber una instrucción.
@@ -415,10 +433,10 @@ final readonly class CapabilityOperations implements CommandProvider
         // cuando este archivo vivía dentro de la app— y al mudarse pasó a apuntar al paquete: la
         // reparación comprobaba si el paquete había llegado leyendo el `vendor/` equivocado, y
         // contestaba «composer terminó en 0 y no aparece instalado» sobre algo que sí estaba.
-        $root = Capabilities::raizDeLaApp();
+        $root = $house ?? Capabilities::raizDeLaApp();
         // THE COMPOSER IT RUNS BOOTS A STAGE FIRST (greenhouse decisions/0527) — as recovery: what a repair
         // installs is what a house that may not boot is missing.
-        $staged = $corredor === null ? new StagedComposerRunner($root, new HouseBootWitness($root), recovery: true) : null;
+        $staged = $corredor === null ? new StagedComposerRunner($root, new HouseBootWitness($root, $probe ?? new BootProbe()), recovery: true) : null;
 
         return Repair::apply(
             $root,
