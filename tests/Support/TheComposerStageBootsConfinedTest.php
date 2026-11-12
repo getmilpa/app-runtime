@@ -16,12 +16,16 @@ namespace Milpa\AppRuntime\Tests\Support;
 
 use Milpa\AppRuntime\Agent\TrialRunner;
 use Milpa\AppRuntime\Console\Application;
+use Milpa\AppRuntime\Console\RemoteOperationSigner;
+use Milpa\AppRuntime\Console\UnsignedTerminal;
 use Milpa\AppRuntime\Operations\CapabilityOperations;
 use Milpa\AppRuntime\Support\Capabilities;
+use Milpa\AppRuntime\Support\AcceptedOnTheConsole;
 use Milpa\AppRuntime\Support\BootProbe;
 use Milpa\AppRuntime\Support\HouseBootWitness;
 use Milpa\AppRuntime\Tests\Fixtures\NeedsTheDataCapability;
 use Milpa\AppRuntime\Tests\Fixtures\TinyHouse;
+use Milpa\AppRuntime\Tests\Fixtures\WhatTheConsoleHeldOperations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -356,11 +360,267 @@ final class TheComposerStageBootsConfinedTest extends TestCase
 
         self::assertFalse($r['ok']);
         self::assertStringContainsString('saying UNCONFINED is not authorizing', (string) $r['error']);
-        // The console acceptance cannot add a capability (`update` updates what is required): it is not offered (L-C).
-        self::assertStringContainsString('not yet from the console', (string) $r['hint']);
-        self::assertStringNotContainsString('--accept-unconfined', (string) $r['hint']);
+        // It names who accepts that boot and where: a person, on the console, for this capability (decisions/0630).
+        self::assertStringContainsString('capabilities:enable lab/good --sign --accept-unconfined="<the risk you accept>"', (string) $r['hint']);
+        self::assertStringContainsString('No operation carries that acceptance in its input', (string) $r['hint']);
         self::assertStringNotContainsString('Fix the package', (string) $r['hint']);
         self::assertSame([], $this->ran);
+    }
+
+    public function testEnablingReceivesAPersonsAcceptanceFromTheConsoleAndFromNowhereElse(): void
+    {
+        // The real handler, on a machine that cannot confine: it boots unconfined only while a console is holding a
+        // person's words for that call, and never for what its input carries (decisions/0630).
+        $this->fakeComposer();
+        [$operations, $enable, $index] = $this->enableHandler();
+        $signed = new \Milpa\Command\InvocationContext(actor: 'key:AAAA1111', verified: true, authorizationId: 'sha256:auth-7');
+        $call = fn (array $extra = []): array => $enable->invoke($operations, ['capability' => 'lab/good'] + $extra, $signed, null, $this->root, $index, $this->probeWithoutBwrap());
+
+        $held = AcceptedOnTheConsole::during(self::ACCEPTED, $call);
+        self::assertStringNotContainsString('saying UNCONFINED is not authorizing', (string) json_encode($held, \JSON_UNESCAPED_UNICODE));
+        self::assertStringContainsString('require lab/good', $this->asked(), 'past the refusal: Composer ran on the stage');
+        $entries = file($this->root . '/' . HouseBootWitness::JOURNAL, \FILE_IGNORE_NEW_LINES) ?: [];
+        self::assertCount(1, $entries);
+        self::assertSame(self::ACCEPTED, json_decode($entries[0], true)['unconfined_accepted'] ?? null, 'recorded before it ran');
+        self::assertSame(['key:AAAA1111', 'sha256:auth-7'], [json_decode($entries[0], true)['authorized_by'] ?? null, json_decode($entries[0], true)['authorization'] ?? null], 'with who authorized the call');
+
+        // The words were for that one call: the next one, in the same process, has none.
+        self::assertNull(AcceptedOnTheConsole::words());
+        $after = $call();
+        self::assertFalse($after['ok']);
+        self::assertStringContainsString('saying UNCONFINED is not authorizing', (string) $after['error']);
+        self::assertCount(1, file($this->root . '/' . HouseBootWitness::JOURNAL) ?: [], 'and nothing more was recorded');
+    }
+
+    public function testWordsThatNameNoRiskAcceptNothingForACapabilityEither(): void
+    {
+        $this->fakeComposer();
+        [$operations, $enable, $index] = $this->enableHandler();
+
+        foreach (['false', 'UNCONFINED UNCONFINED', 'yes', ''] as $said) {
+            $refused = AcceptedOnTheConsole::during($said, fn (): array => $enable->invoke($operations, ['capability' => 'lab/good'], null, null, $this->root, $index, $this->probeWithoutBwrap()));
+            self::assertFalse($refused['ok'], $said);
+            self::assertStringContainsString('saying UNCONFINED is not authorizing', (string) $refused['error'], $said);
+        }
+        self::assertSame('', $this->asked(), 'Composer never ran');
+        self::assertFileDoesNotExist($this->root . '/' . HouseBootWitness::JOURNAL);
+    }
+
+    public function testTheConsoleForgetsTheWordsHoweverTheCallEnds(): void
+    {
+        try {
+            AcceptedOnTheConsole::during(self::ACCEPTED, static function (): never {
+                throw new \RuntimeException('the call broke');
+            });
+            self::fail('the call was expected to throw');
+        } catch (\RuntimeException) {
+        }
+        self::assertNull(AcceptedOnTheConsole::words());
+        self::assertSame(self::ACCEPTED, AcceptedOnTheConsole::during(self::ACCEPTED, AcceptedOnTheConsole::words(...)));
+        self::assertNull(AcceptedOnTheConsole::words());
+    }
+
+    public function testOnlyTheConsoleSaysTheWordsAndOnlyEnablingReadsThem(): void
+    {
+        // Who says the words and who reads them, by the source: one console call says them, one handler reads them.
+        $said = $read = [];
+        $src = \dirname(__DIR__, 2) . '/src';
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($src, \FilesystemIterator::SKIP_DOTS)) as $file) {
+            $text = (string) file_get_contents((string) $file);
+            $name = substr((string) $file, \strlen($src) + 1);
+            if ($name === 'Support/AcceptedOnTheConsole.php') {
+                continue;
+            }
+            for ($i = substr_count($text, 'AcceptedOnTheConsole::during('); $i > 0; --$i) {
+                $said[] = $name;
+            }
+            for ($i = substr_count($text, 'AcceptedOnTheConsole::words('); $i > 0; --$i) {
+                $read[] = $name;
+            }
+        }
+        self::assertSame(['Console/Application.php'], $said);
+        self::assertSame(['Operations/CapabilityOperations.php'], $read);
+        $console = (string) file_get_contents($src . '/Console/Application.php');
+        self::assertSame(1, substr_count($console, "\$operacion->name !== 'capabilities:enable' =>"), 'the console takes the flag for one operation, by its name');
+    }
+
+    public function testOnTheConsoleTheFlagOfEnablingIsSaidOnceAndWithItsWords(): void
+    {
+        $this->aHouseThatSaysWhatItsConsoleHeld();
+
+        foreach ([
+            ['--accept-unconfined', '--accept-unconfined takes its words after "="'],
+            ['--accept-unconfined=my laptop, I accept', '--accept-unconfined=another machine', 'given more than once'],
+            ['--accept_unconfined=my laptop, I accept', 'the flag is spelled --accept-unconfined='],
+            ['--ACCEPT-UNCONFINED=my laptop, I accept', 'the flag is spelled --accept-unconfined='],
+            ['--accept-unconfined=my laptop, I accept', '--Accept_Unconfined', 'the flag is spelled --accept-unconfined='],
+        ] as $given) {
+            $why = array_pop($given);
+            [$code, $said] = $this->console(['capabilities:enable', '--capability=lab/good', '--sign', ...$given]);
+            self::assertSame(1, $code, $said);
+            self::assertStringContainsString($why, $said);
+            self::assertNull($this->held(), 'nothing ran: ' . implode(' ', $given));
+        }
+    }
+
+    public function testTheConsoleTakesTheWordsOutOfTheCallAndHoldsThemForIt(): void
+    {
+        // The whole console, in a fresh process: the handler of the operation named `capabilities:enable` says what
+        // reached it. The words are held for it and are not in its input (decisions/0630). The operation declares no
+        // schema, so its input shows every flag that was left in the call: `sign`, and nothing of the acceptance.
+        $this->aHouseThatSaysWhatItsConsoleHeld();
+
+        [$code, $said] = $this->console(['capabilities:enable', '--capability=lab/good', '--sign', '--accept-unconfined=my laptop, I accept the risk']);
+        self::assertSame(0, $code, $said);
+        self::assertSame(['input' => ['capability' => 'lab/good', 'sign' => '1'], 'words' => 'my laptop, I accept the risk'], $this->held());
+
+        [$code, $said] = $this->console(['capabilities:enable', '--capability=lab/good', '--sign']);
+        self::assertSame(0, $code, $said);
+        self::assertSame(['input' => ['capability' => 'lab/good', 'sign' => '1'], 'words' => null], $this->held());
+    }
+
+    public function testOnAnyOtherOperationTheFlagIsRefusedAndNothingIsHeld(): void
+    {
+        $this->aHouseThatSaysWhatItsConsoleHeld();
+
+        foreach (['--accept-unconfined=my laptop, I accept the risk', '--accept-unconfined', '--accept_unconfined=my laptop, I accept the risk'] as $flag) {
+            [$code, $said] = $this->console(['words:probe', '--sign', $flag]);
+            self::assertSame(1, $code, $said);
+            self::assertStringContainsString('«words:probe» does not take it', $said);
+            self::assertNull($this->held(), 'the operation did not run: ' . $flag);
+        }
+
+        [$code, $said] = $this->console(['words:probe', '--sign']);
+        self::assertSame(0, $code, $said);
+        self::assertSame(['input' => ['sign' => '1'], 'words' => null], $this->held(), 'the control: without the flag it runs, and holds nothing');
+    }
+
+    public function testWhereTheHostSignsTheConsoleDoesNotTakeTheAcceptance(): void
+    {
+        // Whoever approves at the host is shown the call and not the acceptance, so it is not taken there. No socket is
+        // opened: the refusal comes before anything is signed, and the path names nothing.
+        $this->aHouseThatSaysWhatItsConsoleHeld();
+        [$code, $said] = $this->console(
+            ['capabilities:enable', '--capability=lab/good', '--sign', '--accept-unconfined=my laptop, I accept the risk'],
+            [RemoteOperationSigner::SIGN_SOCKET_ENV => $this->root . '/var/no-such-socket'],
+            signer: false,
+        );
+        self::assertSame(1, $code, $said);
+        self::assertStringContainsString('this house signs through its host', $said);
+        self::assertNull($this->held());
+        // The control is the test above: the same call, signed by a key of this house, runs and holds the words.
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function namesTheConsoleKeepsForAPerson(): iterable
+    {
+        yield 'as an input key' => ['accept_unconfined'];
+        yield 'as the flag is typed' => ['accept-unconfined'];
+        yield 'in another case' => ['Accept_UNCONFINED'];
+        yield 'with its dashes' => ['--accept-unconfined'];
+        yield 'with blanks around it' => [' accept_unconfined '];
+        yield 'carrying its own words' => ['accept_unconfined=the caller wrote these words'];
+        yield 'carrying its own words, as typed' => ['--Accept-Unconfined=the caller wrote these words'];
+        yield 'ending in the sign' => ['accept-unconfined='];
+    }
+
+    #[DataProvider('namesTheConsoleKeepsForAPerson')]
+    public function testALineTheHouseOffersNeverCarriesWhatOnlyAPersonSays(string $name): void
+    {
+        // The line an unsigned door offers is built from the caller's input and run by a person as given.
+        foreach ((new CapabilityOperations())->operations() as $operation) {
+            self::assertNull(UnsignedTerminal::signedLineOrNull($operation, ['capability' => 'lab/good', 'package' => 'lab/good', $name => self::ACCEPTED]), $operation->name);
+            self::assertNull(UnsignedTerminal::signedLineOrNull($operation, ['capability' => 'lab/good', $name => true]), $operation->name . ', as a switch');
+            self::assertStringNotContainsStringIgnoringCase('unconfined', (string) UnsignedTerminal::signedLineOrNull($operation, ['capability' => 'lab/good']), 'the control: without the name a line is offered');
+            self::assertNotNull(UnsignedTerminal::signedLineOrNull($operation, ['capability' => 'lab/good']));
+        }
+        $refusal = implode("\n", UnsignedTerminal::refusalOver('php bin/coa mcp', (new CapabilityOperations())->operations()[2] ?? (new CapabilityOperations())->operations()[0], ['capability' => 'lab/good', $name => self::ACCEPTED], null) ?? []);
+        self::assertStringNotContainsStringIgnoringCase('unconfined', $refusal);
+        self::assertStringContainsString('It is not offered signed: the call names what only a person says', $refusal);
+    }
+
+    public function testTheJournalSaysUnderWhichAuthorizationTheBootWasAccepted(): void
+    {
+        $composer = $this->composer();
+        (new HouseBootWitness($this->root, $this->probeWithoutBwrap(), unconfinedAccepted: self::ACCEPTED, acceptedUnder: ['authorized_by' => 'AAAA1111', 'authorization' => 'auth-7', 'unconfined_accepted' => 'not these', 'empty' => '']))
+            ->composeIfItBoots('composer require lab/good', static fn (string $command, string $cwd): array => $composer($command, $cwd));
+
+        $entry = json_decode((string) file_get_contents($this->root . '/' . HouseBootWitness::JOURNAL), true);
+        self::assertSame('AAAA1111', $entry['authorized_by'] ?? null);
+        self::assertSame('auth-7', $entry['authorization'] ?? null);
+        self::assertSame(self::ACCEPTED, $entry['unconfined_accepted'] ?? null, 'what is kept beside the words never replaces them');
+        self::assertArrayNotHasKey('empty', $entry);
+    }
+
+    public function testAnAcceptanceThatCannotBeRecordedIsNotBlamedOnThePackage(): void
+    {
+        $this->fakeComposer();
+        [$operations, $enable, $index] = $this->enableHandler();
+        mkdir($this->root . '/' . HouseBootWitness::JOURNAL, 0o777, true); // a directory where the journal goes: it cannot be written
+
+        $refused = AcceptedOnTheConsole::during(self::ACCEPTED, fn (): array => $enable->invoke($operations, ['capability' => 'lab/good'], null, null, $this->root, $index, $this->probeWithoutBwrap()));
+
+        self::assertFalse($refused['ok']);
+        self::assertStringContainsString('could not be recorded', (string) $refused['error']);
+        self::assertStringNotContainsString('Fix the package', (string) $refused['hint']);
+        self::assertSame('', $this->asked(), 'Composer did not run');
+        rmdir($this->root . '/' . HouseBootWitness::JOURNAL);
+    }
+
+    /**
+     * `coa …` in a fresh process of this test's house — its exit code and what it printed.
+     *
+     * @param list<string>          $argv
+     * @param array<string, string> $env
+     *
+     * @return array{0: int, 1: string}
+     */
+    private function console(array $argv, array $env = [], bool $signer = true): array
+    {
+        @unlink($this->root . '/var/held.json');
+        $script = $this->root . '/var/coa.php';
+        file_put_contents($script, '<?php
+require ' . var_export($this->root . '/vendor/autoload.php', true) . ';
+$key = ' . ($signer ? 'new Milpa\AppRuntime\Tests\Fixtures\LabSigner()' : 'null') . ';
+exit((new Milpa\AppRuntime\Console\Application(' . var_export($this->root, true) . ', $key, $key))->run(["coa", ...json_decode($argv[1], true)]));
+');
+        $given = '';
+        foreach ($env + [WhatTheConsoleHeldOperations::OUT_ENV => $this->root . '/var/held.json'] as $name => $value) {
+            $given .= $name . '=' . escapeshellarg($value) . ' ';
+        }
+        exec('MILPA_TOKEN= ' . $given
+            . escapeshellarg(\PHP_BINARY) . ' -d display_errors=stderr ' . escapeshellarg($script) . ' ' . escapeshellarg((string) json_encode($argv)) . ' 2>&1', $out, $exit);
+
+        return [$exit, implode("\n", $out)];
+    }
+
+    /** @return array{input: array<string, mixed>, words: ?string}|null what the handler said reached it; null when it did not run */
+    private function held(): ?array
+    {
+        $said = @file_get_contents($this->root . '/var/held.json');
+
+        return $said === false ? null : json_decode($said, true);
+    }
+
+    /** This test's house, made again as one whose kernel boots in a fresh process and whose operations say what reached them. */
+    private function aHouseThatSaysWhatItsConsoleHeld(): void
+    {
+        TinyHouse::remove($this->root);
+        $this->root = TinyHouse::create('HelloPlugin');
+        file_put_contents($this->root . '/config/operations.php', '<?php return [\\' . WhatTheConsoleHeldOperations::class . "::class];\n");
+    }
+
+    /** @return array{0: CapabilityOperations, 1: \ReflectionMethod, 2: array<string, mixed>} the real handler of `capabilities:enable`, and an index that offers lab/good */
+    private function enableHandler(): array
+    {
+        @mkdir($this->root . '/vendor/composer', 0o777, true);
+        file_put_contents($this->root . '/vendor/composer/installed.json', '{"packages": []}');
+        $index = ['derived_at' => '2026-11-11T00:00:00+00:00', 'undeclared' => [], 'capabilities' => ['lab/good' => [
+            'id' => 'good', 'title' => 'Good', 'unlocks' => ['good'], 'provides' => ['lab.good'], 'briefing' => '', 'version' => 'v1.0.0',
+        ]]];
+        $operations = new CapabilityOperations();
+
+        return [$operations, new \ReflectionMethod($operations, 'enable'), $index];
     }
 
     public function testAPluginComposerLeftUnloadedIsSaid(): void

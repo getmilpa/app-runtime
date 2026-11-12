@@ -26,6 +26,7 @@ use Milpa\AppRuntime\Policy\PolicyConfig;
 use Milpa\ToolRuntime\Identity\VerifiedSigner;
 use Milpa\AppRuntime\Agent\SurfaceBroadcaster;
 use Milpa\AppRuntime\Agent\SurfaceComposition;
+use Milpa\AppRuntime\Support\AcceptedOnTheConsole;
 use Milpa\AppRuntime\Support\BootProbe;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\HouseBootWitness;
@@ -640,6 +641,35 @@ final class Application
         $resto = \array_slice($argv, 2);
         $renderer = \in_array('--json', $resto, true) ? new JsonCliRenderer() : new PlainTextCliRenderer();
 
+        // A PERSON'S ACCEPTANCE OF AN UNCONFINED BOOT IS SAID HERE, FOR ONE OPERATION (greenhouse decisions/0630). The
+        // words leave the call before it becomes the operation's input — no input carries them (decisions/0627) — and
+        // are held for this one call ({@see AcceptedOnTheConsole}). On any other operation the flag is refused, not
+        // dropped; so is a spelling of it that would not be read, and so is the flag where the host signs: whoever
+        // approves there is shown the call and not this.
+        $aceptado = null;
+        $dichos = array_values(array_filter($resto, static fn (string $a): bool => str_starts_with($a, '--') && UnsignedTerminal::keptForAPerson($a)));
+        if ($dichos !== []) {
+            $malDicho = match (true) {
+                $operacion->name !== 'capabilities:enable' => '--accept-unconfined is how a person accepts an unconfined boot, and «' . $operacion->name
+                    . '» does not take it: `capabilities:enable`, `update` and `repair` do. Nothing ran.',
+                array_filter($dichos, static fn (string $a): bool => !str_starts_with($a, '--accept-unconfined')) !== [] => 'the flag is spelled --accept-unconfined="<the risk you accept>". Nothing ran.',
+                default => self::unconfinedAccepted($resto)[1],
+            };
+            if ($malDicho === null && $this->firmanteEfectivo() instanceof RemoteOperationSigner) {
+                $malDicho = 'this house signs through its host, and the host is shown the call, not an acceptance of an unconfined boot: '
+                    . '--accept-unconfined is not taken here. Enable the capability where bwrap can confine. Nothing ran.';
+            }
+            if ($malDicho !== null) {
+                foreach ($renderer->presentError($malDicho) as $line) {
+                    $this->line($line);
+                }
+
+                return 1;
+            }
+            [$aceptado] = self::unconfinedAccepted($resto);
+            $resto = array_values(array_diff($resto, $dichos));
+        }
+
         // The caller's declared scope is judged before this surface asks for a signature.
         // Use the SAME scope verdict as the agent door; consent remains CliRunner's concern
         // (greenhouse decisions/0314). An absent/unverifiable token keeps 0311's local default.
@@ -714,7 +744,7 @@ final class Application
         // fifth review, 5-L1): a reason that is not text is spelled before anybody is asked to sign the call.
         $tokens = \Milpa\AppRuntime\Standing\StandingOperations::atATerminal($operacion->name, $tokens);
 
-        return (new CliRunner(
+        $runner = new CliRunner(
             signer: $this->firmanteEfectivo(),
             renderer: $renderer,
             verifier: $this->verificador,
@@ -724,7 +754,10 @@ final class Application
             // las vería por MCP y no por la terminal — que es el hueco que el runner vino a cerrar.
             dispatcher: $this->kernel()->dispatcher(),
             receipts: $receipts,
-        ))->run($operacion, $tokens, $this->kernel()->container(), $this->line(...));
+        );
+        $container = $this->kernel()->container();
+
+        return AcceptedOnTheConsole::during($aceptado, fn (): int => $runner->run($operacion, $tokens, $container, $this->line(...)));
     }
 
     /**
@@ -1337,7 +1370,8 @@ final class Application
     /**
      * The risk a person accepts BY NAME with `--accept-unconfined="<the risk>"` — what lets the boot of what Composer
      * would install run unconfined on a machine that cannot confine it (greenhouse decisions/0627, Rod's answer 1).
-     * This console is the only door that carries it: no operation an agent calls does (C11 review of 0627, H-1).
+     * This console is the only door that carries it: no operation carries it in its input (C11 review of 0627, H-1),
+     * and `capabilities:enable` receives it from here, beside its input (greenhouse decisions/0630).
      * Whether the words name a risk is the witness's to judge ({@see HouseBootWitness::acceptance()}).
      *
      * The flag without `=` is refused, not read: its words would become a package name. Given twice, it is refused
