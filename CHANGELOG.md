@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [0.222.2](https://github.com/getmilpa/app-runtime/compare/v0.222.1...v0.222.2) (2026-11-12)
+
+
+### Bug Fixes
+
+* a confined process boots the live wire with a key of its own (greenhouse evidence/1211) ([#822](https://github.com/getmilpa/app-runtime/issues/822)) ([ea692e6](https://github.com/getmilpa/app-runtime/commit/ea692e6f534a1c21cbf92a98adbbe22a3aaa1212))
+* a confined process starts from nothing of its launcher (greenhouse decisions/0629) ([#824](https://github.com/getmilpa/app-runtime/issues/824)) ([35af654](https://github.com/getmilpa/app-runtime/commit/35af6543fd0f2c0988cf271fc833c21157dbfec9))
+* a screen that declares nothing lists nothing, and the house does not close on it (greenhouse evidence/1211) ([#823](https://github.com/getmilpa/app-runtime/issues/823)) ([9fee2a5](https://github.com/getmilpa/app-runtime/commit/9fee2a5393d40af5212e5f9fe5047be5802d526f))
+* code nobody applied yet runs confined at every door (greenhouse decisions/0626) ([#820](https://github.com/getmilpa/app-runtime/issues/820)) ([03a3ac0](https://github.com/getmilpa/app-runtime/commit/03a3ac0b158e19a85032911977234759abd191fa))
+* no copy of the house carries its books of who may do what (greenhouse decisions/0625) ([#818](https://github.com/getmilpa/app-runtime/issues/818)) ([73ba1c9](https://github.com/getmilpa/app-runtime/commit/73ba1c92f2070f84d9c0226b28c6585694e85b2a))
+* what Composer stages boots confined, and only a person accepts an unconfined boot (greenhouse decisions/0627) ([#821](https://github.com/getmilpa/app-runtime/issues/821)) ([9bb0a86](https://github.com/getmilpa/app-runtime/commit/9bb0a86d8ec9c0327aa94b799341d3190f60d6c2))
+
 ## [0.222.1](https://github.com/getmilpa/app-runtime/compare/v0.222.0...v0.222.1) (2026-11-04)
 
 
