@@ -331,6 +331,13 @@ final class TrialOperations implements CommandProvider
             return ['ok' => false, 'error' => "a {$method} in a rehearsal is observed only where its copy can be confined, and this host cannot "
                 . 'confine one (bubblewrap with a user namespace, as the trials use); promote and observe the house with GET'];
         }
+        // A LINK IN A TRIAL IS NEVER READ THROUGH (greenhouse decisions/0632): the copy below is built from the trial's
+        // own bytes only. A promotion refuses a link too.
+        $links = $ws->links();
+        if ($links !== []) {
+            return ['ok' => false, 'error' => 'this trial holds a symbolic link (' . implode(', ', array_map(static fn (string $l): string => var_export($l, true), $links))
+                . '), and a copy of the house never carries what a link points at: write the file itself in the trial'];
+        }
         // The house AS THE TRIAL WOULD LEAVE IT, built beside it — the trial's own copy has no vendor/ to boot with.
         $writes = [];
         $deletes = [];
@@ -338,7 +345,13 @@ final class TrialOperations implements CommandProvider
             if ($entry['status'] === 'deleted') {
                 $deletes[] = $rel;
             } else {
-                $writes[$rel] = (string) file_get_contents($ws->copy . '/' . $rel);
+                // What is read is what the diff judged, or nothing is built: a file that became a link, or changed,
+                // since the diff is not carried (the same check a promotion makes).
+                $bytes = $ws->judgedBytes($rel, $entry['sha256']);
+                if ($bytes === null) {
+                    return ['ok' => false, 'error' => "the trial changed while its copy was being built ('{$rel}'): observe it again once it is still"];
+                }
+                $writes[$rel] = $bytes;
             }
         }
         $candidate = BootCandidate::of($root, $writes, $deletes);
