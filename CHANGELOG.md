@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.222.3](https://github.com/getmilpa/app-runtime/compare/v0.222.2...v0.222.3) (2026-11-12)
+
+
+### Bug Fixes
+
+* a copy of the house never carries what a trial's link points at (greenhouse decisions/0632) ([#827](https://github.com/getmilpa/app-runtime/issues/827)) ([45d7806](https://github.com/getmilpa/app-runtime/commit/45d780699b52efe8e2f7f5d065e74ea390ebcb69))
+* enabling a capability takes a person's acceptance of an unconfined boot, on the console (greenhouse decisions/0630) ([#825](https://github.com/getmilpa/app-runtime/issues/825)) ([b728d41](https://github.com/getmilpa/app-runtime/commit/b728d419a6ca626f4e62171145f07fcec0d9ad76))
+
 ## [0.222.2](https://github.com/getmilpa/app-runtime/compare/v0.222.1...v0.222.2) (2026-11-12)
 
 
