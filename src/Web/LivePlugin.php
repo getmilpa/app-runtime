@@ -15,6 +15,8 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Web;
 
 use Milpa\AppRuntime\Agent\HouseRouteObserver;
+use Milpa\AppRuntime\Agent\TrialRunner;
+use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Web\Controllers\LiveAssetsController;
 use Milpa\AppRuntime\Web\Controllers\LiveComponentPageController;
 use Milpa\AppRuntime\Web\Controllers\LiveController;
@@ -82,8 +84,16 @@ use Milpa\Runtime\Http\RouteProviderInterface;
  * of being rebuilt by hand per host — the shape decisions/0059 chose for the gate.
  *
  * FAIL CLOSED WITHOUT A SECRET. The HMAC secret signs the state the client echoes back; an app that
- * has not set `live.secret` in `config/app.php` gets NO live routes, never a generated or default
- * secret: a secret nobody chose is a secret nobody can rotate.
+ * has not set `live.secret` gets NO live routes, never a generated or default secret: a secret nobody
+ * chose is a secret nobody can rotate. It belongs in the secrets overlay (`provider:declare`), the house's
+ * place for secrets (decisions/0569), not in a versioned config file.
+ *
+ * ONE EXCEPTION, AND IT SERVES NOBODY (greenhouse evidence/1211, H1; Rod, 2026-11-11). A confined
+ * process — a trial, a route observation, a boot candidate — cannot read the house's secret: it is
+ * masked from code nobody applied. There the wire boots with a key of that process's own, random, in
+ * memory only, dead with the process: nothing it signs leaves the process, and what a trial promotes
+ * (`config/screens.json`) does not depend on it. Without it, `screen:declare` was refused in every trial.
+ * Outside a confined process nothing changes: no secret, no routes.
  *
  * This used to promise «a boot-time notice» as well, and there was none: `boot()` returned in silence,
  * while the screen operations were still offered and refused with «the registry is not mounted» — the
@@ -154,8 +164,8 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
             return; // milpa/live-web is not installed: no live wire, and nothing pretends there is one
         }
         $live = $this->config();
-        $secret = $live['secret'] ?? null;
-        if (! \is_string($secret) || \strlen($secret) < 16) {
+        $secret = $this->secret();
+        if ($secret === null) {
             return; // fail closed: no secret, no routes (see the class docblock)
         }
         $declaredRoute = $live['route'] ?? null;
@@ -454,13 +464,31 @@ final class LivePlugin implements PluginInterface, RouteProviderInterface, Comma
         if (! class_exists(LiveEndpoint::class)) {
             return 'milpa/live-web is not installed — `composer require milpa/live-web`';
         }
-        $secret = $this->config()['secret'] ?? null;
-        if (! \is_string($secret) || \strlen($secret) < 16) {
-            return "the live wire has no secret, so it stayed closed on purpose — set 'live' => ['secret' => '…'] "
-                . '(32 or more random bytes, chosen by you, never generated) in config/app.php';
+        if ($this->secret() === null) {
+            return 'the live wire has no secret, so it stayed closed on purpose — declare one (32 or more random bytes, chosen by you, '
+                . 'never generated) in the secrets overlay, the house\'s place for secrets: `' . Capabilities::cli() . 'provider:declare '
+                . '--key=live.secret --file=<a file outside this app> --sign`. Not in config/app.php: that file is versioned.';
         }
 
         return null;
+    }
+
+    /** The key a confined process's wire signs with: its own, random, in memory, never the house's (see the class docblock). */
+    private static ?string $confinedKey = null;
+
+    /**
+     * The live wire's key — the one {@see self::boot()} mounts with and {@see self::whyUnmounted()} asks about, so the two
+     * can never disagree: the house's `live.secret` when it has one, a key of the process's own inside a confined process
+     * (where the house's is masked), and null otherwise — the house fails closed.
+     */
+    private function secret(): ?string
+    {
+        $secret = $this->config()['secret'] ?? null;
+        if (\is_string($secret) && \strlen($secret) >= 16) {
+            return $secret;
+        }
+
+        return TrialRunner::insideTrial() ? self::$confinedKey ??= bin2hex(random_bytes(32)) : null;
     }
 
     /**
