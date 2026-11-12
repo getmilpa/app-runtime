@@ -474,8 +474,11 @@ final class HouseObservedClosure
         $leaked = \is_int($content['leaked'] ?? null) ? $content['leaked'] : 0;
 
         $saw = "the house observed «{$subject}» served";
+        $screen = \is_string($content['screen'] ?? null) ? "«{$content['screen']}»" : 'its screen';
 
         return match (true) {
+            ($content['declares'] ?? null) === 'no rows' => "{$saw} with nothing to read (seq {$seq}): {$screen} binds no entity's rows and "
+                . 'declares none — bind it to an entity with make what=page (the entity needs PUBLIC_WHEN)',
             $public < 1 => "{$saw} with nothing to read (seq {$seq}): its screen lists {$entity} and no public row exists — leave rows with entity:seed",
             $shown < $public => "{$saw} showing {$shown} of {$public} public rows of {$entity} (seq {$seq})",
             $leaked > 0 => "{$saw} showing {$leaked} row" . ($leaked === 1 ? '' : 's') . " of {$entity} that is not public (seq {$seq})",
