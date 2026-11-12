@@ -382,7 +382,12 @@ final readonly class CapabilityOperations implements CommandProvider
             index: $index ?? CapabilityIndex::read(),
             root: $house,
             // What it declares boots in a copy of the house before it lands (greenhouse decisions/0515).
-            witness: new HouseBootWitness($house ?? Capabilities::raizDeLaApp(), $probe ?? new BootProbe(), unconfinedAccepted: AcceptedOnTheConsole::words()),
+            witness: new HouseBootWitness(
+                $house ?? Capabilities::raizDeLaApp(),
+                $probe ?? new BootProbe(),
+                unconfinedAccepted: AcceptedOnTheConsole::words(),
+                acceptedUnder: ['authorized_by' => (string) $context?->actor, 'authorization' => (string) $context?->authorizationId],
+            ),
         );
         if ($dryRun || ($result['ok'] ?? false) !== true) {
             return $result;

@@ -156,9 +156,11 @@ final class UnsignedTerminal
         $line = static function () use ($op, $input): string {
             $signed = self::signedLineOrNull($op, $input);
 
-            return $signed !== null
-                ? '  Run it signed from the terminal: ' . $signed
-                : '  It cannot be offered signed: a NUL byte cannot travel in a terminal line. Nothing ran.';
+            return match (true) {
+                $signed !== null => '  Run it signed from the terminal: ' . $signed,
+                array_filter(array_keys($input), static fn (int|string $name): bool => self::keptForAPerson((string) $name)) !== [] => '  It is not offered signed: the call names what only a person says, on the console. Nothing ran.',
+                default => '  It cannot be offered signed: a NUL byte cannot travel in a terminal line. Nothing ran.',
+            };
         };
         if (Consent::demanded($op, $input)) {
             return [
@@ -196,7 +198,8 @@ final class UnsignedTerminal
     }
 
     /**
-     * The signed line, or null when no terminal line can carry the call (a NUL byte in a name or a value).
+     * The signed line, or null when no terminal line can carry the call: a NUL byte in a name or a value, or a name the
+     * console keeps for what only a person says on it ({@see keptForAPerson()}).
      *
      * @param array<string, mixed> $input
      */
@@ -218,6 +221,9 @@ final class UnsignedTerminal
     {
         $line = Capabilities::cli() . CommandName::of($op->name);
         foreach ($input as $name => $value) {
+            if (self::keptForAPerson((string) $name)) {
+                throw new \ValueError('a line the house offers never carries a flag the console keeps for a person');
+            }
             if ($value === false || $value === null) {
                 continue;
             }
@@ -239,6 +245,16 @@ final class UnsignedTerminal
         }
 
         return $line . ' --sign';
+    }
+
+    /**
+     * Is this input name one the console reads for itself, as what a person says on it — the acceptance of an
+     * unconfined boot (greenhouse decisions/0627, 0630)? The line this class offers is built from a caller's input and
+     * is run by a person as given: it never carries such a name, however it is spelled.
+     */
+    public static function keptForAPerson(string $name): bool
+    {
+        return preg_match('/\Aaccept[-_]unconfined\z/i', ltrim(trim($name), '-')) === 1;
     }
 
     /**

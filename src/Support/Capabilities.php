@@ -1420,8 +1420,10 @@ final class Capabilities
                             . 'accepts the unconfined boot by name, on the console: `' . self::cli() . 'capabilities:enable '
                             . (string) $objetivo['package'] . ' --sign --accept-unconfined="<the risk you accept>"`. No operation carries '
                             . 'that acceptance in its input.'
-                        : 'the house does not boot with what composer would install, so nothing was installed: '
-                            . 'the house boots as before. Fix the package, or require a version that boots.',
+                        : (\array_key_exists('house_boots', $composed['said'])
+                            ? 'the house does not boot with what composer would install, so nothing was installed: '
+                                . 'the house boots as before. Fix the package, or require a version that boots.'
+                            : 'nothing was installed, and the house is as it was.'),
                 ] + $composed['said'];
             }
             [$codigo, $salida] = [$composed['code'], $composed['output']];

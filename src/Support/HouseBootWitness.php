@@ -57,19 +57,23 @@ final class HouseBootWitness implements BootWitnessInterface
     private readonly ?string $acceptanceRefused;
 
     /**
-     * @param bool        $probeBefore        false skips the copy and keeps only the ask after the write — 0506's order, kept
-     *                                        as the positive control of the window a copy closes (decisions/0512)
-     * @param string|null $unconfinedAccepted the risk someone accepted BY NAME so that, on a machine that cannot confine,
-     *                                        the boot of what Composer would install runs unconfined anyway — null, or
-     *                                        words that name nothing ({@see acceptance()}), refuses that boot there
-     *                                        instead (decisions/0627, Rod's answer 1). Only a person gives it, on the
-     *                                        console: no operation an agent calls carries it (C11 review of 0627, H-1)
+     * @param bool                  $probeBefore        false skips the copy and keeps only the ask after the write — 0506's order, kept
+     *                                                  as the positive control of the window a copy closes (decisions/0512)
+     * @param string|null           $unconfinedAccepted the risk someone accepted BY NAME so that, on a machine that cannot confine,
+     *                                                  the boot of what Composer would install runs unconfined anyway — null, or
+     *                                                  words that name nothing ({@see acceptance()}), refuses that boot there
+     *                                                  instead (decisions/0627, Rod's answer 1). Only a person gives it, on the
+     *                                                  console: no operation carries it in its input (C11 review of 0627, H-1)
+     * @param array<string, string> $acceptedUnder      what the journal keeps beside an accepted boot so that it can be joined
+     *                                                  with the call's own receipt: who authorized the call, and under which
+     *                                                  authorization (decisions/0630)
      */
     public function __construct(
         string $root,
         private readonly BootProbe $probe = new BootProbe(),
         private readonly bool $probeBefore = true,
         ?string $unconfinedAccepted = null,
+        private readonly array $acceptedUnder = [],
     ) {
         $this->unconfinedAccepted = self::acceptance($unconfinedAccepted);
         $given = $unconfinedAccepted === null ? '' : trim($unconfinedAccepted);
@@ -200,8 +204,9 @@ final class HouseBootWitness implements BootWitnessInterface
      * cannot confine (no bwrap), the door REFUSES before Composer runs — saying UNCONFINED is not authorizing — unless
      * a person accepted that risk in words (`$unconfinedAccepted`, {@see acceptance()}); then the stage boots
      * unconfined, and the answer carries both the room and the risk accepted (`unconfined_accepted`). That acceptance
-     * reaches this class only from the console a person types on (`coa update|repair --accept-unconfined=…`); no
-     * operation an agent calls carries it (decisions/0627, Rod's answer 1; C11 review of 0627, H-1). The live house's
+     * reaches this class only from the console a person types on (`coa update`, `coa repair` and
+     * `coa capabilities:enable`, with `--accept-unconfined=…`); no operation carries it in its input (decisions/0627,
+     * Rod's answer 1; C11 review of 0627, H-1; decisions/0630). The live house's
      * ask after the swap stays plain: that one IS the applied house (decisions/0606 §3).
      *
      * Composer runs on the stage, and on a rerun, with `--no-plugins --no-scripts` (0627 answer 2, measured in 1210:
@@ -360,9 +365,9 @@ final class HouseBootWitness implements BootWitnessInterface
                 . 'Nothing was written; the house is as it was.',
             'said' => ['unwritten' => $paths, 'boot_room' => $room, 'unconfined_accepted' => null]
                 + ($this->acceptanceRefused === null ? [] : ['acceptance_refused' => $this->acceptanceRefused])
-                + ['hint' => 'run it where bwrap can confine (Linux, or the house in its own container); or a person, on the console, accepts the risk '
-                    . 'in words: `' . Capabilities::cli() . 'update <package> --accept-unconfined="<the risk you accept>"` (or `' . Capabilities::cli() . 'repair`). '
-                    . 'No operation an agent calls carries that acceptance.'],
+                + ['hint' => 'run it where bwrap can confine; or a person, on the console, accepts the risk in words: `' . Capabilities::cli()
+                    . 'update <package> --accept-unconfined="<the risk you accept>"` (`' . Capabilities::cli() . 'repair` and `' . Capabilities::cli()
+                    . 'capabilities:enable` take it too). No operation carries that acceptance in its input.'],
             'code' => $code,
             'output' => $out,
         ];
@@ -411,7 +416,7 @@ final class HouseBootWitness implements BootWitnessInterface
             'command' => $command,
             'boot_room' => 'UNCONFINED: no bwrap on this machine (decisions/0627)',
             'unconfined_accepted' => $this->unconfinedAccepted,
-        ], \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE);
+        ] + array_filter($this->acceptedUnder, static fn (string $v): bool => $v !== ''), \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE);
         $path = $this->root . '/' . self::JOURNAL;
         if ($line === false || (!is_dir(\dirname($path)) && !@mkdir(\dirname($path), 0o775, true))) {
             return false;

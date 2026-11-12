@@ -641,12 +641,24 @@ final class Application
         $resto = \array_slice($argv, 2);
         $renderer = \in_array('--json', $resto, true) ? new JsonCliRenderer() : new PlainTextCliRenderer();
 
-        // ENABLING A CAPABILITY TAKES A PERSON'S ACCEPTANCE HERE, AND ONLY HERE (greenhouse decisions/0630). The words
-        // leave the call before it becomes the operation's input — no input carries them (decisions/0627) — and are
-        // held for this one call ({@see AcceptedOnTheConsole}). On any other operation the flag is not read.
+        // A PERSON'S ACCEPTANCE OF AN UNCONFINED BOOT IS SAID HERE, FOR ONE OPERATION (greenhouse decisions/0630). The
+        // words leave the call before it becomes the operation's input — no input carries them (decisions/0627) — and
+        // are held for this one call ({@see AcceptedOnTheConsole}). Anywhere else the flag is refused, not dropped; so
+        // is a spelling of it that would not be read, and so is the flag where the host signs: whoever approves there
+        // is shown the call and not this.
         $aceptado = null;
-        if ($operacion->name === 'capabilities:enable') {
-            [$aceptado, $malDicho] = self::unconfinedAccepted($resto);
+        $dichos = array_values(array_filter($resto, static fn (string $a): bool => preg_match('/\A--accept[-_]unconfined(?:=|\z)/i', $a) === 1));
+        if ($dichos !== []) {
+            $malDicho = match (true) {
+                $operacion->name !== 'capabilities:enable' => '--accept-unconfined is how a person accepts an unconfined boot, and «' . $operacion->name
+                    . '» does not take it: `capabilities:enable`, `update` and `repair` do. Nothing ran.',
+                array_filter($dichos, static fn (string $a): bool => !str_starts_with($a, '--accept-unconfined')) !== [] => 'the flag is spelled --accept-unconfined="<the risk you accept>". Nothing ran.',
+                default => self::unconfinedAccepted($resto)[1],
+            };
+            if ($malDicho === null && $this->firmanteEfectivo() instanceof RemoteOperationSigner) {
+                $malDicho = 'this house signs through its host, and the host is shown the call, not an acceptance of an unconfined boot: '
+                    . '--accept-unconfined is not taken here. Enable the capability where bwrap can confine. Nothing ran.';
+            }
             if ($malDicho !== null) {
                 foreach ($renderer->presentError($malDicho) as $line) {
                     $this->line($line);
@@ -654,7 +666,8 @@ final class Application
 
                 return 1;
             }
-            $resto = array_values(array_filter($resto, static fn (string $a): bool => !str_starts_with($a, '--accept-unconfined=')));
+            [$aceptado] = self::unconfinedAccepted($resto);
+            $resto = array_values(array_diff($resto, $dichos));
         }
 
         // The caller's declared scope is judged before this surface asks for a signature.
