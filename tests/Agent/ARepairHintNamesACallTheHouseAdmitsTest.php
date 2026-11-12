@@ -306,7 +306,9 @@ final class ARepairHintNamesACallTheHouseAdmitsTest extends TestCase
             exit(($result["ok"] ?? false) === true ? 0 : 1);
         ');
         $bwrap = $judges . '/bwrap';
-        file_put_contents($bwrap, "#!/bin/sh\nwhile [ \"$1\" != \"--\" ] && [ $# -gt 0 ]; do shift; done\nshift\nexec \"$@\"\n");
+        // A stand-in that confines nothing, and still gives the command the environment it was told to: the runner
+        // starts bubblewrap with an empty one, so what the command sees is what `--setenv` names, as in a real trial.
+        file_put_contents($bwrap, "#!/bin/sh\nwhile [ \"$1\" != \"--\" ] && [ $# -gt 0 ]; do [ \"$1\" = \"--setenv\" ] && { export \"$2=$3\"; shift 2; }; shift; done\nshift\nexec \"$@\"\n");
         chmod($bwrap, 0o700);
 
         $sessions = new SessionStore(new InMemoryEventStore());
