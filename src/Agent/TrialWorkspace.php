@@ -190,7 +190,7 @@ final class TrialWorkspace
             if ($rel === self::RUNNER || str_starts_with($rel, 'var/')) {
                 continue;
             }
-            $copyHash = hash_file('sha256', $this->copy . '/' . $rel);
+            $copyHash = self::fingerprint($this->copy, $rel);
             if (!array_key_exists($rel, $baseline)) {
                 $out[$rel] = ['status' => 'added', 'sha256' => $copyHash ?: null];
             } elseif ($baseline[$rel] !== $copyHash) {
@@ -539,10 +539,40 @@ final class TrialWorkspace
             if ($rel === self::RUNNER || str_starts_with($rel, 'var/')) {
                 continue;
             }
-            $out[$rel] = hash_file('sha256', $dir . '/' . $rel) ?: '';
+            $out[$rel] = self::fingerprint($dir, $rel) ?? '';
         }
 
         return $out;
+    }
+
+    /**
+     * What a file of a tree is, for the diff and the baseline: the sha256 of its bytes — and for a symbolic link, of
+     * the link itself, never of what it points at. A trial binds its copy writable, so a link in it may point at any
+     * file of the house, the masked ones too; reading through it would carry those bytes out of the confinement into
+     * every listing and every copy built from the diff. The change is still seen, by what the link says.
+     */
+    private static function fingerprint(string $dir, string $rel): ?string
+    {
+        $path = $dir . '/' . $rel;
+        if (is_link($path)) {
+            return 'link:' . hash('sha256', (string) readlink($path));
+        }
+
+        return hash_file('sha256', $path) ?: null;
+    }
+
+    /**
+     * The paths this trial changed that are symbolic links: none of them is read through, and nothing built from the
+     * trial carries them ({@see fingerprint()}).
+     *
+     * @return list<string>
+     */
+    public function links(): array
+    {
+        return array_values(array_filter(
+            array_keys(array_filter($this->diff(), static fn (array $e): bool => $e['status'] !== 'deleted')),
+            fn (string $rel): bool => is_link($this->copy . '/' . $rel),
+        ));
     }
 
     /** @return list<string> */

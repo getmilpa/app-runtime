@@ -331,6 +331,14 @@ final class TrialOperations implements CommandProvider
             return ['ok' => false, 'error' => "a {$method} in a rehearsal is observed only where its copy can be confined, and this host cannot "
                 . 'confine one (bubblewrap with a user namespace, as the trials use); promote and observe the house with GET'];
         }
+        // A LINK IN A TRIAL IS NEVER READ THROUGH (greenhouse decisions/0632). The copy below is built from the trial's
+        // bytes, and its confinement masks the house's secrets by their own names only: what a link points at would
+        // arrive there as a plain file. A promotion refuses a link too.
+        $links = $ws->links();
+        if ($links !== []) {
+            return ['ok' => false, 'error' => 'this trial holds a symbolic link (' . implode(', ', array_map(static fn (string $l): string => var_export($l, true), $links))
+                . '), and a copy of the house never carries what a link points at: write the file itself in the trial'];
+        }
         // The house AS THE TRIAL WOULD LEAVE IT, built beside it — the trial's own copy has no vendor/ to boot with.
         $writes = [];
         $deletes = [];
