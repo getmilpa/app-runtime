@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Milpa\AppRuntime\Operations;
 
 use Milpa\AppRuntime\Identity\InstallIdentity;
+use Milpa\AppRuntime\Support\AcceptedOnTheConsole;
 use Milpa\AppRuntime\Support\BootProbe;
 use Milpa\AppRuntime\Support\Capabilities;
 use Milpa\AppRuntime\Support\HouseBootWitness;
@@ -356,9 +357,10 @@ final readonly class CapabilityOperations implements CommandProvider
      * @param string|null               $house test seam: the house's root (null is the app's)
      * @param array<string, mixed>|null $index test seam: the index (null reads the app's)
      * @param BootProbe|null            $probe test seam: who boots the stage (null is the real one). No acceptance
-     *                                         of an unconfined boot enters here, from the input or anywhere: only a
-     *                                         person gives it, on the console (decisions/0627; C11 review of 0627,
-     *                                         H-1 and its round 2, M-A)
+     *                                         of an unconfined boot enters through the input: only a person gives it,
+     *                                         on the console, and it is read from what that console is holding for
+     *                                         this call (decisions/0627; C11 review of 0627, H-1 and its round 2, M-A;
+     *                                         decisions/0630)
      *
      * @return array<string, mixed>
      */
@@ -380,7 +382,7 @@ final readonly class CapabilityOperations implements CommandProvider
             index: $index ?? CapabilityIndex::read(),
             root: $house,
             // What it declares boots in a copy of the house before it lands (greenhouse decisions/0515).
-            witness: new HouseBootWitness($house ?? Capabilities::raizDeLaApp(), $probe ?? new BootProbe()),
+            witness: new HouseBootWitness($house ?? Capabilities::raizDeLaApp(), $probe ?? new BootProbe(), unconfinedAccepted: AcceptedOnTheConsole::words()),
         );
         if ($dryRun || ($result['ok'] ?? false) !== true) {
             return $result;
