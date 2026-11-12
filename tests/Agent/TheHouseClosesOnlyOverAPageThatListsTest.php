@@ -34,6 +34,7 @@ final class TheHouseClosesOnlyOverAPageThatListsTest extends TestCase
 {
     private const LISTS = ['entity' => 'Blog/Post', 'public' => 1, 'shown' => 1, 'withheld' => 1, 'leaked' => 0, 'withholding' => 'exercised'];
     private const EMPTY = ['entity' => 'Blog/Post', 'public' => 0, 'shown' => 0, 'withheld' => 0, 'leaked' => 0, 'withholding' => 'unexercised'];
+    private const NO_ROWS = ['entity' => null, 'public' => 0, 'shown' => 0, 'withheld' => 0, 'leaked' => 0, 'withholding' => 'unexercised', 'declares' => 'no rows', 'screen' => 'blogpage'];
 
     public function testAPageWithNothingToReadDoesNotClose(): void
     {
@@ -47,6 +48,32 @@ final class TheHouseClosesOnlyOverAPageThatListsTest extends TestCase
         );
         self::assertArrayNotHasKey('derivedFrom', $closure, 'a page with nothing to read is not an observation the house derives a closure from');
         self::assertSame('recorded_work', $closure['scope']);
+    }
+
+    public function testATableThatDeclaresNothingDoesNotCloseAndTheReasonNamesItsScreen(): void
+    {
+        // greenhouse evidence/1211, H2: the receipt of a data-table with no source and no rows.
+        $closure = $this->closureAfter([self::NO_ROWS]);
+
+        self::assertFalse($closure['verified'], 'a resident closed verified: true over this page');
+        self::assertContains(
+            "the house observed «/blog» served with nothing to read (seq 2): «blogpage» binds no entity's rows and declares none — bind it to an entity with make what=page (the entity needs PUBLIC_WHEN)",
+            $closure['reasons'],
+        );
+
+        $unnamed = $this->closureAfter([array_diff_key(self::NO_ROWS, ['screen' => 0])]);
+        self::assertContains(
+            "the house observed «/blog» served with nothing to read (seq 2): its screen binds no entity's rows and declares none — bind it to an entity with make what=page (the entity needs PUBLIC_WHEN)",
+            $unnamed['reasons'],
+            'a receipt that does not name its screen still says why',
+        );
+
+        $store = new SessionStore(new InMemoryEventStore());
+        $store->start('s', 'Build the blog: serve GET /blog as a page listing published posts.', AutonomyMode::Auto);
+        $store->setTodo('s', new Todo('t1', 'Confirm /blog served', TodoStatus::Pending));
+        $this->promote($store, 'w1', [$this->route('/blog', self::NO_ROWS)]);
+        $store->completeTodo('s', 't1', Evidence::operationOk('e1', 'sandbox_promote'));
+        self::assertFalse($this->verdict($store)['verified'], 'with every todo closed by evidence, either');
     }
 
     public function testAPageThatListsCloses(): void

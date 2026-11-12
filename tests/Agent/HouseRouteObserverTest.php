@@ -312,6 +312,28 @@ return $loader;
         self::assertSame(['GET /blog', 'GET /pages'], array_column($receipt['observed'] ?? [], 'route'));
     }
 
+    public function testAMountedTableThatDeclaresNothingIsJudgedAndTheHouseDoesNotCloseOnIt(): void
+    {
+        // greenhouse evidence/1211, H2: the receipt carries the judgment, so the closure refuses the empty table.
+        $this->withTheLiveDoor();
+        $store = new SessionStore(new InMemoryEventStore());
+        $store->start('s', 'Serve GET /pages as a page', AutonomyMode::Ask);
+
+        $receipt = $this->promote(['config/screens.json' => (string) json_encode([
+            'pages' => ['type' => 'data-table', 'props' => ['columns' => ['title', 'body'], 'name' => 'pages'], 'route' => '/pages'],
+        ])]);
+
+        self::assertSame(200, $receipt['observed'][0]['status'] ?? null, (string) json_encode($receipt));
+        self::assertSame('no rows', $receipt['observed'][0]['content']['declares'] ?? null, (string) json_encode($receipt));
+        self::assertSame('pages', $receipt['observed'][0]['content']['screen'] ?? null);
+
+        $store->recordToolCall('s', 'sandbox_promote', ['workspace' => 'w1'], (string) json_encode($receipt), mutating: true);
+        $session = $store->load('s');
+        self::assertNotNull($session);
+        $closure = ClosureVerdict::derive($session, $store->facts('s'), $store->stream('s'));
+        self::assertFalse($closure['verified'], 'served with nothing to read');
+    }
+
     public function testAMountThatDidNotLandIsNotAskedAgain(): void
     {
         $this->withTheLiveDoor();
