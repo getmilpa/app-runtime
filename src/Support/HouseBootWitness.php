@@ -64,9 +64,8 @@ final class HouseBootWitness implements BootWitnessInterface
      *                                                  words that name nothing ({@see acceptance()}), refuses that boot there
      *                                                  instead (decisions/0627, Rod's answer 1). Only a person gives it, on the
      *                                                  console: no operation carries it in its input (C11 review of 0627, H-1)
-     * @param array<string, string> $acceptedUnder      what the journal keeps beside an accepted boot so that it can be joined
-     *                                                  with the call's own receipt: who authorized the call, and under which
-     *                                                  authorization (decisions/0630)
+     * @param array<string, string> $acceptedUnder      what the journal keeps beside an accepted boot: who authorized the call that
+     *                                                  carried it, and the id of that authorization (decisions/0630)
      */
     public function __construct(
         string $root,

@@ -643,11 +643,11 @@ final class Application
 
         // A PERSON'S ACCEPTANCE OF AN UNCONFINED BOOT IS SAID HERE, FOR ONE OPERATION (greenhouse decisions/0630). The
         // words leave the call before it becomes the operation's input — no input carries them (decisions/0627) — and
-        // are held for this one call ({@see AcceptedOnTheConsole}). Anywhere else the flag is refused, not dropped; so
-        // is a spelling of it that would not be read, and so is the flag where the host signs: whoever approves there
-        // is shown the call and not this.
+        // are held for this one call ({@see AcceptedOnTheConsole}). On any other operation the flag is refused, not
+        // dropped; so is a spelling of it that would not be read, and so is the flag where the host signs: whoever
+        // approves there is shown the call and not this.
         $aceptado = null;
-        $dichos = array_values(array_filter($resto, static fn (string $a): bool => preg_match('/\A--accept[-_]unconfined(?:=|\z)/i', $a) === 1));
+        $dichos = array_values(array_filter($resto, static fn (string $a): bool => str_starts_with($a, '--') && UnsignedTerminal::keptForAPerson($a)));
         if ($dichos !== []) {
             $malDicho = match (true) {
                 $operacion->name !== 'capabilities:enable' => '--accept-unconfined is how a person accepts an unconfined boot, and «' . $operacion->name

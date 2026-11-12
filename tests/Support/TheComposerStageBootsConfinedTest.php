@@ -373,7 +373,8 @@ final class TheComposerStageBootsConfinedTest extends TestCase
         // person's words for that call, and never for what its input carries (decisions/0630).
         $this->fakeComposer();
         [$operations, $enable, $index] = $this->enableHandler();
-        $call = fn (array $extra = []): array => $enable->invoke($operations, ['capability' => 'lab/good'] + $extra, null, null, $this->root, $index, $this->probeWithoutBwrap());
+        $signed = new \Milpa\Command\InvocationContext(actor: 'key:AAAA1111', verified: true, authorizationId: 'sha256:auth-7');
+        $call = fn (array $extra = []): array => $enable->invoke($operations, ['capability' => 'lab/good'] + $extra, $signed, null, $this->root, $index, $this->probeWithoutBwrap());
 
         $held = AcceptedOnTheConsole::during(self::ACCEPTED, $call);
         self::assertStringNotContainsString('saying UNCONFINED is not authorizing', (string) json_encode($held, \JSON_UNESCAPED_UNICODE));
@@ -381,6 +382,7 @@ final class TheComposerStageBootsConfinedTest extends TestCase
         $entries = file($this->root . '/' . HouseBootWitness::JOURNAL, \FILE_IGNORE_NEW_LINES) ?: [];
         self::assertCount(1, $entries);
         self::assertSame(self::ACCEPTED, json_decode($entries[0], true)['unconfined_accepted'] ?? null, 'recorded before it ran');
+        self::assertSame(['key:AAAA1111', 'sha256:auth-7'], [json_decode($entries[0], true)['authorized_by'] ?? null, json_decode($entries[0], true)['authorization'] ?? null], 'with who authorized the call');
 
         // The words were for that one call: the next one, in the same process, has none.
         self::assertNull(AcceptedOnTheConsole::words());
@@ -517,6 +519,9 @@ final class TheComposerStageBootsConfinedTest extends TestCase
         yield 'in another case' => ['Accept_UNCONFINED'];
         yield 'with its dashes' => ['--accept-unconfined'];
         yield 'with blanks around it' => [' accept_unconfined '];
+        yield 'carrying its own words' => ['accept_unconfined=the caller wrote these words'];
+        yield 'carrying its own words, as typed' => ['--Accept-Unconfined=the caller wrote these words'];
+        yield 'ending in the sign' => ['accept-unconfined='];
     }
 
     #[DataProvider('namesTheConsoleKeepsForAPerson')]
@@ -525,6 +530,7 @@ final class TheComposerStageBootsConfinedTest extends TestCase
         // The line an unsigned door offers is built from the caller's input and run by a person as given.
         foreach ((new CapabilityOperations())->operations() as $operation) {
             self::assertNull(UnsignedTerminal::signedLineOrNull($operation, ['capability' => 'lab/good', 'package' => 'lab/good', $name => self::ACCEPTED]), $operation->name);
+            self::assertNull(UnsignedTerminal::signedLineOrNull($operation, ['capability' => 'lab/good', $name => true]), $operation->name . ', as a switch');
             self::assertStringNotContainsStringIgnoringCase('unconfined', (string) UnsignedTerminal::signedLineOrNull($operation, ['capability' => 'lab/good']), 'the control: without the name a line is offered');
             self::assertNotNull(UnsignedTerminal::signedLineOrNull($operation, ['capability' => 'lab/good']));
         }
