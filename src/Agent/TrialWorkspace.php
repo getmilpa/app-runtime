@@ -489,6 +489,13 @@ final class TrialWorkspace
             if (! is_dir($dir)) {
                 mkdir($dir, 0o777, true);
             }
+            // A LINK IS COPIED AS A LINK, as rsync -a does (greenhouse decisions/0632): the copy is fingerprinted the way
+            // the house is ({@see fingerprint()}), and what a link points at never becomes a file of the copy.
+            if (is_link($root . '/' . $rel)) {
+                symlink((string) readlink($root . '/' . $rel), $dest);
+
+                continue;
+            }
             copy($root . '/' . $rel, $dest);
         }
     }
@@ -547,18 +554,36 @@ final class TrialWorkspace
 
     /**
      * What a file of a tree is, for the diff and the baseline: the sha256 of its bytes — and for a symbolic link, of
-     * the link itself, never of what it points at. A trial binds its copy writable, so a link in it may point at any
-     * file of the house, the masked ones too; reading through it would carry those bytes out of the confinement into
-     * every listing and every copy built from the diff. The change is still seen, by what the link says.
+     * the link itself, never of what it points at (greenhouse decisions/0632). Nothing built from a trial carries a
+     * file that is not the trial's own; the change is still seen, by what the link says.
      */
+    /** What a link's fingerprint is hashed with, before what the link says, so it is never the hash of a file's own bytes by accident of form. */
+    private const string LINK_DOMAIN = "milpa-trial-link\0";
+
     private static function fingerprint(string $dir, string $rel): ?string
     {
         $path = $dir . '/' . $rel;
         if (is_link($path)) {
-            return 'link:' . hash('sha256', (string) readlink($path));
+            return hash('sha256', self::LINK_DOMAIN . (string) readlink($path));
         }
 
         return hash_file('sha256', $path) ?: null;
+    }
+
+    /**
+     * The bytes of one file of this trial, exactly as its diff judged them ({@see diff()}): null when the file is a
+     * symbolic link, cannot be read, or changed since — so whatever is built from a trial carries only what was judged,
+     * even while the trial still writes its copy (greenhouse decisions/0632).
+     */
+    public function judgedBytes(string $rel, ?string $sha256): ?string
+    {
+        $path = $this->copy . '/' . $rel;
+        if ($sha256 === null || is_link($path)) {
+            return null;
+        }
+        $bytes = @file_get_contents($path);
+
+        return $bytes !== false && hash('sha256', $bytes) === $sha256 ? $bytes : null;
     }
 
     /**

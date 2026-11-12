@@ -65,7 +65,7 @@ final class ACopyNeverCarriesWhatATrialsLinkPointsAtTest extends TestCase
 
         self::assertSame('added', $diff['src/Plugins/Blog/leak.php']['status'] ?? null, 'the link is still seen as a change');
         self::assertNotSame($secret, $diff['src/Plugins/Blog/leak.php']['sha256'] ?? null, 'the diff read through the link');
-        self::assertStringStartsWith('link:', (string) ($diff['src/Plugins/Blog/leak.php']['sha256'] ?? ''));
+        self::assertSame(hash('sha256', "milpa-trial-link\0" . $this->root . '/.milpa/secrets.json'), $diff['src/Plugins/Blog/leak.php']['sha256'] ?? null, 'the link is fingerprinted by what it says');
         self::assertSame($secret, $diff['src/Plugins/Blog/plain.php']['sha256'] ?? null, 'the control: a plain file is hashed by its bytes');
         self::assertSame(['src/Plugins/Blog/leak.php'], $ws->links());
     }
@@ -99,6 +99,44 @@ final class ACopyNeverCarriesWhatATrialsLinkPointsAtTest extends TestCase
         unlink($ws->copy . '/src/Plugins/Blog/leak.php');
         $control = $this->operation('route:observe')(['path' => '/', 'workspace' => 'w3']);
         self::assertStringNotContainsString('symbolic link', (string) json_encode($control), 'the control: without the link the trial is observed');
+    }
+
+    public function testWhatIsBuiltFromATrialIsOnlyWhatItsDiffJudged(): void
+    {
+        $ws = $this->trial('w4');
+        file_put_contents($ws->copy . '/src/Plugins/Blog/page.php', 'judged');
+        $judged = $ws->diff()['src/Plugins/Blog/page.php']['sha256'] ?? null;
+
+        self::assertSame('judged', $ws->judgedBytes('src/Plugins/Blog/page.php', $judged), 'the control: what was judged is read');
+
+        file_put_contents($ws->copy . '/src/Plugins/Blog/page.php', 'changed after the diff');
+        self::assertNull($ws->judgedBytes('src/Plugins/Blog/page.php', $judged), 'bytes that changed after the diff are not carried');
+
+        // A directory swapped for a link to a house directory, after the diff: what it shows now is not what was judged.
+        mkdir($this->root . '/.milpa/elsewhere', 0o777, true);
+        file_put_contents($this->root . '/.milpa/elsewhere/page.php', $this->canary);
+        rename($ws->copy . '/src/Plugins/Blog', $ws->copy . '/src/Plugins/Blog.moved');
+        symlink($this->root . '/.milpa/elsewhere', $ws->copy . '/src/Plugins/Blog');
+        self::assertNull($ws->judgedBytes('src/Plugins/Blog/page.php', $judged));
+
+        unlink($ws->copy . '/src/Plugins/Blog');
+        rename($ws->copy . '/src/Plugins/Blog.moved', $ws->copy . '/src/Plugins/Blog');
+        unlink($ws->copy . '/src/Plugins/Blog/page.php');
+        symlink($this->root . '/.milpa/secrets.json', $ws->copy . '/src/Plugins/Blog/page.php');
+        self::assertNull($ws->judgedBytes('src/Plugins/Blog/page.php', $judged), 'a file that became a link is not read through');
+    }
+
+    public function testAHouseLinkKeepsATrialCurrentAndOutOfItsDiff(): void
+    {
+        // A file link the house itself holds travels as a link, and both sides fingerprint it the same way.
+        file_put_contents($this->root . '/public/real.txt', 'house file');
+        symlink($this->root . '/public/real.txt', $this->root . '/public/alias.txt');
+        $ws = $this->trial('w5');
+
+        self::assertTrue(is_link($ws->copy . '/public/alias.txt'), 'the link reached the copy as a link');
+        self::assertSame([], $ws->diff(), 'an untouched house link is no change');
+        self::assertSame([], $ws->links());
+        self::assertTrue($ws->hasCurrentInputs(), 'a copy with a house link is still current');
     }
 
     private function trial(string $id): TrialWorkspace
