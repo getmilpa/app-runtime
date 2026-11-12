@@ -61,6 +61,9 @@ final class TrialRunner
     /** The PHP a trial runs — found by {@see PhpBinary}, because under FrankenPHP `PHP_BINARY` is empty (0505). */
     private readonly string $php;
 
+    /** The shell the launcher runs in, looked for once: `bash` where there is one, for it names any descriptor. */
+    private ?string $launcherShell = null;
+
     public function __construct(
         private readonly string $bwrap = 'bwrap',
         private readonly int $timeoutSeconds = 60,
@@ -201,7 +204,7 @@ final class TrialRunner
             return null;
         }
 
-        return [$this->bwrap, ...$namespaces, ...self::environmentFloor($tree, $tree), '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null',
+        return [...$this->fromNothing(), ...$namespaces, ...self::environmentFloor($tree, $tree), '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null',
             '--bind', $tree, $tree, ...$this->maskArgs($secretsRoot)];
     }
 
@@ -230,7 +233,7 @@ final class TrialRunner
         if ($house === false || $state === []) {
             throw new \RuntimeException('Work runs confined to a declared state, and none was given.');
         }
-        $command = ['timeout', '-k', '2', (string) $this->timeoutSeconds, $this->bwrap,
+        $command = ['timeout', '-k', '2', (string) $this->timeoutSeconds, ...$this->fromNothing(),
             ...$this->namespaces() ?? self::NAMESPACES, ...self::environmentFloor($scratch, $scratch), '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null'];
         foreach ($state as $relative) {
             $why = HouseWork::notAPlaceForState($house, $relative);
@@ -304,7 +307,7 @@ final class TrialRunner
         // boot witness of 0515 could not start its child — every witnessed writer refused inside a leg. The
         // sink is bound back with its device; /dev/zero, /dev/tty and the rest stay closed.
         $house = (string) realpath($workspace->root);
-        $command = ['timeout', '-k', '2', (string) $this->timeoutSeconds, $this->bwrap,
+        $command = ['timeout', '-k', '2', (string) $this->timeoutSeconds, ...$this->fromNothing(),
             ...$this->namespaces() ?? self::NAMESPACES, ...self::environmentFloor($temporary, $temporary), '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null'];
         if ($writePaths === null) {
             array_push($command, '--bind', $workspace->copy, $workspace->copy);
@@ -572,6 +575,42 @@ final class TrialRunner
 
         return $paths;
     }
+
+    /**
+     * What a confinement is started with: bubblewrap, from a process that carries nothing of its launcher.
+     *
+     * {@see environmentFloor()} gives the confined command a floor for an environment, and the namespaces give it
+     * its own processes. bubblewrap's own first process lives inside the confinement too, so it is started with
+     * nothing as well: by a shell that first closes every descriptor above standard error, points standard input
+     * at nothing where it can, and empties the environment. The confined command and everything beside it start
+     * from the floor and the three standard streams.
+     *
+     * IT REFUSES RATHER THAN GUESS. After closing, the shell lists its own descriptor table again — the shell
+     * itself, never a child of it; a table it cannot list, or a descriptor that is
+     * still open — a shell that cannot name a descriptor above 9, where no `bash` is found — ends the launch with
+     * exit 126 and a line on standard error, and nothing runs. bubblewrap is resolved with the launcher's own
+     * search path BEFORE the environment is emptied, so the program that confines is the one {@see installed()}
+     * found.
+     *
+     * @return list<string> the head of every confined command: the launcher and the program it starts
+     */
+    private function fromNothing(): array
+    {
+        $shell = $this->launcherShell ??= ($this->resolvable('bash') ? 'bash' : 'sh');
+
+        // `-p`: bash reads no start-up file, no shell options and no functions from the environment it is given.
+        return [$shell, ...($shell === 'bash' ? ['-p'] : []), '-c', self::FROM_NOTHING, 'confine', $this->bwrap];
+    }
+
+    /** The launcher {@see fromNothing()} runs: `$1` is bubblewrap, the rest are its arguments. One line, so it survives any quoting. */
+    private const FROM_NOTHING = 'b=$(command -v -- "$1") || { echo "confine: $1 was not found" >&2; exit 127; }; shift; '
+        . 'case $b in *=*) echo "confine: the path of the confining program holds an equals sign" >&2; exit 126;; esac; '
+        . 'for f in /proc/self/fd/*; do n=${f##*/}; case $n in [0-2]) ;; [3-9]) eval "exec $n>&-";; *[!0-9]*) ;; *) [ -n "${BASH_VERSION:-}" ] && eval "exec $n>&-";; esac; done; '
+        . 'for f in /proc/self/fd/*; do n=${f##*/}; case $n in [0-2]) ;; '
+        . '*[!0-9]*) echo "confine: this process cannot read its own descriptors" >&2; exit 126;; '
+        . '*) [ -e "$f" ] && { echo "confine: descriptor $n of the launcher could not be closed" >&2; exit 126; };; esac; done; '
+        . '[ -r /dev/null ] && exec 0</dev/null; '
+        . 'exec env -i "$b" "$@"';
 
     /**
      * HUECO B4 (greenhouse CH): the exact environment a confined child is allowed to see. The confinement did not

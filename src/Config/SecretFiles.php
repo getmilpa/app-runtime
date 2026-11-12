@@ -67,8 +67,8 @@ final class SecretFiles
 
     /**
      * The book of standing grants and its head (greenhouse decisions/0615): what a person granted, what the house
-     * measured and what it absorbed. No copy carries it either. The trial runner does not mask it (a separate
-     * question, 0615), so it is kept apart from {@see NON_BEARER_STATE}, which the mask reads.
+     * measured and what it absorbed. No copy carries it either. The trial runner masks it through the ledger's own
+     * list of what exists ({@see StandingLedger::existingUnder()}), so it is kept apart from {@see NON_BEARER_STATE}.
      */
     private const STANDING_BOOK = [StandingLedger::PATH, StandingLedger::PATH . StandingLedger::HEAD];
 
