@@ -43,7 +43,18 @@ final class WhatAPromotionLands
      */
     public static function digest(TrialWorkspace $workspace): string
     {
-        return 'diff:' . hash('sha256', (string) json_encode($workspace->diff(), \JSON_UNESCAPED_SLASHES));
+        return self::digestOf($workspace->diff());
+    }
+
+    /**
+     * The same digest, of a diff already read: the promotion compares the diff it is about to copy against the one a
+     * person said yes to, without reading the trial a second time.
+     *
+     * @param array<string, mixed> $diff
+     */
+    public static function digestOf(array $diff): string
+    {
+        return 'diff:' . hash('sha256', (string) json_encode($diff, \JSON_UNESCAPED_SLASHES));
     }
 
     /**

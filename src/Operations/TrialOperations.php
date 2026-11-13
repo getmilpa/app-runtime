@@ -22,6 +22,7 @@ use Milpa\AppRuntime\Agent\PluginAuthoringPolicy;
 use Milpa\AppRuntime\Agent\RouteFailureCause;
 use Milpa\AppRuntime\Agent\RouteRegression;
 use Milpa\AppRuntime\Agent\TrialWorkspace;
+use Milpa\AppRuntime\Agent\WhatAPromotionLands;
 use Milpa\AppRuntime\Config\SecretFiles;
 use Milpa\AppRuntime\Support\BootCandidate;
 use Milpa\AppRuntime\Support\BootProbe;
@@ -488,6 +489,14 @@ final class TrialOperations implements CommandProvider
         }
 
         $diff = $ws->diff();
+        // THE BYTES A PERSON SAID YES TO ARE THE BYTES THAT LAND (greenhouse decisions/0628; the first independent
+        // review, L2). On the agent's door the gate admitted a digest of this trial's diff; if the trial changed since,
+        // this is not what anyone said yes to. Every file read below is checked against this same diff, so the copy is
+        // bound to the digest end to end. A call with no gate (a person at the terminal) carries no such question.
+        $approved = $authority?->extra[self::APPROVED_PROMOTION] ?? null;
+        if ($approved instanceof \Closure && $approved($id) !== WhatAPromotionLands::digestOf($diff)) {
+            return ['ok' => false, 'error' => "trial «{$id}» is not what a person said yes to: it changed after the question was asked, so ask again; nothing was promoted"];
+        }
         // A TRIAL CARRIES PLAIN NAMES ONLY (the third independent review of greenhouse decisions/0625, M1). A
         // case-folding filesystem resolves a name by rules of its own — it folds Unicode case and ignores invisible
         // characters — so a name that differs from the house's token store or its `.env` only by such characters IS
@@ -924,6 +933,12 @@ final class TrialOperations implements CommandProvider
      * that call reads it here — it is no change of the house ({@see \Milpa\AppRuntime\Agent\SessionToolGate::recorded()}).
      */
     public const ALREADY_PROMOTED = 'already_promoted';
+
+    /**
+     * The key of a call's context under which the agent's door hands the promotion a way to ask what digest a person
+     * said yes to ({@see \Milpa\AppRuntime\Agent\SessionToolGate::approvedPromotion()}).
+     */
+    public const APPROVED_PROMOTION = 'promotion.approved';
 
     private const ADMIT_INPUT = [
         'type' => 'object',

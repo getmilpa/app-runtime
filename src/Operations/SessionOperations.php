@@ -1894,7 +1894,11 @@ final class SessionOperations implements CommandProvider
         $otorgado = null;
         if (str_starts_with($pregunta->id, 'perm:') && $this->esAfirmativa($respuesta)) {
             $otorgado = substr($pregunta->id, 5);
-            $almacen->grant($id, $otorgado);
+            // A PROMOTION'S YES IS NOT A GRANT FOR THE SESSION (the third independent review of greenhouse
+            // decisions/0628, L-D): the gate admits it by the digest in this answer alone, so no row says otherwise.
+            if (! $this->namesItsBytes($pregunta)) {
+                $almacen->grant($id, $otorgado);
+            }
         } elseif ($pregunta->id === 'perm:sandbox:promote') {
             // DISCARD-ON-REJECT (greenhouse decisions/0071, Precondition B): a «no» to a promotion is
             // terminal — the trial is dead — so it is discarded, making «no» as clean as «sí» (which
@@ -1907,7 +1911,7 @@ final class SessionOperations implements CommandProvider
             'ok' => true,
             'session' => $id,
             'answered' => $pregunta->id,
-            'granted' => $otorgado,
+            'granted' => $otorgado === null ? null : $this->whatTheYesCovers($pregunta, $otorgado),
             'hint' => $this->comoSeRetoma($id, $almacen),
         ];
     }
@@ -2004,19 +2008,22 @@ final class SessionOperations implements CommandProvider
             $quien,
             $ctx instanceof InvocationContext && $ctx->executor !== null ? $ctx->executor : $this->procesoLocal(),
         );
-        $almacen->grant($id, $operacion, $sobreEfectivo->toArray(), [
-            'base' => $base->toArray(),
-            'requested' => $sobre,
-            'question' => $pregunta->id,
-            'arguments_digest' => \Milpa\AppRuntime\Agent\ConsentBridge::digest($argumentos),
-            'by' => $quien->toArray(),
-        ]);
+        // A promotion's yes is admitted by its digest alone (L-D, as in answer()); no row grants the operation.
+        if (! $this->namesItsBytes($pregunta)) {
+            $almacen->grant($id, $operacion, $sobreEfectivo->toArray(), [
+                'base' => $base->toArray(),
+                'requested' => $sobre,
+                'question' => $pregunta->id,
+                'arguments_digest' => \Milpa\AppRuntime\Agent\ConsentBridge::digest($argumentos),
+                'by' => $quien->toArray(),
+            ]);
+        }
 
         return [
             'ok' => true,
             'session' => $id,
             'answered' => $pregunta->id,
-            'granted' => $operacion,
+            'granted' => $this->whatTheYesCovers($pregunta, $operacion),
             'envelope' => $sobreEfectivo->toArray(),
             'base' => $base->toArray(),
             'tightened' => $apretadas,
@@ -2128,6 +2135,32 @@ final class SessionOperations implements CommandProvider
      * «adelante pero con cuidado» tienen que caer del lado de la negativa, porque interpretar de más
      * en la pieza que otorga permisos es exactamente donde no se quiere ser listo.
      */
+    /**
+     * What a yes covers, as the answer says it (the first independent review of greenhouse decisions/0628, L7). A yes
+     * to a promotion's question admits exactly the changes it showed, of that trial: the gate admits it by their digest
+     * alone, and a changed trial is asked again. Saying only the operation's name read as a yes for the rest of the
+     * session.
+     */
+    /** Whether a question names the bytes its yes covers: a promotion's, since greenhouse decisions/0628. */
+    private function namesItsBytes(\Milpa\Agent\PendingQuestion $question): bool
+    {
+        $fact = json_decode((string) $question->why, true);
+
+        return \is_array($fact) && \is_string($fact['digest'] ?? null);
+    }
+
+    private function whatTheYesCovers(\Milpa\Agent\PendingQuestion $question, string $operation): string
+    {
+        $fact = json_decode((string) $question->why, true);
+        $digest = \is_array($fact) ? ($fact['digest'] ?? null) : null;
+        $ws = \is_array($fact) && \is_array($fact['arguments'] ?? null) ? ($fact['arguments']['workspace'] ?? null) : null;
+        if (! \is_string($digest) || ! \is_string($ws)) {
+            return $operation;
+        }
+
+        return "{$operation} of trial «{$ws}», exactly {$digest} (only these changes; a changed trial is asked again)";
+    }
+
     /**
      * Discard the trial named in a rejected promotion's question, or nothing if there is none.
      *

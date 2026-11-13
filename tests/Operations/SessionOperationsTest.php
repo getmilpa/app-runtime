@@ -1186,6 +1186,46 @@ final class SessionOperationsTest extends TestCase
 
         self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
         self::assertNull($almacen->load('s1')?->question);
+        self::assertStringContainsString('exactly diff:' . str_repeat('a', 64), (string) $r['granted'], 'the answer names the bytes it covers');
+    }
+
+    /**
+     * A YES TO A PROMOTION SAYS WHAT IT COVERS (the first independent review of greenhouse decisions/0628, L7): those
+     * changes of that trial, not the operation for the rest of the session.
+     */
+    public function testAYesToAPromotionSaysItCoversOnlyThoseChanges(): void
+    {
+        $almacen = $this->almacen();
+        $this->pausaDePromocion($almacen, Subject::Executable);
+
+        $r = $this->llamar('agent:answer', ['session' => 's1', 'answer' => 'yes']);
+
+        self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
+        self::assertStringContainsString('trial «wab31ff8973a851da»', (string) $r['granted']);
+        self::assertStringContainsString('exactly diff:' . str_repeat('a', 64), (string) $r['granted']);
+        self::assertStringContainsString('asked again', (string) $r['granted']);
+        self::assertSame([], $almacen->load('s1')?->permissions, 'no row grants the operation for the session');
+    }
+
+    public function testAnEnvelopeYesToAPromotionWritesNoSessionGrant(): void
+    {
+        $almacen = $this->almacen();
+        $this->pausaDePromocion($almacen, Subject::Configuration);
+
+        $r = $this->llamar('agent:answer', ['session' => 's1', 'envelope' => ['subject' => 'configuration']]);
+
+        self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
+        self::assertSame([], $almacen->load('s1')?->permissions, 'the yes is in the answer; no row grants the operation');
+    }
+
+    public function testAYesToAQuestionWithNoDigestStillNamesTheOperation(): void
+    {
+        $almacen = $this->almacen();
+        $almacen->start('s1', 'g');
+        $almacen->ask('s1', new PendingQuestion('perm:make', '¿Autorizas make?', ['yes', 'no'], reason: 'permission'));
+
+        self::assertSame('make', $this->llamar('agent:answer', ['session' => 's1', 'answer' => 'yes'])['granted'], 'the control: nothing else changes');
+        self::assertNotSame([], $almacen->load('s1')?->permissions, 'the control: an ordinary yes still grants its operation');
     }
 
     /**
