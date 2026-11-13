@@ -40,6 +40,9 @@ final class WhatAPromotionLands
     /** Bytes of a file read for its view: more than any share shows. */
     private const READ = 4 * self::PER_FILE;
 
+    /** Bytes compared at a time when a modified file is set against the house's. */
+    private const CHUNK = 65536;
+
     /** Bytes of a file read to tell whether it is text. */
     private const SNIFF = 8192;
 
@@ -221,62 +224,112 @@ final class WhatAPromotionLands
         if ($limit <= 0) {
             return 'not shown: the promotion is longer than what is shown at once, and its digest covers this file too';
         }
-        // ONLY WHAT CAN BE SHOWN IS REWRITTEN (the fifth independent review of decisions/0628, L5-1): a file of tens of
-        // megabytes was rewritten whole before being cut to its share, and the leg ran out of memory where the release
-        // before asked the question. The first {@see READ} bytes are the most any share shows; the digest covers the rest.
+        // ONLY THE CHANGE IS REWRITTEN (the fifth and sixth independent reviews of decisions/0628, L5-1 and M6-1): an
+        // added file is shown from its start, a modified one from the first line that differs to the last, wherever in
+        // the file they are, and only that window — at most {@see READ} bytes a side — is ever rewritten for the view.
         $size = \strlen($whole);
-        $after = $size > self::READ ? mb_strcut($whole, 0, self::READ, 'UTF-8') : $whole;
+        [$old, $new, $line, $cut] = $status === 'modified'
+            ? self::changedWindow($whole, $workspace->root . '/' . $path)
+            : ['', mb_strcut($whole, 0, self::READ, 'UTF-8'), 1, $size > self::READ];
         unset($whole);
         $note = '';
-        if (! mb_check_encoding($after, 'UTF-8')) {
+        if (! mb_check_encoding($old . $new, 'UTF-8')) {
             // Text with bytes that are not UTF-8 still runs: it is shown, with those bytes marked.
-            $after = mb_scrub($after, 'UTF-8');
+            [$old, $new] = [mb_scrub($old, 'UTF-8'), mb_scrub($new, 'UTF-8')];
             $note = "(not valid UTF-8: the bytes that are not are shown as ?)\n";
         }
-        if (str_contains($after, "\0")) {
+        if (str_contains($old . $new, "\0")) {
             // A NUL hides nothing from the house: a file that carries one can still run (the first independent review
             // of decisions/0628, L6'). It is shown like any text, each NUL marked where it is.
-            $after = str_replace("\0", self::NUL, $after);
+            [$old, $new] = [str_replace("\0", self::NUL, $old), str_replace("\0", self::NUL, $new)];
             $note .= '(contains NUL bytes: each is shown as ' . self::NUL . ")\n";
         }
-
-        $beforePath = $workspace->root . '/' . $path;
-        $before = $status === 'modified' && $size <= self::READ && is_file($beforePath) && (int) filesize($beforePath) <= self::READ
-            ? @file_get_contents($beforePath)
-            : false;
-        $text = \is_string($before) && mb_check_encoding($before, 'UTF-8') && $note === ''
-            ? self::changedLines($before, $after)
-            : self::prefixed('+', explode("\n", $after));
+        $text = ($status === 'modified' ? "@@ line {$line} @@\n" . self::prefixed('-', self::lines($old)) : '')
+            . self::prefixed('+', self::lines($new));
 
         // The code's own masked-looking text is marked before the view is measured, so the mark never grows it past
         // its bounds (the fourth independent review, L4-3).
         $text = $note . self::literalMarksMarked($text);
-        if ($size <= self::READ && mb_strlen($text) <= $limit) {
+        if (! $cut && mb_strlen($text) <= $limit) {
             return $text;
         }
 
-        return mb_substr($text, 0, $limit) . "\n… the rest of this file ({$size} bytes in all) is not shown; the digest covers it";
+        return mb_substr($text, 0, $limit) . "\n… the rest of this change is not shown ({$size} bytes in the file); the digest covers it";
     }
 
-    /** The lines between the common start and the common end of two texts, as `-` and `+` lines. */
-    private static function changedLines(string $before, string $after): string
+    /**
+     * The lines a modified file changed: the house's file is compared with the trial's from both ends, a chunk at a
+     * time and never read whole, and the window between the common start and the common end is widened to whole lines.
+     *
+     * @return array{0: string, 1: string, 2: int, 3: bool} what the house had there, what the trial has, the line the
+     *                                                      window starts at, and whether a side was cut to READ
+     */
+    private static function changedWindow(string $after, string $beforePath): array
     {
-        $old = explode("\n", $before);
-        $new = explode("\n", $after);
-        $start = 0;
-        while ($start < \count($old) && $start < \count($new) && $old[$start] === $new[$start]) {
-            ++$start;
+        $handle = @fopen($beforePath, 'rb');
+        $stat = $handle === false ? false : fstat($handle);
+        if ($handle === false || $stat === false) {
+            return ['', mb_strcut($after, 0, self::READ, 'UTF-8'), 1, \strlen($after) > self::READ];
         }
-        $endOld = \count($old) - 1;
-        $endNew = \count($new) - 1;
-        while ($endOld >= $start && $endNew >= $start && $old[$endOld] === $new[$endNew]) {
-            --$endOld;
-            --$endNew;
+        $afterSize = \strlen($after);
+        $beforeSize = (int) $stat['size'];
+        $common = min($afterSize, $beforeSize);
+
+        $prefix = 0;
+        while ($prefix < $common) {
+            $chunk = fread($handle, min(self::CHUNK, $common - $prefix));
+            if (! \is_string($chunk) || $chunk === '') {
+                break;
+            }
+            $equal = strspn(substr($after, $prefix, \strlen($chunk)) ^ $chunk, "\0");
+            $prefix += $equal;
+            if ($equal < \strlen($chunk)) {
+                break;
+            }
+        }
+        $suffix = 0;
+        while ($suffix < $common - $prefix) {
+            $length = min(self::CHUNK, $common - $prefix - $suffix);
+            fseek($handle, $beforeSize - $suffix - $length);
+            $chunk = fread($handle, $length);
+            if (! \is_string($chunk) || \strlen($chunk) !== $length) {
+                break;
+            }
+            $differs = substr($after, $afterSize - $suffix - $length, $length) ^ $chunk;
+            $equal = $length - \strlen(rtrim($differs, "\0"));
+            $suffix += $equal;
+            if ($equal < $length) {
+                break;
+            }
         }
 
-        return '@@ line ' . ($start + 1) . " @@\n"
-            . self::prefixed('-', \array_slice($old, $start, $endOld - $start + 1))
-            . self::prefixed('+', \array_slice($new, $start, $endNew - $start + 1));
+        // Widened to whole lines: back to the start of the first changed line, on to the end of the last.
+        $start = $prefix === 0 ? 0 : (($newline = strrpos($after, "\n", $prefix - $afterSize - 1)) === false ? 0 : $newline + 1);
+        $afterEnd = $afterSize - $suffix;
+        if ($afterEnd > $start && $after[$afterEnd - 1] !== "\n") {
+            $newline = strpos($after, "\n", $afterEnd);
+            $afterEnd = $newline === false ? $afterSize : $newline + 1;
+        }
+        $beforeEnd = $beforeSize - ($afterSize - $afterEnd);
+
+        fseek($handle, $start);
+        $old = $beforeEnd > $start ? (string) fread($handle, min($beforeEnd - $start, self::READ + 4)) : '';
+        fclose($handle);
+        $new = substr($after, $start, min($afterEnd - $start, self::READ + 4));
+        $cut = $beforeEnd - $start > self::READ || $afterEnd - $start > self::READ;
+
+        return [
+            mb_strcut($old, 0, self::READ, 'UTF-8'),
+            mb_strcut($new, 0, self::READ, 'UTF-8'),
+            substr_count($after, "\n", 0, $start) + 1,
+            $cut,
+        ];
+    }
+
+    /** @return list<string> the lines of a text, without the empty one after its last newline */
+    private static function lines(string $text): array
+    {
+        return $text === '' ? [] : explode("\n", str_ends_with($text, "\n") ? substr($text, 0, -1) : $text);
     }
 
     /** @param list<string> $lines */

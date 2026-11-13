@@ -430,9 +430,62 @@ final class APromotionLandsOnlyWhatAPersonSaidYesToTest extends TestCase
         $gate->refuse('sandbox_promote', ['workspace' => self::WS]);
         $lands = array_column(json_decode((string) $store->load('s')?->question?->why, true)['lands'] ?? [], null, 'path');
 
-        self::assertStringContainsString("{$size} bytes in all", $lands['src/0video.bin']['shown'] ?? '');
+        self::assertStringContainsString("{$size} bytes in the file", $lands['src/0video.bin']['shown'] ?? '');
         self::assertStringContainsString("return file_get_contents('.env');", $lands['src/Probe.php']['shown'] ?? '', 'the code is still shown');
         self::assertLessThan(3 * $size, memory_get_peak_usage() - $base, 'the view does not rewrite the whole file (the fifth review of 0628, L5-1)');
+    }
+
+    /**
+     * A CHANGE IS SHOWN WHEREVER IT IS IN THE FILE (the sixth independent review of decisions/0628, M6-1): a modified
+     * file larger than what one share shows is set against the house's, and the person reads the lines that changed.
+     *
+     * @return iterable<string, array{string, string, string}>
+     */
+    public static function changesInLargeFiles(): iterable
+    {
+        $lines = array_map(static fn (int $i): string => "// an ordinary line of the welcome controller, number {$i}", range(1, 700));
+        $house = implode("\n", $lines) . "\n";
+        $inserted = $lines;
+        array_splice($inserted, 260, 0, ['// MARKER-OF-THE-CHANGE']);
+        yield 'a line inserted in a 44 KB file' => [$house, implode("\n", $inserted) . "\n", '+// MARKER-OF-THE-CHANGE'];
+        yield 'a line appended to it' => [$house, $house . "// MARKER-OF-THE-CHANGE\n", '+// MARKER-OF-THE-CHANGE'];
+        $guarded = $lines;
+        array_splice($guarded, 300, 0, ['if (! $allowed) { // GUARD-THAT-WAS-THERE', '    return;', '}']);
+        yield 'a guard deleted' => [implode("\n", $guarded) . "\n", $house, '-if (! $allowed) { // GUARD-THAT-WAS-THERE'];
+        $small = implode("\n", array_slice($lines, 0, 420)) . "\n";
+        yield 'a file that grew past the share' => [$small, $small . implode("\n", array_slice($lines, 420, 2)) . "\n// MARKER-OF-THE-CHANGE\n", '+// MARKER-OF-THE-CHANGE'];
+    }
+
+    #[DataProvider('changesInLargeFiles')]
+    public function testAChangeInALargeFileIsShownAsTheLinesThatChanged(string $house, string $trial, string $expected): void
+    {
+        self::assertGreaterThan(24000, max(\strlen($house), \strlen($trial)));
+        $root = $this->house();
+        file_put_contents($root . '/src/Controller.php', $house);
+        $workspace = TrialWorkspace::materialize($root, self::WS, $this->stub());
+        file_put_contents($workspace->copy . '/src/Controller.php', $trial);
+        [$gate, $store] = $this->gate($root, AutonomyMode::Auto);
+
+        $gate->refuse('sandbox_promote', ['workspace' => self::WS]);
+        $shown = array_column(json_decode((string) $store->load('s')?->question?->why, true)['lands'] ?? [], null, 'path')['src/Controller.php']['shown'] ?? '';
+
+        self::assertStringContainsString($expected, $shown);
+        self::assertStringStartsWith('@@ line ', $shown);
+        self::assertLessThan(600, mb_strlen($shown), 'only the lines that changed, not the file');
+    }
+
+    public function testALargeTextOfManyBytesACharacterIsShownInItsWholeShare(): void
+    {
+        [$root, $trial] = $this->trialWithCode();
+        file_put_contents($trial->copy . '/src/Probe.php', str_repeat(str_repeat('ñ', 20) . "\n", 1200));
+        [$gate, $store] = $this->gate($root, AutonomyMode::Auto);
+
+        $gate->refuse('sandbox_promote', ['workspace' => self::WS]);
+        $shown = array_column(json_decode((string) $store->load('s')?->question?->why, true)['lands'] ?? [], null, 'path')['src/Probe.php']['shown'] ?? '';
+
+        self::assertSame(1, (24000 % 41) % 2, 'the control: the 24,000th byte falls inside a character');
+        self::assertStringNotContainsString('not valid UTF-8', $shown, 'a cut never splits a character');
+        self::assertGreaterThan(5900, mb_strlen($shown), 'the share is counted in characters, not bytes');
     }
 
     /** @return iterable<string, array{string, int, bool}> */
