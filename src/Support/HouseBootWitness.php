@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Support;
 
+use Milpa\AppRuntime\Agent\TrialRunner;
 use Milpa\Plugin\Contracts\BootWitnessInterface;
 
 /**
@@ -105,6 +106,11 @@ final class HouseBootWitness implements BootWitnessInterface
         }
         $paths = array_values(array_unique([...array_keys($writes), ...$deletes]));
         sort($paths);
+        // A PROCESS THAT SAYS IT IS A TRIAL AND IS NOT ONE (decisions/0631): nothing is written, recovery included.
+        if (TrialRunner::trialClaim() === false) {
+            return ['refused' => TrialRunner::FALSE_CLAIM . '. Nothing was written; the house is as it was.',
+                'said' => ['unwritten' => $paths, 'boot_room' => BootProbe::FALSE_ROOM]];
+        }
 
         $judged = null;
         $ask = $judge === null ? null : static function (string $candidate) use ($judge, &$judged): void {
@@ -236,6 +242,11 @@ final class HouseBootWitness implements BootWitnessInterface
         $command .= ' --no-plugins --no-scripts --no-interaction';
         $files = ['composer.json', 'composer.lock'];
         $paths = [...$files, 'vendor/'];
+        // A PROCESS THAT SAYS IT IS A TRIAL AND IS NOT ONE (decisions/0631): nothing runs, whatever was accepted.
+        if (TrialRunner::trialClaim() === false) {
+            return ['refused' => TrialRunner::FALSE_CLAIM . '. Nothing was written; the house is as it was.',
+                'said' => ['unwritten' => $paths, 'boot_room' => BootProbe::FALSE_ROOM], 'code' => 1, 'output' => []];
+        }
 
         // ASKED BEFORE COMPOSER RUNS: a boot that will not be run unconfined makes the install pointless, and the
         // refusal can say that nothing ran at all.

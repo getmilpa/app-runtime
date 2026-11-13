@@ -46,8 +46,8 @@ final class AConfinedProcessStartsFromNothingOfItsLauncherTest extends TestCase
     protected function tearDown(): void
     {
         if (isset($this->tree) && is_dir($this->tree)) {
-            array_map('unlink', glob($this->tree . '/*') ?: []);
-            rmdir($this->tree);
+            // The confinement leaves its mark under the tree's var/ (greenhouse decisions/0631).
+            exec('rm -rf ' . escapeshellarg($this->tree));
         }
     }
 

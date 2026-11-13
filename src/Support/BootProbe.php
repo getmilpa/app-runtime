@@ -110,6 +110,9 @@ final class BootProbe
      */
     public function check(string $root, array $writes, array $deletes = [], ?callable $whileItStands = null): array
     {
+        if (TrialRunner::trialClaim() === false) {
+            return ['why' => TrialRunner::FALSE_CLAIM, 'room' => self::FALSE_ROOM, 'confined' => false, 'mounted_less' => [], 'new_plugins' => []];
+        }
         try {
             $candidate = BootCandidate::of($root, $writes, $deletes);
         } catch (\RuntimeException $e) {
@@ -158,6 +161,9 @@ final class BootProbe
      */
     public function checkTree(string $tree, string $root): array
     {
+        if (TrialRunner::trialClaim() === false) {
+            return ['why' => TrialRunner::FALSE_CLAIM, 'room' => self::FALSE_ROOM, 'confined' => false];
+        }
         [$confinement, $room, $confined] = $this->roomFor($tree, $root);
         $why = $this->boot($tree, $confinement)['why'];
 
@@ -167,8 +173,11 @@ final class BootProbe
     /** Whether a boot of code nobody applied would run confined here: inside a trial, or with a namespace to build one. */
     public function canConfine(): bool
     {
-        return TrialRunner::insideTrial() || $this->runner->available();
+        return TrialRunner::insideTrial() || (TrialRunner::trialClaim() === null && $this->runner->available());
     }
+
+    /** The room a boot is refused in when the process says it is a trial and its room does not show it (0631). */
+    public const FALSE_ROOM = 'REFUSED: MILPA_TRIAL says this is a trial and the room does not show one, so nothing was booted (decisions/0631)';
 
     /**
      * Where a boot of `$tree` runs, said once for every door: the confinement (null to boot plain), the ROOM, and
