@@ -105,7 +105,10 @@ final class AProcessIsInATrialByWhatItsRoomShowsTest extends TestCase
         touch($home . '/' . TrialRunner::MARK);
 
         self::assertTrue($this->claimIn($home, route: false, mark: true), 'the mounted mark and no route: a trial');
-        self::assertFalse($this->claimIn($home, route: true, mark: true), 'the mounted mark with a route off the host: not a trial');
+        if (self::hostHasARoute()) {
+            // Only where this host has a route off it can a route be kept for the child (the review of 0631, L-7).
+            self::assertFalse($this->claimIn($home, route: true, mark: true), 'the mounted mark with a route off the host: not a trial');
+        }
         self::assertFalse($this->claimIn($home, route: false, mark: false), 'no route and no mark: not a trial');
     }
 
@@ -129,6 +132,12 @@ final class AProcessIsInATrialByWhatItsRoomShowsTest extends TestCase
         mkdir($taken . '/' . TrialRunner::MARK, 0o777, true);
         self::assertSame([], $mark->invoke(null, $taken), 'a mark that is not a file is not used');
 
+        $dangling = $this->root . '/h4';
+        mkdir($dangling . '/var', 0o777, true);
+        symlink($this->root . '/nowhere', $dangling . '/' . TrialRunner::MARK);
+        self::assertSame([], $mark->invoke(null, $dangling), 'a link at the mark, even to nothing, is not used');
+        self::assertFileDoesNotExist($this->root . '/nowhere', 'and nothing was made where it points');
+
     }
 
     public function testToldItOutsideOneComposerRunsNothingWhateverWasAccepted(): void
@@ -146,6 +155,29 @@ final class AProcessIsInATrialByWhatItsRoomShowsTest extends TestCase
         self::assertSame(BootProbe::FALSE_ROOM, $composed['said']['boot_room'] ?? null);
         self::assertSame([], $ran, 'Composer never ran');
         self::assertFileDoesNotExist($this->root . '/' . HouseBootWitness::JOURNAL, 'nothing was recorded as accepted');
+    }
+
+    /** @return iterable<string, array{bool}> */
+    public static function recovering(): iterable
+    {
+        yield 'a write' => [false];
+        yield 'a recovery' => [true];
+    }
+
+    /** Told it is a trial outside one, a writer writes nothing — not even as recovery (the review of 0631, L-2/L-3). */
+    #[\PHPUnit\Framework\Attributes\DataProvider('recovering')]
+    public function testToldItOutsideOneAWriterWritesNothing(bool $recovery): void
+    {
+        $this->set(TrialRunner::INSIDE_TRIAL_ENV, '1');
+        $committed = false;
+        $written = (new HouseBootWitness($this->root, new BootProbe(runner: new TrialRunner('/nonexistent/bwrap'))))
+            ->writeIfItBoots(['src/Plugins/Blog/Note.php' => '<?php'], static function () use (&$committed): void {
+                $committed = true;
+            }, recovery: $recovery);
+
+        self::assertSame(TrialRunner::FALSE_CLAIM . '. Nothing was written; the house is as it was.', $written['refused']);
+        self::assertSame(BootProbe::FALSE_ROOM, $written['said']['boot_room'] ?? null);
+        self::assertFalse($committed, 'nothing was written');
     }
 
     public function testEveryConfinedCommandCarriesTheMark(): void
@@ -194,6 +226,21 @@ final class AProcessIsInATrialByWhatItsRoomShowsTest extends TestCase
         self::assertSame(0, $run['exit'], $run['stderr']);
 
         return json_decode($run['stdout'], true);
+    }
+
+    /** Whether this process has a route off the host, over IPv4 or IPv6 (asked the way the claim asks it). */
+    private static function hostHasARoute(): bool
+    {
+        foreach (['udp://192.0.2.1:9', 'udp://[2001:db8::1]:9'] as $address) {
+            $socket = @stream_socket_client($address, $errno, $error, 1);
+            if (\is_resource($socket)) {
+                fclose($socket);
+
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @return array<string, mixed> */

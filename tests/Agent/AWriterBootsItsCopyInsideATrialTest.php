@@ -99,6 +99,24 @@ final class AWriterBootsItsCopyInsideATrialTest extends TestCase
         self::assertStringContainsString('Blog::class', (string) file_get_contents($this->root . '/config/plugins.php'), 'and never in the host');
     }
 
+    /** A link a leg leaves where its temporary storage goes is not followed into the house (greenhouse decisions/0631). */
+    public function testALinkLeftWhereTheTrialsTemporaryStorageGoesIsNotFollowed(): void
+    {
+        $runner = new TrialRunner();
+        if (!$runner->available()) {
+            self::markTestSkipped('this host offers no unprivileged user namespace for bwrap');
+        }
+        $workspace = TrialWorkspace::materialize($this->root, 'boot-planted', $this->script());
+        @mkdir($workspace->copy . '/var', 0o777, true);
+        symlink($this->root, $workspace->copy . '/var/verification-tmp');
+
+        $run = $runner->run($workspace, 'none', []);
+
+        self::assertSame(0, $run->exit, $run->stdout . $run->stderr);
+        self::assertFalse(is_link($workspace->copy . '/var/verification-tmp'), 'the link was replaced by a directory of the copy');
+        self::assertFileDoesNotExist($this->root . '/' . TrialRunner::MARK, 'no mark was made in the house');
+    }
+
     public function testInALegsTrialGitAnswersForWhatAsksItBeforeWriting(): void
     {
         file_put_contents($this->root . '/.gitignore', "/var/\n/vendor/\n/.milpa/secrets.json\n");

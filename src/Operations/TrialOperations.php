@@ -627,6 +627,10 @@ final class TrialOperations implements CommandProvider
             if (isset($boot['said']['judged'])) {
                 return $this->refuseBrokenRoutes($paths, $routes['regressed'], $routes['room'] ?? null);
             }
+            if ($boot['refused'] !== null && ($boot['said']['boot_room'] ?? null) === BootProbe::FALSE_ROOM) {
+                // Nothing was booted to judge (greenhouse decisions/0631): say why, not that the house does not boot.
+                return ['ok' => false, 'error' => $boot['refused'], 'unwritten' => $paths, 'boot_room' => BootProbe::FALSE_ROOM];
+            }
             if ($boot['refused'] !== null) {
                 return isset($boot['said']['rolled_back'])
                     ? $this->rolledBack($preDir, $paths, $boot['said'])

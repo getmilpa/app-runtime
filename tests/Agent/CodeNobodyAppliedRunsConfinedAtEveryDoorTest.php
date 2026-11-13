@@ -203,6 +203,21 @@ return $loader;
         self::assertArrayNotHasKey('route_room', $receipt, 'the routes were never judged');
     }
 
+    /** Told it is a trial outside one, a promotion writes nothing and says why — not that the house does not boot (0631). */
+    public function testToldItIsATrialAPromotionSaysWhyNotThatTheHouseDoesNotBoot(): void
+    {
+        $this->trialThatLogs('w9');
+        putenv(TrialRunner::INSIDE_TRIAL_ENV . '=1');
+
+        $refused = $this->promote('w9');
+
+        self::assertFalse($refused['ok'] ?? true, (string) json_encode($refused));
+        self::assertSame(TrialRunner::FALSE_CLAIM . '. Nothing was written; the house is as it was.', $refused['error'] ?? null);
+        self::assertSame(BootProbe::FALSE_ROOM, $refused['boot_room'] ?? null);
+        self::assertArrayNotHasKey('house_boots', $refused, 'it does not say the house does not boot: nothing was booted');
+        self::assertSame([], $this->plainBoots());
+    }
+
     /** L-2: inside a trial no confinement nests, and the room says the enclosing trial confines — not «no bwrap». */
     public function testInsideATrialTheRoomNamesTheEnclosingTrial(): void
     {

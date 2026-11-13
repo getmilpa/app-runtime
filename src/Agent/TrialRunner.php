@@ -364,6 +364,14 @@ final class TrialRunner
         // Verifiers need temporary files, including their child processes. Keep those within the
         // existing writable copy, under var/ (excluded from promotion), never in the host's /tmp.
         $temporary = $workspace->copy . '/var/verification-tmp';
+        // The copy is the trial's to write, and a link left there is not followed (greenhouse decisions/0631): the
+        // temporary storage, and the mark made in it, are made where the copy really is.
+        if (is_link($workspace->copy . '/var')) {
+            throw new \RuntimeException('The trial\'s var/ is a link: its temporary storage is not made through it.');
+        }
+        if (is_link($temporary)) {
+            unlink($temporary);
+        }
         if (!is_dir($temporary) && !mkdir($temporary, 0o700, true) && !is_dir($temporary)) {
             throw new \RuntimeException('Could not prepare temporary storage for the trial.');
         }
