@@ -398,6 +398,39 @@ final class APromotionLandsOnlyWhatAPersonSaidYesToTest extends TestCase
         self::assertSame(array_keys($trial->diff()), array_keys($lands), 'in the order of the diff');
     }
 
+    /** @return iterable<string, array{string}> */
+    public static function oneStrayByte(): iterable
+    {
+        yield 'a NUL' => ["\0"];
+        yield 'a byte that is not UTF-8' => ["\xff"];
+    }
+
+    #[DataProvider('oneStrayByte')]
+    public function testOneStrayByteDoesNotShrinkTheViewOfCode(string $byte): void
+    {
+        [$root, $trial] = $this->trialWithCode();
+        file_put_contents($trial->copy . '/src/Probe.php', "<?php // {$byte}\n" . str_repeat("// padding line of ordinary code\n", 90) . "return 'the-end-marker';\n");
+        [$gate, $store] = $this->gate($root, AutonomyMode::Auto);
+
+        $gate->refuse('sandbox_promote', ['workspace' => self::WS]);
+        $shown = array_column(json_decode((string) $store->load('s')?->question?->why, true)['lands'] ?? [], null, 'path')['src/Probe.php']['shown'] ?? '';
+
+        self::assertStringContainsString("return 'the-end-marker';", $shown, 'the whole file is shown, in the share of text');
+    }
+
+    public function testTheMarkOfTheCodesOwnTextNeverGrowsTheViewPastItsBound(): void
+    {
+        [$root, $trial] = $this->trialWithCode();
+        file_put_contents($trial->copy . '/src/Probe.php', str_repeat("[secret]\n", 2000));
+        [$gate, $store] = $this->gate($root, AutonomyMode::Auto);
+
+        $gate->refuse('sandbox_promote', ['workspace' => self::WS]);
+        $shown = array_column(json_decode((string) $store->load('s')?->question?->why, true)['lands'] ?? [], null, 'path')['src/Probe.php']['shown'] ?? '';
+
+        self::assertLessThan(6200, mb_strlen($shown), 'the share of one file holds with the marks in it');
+        self::assertStringContainsString('(literal text of the file)', $shown);
+    }
+
     public function testATextLikeAMaskedValueThatTheCodeCarriesIsMarkedAsTheCodes(): void
     {
         $root = $this->house();

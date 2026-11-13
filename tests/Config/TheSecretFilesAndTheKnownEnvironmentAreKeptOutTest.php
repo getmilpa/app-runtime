@@ -128,6 +128,18 @@ final class TheSecretFilesAndTheKnownEnvironmentAreKeptOutTest extends TestCase
         self::assertStringContainsString('Mx4kTe9', $redacted, 'the limit, stated: a value shorter than eight characters passes');
     }
 
+    public function testAValueShapedLikeAKeyIsKeptOutEvenWhenItAlsoFitsASettingsShape(): void
+    {
+        $values = ['Summer-2024-Pass', 'a8f3k2m9q1/z7x4c6v0b5n8', 'en_US.Xk3p9Qa7Lm2Nq8Rt'];
+        file_put_contents($this->root . '/.env', "REDIS_PWD=Summer-2024-Pass\nSTORE_ID=a8f3k2m9q1/z7x4c6v0b5n8\nLOCALE_ID=en_US.Xk3p9Qa7Lm2Nq8Rt\n");
+
+        $redacted = SecretRedaction::inText(implode(' ', $values), $this->root);
+
+        foreach ($values as $value) {
+            self::assertStringNotContainsString($value, $redacted, 'the shape of a key wins (the fourth review of 0628, L4-1)');
+        }
+    }
+
     public function testAPhraseOfTheEnvFileNotNamedAsACredentialPasses(): void
     {
         file_put_contents($this->root . '/.env', "SMTP_LOGIN=\"correct horse battery staple\"\n");

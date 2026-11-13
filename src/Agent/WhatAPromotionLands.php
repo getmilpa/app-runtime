@@ -98,7 +98,7 @@ final class WhatAPromotionLands
                 'path' => $path,
                 'status' => $entry['status'],
                 'sha256' => $entry['sha256'],
-                'shown' => SecretRedaction::inText(self::literalMarksMarked($shown[$path]), $houseRoot),
+                'shown' => SecretRedaction::inText($shown[$path], $houseRoot),
             ];
         }
 
@@ -108,7 +108,9 @@ final class WhatAPromotionLands
     /**
      * A text the code itself carries that reads like a masked value is marked as the code's own (the third independent
      * review of decisions/0628, L-C): otherwise a change that writes it in place of a value the person cannot see reads
-     * as no change at all.
+     * as no change at all. It tells a person what the code carries; it is not a seal: a file that already holds a
+     * secret's value can be written to read the same, and holding that value is what the redaction keeps from the
+     * model.
      */
     private static function literalMarksMarked(string $text): string
     {
@@ -122,8 +124,15 @@ final class WhatAPromotionLands
             return true;
         }
         $bytes = @file_get_contents($workspace->copy . '/' . $path);
+        if (! \is_string($bytes) || $bytes === '') {
+            return true;
+        }
+        // BY THE SHARE OF BYTES THAT ARE NOT TEXT, NOT BY ONE (the fourth independent review of decisions/0628, L4-2):
+        // one NUL or one stray byte in a comment does not make code an image, nor buy it a smaller view.
+        $scrubbed = mb_convert_encoding($bytes, 'UTF-8', 'UTF-8');
+        $bad = substr_count($bytes, "\0") + max(0, substr_count($scrubbed, '?') - substr_count($bytes, '?'));
 
-        return \is_string($bytes) && ! str_contains($bytes, "\0") && mb_check_encoding($bytes, 'UTF-8');
+        return $bad * 100 <= \strlen($bytes);
     }
 
     /**
@@ -209,7 +218,9 @@ final class WhatAPromotionLands
             ? self::changedLines($before, $after)
             : self::prefixed('+', explode("\n", $after));
 
-        $text = $note . $text;
+        // The code's own masked-looking text is marked before the view is measured, so the mark never grows it past
+        // its bounds (the fourth independent review, L4-3).
+        $text = $note . self::literalMarksMarked($text);
         if (mb_strlen($text) <= $limit) {
             return $text;
         }

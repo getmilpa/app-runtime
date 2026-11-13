@@ -274,6 +274,12 @@ final class SecretRedaction
         if (preg_match(self::CREDENTIAL_NAME, $name) === 1 || self::userinfo($value) !== []) {
             return true;
         }
+        // THE SHAPE OF A KEY WINS OVER THE SHAPE OF A SETTING (the fourth independent review of 0628, L4-1): a value
+        // shaped like a key that also fits a setting's shape (`Summer-2024-Pass`, a lowercase key with a slash) is
+        // matched, as every release since 0628 matched it.
+        if (self::isShapedLikeAKey($value)) {
+            return true;
+        }
 
         return ! self::isShapedLikeASetting($value);
     }
@@ -298,7 +304,6 @@ final class SecretRedaction
             || preg_match('/^[a-z0-9-]+(\.[a-z0-9-]+)+\z/', $value) === 1
             || preg_match('#^[a-z0-9_.-]+(/[a-z0-9_.-]+)+\z#', $value) === 1
             || preg_match('/^[a-z]{2,3}_[A-Z]{2}(\.[A-Za-z0-9-]{1,16})?(@[a-z]+)?\z/', $value) === 1
-            || preg_match('#^\d{1,3}(\.\d{1,3}){3}/\d{1,2}\z#', $value) === 1
             || preg_match('/^\$\{[A-Za-z0-9_]+\}\z/', $value) === 1
             || (\strlen($value) <= 24 && preg_match('/^[a-z]+(_[a-z]+)*\z/', $value) === 1)
             || (\strlen($value) <= 24 && preg_match('/^([A-Za-z]+|\d+)(-([A-Za-z]+|\d+)){1,2}\z/', $value) === 1);
