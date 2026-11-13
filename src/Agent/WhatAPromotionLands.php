@@ -132,18 +132,25 @@ final class WhatAPromotionLands
         if ($after === null) {
             return 'it changed while it was being read: ask again to see it';
         }
+        $note = '';
         if (! mb_check_encoding($after, 'UTF-8')) {
-            return 'binary, ' . \strlen($after) . ' bytes';
+            if (str_contains($after, "\0")) {
+                return 'binary, ' . \strlen($after) . ' bytes';
+            }
+            // Text with bytes that are not UTF-8 still runs: it is shown, with those bytes marked.
+            $after = mb_scrub($after, 'UTF-8');
+            $note = "(not valid UTF-8: the bytes that are not are shown as ?)\n";
         }
         if ($left <= 0) {
             return 'not shown: the promotion is longer than what is shown at once, and its digest covers this file too';
         }
 
         $before = $status === 'modified' ? @file_get_contents($workspace->root . '/' . $path) : false;
-        $text = \is_string($before) && mb_check_encoding($before, 'UTF-8')
+        $text = \is_string($before) && mb_check_encoding($before, 'UTF-8') && $note === ''
             ? self::changedLines($before, $after)
             : self::prefixed('+', explode("\n", $after));
 
+        $text = $note . $text;
         $limit = min(self::PER_FILE, $left);
         if (mb_strlen($text) <= $limit) {
             return $text;

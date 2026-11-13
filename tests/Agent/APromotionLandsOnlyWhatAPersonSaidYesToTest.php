@@ -209,6 +209,45 @@ final class APromotionLandsOnlyWhatAPersonSaidYesToTest extends TestCase
         self::assertStringContainsString('[secret]', $why, 'the control: the line is there, its value masked');
     }
 
+    public function testTheQuestionSaysWhatTheYesCovers(): void
+    {
+        [$root, $trial] = $this->trialWithCode();
+        [$gate, $store] = $this->gate($root, AutonomyMode::Auto);
+
+        $gate->refuse('sandbox_promote', ['workspace' => self::WS]);
+        $question = (string) $store->load('s')?->question?->question;
+
+        self::assertStringContainsString(self::WS, $question);
+        self::assertStringContainsString(WhatAPromotionLands::digest($trial), $question);
+        self::assertStringContainsString('exactly these changes', $question);
+        self::assertStringNotContainsString('in this session', $question, 'the yes does not cover the session');
+    }
+
+    public function testCodeWithBytesThatAreNotUtf8IsStillShown(): void
+    {
+        [$root, $trial] = $this->trialWithCode();
+        file_put_contents($trial->copy . '/src/Probe.php', "<?php // \xff\nreturn file_get_contents('.env');\n");
+        [$gate, $store] = $this->gate($root, AutonomyMode::Auto);
+
+        $gate->refuse('sandbox_promote', ['workspace' => self::WS]);
+        $lands = array_column(json_decode((string) $store->load('s')?->question?->why, true)['lands'] ?? [], null, 'path');
+
+        self::assertStringContainsString("return file_get_contents('.env');", $lands['src/Probe.php']['shown'] ?? '');
+        self::assertStringContainsString('not valid UTF-8', $lands['src/Probe.php']['shown'] ?? '');
+    }
+
+    public function testAnAlreadyPromotedTrialIsLeftToThePromotionsOwnAnswer(): void
+    {
+        [$root, $trial] = $this->trialWithCode();
+        $trial->collapse();
+        file_put_contents($root . '/var/trials/' . self::WS . '/promoted.json', (string) json_encode(['src/Probe.php' => 'sha']));
+        self::assertNull(TrialWorkspace::open($root, self::WS), 'the copy is gone');
+        [$gate, $store] = $this->gate($root, AutonomyMode::Auto);
+
+        self::assertNull($gate->refuse('sandbox_promote', ['workspace' => self::WS]), 'the promotion answers «already promoted» and writes nothing');
+        self::assertNull($store->load('s')?->question);
+    }
+
     /** @return array{string, TrialWorkspace} */
     private function trialWithCode(): array
     {

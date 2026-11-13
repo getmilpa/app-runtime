@@ -30,7 +30,7 @@ final class TheSecretFilesAndTheKnownEnvironmentAreKeptOutTest extends TestCase
 {
     private string $root;
 
-    /** @var list<string> */
+    /** @var array<string, string|false> what each variable a test set was before it */
     private array $variables = [];
 
     protected function setUp(): void
@@ -41,31 +41,53 @@ final class TheSecretFilesAndTheKnownEnvironmentAreKeptOutTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach ($this->variables as $variable) {
-            putenv($variable);
+        foreach ($this->variables as $variable => $before) {
+            putenv($before === false ? $variable : $variable . '=' . $before);
         }
         exec('rm -rf ' . escapeshellarg($this->root));
     }
 
-    public function testEveryValueOfTheEnvFileIsKeptOut(): void
+    public function testTheCredentialsOfTheEnvFileAreKeptOut(): void
     {
-        $text = 'db=pa55-w0rd-of-the-db quoted=quoted value here exported=exported-1234 commented=commented-5678 env=local';
+        $text = 'db=pa55-w0rd-of-the-db quoted=quoted secret here exported=exported-1234 commented=commented-5678 '
+            . 'token=cnyenvfile-98a8883c255fb363c985 url=s3cret-in-url';
         self::assertSame($text, SecretRedaction::inText($text, $this->root), 'the control: with no .env the values pass');
 
         file_put_contents($this->root . '/.env', implode("\n", [
             '# a comment=not-a-value-at-all',
             'DB_PASSWORD=pa55-w0rd-of-the-db',
-            'QUOTED="quoted value here"',
-            'export EXPORTED=exported-1234',
-            'COMMENTED=commented-5678 # why',
-            'APP_ENV=local',
+            'MAIL_SECRET="quoted secret here"',
+            'export API_TOKEN=exported-1234',
+            'APP_KEY=commented-5678 # why',
+            'LAB_ENVFILE_CANARY=cnyenvfile-98a8883c255fb363c985',
+            'DATABASE_URL=mysql://milpa:s3cret-in-url@db:3306/milpa',
         ]) . "\n");
 
         $redacted = SecretRedaction::inText($text, $this->root);
-        foreach (['pa55-w0rd-of-the-db', 'quoted value here', 'exported-1234', 'commented-5678'] as $value) {
+        foreach (['pa55-w0rd-of-the-db', 'quoted secret here', 'exported-1234', 'commented-5678', 'cnyenvfile-98a8883c255fb363c985', 's3cret-in-url'] as $value) {
             self::assertStringNotContainsString($value, $redacted);
         }
-        self::assertStringContainsString('env=local', $redacted, 'a value too short to be a credential is a setting, and stays');
+    }
+
+    public function testTheSettingsOfTheEnvFileStayReadable(): void
+    {
+        file_put_contents($this->root . '/.env', implode("\n", [
+            'APP_ENV=production',
+            'DB_DATABASE=database',
+            'APP_URL=http://localhost:8000',
+            'APP_TIMEZONE=America/Mexico_City',
+            'STORAGE_PATH=/srv/house/storage/a1b2c3d4e5',
+        ]) . "\n");
+        $text = 'production database http://localhost:8000 America/Mexico_City /srv/house/storage/a1b2c3d4e5';
+
+        self::assertSame($text, SecretRedaction::inText($text, $this->root), 'a setting is not a credential');
+    }
+
+    public function testTheShellsWorkingDirectoryIsNotACredential(): void
+    {
+        $this->env('PWD', '/srv/a-house-directory');
+
+        self::assertSame('/srv/a-house-directory/src/A.php', SecretRedaction::inText('/srv/a-house-directory/src/A.php', null));
     }
 
     public function testATemplateOfTheEnvFileIsNotReadAsSecrets(): void
@@ -132,15 +154,15 @@ final class TheSecretFilesAndTheKnownEnvironmentAreKeptOutTest extends TestCase
         file_put_contents($this->root . '/.env', "TOKEN=first-value-0628\n");
         self::assertStringNotContainsString('first-value-0628', SecretRedaction::inText('first-value-0628', $this->root));
 
-        file_put_contents($this->root . '/.env', "TOKEN=second-value-0628-longer\n");
-        clearstatcache();
+        // The same length, in the same second: the file is read again by what it says.
+        file_put_contents($this->root . '/.env', "TOKEN=other-value-0628\n");
 
-        self::assertStringNotContainsString('second-value-0628-longer', SecretRedaction::inText('second-value-0628-longer', $this->root));
+        self::assertStringNotContainsString('other-value-0628', SecretRedaction::inText('other-value-0628', $this->root));
     }
 
     private function env(string $name, string $value): void
     {
+        $this->variables[$name] ??= getenv($name);
         putenv($name . '=' . $value);
-        $this->variables[] = $name;
     }
 }

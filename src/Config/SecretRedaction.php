@@ -50,8 +50,8 @@ namespace Milpa\AppRuntime\Config;
  * ── AND WHAT THE OTHER SECRET FILES AND THE KNOWN ENVIRONMENT CARRY (greenhouse decisions/0628) ───────
  *
  * A route the agent wrote returned the house's `.env`, its `auth.json` and a variable of its launcher, and
- * `route_observe` handed them to the model: none of them was in the overlay. The values of a `.env` and of
- * `auth.json` at the root are matched now, and so are the variables named as credentials, each in the forms it
+ * `route_observe` handed them to the model: none of them was in the overlay. The values of a credentials of a
+ * `.env` and every string of `auth.json` at the root are matched now, and so are the variables named as credentials, each in the forms it
  * takes once encoded. It is a defence: a value transformed by the code that returns it passes (evidence/1170).
  * The boundary is that a person says yes to that code before it is promoted.
  */
@@ -66,9 +66,9 @@ final class SecretRedaction
     private const FILE_MIN_LENGTH = 8;
 
     /** A variable named as a credential: its last word is one credentials are named by. */
-    private const CREDENTIAL_NAME = '/(^|_)(KEY|API_KEY|SECRET|TOKEN|PASSWORD|PASSWD|PASS|PWD|CREDENTIALS?|AUTH|DSN|SALT)\z/i';
+    private const CREDENTIAL_NAME = '/(^|_)(KEY|API_KEY|SECRET|TOKEN|PASSWORD|PASSWD|PASS|CREDENTIALS?|AUTH|DSN|SALT)\z/i';
 
-    /** @var array<string, list<string>> the values of the secret files, by root and by what the files were when read */
+    /** @var array<string, list<string>> the values of the secret files, by the digest of what the files said */
     private static array $fileValues = [];
 
     /**
@@ -159,9 +159,9 @@ final class SecretRedaction
 
     /**
      * The values in the files the house keeps its secrets in, besides the overlay (greenhouse decisions/0628):
-     * every value of a `.env` at the root of the house and every string of its `auth.json`. A house is not born
-     * with either, so what a person put there is what the house keeps out of its tree. Values shorter than
-     * {@see FILE_MIN_LENGTH} are left: a file holds settings beside its credentials.
+     * every string of `auth.json` at the root of the house, and the values of its `.env` that are credentials
+     * ({@see isACredential()}). A `.env` holds settings beside its credentials, and masking a setting makes what a
+     * tool returns harder to read and to act on. Values shorter than {@see FILE_MIN_LENGTH} are left.
      *
      * An unreadable file is skipped, not withheld: this redaction is a defence, and the boundary is that a person
      * says yes to the code that would read these files ({@see \Milpa\AppRuntime\Agent\WhatAPromotionLands}).
@@ -177,20 +177,21 @@ final class SecretRedaction
             array_merge(glob($root . '/.env*') ?: [], [$root . '/auth.json']),
             static fn (string $file): bool => is_file($file) && SecretFiles::isSecret(basename($file)),
         ));
-        $key = $root;
+        $raws = [];
         foreach ($files as $file) {
-            $key .= '|' . $file . ':' . (string) @filemtime($file) . ':' . (string) @filesize($file);
+            $raw = @file_get_contents($file);
+            if (\is_string($raw)) {
+                $raws[$file] = $raw;
+            }
         }
+        // Keyed by what the files say, not by when they were written: an edit in the same second is read again.
+        $key = hash('sha256', serialize($raws));
         if (isset(self::$fileValues[$key])) {
             return self::$fileValues[$key];
         }
 
         $values = [];
-        foreach ($files as $file) {
-            $raw = @file_get_contents($file);
-            if (! \is_string($raw)) {
-                continue;
-            }
+        foreach ($raws as $file => $raw) {
             if (basename($file) === 'auth.json') {
                 $decoded = json_decode($raw, true);
                 if (\is_array($decoded)) {
@@ -208,14 +209,19 @@ final class SecretRedaction
                 if ($line === '' || $line[0] === '#' || ! str_contains($line, '=')) {
                     continue;
                 }
-                $value = trim(explode('=', $line, 2)[1]);
+                [$name, $value] = explode('=', $line, 2);
+                $name = trim((string) preg_replace('/^export\s+/', '', trim($name)));
+                $value = trim($value);
                 $quote = $value[0] ?? '';
                 if (($quote === '"' || $quote === "'") && \strlen($value) >= 2 && str_ends_with($value, $quote)) {
                     $value = substr($value, 1, -1);
                 } else {
                     $value = trim((string) preg_replace('/\s+#.*$/', '', $value));
                 }
-                $values[] = $value;
+                if (self::isACredential($name, $value)) {
+                    $values[] = $value;
+                    array_push($values, ...self::userinfo($value));
+                }
             }
         }
         $values = array_values(array_filter($values, static fn (string $v): bool => \strlen($v) >= self::FILE_MIN_LENGTH));
@@ -241,15 +247,43 @@ final class SecretRedaction
             if (preg_match(self::CREDENTIAL_NAME, (string) $name) === 1) {
                 $values[] = $value;
             }
-            if (preg_match('#^[a-z][a-z0-9+.-]*://([^/@\s:]+):([^/@\s]+)@#i', $value, $userinfo) === 1) {
-                $values[] = $value;
-                if (\strlen($userinfo[2]) >= self::MIN_LENGTH) {
-                    $values[] = $userinfo[2];
-                }
-            }
+            array_push($values, ...self::userinfo($value));
         }
 
         return $values;
+    }
+
+    /**
+     * Whether a value of a `.env` is matched (the first independent review of decisions/0628, L3): one named as a
+     * credential, a URL that carries a password, or one shaped like a key — long, unbroken, letters and digits mixed,
+     * not a URL or a path. A setting (`production`, `http://localhost:8000`, `America/Mexico_City`) is left, so what a
+     * tool returns stays readable.
+     */
+    private static function isACredential(string $name, string $value): bool
+    {
+        if (preg_match(self::CREDENTIAL_NAME, $name) === 1 || self::userinfo($value) !== []) {
+            return true;
+        }
+
+        return \strlen($value) >= 16
+            && preg_match('/\s/', $value) !== 1
+            && preg_match('/\d/', $value) === 1
+            && preg_match('/[A-Za-z]/', $value) === 1
+            && preg_match('#^([a-z][a-z0-9+.-]*://|/)#i', $value) !== 1;
+    }
+
+    /**
+     * A URL with a password in it, and the password: both are matched.
+     *
+     * @return list<string>
+     */
+    private static function userinfo(string $value): array
+    {
+        if (preg_match('#^[a-z][a-z0-9+.-]*://([^/@\s:]+):([^/@\s]+)@#i', $value, $userinfo) !== 1) {
+            return [];
+        }
+
+        return \strlen($userinfo[2]) >= self::MIN_LENGTH ? [$value, $userinfo[2]] : [$value];
     }
 
     /**

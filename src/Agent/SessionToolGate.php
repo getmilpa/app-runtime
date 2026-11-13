@@ -1714,7 +1714,10 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         }
         $trial = TrialWorkspace::open($root, $workspace);
         if ($trial === null) {
-            return "There is no trial «{$workspace}» in this house, so there is nothing to promote.";
+            // A trial already promoted is answered by the promotion itself, which writes nothing again (decisions/0586).
+            return TrialWorkspace::promotedPaths($root, $workspace) !== null
+                ? null
+                : "There is no trial «{$workspace}» in this house, so there is nothing to promote.";
         }
         if ($trial->diff() === []) {
             return null;
@@ -1741,8 +1744,21 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             }
         }
 
+        $asked = $this->policy->permissionQuestion('sandbox:promote', $arguments, $this->vence());
+        $files = \count($trial->diff());
+
         return $this->pause($this->conElHechoAdentro(
-            $this->policy->permissionQuestion('sandbox:promote', $arguments, $this->vence()),
+            // WHAT THE YES DOES, SAID (the first independent review of decisions/0628, L6): it covers these changes of
+            // this trial, not the operation for the rest of the session.
+            new \Milpa\Agent\PendingQuestion(
+                id: $asked->id,
+                question: "The agent wants to promote trial «{$workspace}» into the house: {$files} changed file(s), {$digest}. "
+                    . 'Do you promote exactly these changes?',
+                options: $asked->options,
+                why: $asked->why,
+                expiresAt: $asked->expiresAt,
+                reason: $asked->reason,
+            ),
             'sandbox:promote',
             $arguments,
             $operacion->effectCeiling()->toArray(),
