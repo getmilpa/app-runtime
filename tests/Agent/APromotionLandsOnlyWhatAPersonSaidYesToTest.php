@@ -29,6 +29,7 @@ use Milpa\AppRuntime\Operations\TrialOperations;
 use Milpa\Container\DIContainer;
 use Milpa\EventStore\InMemoryEventStore;
 use Milpa\ToolRuntime\Contracts\ToolContext;
+use Milpa\ToolRuntime\Gate\ToolCallGate;
 use Milpa\ToolRuntime\ToolRegistry;
 use Psr\Log\NullLogger;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -348,6 +349,70 @@ final class APromotionLandsOnlyWhatAPersonSaidYesToTest extends TestCase
 
         self::assertSame(WhatAPromotionLands::digest($trial), $seen[0] ?? null, 'the handler can ask what the gate admitted');
         self::assertSame('no question', $seen[1] ?? null, 'the control: with no gate of a session, nothing is handed');
+    }
+
+    public function testTheLookupIsHandedWhenASecondJudgeWrapsTheGate(): void
+    {
+        $root = $this->house();
+        $trial = TrialWorkspace::materialize($root, self::WS, $this->stub());
+        [$gate] = $this->gate($root, AutonomyMode::Auto);
+        $wrapper = new class ($gate) implements ToolCallGate {
+            public function __construct(private readonly ToolCallGate $inner)
+            {
+            }
+
+            public function refuse(string $tool, array $arguments): ?string
+            {
+                return $this->inner->refuse($tool, $arguments);
+            }
+        };
+        $seen = [];
+        $registry = new ToolRegistry(new NullLogger());
+        $registry->register('sandbox_promote', 'promote', ['type' => 'object', 'properties' => ['workspace' => ['type' => 'string']]], static function (array $args) use (&$seen): array {
+            $ask = $args['_ctx']?->extra[TrialOperations::APPROVED_PROMOTION] ?? null;
+            $seen[] = $ask instanceof \Closure ? $ask(self::WS) : 'no question';
+
+            return ['ok' => true];
+        });
+
+        // As AgentOperations composes it with `agent.secondOpinion`: the wrapper judges, the session gate records.
+        (new ConsentBridge($registry, [], $wrapper, $gate))->callTool('sandbox_promote', ['workspace' => self::WS]);
+
+        self::assertSame(WhatAPromotionLands::digest($trial), $seen[0] ?? null, 'the session gate is found behind the wrapper');
+    }
+
+    public function testATextFileIsShownBeforeFilesThatAreNotText(): void
+    {
+        [$root, $trial] = $this->trialWithCode();
+        for ($i = 0; $i < 20; ++$i) {
+            file_put_contents($trial->copy . "/src/0asset{$i}.bin", "\x89PNG\0" . str_repeat("\xff\xfe" . str_repeat('x', 60) . "\n", 200));
+        }
+        [$gate, $store] = $this->gate($root, AutonomyMode::Auto);
+
+        $gate->refuse('sandbox_promote', ['workspace' => self::WS]);
+        $lands = array_column(json_decode((string) $store->load('s')?->question?->why, true)['lands'] ?? [], null, 'path');
+
+        self::assertStringContainsString("return file_get_contents('.env');", $lands['src/Probe.php']['shown'] ?? '', 'the code is shown whatever comes before it');
+        self::assertLessThan(1700, mb_strlen($lands['src/0asset0.bin']['shown'] ?? ''), 'a file that is not text is shown in a smaller share');
+        self::assertStringContainsString('␀', $lands['src/0asset0.bin']['shown'] ?? '', 'the control: it is still shown');
+        self::assertSame(array_keys($trial->diff()), array_keys($lands), 'in the order of the diff');
+    }
+
+    public function testATextLikeAMaskedValueThatTheCodeCarriesIsMarkedAsTheCodes(): void
+    {
+        $root = $this->house();
+        file_put_contents($root . '/.env', "AWS_REGION_KEY=k3y-of-the-house-0628\n");
+        file_put_contents($root . '/src/Probe.php', "<?php\nreturn 'k3y-of-the-house-0628';\n");
+        $trial = TrialWorkspace::materialize($root, self::WS, $this->stub());
+        file_put_contents($trial->copy . '/src/Probe.php', "<?php\nreturn '[secret]';\n");
+        [$gate, $store] = $this->gate($root, AutonomyMode::Auto);
+
+        $gate->refuse('sandbox_promote', ['workspace' => self::WS]);
+        $shown = array_column(json_decode((string) $store->load('s')?->question?->why, true)['lands'] ?? [], null, 'path')['src/Probe.php']['shown'] ?? '';
+
+        self::assertStringContainsString("-return '[secret]';", $shown, 'the house\'s value is masked');
+        self::assertStringContainsString("+return '[secret](literal text of the file)';", $shown, 'the code\'s own text is told apart from it');
+        self::assertStringNotContainsString('k3y-of-the-house-0628', $shown);
     }
 
     /**

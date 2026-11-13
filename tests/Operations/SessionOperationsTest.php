@@ -1204,6 +1204,18 @@ final class SessionOperationsTest extends TestCase
         self::assertStringContainsString('trial «wab31ff8973a851da»', (string) $r['granted']);
         self::assertStringContainsString('exactly diff:' . str_repeat('a', 64), (string) $r['granted']);
         self::assertStringContainsString('asked again', (string) $r['granted']);
+        self::assertSame([], $almacen->load('s1')?->permissions, 'no row grants the operation for the session');
+    }
+
+    public function testAnEnvelopeYesToAPromotionWritesNoSessionGrant(): void
+    {
+        $almacen = $this->almacen();
+        $this->pausaDePromocion($almacen, Subject::Configuration);
+
+        $r = $this->llamar('agent:answer', ['session' => 's1', 'envelope' => ['subject' => 'configuration']]);
+
+        self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
+        self::assertSame([], $almacen->load('s1')?->permissions, 'the yes is in the answer; no row grants the operation');
     }
 
     public function testAYesToAQuestionWithNoDigestStillNamesTheOperation(): void
@@ -1213,6 +1225,7 @@ final class SessionOperationsTest extends TestCase
         $almacen->ask('s1', new PendingQuestion('perm:make', '¿Autorizas make?', ['yes', 'no'], reason: 'permission'));
 
         self::assertSame('make', $this->llamar('agent:answer', ['session' => 's1', 'answer' => 'yes'])['granted'], 'the control: nothing else changes');
+        self::assertNotSame([], $almacen->load('s1')?->permissions, 'the control: an ordinary yes still grants its operation');
     }
 
     /**

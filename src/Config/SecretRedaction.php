@@ -280,9 +280,12 @@ final class SecretRedaction
 
     /**
      * A value a `.env` holds as a setting, left so what a tool returns stays readable: a number or a flag, a URL
-     * without a password, a path, a time zone (`America/Mexico_City`), a host name or an address, a word or a
-     * `snake_case` name of letters (`production`, `milpa_app`), or a phrase with spaces (`Milpa House`). Anything else
-     * — a key, a passphrase joined by dashes, a value of letters and digits — is matched.
+     * without a password, a path (`/srv/x`, `storage/app`), a time zone (`America/Mexico_City`), a locale
+     * (`en_US.UTF-8`), a host name, an address or a range, a reference to another variable (`${APP_NAME}`), a word or
+     * a `snake_case` name of letters (`production`, `milpa_app`), a name of two or three parts joined by dashes
+     * (`us-east-1`, `milpa-house`), or a phrase with spaces (`Milpa House`). Anything else — a key, a longer
+     * passphrase joined by dashes, a value of letters and digits mixed — is matched (the third independent review of
+     * 0628, L-C, measured these settings hidden by the first cut of the wider rule).
      */
     private static function isShapedLikeASetting(string $value): bool
     {
@@ -293,7 +296,12 @@ final class SecretRedaction
             || preg_match('#^(/|\./|\.\./|~/)#', $value) === 1
             || preg_match('#^[A-Z][A-Za-z_]+(/[A-Z][A-Za-z0-9_+-]+)+\z#', $value) === 1
             || preg_match('/^[a-z0-9-]+(\.[a-z0-9-]+)+\z/', $value) === 1
-            || (\strlen($value) <= 24 && preg_match('/^[a-z]+(_[a-z]+)*\z/', $value) === 1);
+            || preg_match('#^[a-z0-9_.-]+(/[a-z0-9_.-]+)+\z#', $value) === 1
+            || preg_match('/^[a-z]{2,3}_[A-Z]{2}(\.[A-Za-z0-9-]{1,16})?(@[a-z]+)?\z/', $value) === 1
+            || preg_match('#^\d{1,3}(\.\d{1,3}){3}/\d{1,2}\z#', $value) === 1
+            || preg_match('/^\$\{[A-Za-z0-9_]+\}\z/', $value) === 1
+            || (\strlen($value) <= 24 && preg_match('/^[a-z]+(_[a-z]+)*\z/', $value) === 1)
+            || (\strlen($value) <= 24 && preg_match('/^([A-Za-z]+|\d+)(-([A-Za-z]+|\d+)){1,2}\z/', $value) === 1);
     }
 
     /** Long, unbroken, letters and digits mixed, and not a URL or a path: the shape of a key. */

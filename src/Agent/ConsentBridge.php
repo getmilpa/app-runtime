@@ -87,6 +87,13 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
     private ?DebtSignal $debtSignals;
 
     /**
+     * The session's own gate, which admits a promotion by its digest: the gate itself, or — when a second judge wraps
+     * it — the recorder, which is that same gate before it was wrapped (the third independent review of greenhouse
+     * decisions/0628, L-A).
+     */
+    private ?SessionToolGate $sessionGate;
+
+    /**
      * @param list<ConsentGrant> $grants every yes this session has already collected — not the last
      *                                   one. Passing them one at a time overwrote the context and
      *                                   only the most recent survived, so with two authorisations one
@@ -147,6 +154,7 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
         // and the whole point is that a durable fact does not change author according to who reads it.
         $this->executor = $executor ?? ObservedExecutor::unknown();
         $this->debtSignals = $debtSignals;
+        $this->sessionGate = $gate instanceof SessionToolGate ? $gate : ($recorder instanceof SessionToolGate ? $recorder : null);
     }
 
     /**
@@ -225,8 +233,8 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
                 // WHAT A PERSON SAID YES TO, ASKED WHEN THE PROMOTION COPIES (greenhouse decisions/0628; the first
                 // independent review, L2). The gate judges this call before the handler runs, so the handler is
                 // handed a way to ask what the gate admitted, not the answer of a gate that has not run yet.
-                ...($name === 'sandbox_promote' && $this->gate instanceof SessionToolGate
-                    ? [TrialOperations::APPROVED_PROMOTION => $this->gate->approvedPromotion(...)]
+                ...($name === 'sandbox_promote' && $this->sessionGate !== null
+                    ? [TrialOperations::APPROVED_PROMOTION => $this->sessionGate->approvedPromotion(...)]
                     : []),
             ],
         ));

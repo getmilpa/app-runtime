@@ -1894,7 +1894,11 @@ final class SessionOperations implements CommandProvider
         $otorgado = null;
         if (str_starts_with($pregunta->id, 'perm:') && $this->esAfirmativa($respuesta)) {
             $otorgado = substr($pregunta->id, 5);
-            $almacen->grant($id, $otorgado);
+            // A PROMOTION'S YES IS NOT A GRANT FOR THE SESSION (the third independent review of greenhouse
+            // decisions/0628, L-D): the gate admits it by the digest in this answer alone, so no row says otherwise.
+            if (! $this->namesItsBytes($pregunta)) {
+                $almacen->grant($id, $otorgado);
+            }
         } elseif ($pregunta->id === 'perm:sandbox:promote') {
             // DISCARD-ON-REJECT (greenhouse decisions/0071, Precondition B): a «no» to a promotion is
             // terminal — the trial is dead — so it is discarded, making «no» as clean as «sí» (which
@@ -2004,13 +2008,16 @@ final class SessionOperations implements CommandProvider
             $quien,
             $ctx instanceof InvocationContext && $ctx->executor !== null ? $ctx->executor : $this->procesoLocal(),
         );
-        $almacen->grant($id, $operacion, $sobreEfectivo->toArray(), [
-            'base' => $base->toArray(),
-            'requested' => $sobre,
-            'question' => $pregunta->id,
-            'arguments_digest' => \Milpa\AppRuntime\Agent\ConsentBridge::digest($argumentos),
-            'by' => $quien->toArray(),
-        ]);
+        // A promotion's yes is admitted by its digest alone (L-D, as in answer()); no row grants the operation.
+        if (! $this->namesItsBytes($pregunta)) {
+            $almacen->grant($id, $operacion, $sobreEfectivo->toArray(), [
+                'base' => $base->toArray(),
+                'requested' => $sobre,
+                'question' => $pregunta->id,
+                'arguments_digest' => \Milpa\AppRuntime\Agent\ConsentBridge::digest($argumentos),
+                'by' => $quien->toArray(),
+            ]);
+        }
 
         return [
             'ok' => true,
@@ -2129,18 +2136,19 @@ final class SessionOperations implements CommandProvider
      * en la pieza que otorga permisos es exactamente donde no se quiere ser listo.
      */
     /**
-     * Discard the trial named in a rejected promotion's question, or nothing if there is none.
-     *
-     * The workspace id rides in the question's `why` (`{operation, arguments: {workspace}, ...}`),
-     * and the root comes from the kernel. Both absent leaves it a no-op — a reject that can find no
-     * trial simply grants and cleans up nothing, never throws.
-     */
-    /**
      * What a yes covers, as the answer says it (the first independent review of greenhouse decisions/0628, L7). A yes
      * to a promotion's question admits exactly the changes it showed, of that trial: the gate admits it by their digest
      * alone, and a changed trial is asked again. Saying only the operation's name read as a yes for the rest of the
      * session.
      */
+    /** Whether a question names the bytes its yes covers: a promotion's, since greenhouse decisions/0628. */
+    private function namesItsBytes(\Milpa\Agent\PendingQuestion $question): bool
+    {
+        $fact = json_decode((string) $question->why, true);
+
+        return \is_array($fact) && \is_string($fact['digest'] ?? null);
+    }
+
     private function whatTheYesCovers(\Milpa\Agent\PendingQuestion $question, string $operation): string
     {
         $fact = json_decode((string) $question->why, true);
@@ -2153,6 +2161,13 @@ final class SessionOperations implements CommandProvider
         return "{$operation} of trial «{$ws}», exactly {$digest} (only these changes; a changed trial is asked again)";
     }
 
+    /**
+     * Discard the trial named in a rejected promotion's question, or nothing if there is none.
+     *
+     * The workspace id rides in the question's `why` (`{operation, arguments: {workspace}, ...}`),
+     * and the root comes from the kernel. Both absent leaves it a no-op — a reject that can find no
+     * trial simply grants and cleans up nothing, never throws.
+     */
     private function descartarEnsayoDe(\Milpa\Agent\PendingQuestion $pregunta): void
     {
         $hecho = json_decode((string) $pregunta->why, true);

@@ -87,9 +87,17 @@ final class TheSecretFilesAndTheKnownEnvironmentAreKeptOutTest extends TestCase
             'APP_NAME="Milpa House Demo"',
             'SESSION_LIFETIME=12000000',
             'APP_DEBUG=false',
+            'APP_SLUG=milpa-house-demo',
+            'APP_LOCALE=en_US.UTF-8',
+            'DB_DATABASE_FILE=database/database.sqlite',
+            'AWS_DEFAULT_REGION=us-east-1',
+            'TRUSTED_PROXIES=10.0.0.0/8',
+            'MAIL_FROM_NAME="${APP_NAME}"',
+            'FILESYSTEM_ROOT=storage/app',
         ]) . "\n");
         $text = 'production database http://localhost:8000 America/Mexico_City /srv/house/storage/a1b2c3d4e5 '
-            . 'smtp.mailgun.org 127.0.0.1 milpa_house Milpa House Demo 12000000';
+            . 'smtp.mailgun.org 127.0.0.1 milpa_house Milpa House Demo 12000000 milpa-house-demo en_US.UTF-8 '
+            . 'database/database.sqlite us-east-1 10.0.0.0/8 ${APP_NAME} storage/app';
 
         self::assertSame($text, SecretRedaction::inText($text, $this->root), 'a setting is not a credential');
     }

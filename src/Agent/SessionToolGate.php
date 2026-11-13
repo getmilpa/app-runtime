@@ -1253,6 +1253,17 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
     }
 
     /**
+     * The digest of what this gate admitted for the promotion of a trial, in the call it just judged, or null when it
+     * admitted none (greenhouse decisions/0628; the first independent review, L2). The promotion compares the diff it
+     * is about to copy against it, so the bytes a person said yes to are the bytes that land, also when the trial
+     * changes between this gate and the copy.
+     */
+    public function approvedPromotion(string $workspace): ?string
+    {
+        return $this->promotionDigests[$workspace] ?? null;
+    }
+
+    /**
      * Apunta en la sesión que esta herramienta corrió y qué contestó.
      *
      * La compuerta ve la intención y esto ve el desenlace; hacen falta las dos. Sin el desenlace,
@@ -1264,17 +1275,6 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      *
      * @param array<string, mixed> $arguments
      */
-    /**
-     * The digest of what this gate admitted for the promotion of a trial, in the call it just judged, or null when it
-     * admitted none (greenhouse decisions/0628; the first independent review, L2). The promotion compares the diff it
-     * is about to copy against it, so the bytes a person said yes to are the bytes that land, also when the trial
-     * changes between this gate and the copy.
-     */
-    public function approvedPromotion(string $workspace): ?string
-    {
-        return $this->promotionDigests[$workspace] ?? null;
-    }
-
     public function recorded(string $tool, array $arguments, string $result, bool $ok): void
     {
         // La contabilidad NO se apunta como llamada. Su efecto ya está en el stream con su propio

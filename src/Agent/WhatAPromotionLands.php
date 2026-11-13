@@ -37,6 +37,12 @@ final class WhatAPromotionLands
     /** Characters shown across all files of one promotion. */
     private const IN_ALL = 24000;
 
+    /** Characters of one file that is not text: it is shown, in a smaller share, after every text file. */
+    private const PER_FILE_NOT_TEXT = 1500;
+
+    /** What follows a masked-value mark the code itself carries, so it is not read as a masked value. */
+    private const LITERAL = '(literal text of the file)';
+
     /** How a NUL byte is shown to the person: visible, and not a byte any file carries by accident. */
     private const NUL = '␀';
 
@@ -68,20 +74,56 @@ final class WhatAPromotionLands
      */
     public static function forAPerson(TrialWorkspace $workspace, ?string $houseRoot): array
     {
+        $diff = $workspace->diff();
+        // TEXT IS SHOWN FIRST (the third independent review of decisions/0628, L-B): a file that is not text — a NUL in
+        // it, or bytes that are not UTF-8 — is still shown, but after every text file and in a smaller share, so a
+        // promotion that carries images does not spend on them the view of its code.
+        $order = array_merge(
+            array_keys(array_filter($diff, static fn (array $entry, string $path): bool => self::isText($workspace, $path, $entry), \ARRAY_FILTER_USE_BOTH)),
+            array_keys(array_filter($diff, static fn (array $entry, string $path): bool => ! self::isText($workspace, $path, $entry), \ARRAY_FILTER_USE_BOTH)),
+        );
         $left = self::IN_ALL;
+        $shown = [];
+        foreach ($order as $path) {
+            $entry = $diff[$path];
+            $limit = self::isText($workspace, $path, $entry) ? self::PER_FILE : self::PER_FILE_NOT_TEXT;
+            $text = self::shown($workspace, $path, $entry['status'], $entry['sha256'], min($left, $limit));
+            $left = max(0, $left - mb_strlen($text));
+            $shown[$path] = $text;
+        }
+
         $out = [];
-        foreach ($workspace->diff() as $path => $entry) {
-            $shown = self::shown($workspace, $path, $entry['status'], $entry['sha256'], $left);
-            $left = max(0, $left - mb_strlen($shown));
+        foreach ($diff as $path => $entry) {
             $out[] = [
                 'path' => $path,
                 'status' => $entry['status'],
                 'sha256' => $entry['sha256'],
-                'shown' => SecretRedaction::inText($shown, $houseRoot),
+                'shown' => SecretRedaction::inText(self::literalMarksMarked($shown[$path]), $houseRoot),
             ];
         }
 
         return $out;
+    }
+
+    /**
+     * A text the code itself carries that reads like a masked value is marked as the code's own (the third independent
+     * review of decisions/0628, L-C): otherwise a change that writes it in place of a value the person cannot see reads
+     * as no change at all.
+     */
+    private static function literalMarksMarked(string $text): string
+    {
+        return str_replace(SecretRedaction::REDACTED, SecretRedaction::REDACTED . self::LITERAL, $text);
+    }
+
+    /** @param array<string, mixed> $entry */
+    private static function isText(TrialWorkspace $workspace, string $path, array $entry): bool
+    {
+        if ($entry['status'] === 'deleted' || is_link($workspace->copy . '/' . $path)) {
+            return true;
+        }
+        $bytes = @file_get_contents($workspace->copy . '/' . $path);
+
+        return \is_string($bytes) && ! str_contains($bytes, "\0") && mb_check_encoding($bytes, 'UTF-8');
     }
 
     /**
@@ -134,7 +176,7 @@ final class WhatAPromotionLands
         return $judged === [] ? ['nothing' => 'the session holds no record of this trial\'s run'] : $judged;
     }
 
-    private static function shown(TrialWorkspace $workspace, string $path, string $status, ?string $sha256, int $left): string
+    private static function shown(TrialWorkspace $workspace, string $path, string $status, ?string $sha256, int $limit): string
     {
         if ($status === 'deleted') {
             return 'deleted';
@@ -158,7 +200,7 @@ final class WhatAPromotionLands
             $after = str_replace("\0", self::NUL, $after);
             $note .= '(contains NUL bytes: each is shown as ' . self::NUL . ")\n";
         }
-        if ($left <= 0) {
+        if ($limit <= 0) {
             return 'not shown: the promotion is longer than what is shown at once, and its digest covers this file too';
         }
 
@@ -168,7 +210,6 @@ final class WhatAPromotionLands
             : self::prefixed('+', explode("\n", $after));
 
         $text = $note . $text;
-        $limit = min(self::PER_FILE, $left);
         if (mb_strlen($text) <= $limit) {
             return $text;
         }
