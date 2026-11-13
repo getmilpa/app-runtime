@@ -1140,6 +1140,54 @@ final class SessionOperationsTest extends TestCase
         ));
     }
 
+    /** A promotion's pause as the gate writes it since greenhouse decisions/0628: its digest, and what it composed to. */
+    private function pausaDePromocion(SessionStore $almacen, Subject $compuesto): void
+    {
+        $techo = new EffectProfile(Mutation::Persistent, Externality::None, Reversibility::ManualRecovery, Authority::WriteAsUser, subject: Subject::Executable);
+        $almacen->start('s1', 'promote');
+        $almacen->ask('s1', new PendingQuestion(
+            'perm:sandbox:promote',
+            'Do you promote exactly these changes?',
+            ['yes', 'no'],
+            why: json_encode([
+                'operation' => 'sandbox:promote',
+                'arguments' => ['workspace' => 'wab31ff8973a851da'],
+                'base' => $techo->toArray(),
+                'composed' => (new EffectProfile(Mutation::Persistent, Externality::None, Reversibility::ManualRecovery, Authority::WriteAsUser, subject: $compuesto))->toArray(),
+                'digest' => 'diff:' . str_repeat('a', 64),
+            ], \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES) ?: null,
+            reason: 'permission',
+        ));
+    }
+
+    /**
+     * A «YES, BUT…» TO A PROMOTION IS JUDGED AGAINST ITS BYTES (greenhouse decisions/0628; the first independent
+     * review, M1): the gate admits a promotion by its digest, so an envelope its content is wider than grants nothing.
+     */
+    public function testAnEnvelopeAPromotionsContentIsWiderThanGrantsNothing(): void
+    {
+        $almacen = $this->almacen();
+        $this->pausaDePromocion($almacen, Subject::Executable);
+
+        $r = $this->llamar('agent:answer', ['session' => 's1', 'envelope' => ['subject' => 'configuration']]);
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('wider than that envelope', (string) ($r['error'] ?? ''));
+        self::assertSame('perm:sandbox:promote', $almacen->load('s1')?->question?->id, 'the question still waits');
+        self::assertSame([], $almacen->load('s1')?->decisions, 'nothing was answered');
+    }
+
+    public function testAnEnvelopeAPromotionsContentFitsIsItsYes(): void
+    {
+        $almacen = $this->almacen();
+        $this->pausaDePromocion($almacen, Subject::Configuration);
+
+        $r = $this->llamar('agent:answer', ['session' => 's1', 'envelope' => ['subject' => 'configuration']]);
+
+        self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
+        self::assertNull($almacen->load('s1')?->question);
+    }
+
     /**
      * CONTROL POSITIVO: un apriete válido otorga la operación bajo un sobre = meet(B, P_h).
      *

@@ -145,6 +145,8 @@ final class TheHouseAsksWhatTheAnswerNamesTest extends TestCase
         $root = sys_get_temp_dir() . '/milpa-prose-' . bin2hex(random_bytes(4));
         mkdir($root . '/src', 0o777, true);
         mkdir($root . '/config');
+        // A file in config/, so the trial's copy has the directory the test writes into.
+        file_put_contents($root . '/config/app.php', "<?php return [];\n");
         file_put_contents($root . '/src/A.php', "<?php // a\n");
         $this->roots[] = $root;
 

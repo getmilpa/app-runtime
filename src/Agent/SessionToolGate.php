@@ -76,6 +76,14 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
     /** @var null|list<\Milpa\Command\Consent\ConsentGrant> the yeses the ledger holds, derived once */
     private ?array $recordedGrants = null;
 
+    /**
+     * The digest a person said yes to, per workspace this gate admitted a promotion of (greenhouse decisions/0628):
+     * the promotion collapses its trial, so the record reads it from here.
+     *
+     * @var array<string, string>
+     */
+    private array $promotionDigests = [];
+
     /** Cause of the last synchronous refusal, cleared before every new judgment. */
     private ?string $recoveryRefusedTool = null;
 
@@ -388,6 +396,13 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             }
 
             return $error;
+        }
+
+        // A PROMOTION LANDS CODE A PERSON SAYS YES TO (greenhouse decisions/0628). Asked before the mode decides, so no
+        // mode carries it on alone, and a yes recorded by name for this session admits no other trial: the yes names
+        // the bytes it was shown.
+        if ($operacion->name === 'sandbox:promote') {
+            return $this->aPersonsYesCoversWhatThisPromotionLands($operacion, $arguments, $composicion);
         }
 
         $decision = $this->policy->decide(
@@ -1302,7 +1317,9 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
                 $this->sessions->recordTrialPromotion($this->session->id, [
                     'workspace' => $arguments['workspace'],
                     'paths' => $rutas,
-                    'diff_digest' => hash('sha256', (string) json_encode($rutas, \JSON_UNESCAPED_SLASHES)),
+                    // The digest of the content a person said yes to (decisions/0628), so the record names the bytes,
+                    // not the list of paths.
+                    'diff_digest' => $this->promotionDigests[$arguments['workspace']] ?? null,
                     'by' => 'agent',
                 ]);
             }
@@ -1458,6 +1475,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      * @param array<string, mixed>|null  $base      el techo DECLARADO de la operación (`EffectProfile::toArray()`)
      * @param array<string, mixed>|null  $composed  lo que ESTA llamada compuso, para apretar desde un hecho visto
      * @param array<string, string>|null $cambios   el diff que una promoción aplicaría (path => added|modified|deleted)
+     * @param array<string, mixed>|null  $promotion lo que una promoción aterriza, para la persona (decisions/0628)
      */
     private function conElHechoAdentro(
         \Milpa\Agent\PendingQuestion $pregunta,
@@ -1467,8 +1485,14 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         ?array $composed = null,
         ?array $cambios = null,
         ?string $because = null,
+        ?array $promotion = null,
     ): \Milpa\Agent\PendingQuestion {
         $hecho = ['operation' => $operacion, 'arguments' => $arguments];
+        // What a promotion lands, beside the arguments like `cambios` (greenhouse decisions/0628): the digest the
+        // yes is bound to, each changed file as the person reads it, and what the house recorded of the trial.
+        if ($promotion !== null) {
+            $hecho += $promotion;
+        }
         if ($base !== null) {
             $hecho['base'] = $base;
         }
@@ -1654,6 +1678,99 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
         }
 
         return false;
+    }
+
+    /**
+     * Whether a person said yes to exactly what this promotion lands, and the question when nobody did
+     * (greenhouse decisions/0628).
+     *
+     * ── WHY A PERSON, IN EVERY MODE ──────────────────────────────────────────────────────────────────────────────
+     *
+     * A promoted trial boots in the live house with the house's secrets (decisions/0606 §3): applying is the
+     * governed act. In `auto` the agent wrote the code, judged it and applied it, and nobody saw it — measured
+     * (evidence/1216): one grant to write the plugin, and the agent promoted its own code three to six times per run.
+     * Rod chose (decisions/0628, answer b) that promoting what an agent wrote takes a person's yes on its digest,
+     * also in `auto`. The agent still writes, rehearses and proposes alone.
+     *
+     * ── WHAT THE YES COVERS ──────────────────────────────────────────────────────────────────────────────────────
+     *
+     * One trial, with the content it had when the person was shown it: the question carries
+     * {@see WhatAPromotionLands::digest()}, and only a recorded yes whose fact names this workspace AND the digest the
+     * trial has now admits the call. A trial that changed since is asked again, and so is another trial: a yes by
+     * name, a launch grant or a yes to another digest admits nothing here. What the person reads rides beside the
+     * arguments, never inside them.
+     *
+     * A trial that changes nothing passes on to the promotion, which refuses it: there is nothing to land and
+     * nothing to ask. A trial this gate cannot open is refused here, because nothing can be shown for it.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function aPersonsYesCoversWhatThisPromotionLands(Operation $operacion, array $arguments, ?ProfileComposition $composicion): ?string
+    {
+        $workspace = $arguments['workspace'] ?? null;
+        $root = $this->trialRouter?->root() ?? $this->houseRoot;
+        if (! \is_string($workspace) || preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\z/', $workspace) !== 1 || $root === null) {
+            return 'This promotion names no trial the house can show a person, so it does not run. Promote a trial by the workspace its run returned.';
+        }
+        $trial = TrialWorkspace::open($root, $workspace);
+        if ($trial === null) {
+            // A trial already promoted is answered by the promotion itself, which writes nothing again (decisions/0586).
+            return TrialWorkspace::promotedPaths($root, $workspace) !== null
+                ? null
+                : "There is no trial «{$workspace}» in this house, so there is nothing to promote.";
+        }
+        if ($trial->diff() === []) {
+            return null;
+        }
+
+        $digest = WhatAPromotionLands::digest($trial);
+        foreach ($this->session->decisions as $decision) {
+            if (($decision['reason'] ?? null) !== 'permission'
+                || ! AffirmativeAnswer::is($decision['answer'])
+                || ! ($decision['by'] ?? null) instanceof Principal
+                || ($decision['executor'] ?? null) === LaunchGrants::EXECUTOR
+            ) {
+                continue;
+            }
+            $hecho = json_decode(\is_string($decision['why'] ?? null) ? $decision['why'] : '', true);
+            if (\is_array($hecho)
+                && ($hecho['operation'] ?? null) === 'sandbox:promote'
+                && (\is_array($hecho['arguments'] ?? null) ? ($hecho['arguments']['workspace'] ?? null) : null) === $workspace
+                && ($hecho['digest'] ?? null) === $digest
+            ) {
+                $this->promotionDigests[$workspace] = $digest;
+
+                return null;
+            }
+        }
+
+        $asked = $this->policy->permissionQuestion('sandbox:promote', $arguments, $this->vence());
+        $files = \count($trial->diff());
+
+        return $this->pause($this->conElHechoAdentro(
+            // WHAT THE YES DOES, SAID (the first independent review of decisions/0628, L6): it covers these changes of
+            // this trial, not the operation for the rest of the session.
+            new \Milpa\Agent\PendingQuestion(
+                id: $asked->id,
+                question: "The agent wants to promote trial «{$workspace}» into the house: {$files} changed file(s), {$digest}. "
+                    . 'Do you promote exactly these changes?',
+                options: $asked->options,
+                why: $asked->why,
+                expiresAt: $asked->expiresAt,
+                reason: $asked->reason,
+            ),
+            'sandbox:promote',
+            $arguments,
+            $operacion->effectCeiling()->toArray(),
+            $composicion?->effective->toArray(),
+            $this->cambiosDeUnaPromocion('sandbox:promote', $arguments),
+            'What it lands boots in the live house with the house\'s secrets, so a person says yes to these exact changes, in every mode.',
+            [
+                'digest' => $digest,
+                'lands' => WhatAPromotionLands::forAPerson($trial, $this->houseRoot ?? $root),
+                'judged' => WhatAPromotionLands::judged($this->sessions->stream($this->session->id), $workspace),
+            ],
+        ));
     }
 
     /**

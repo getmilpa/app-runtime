@@ -49,7 +49,9 @@ final class GatePromotesBySubjectOfDiffTest extends TestCase
         $store->grant('s', 'sandbox:promote', $this->tightened()->toArray());
         $gate = new SessionToolGate($store, $store->load('s'), [$this->promote()], trialRouter: $router);
 
-        self::assertNull($gate->refuse('sandbox_promote', ['workspace' => 'w-cfg']), 'configuration-only: admitted under subject≤configuration');
+        // A grant by name, tightened or not, no longer admits a promotion (greenhouse decisions/0628): a person says
+        // yes to the digest of what it lands. The composition still lowers the subject and leaves its receipt.
+        self::assertNotNull($gate->refuse('sandbox_promote', ['workspace' => 'w-cfg']), 'configuration-only: still asks for a yes to its bytes');
 
         $receipts = array_values(array_filter($store->stream('s'), static fn ($e): bool => $e->type === 'session.ceiling_composed'));
         self::assertCount(1, $receipts);
@@ -74,7 +76,7 @@ final class GatePromotesBySubjectOfDiffTest extends TestCase
         self::assertSame([], array_filter($store->stream('s'), static fn ($e): bool => $e->type === 'session.ceiling_composed'), 'no reduction, no receipt');
     }
 
-    public function testAPlainYesStillAdmitsEitherDiff(): void
+    public function testAPlainYesByNameNoLongerAdmitsAPromotion(): void
     {
         [$root, $router] = $this->house();
         $ws = TrialWorkspace::materialize($root, 'w-code', $this->stub());
@@ -86,7 +88,8 @@ final class GatePromotesBySubjectOfDiffTest extends TestCase
         $store->grant('s', 'sandbox:promote');
         $gate = new SessionToolGate($store, $store->load('s'), [$this->promote()], trialRouter: $router);
 
-        self::assertNull($gate->refuse('sandbox_promote', ['workspace' => 'w-code']), 'a plain yes admits as before (0067 intact)');
+        // A yes by name for the session admits no promotion (greenhouse decisions/0628): only a yes to its digest.
+        self::assertNotNull($gate->refuse('sandbox_promote', ['workspace' => 'w-code']), 'a plain yes by name asks for the bytes');
     }
 
     /** @return array{string, TrialRouter} */

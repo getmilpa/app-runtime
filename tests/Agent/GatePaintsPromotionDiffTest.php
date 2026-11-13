@@ -73,14 +73,14 @@ final class GatePaintsPromotionDiffTest extends TestCase
         self::assertSame('added', $hecho['cambios']['src/New.php'] ?? null);
     }
 
-    public function testPromotingAnUnknownTrialCarriesNoDiffButStillPauses(): void
+    public function testPromotingAnUnknownTrialIsRefusedAndAsksNothing(): void
     {
         [$gate, $store] = $this->gate($this->root());
 
+        // A person says yes to what a promotion lands (greenhouse decisions/0628): with no trial there is nothing
+        // to show, so nothing is asked and the call is refused.
         self::assertNotNull($gate->refuse('sandbox_promote', ['workspace' => 'nope']));
-        $hecho = json_decode((string) $store->load('s-1')?->question?->why, true);
-        self::assertIsArray($hecho);
-        self::assertArrayNotHasKey('cambios', $hecho, 'no workspace, nothing to paint — but the pause still happens');
+        self::assertNull($store->load('s-1')?->question);
     }
 
     public function testAPlainMutationsPauseCarriesNoDiff(): void

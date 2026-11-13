@@ -1978,6 +1978,24 @@ final class SessionOperations implements CommandProvider
             ];
         }
 
+        // A PROMOTION'S QUESTION NAMES ITS BYTES (greenhouse decisions/0628): the yes covers exactly the content the
+        // person was shown, and the gate admits it by that digest alone. So a «yes, but…» is judged here, against what
+        // those bytes compose to: within the envelope it is the yes; wider, it is refused, and nothing is granted.
+        if (\is_string($hecho['digest'] ?? null)) {
+            try {
+                $compuesto = \is_array($hecho['composed'] ?? null) ? EffectProfile::fromArray($hecho['composed']) : null;
+            } catch (\InvalidArgumentException) {
+                $compuesto = null;
+            }
+            if ($compuesto === null || !$compuesto->isNoWiderThan($sobreEfectivo)) {
+                return [
+                    'ok' => false,
+                    'error' => 'what this promotion lands is wider than that envelope, so it is not granted: answer yes to these exact changes, or no',
+                    'composed' => $hecho['composed'] ?? null,
+                ];
+            }
+        }
+
         $quien = $this->quienContesta($ctx);
         $almacen->answer(
             $id,
