@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.223.0](https://github.com/getmilpa/app-runtime/compare/v0.222.4...v0.223.0) (2026-11-13)
+
+
+### Features
+
+* **agent:** a promotion lands only the content a person said yes to (greenhouse decisions/0628) ([#830](https://github.com/getmilpa/app-runtime/issues/830)) ([febea18](https://github.com/getmilpa/app-runtime/commit/febea18d0c4b9b4232beb084075e8148987e7111))
+
 ## [0.222.4](https://github.com/getmilpa/app-runtime/compare/v0.222.3...v0.222.4) (2026-11-13)
 
 
