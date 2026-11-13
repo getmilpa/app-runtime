@@ -565,6 +565,51 @@ final class AgentScreen implements SurfaceBroadcaster
         return $ejes === [] ? null : implode(' · ', $ejes);
     }
 
+    /**
+     * The lines that show what a promotion would land: the files, each with the code as the house shows it, the
+     * digest the yes covers, and what the house recorded of the trial — or none when the question is not a
+     * promotion's (greenhouse decisions/0628).
+     *
+     * @return list<string>
+     */
+    private function whatThePromotionLands(?string $why): array
+    {
+        $claim = $why === null || $why === '' ? null : json_decode($why, true);
+        if (! \is_array($claim) || ! \is_array($claim['lands'] ?? null)) {
+            return [];
+        }
+        $digest = \is_string($claim['digest'] ?? null) ? $claim['digest'] : '';
+        $lines = ['What this promotion lands in the house' . ($digest !== '' ? " — your yes covers exactly these changes ({$digest})" : '') . ':'];
+        foreach ($claim['lands'] as $file) {
+            if (! \is_array($file)) {
+                continue;
+            }
+            $status = match ($file['status'] ?? null) {
+                'added' => 'new file',
+                'modified' => 'changed',
+                'deleted' => 'deleted',
+                default => (string) ($file['status'] ?? ''),
+            };
+            $lines[] = (string) ($file['path'] ?? '') . " ({$status})";
+            $shown = \is_string($file['shown'] ?? null) ? rtrim($file['shown'], "\n") : '';
+            foreach ($shown === '' ? [] : explode("\n", $shown) as $code) {
+                $lines[] = '│ ' . $code;
+            }
+        }
+        $judged = \is_array($claim['judged'] ?? null) ? $claim['judged'] : [];
+        $facts = [];
+        foreach ($judged as $section => $part) {
+            foreach (\is_array($part) ? $part : ['' => $part] as $key => $value) {
+                $facts[] = trim($section . ' ' . $key) . ': ' . (\is_string($value) ? $value : (string) json_encode($value));
+            }
+        }
+        if ($facts !== []) {
+            $lines[] = 'What the house recorded of the trial — ' . implode('; ', $facts);
+        }
+
+        return $lines;
+    }
+
     private function sobreQue(?string $why): string
     {
         if ($why === null || $why === '') {
@@ -1677,6 +1722,15 @@ final class AgentScreen implements SurfaceBroadcaster
                     $voz,
                 ];
             }
+        }
+
+        // WHAT A PROMOTION LANDS, read before answering it (greenhouse decisions/0628). Code an agent wrote boots in
+        // the live house with its secrets once promoted, and the question's claim carries each changed file as the
+        // house shows it — already masked. It goes at the end of the conversation, right above the question, where
+        // the transcript scrolls: the question's own rows have a fixed height and a diff does not. The house's
+        // header carries the system mark; every line of the code is quoted with `│`, because the agent wrote it.
+        foreach ($this->whatThePromotionLands($sesion?->question?->why) as $j => $linea) {
+            $lineas[] = ["lands:{$j}", ($j === 0 ? '■ ' : '  ') . $linea, 'sistema'];
         }
 
         // El presupuesto: el alto menos lo que SIEMPRE se pinta —título, estado, separadores, prompt
