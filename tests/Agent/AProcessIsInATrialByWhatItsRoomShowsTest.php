@@ -79,7 +79,10 @@ final class AProcessIsInATrialByWhatItsRoomShowsTest extends TestCase
         yield 'a directory' => ['dir'];
     }
 
-    /** Only the confinement binds the device over the mark; what an unprivileged process can make there is not one. */
+    /**
+     * A mark is the null device the confinement places with a mount; what can be made there without one is not — asked
+     * in a process with NO route off the host, so only the mark decides (the review of 0631, M-1).
+     */
     #[\PHPUnit\Framework\Attributes\DataProvider('marksAnyoneCanMake')]
     public function testAMarkAnyoneCanMakeIsNotATrialsMark(string $kind): void
     {
@@ -91,10 +94,41 @@ final class AProcessIsInATrialByWhatItsRoomShowsTest extends TestCase
             'file' => touch($mark),
             'dir' => mkdir($mark),
         };
-        $this->set('HOME', $home);
-        $this->set(TrialRunner::INSIDE_TRIAL_ENV, '1');
 
-        self::assertFalse(TrialRunner::trialClaim(), $kind);
+        self::assertFalse($this->claimIn($home, route: false, mark: false), $kind);
+    }
+
+    public function testOnlyTheMountedMarkWithNoRouteIsATrial(): void
+    {
+        $home = $this->root . '/home';
+        mkdir($home . '/var', 0o777, true);
+        touch($home . '/' . TrialRunner::MARK);
+
+        self::assertTrue($this->claimIn($home, route: false, mark: true), 'the mounted mark and no route: a trial');
+        self::assertFalse($this->claimIn($home, route: true, mark: true), 'the mounted mark with a route off the host: not a trial');
+        self::assertFalse($this->claimIn($home, route: false, mark: false), 'no route and no mark: not a trial');
+    }
+
+    public function testTheMarkIsNeverMadeThroughALink(): void
+    {
+        $mark = new \ReflectionMethod(TrialRunner::class, 'mark');
+        $elsewhere = $this->root . '/elsewhere';
+        mkdir($elsewhere, 0o777, true);
+
+        $linkedVar = $this->root . '/h1';
+        mkdir($linkedVar, 0o777, true);
+        symlink($elsewhere, $linkedVar . '/var');
+        self::assertSame([], $mark->invoke(null, $linkedVar), 'a home whose var/ is a link gets no mark');
+
+        $linkedHome = $this->root . '/h2';
+        symlink($elsewhere, $linkedHome);
+        $args = $mark->invoke(null, $linkedHome);
+        self::assertSame(['--ro-bind', '/dev/null', $elsewhere . '/' . TrialRunner::MARK], $args, 'made where the home really is');
+
+        $taken = $this->root . '/h3';
+        mkdir($taken . '/' . TrialRunner::MARK, 0o777, true);
+        self::assertSame([], $mark->invoke(null, $taken), 'a mark that is not a file is not used');
+
     }
 
     public function testToldItOutsideOneComposerRunsNothingWhateverWasAccepted(): void
@@ -118,8 +152,48 @@ final class AProcessIsInATrialByWhatItsRoomShowsTest extends TestCase
     {
         $source = (string) file_get_contents(\dirname(__DIR__, 2) . '/src/Agent/TrialRunner.php');
 
-        // The three commands that carry the mask carry the mark after it: the confinement, work, and a trial's run.
+        // The three commands that carry the mask carry the mark after it, each in its own home: the confinement in the
+        // tree it confines, work in its scratch, a trial's run in its temporary directory — never the house.
         self::assertSame(3, preg_match_all('/\.\.\.\$this->maskArgs\(\$\w+\), \.\.\.self::mark\(\$\w+\)/', $source));
+        self::assertSame(1, substr_count($source, '...$this->maskArgs($secretsRoot), ...self::mark($tree)'));
+        self::assertSame(1, substr_count($source, '...$this->maskArgs($house), ...self::mark($scratch)'));
+        self::assertSame(1, substr_count($source, '...$this->maskArgs($house), ...self::mark($temporary)'));
+    }
+
+    /**
+     * What `trialClaim()` says in a process told it is a trial, with `$home` its home, run under bubblewrap: with or
+     * without a route off the host, with or without the null device mounted over the mark.
+     */
+    private function claimIn(string $home, bool $route, bool $mark): ?bool
+    {
+        $runner = new TrialRunner();
+        if (!$runner->available()) {
+            self::markTestSkipped('this host offers no unprivileged user namespace for bwrap');
+        }
+        $shape = (new \ReflectionMethod($runner, 'namespaces'))->invoke($runner);
+        $shape = array_values(array_filter($shape, static fn (string $a): bool => !$route || $a !== '--unshare-net'));
+        $args = ['bwrap', ...$shape, '--dev-bind', '/', '/'];
+        if ($mark) {
+            array_push($args, '--ro-bind', '/dev/null', $home . '/' . TrialRunner::MARK);
+        }
+        array_push(
+            $args,
+            '--setenv',
+            'HOME',
+            $home,
+            '--setenv',
+            TrialRunner::INSIDE_TRIAL_ENV,
+            '1',
+            '--',
+            \PHP_BINARY,
+            '-r',
+            'require ' . var_export(\dirname(__DIR__, 2) . '/vendor/autoload.php', true) . '; echo json_encode(Milpa\AppRuntime\Agent\TrialRunner::trialClaim());'
+        );
+        $run = \Milpa\AppRuntime\Support\ChildProcess::run($args);
+        self::assertNotNull($run);
+        self::assertSame(0, $run['exit'], $run['stderr']);
+
+        return json_decode($run['stdout'], true);
     }
 
     /** @return array<string, mixed> */

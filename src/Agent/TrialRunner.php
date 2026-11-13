@@ -104,9 +104,9 @@ final class TrialRunner
     /**
      * Whether this process says it runs inside a trial, and whether its room shows it: null when nothing says so;
      * true when {@see INSIDE_TRIAL_ENV} says so AND the room is a trial's — the confinement's own mark is in place
-     * ({@see MARK}: the null device bound over a file of its home, which no unprivileged process can make) and there is
-     * no route off this host; false when the variable says so and the room does not. A false claim is never trusted:
-     * every door that asks refuses instead of booting plain (decisions/0631).
+     * ({@see MARK}: the null device the confinement places with a mount over a file of its home) and there is no route
+     * off this host, over IPv4 or IPv6; false when the variable says so and the room does not. A false claim is never
+     * trusted: every door that asks refuses instead of booting plain (decisions/0631).
      */
     public static function trialClaim(): ?bool
     {
@@ -117,12 +117,16 @@ final class TrialRunner
         $mark = \is_string($home) && $home !== '' ? @lstat($home . '/' . self::MARK) : false;
         $marked = $mark !== false && ($mark['mode'] & 0o170000) === 0o020000 && $mark['rdev'] === self::NULL_DEVICE;
         // A UDP "connect" sends nothing: it asks the kernel for a route, and a trial's network has none but loopback.
-        $socket = @stream_socket_client('udp://192.0.2.1:9', $errno, $error, 1);
-        if (\is_resource($socket)) {
-            fclose($socket);
+        $routed = false;
+        foreach (['udp://192.0.2.1:9', 'udp://[2001:db8::1]:9'] as $address) {
+            $socket = @stream_socket_client($address, $errno, $error, 1);
+            if (\is_resource($socket)) {
+                fclose($socket);
+                $routed = true;
+            }
         }
 
-        return $marked && $socket === false;
+        return $marked && !$routed;
     }
 
     /** What a door says when the variable says «trial» and the room does not, before it refuses. */
@@ -148,15 +152,21 @@ final class TrialRunner
      */
     private static function mark(string $home): array
     {
-        $path = rtrim($home, '/') . '/' . self::MARK;
-        if (is_link(\dirname($path)) || (!is_dir(\dirname($path)) && !@mkdir(\dirname($path), 0o700, true))) {
+        $home = realpath($home);
+        if ($home === false || is_link($home . '/var') || (!is_dir($home . '/var') && !@mkdir($home . '/var', 0o700))) {
             return [];
         }
-        if (is_link($path) || (file_exists($path) && !is_file($path))) {
+        // The mark is made where the home really is, never through a link someone left in it.
+        $path = $home . '/' . self::MARK;
+        if (realpath(\dirname($path)) !== $home . '/var' || is_link($path) || (file_exists($path) && !is_file($path))) {
             return [];
         }
-        if (!is_file($path) && @file_put_contents($path, '') === false) {
-            return [];
+        if (!is_file($path)) {
+            $made = @fopen($path, 'x');
+            if ($made === false) {
+                return [];
+            }
+            fclose($made);
         }
 
         return ['--ro-bind', '/dev/null', $path];

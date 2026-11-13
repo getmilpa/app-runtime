@@ -106,6 +106,11 @@ final class HouseBootWitness implements BootWitnessInterface
         }
         $paths = array_values(array_unique([...array_keys($writes), ...$deletes]));
         sort($paths);
+        // A PROCESS THAT SAYS IT IS A TRIAL AND IS NOT ONE (decisions/0631): nothing is written, recovery included.
+        if (TrialRunner::trialClaim() === false) {
+            return ['refused' => TrialRunner::FALSE_CLAIM . '. Nothing was written; the house is as it was.',
+                'said' => ['unwritten' => $paths, 'boot_room' => BootProbe::FALSE_ROOM]];
+        }
 
         $judged = null;
         $ask = $judge === null ? null : static function (string $candidate) use ($judge, &$judged): void {
