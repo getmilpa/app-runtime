@@ -418,6 +418,53 @@ final class APromotionLandsOnlyWhatAPersonSaidYesToTest extends TestCase
         self::assertStringContainsString("return 'the-end-marker';", $shown, 'the whole file is shown, in the share of text');
     }
 
+    public function testALargeFileIsShownWithoutReadingItWholeIntoTheView(): void
+    {
+        [$root, $trial] = $this->trialWithCode();
+        $size = 32 * 1024 * 1024;
+        file_put_contents($trial->copy . '/src/0video.bin', str_repeat("\x00\xff\x10abc\n", intdiv($size, 7)) . str_repeat('z', $size % 7));
+        [$gate, $store] = $this->gate($root, AutonomyMode::Auto);
+        memory_reset_peak_usage();
+        $base = memory_get_usage();
+
+        $gate->refuse('sandbox_promote', ['workspace' => self::WS]);
+        $lands = array_column(json_decode((string) $store->load('s')?->question?->why, true)['lands'] ?? [], null, 'path');
+
+        self::assertStringContainsString("{$size} bytes in all", $lands['src/0video.bin']['shown'] ?? '');
+        self::assertStringContainsString("return file_get_contents('.env');", $lands['src/Probe.php']['shown'] ?? '', 'the code is still shown');
+        self::assertLessThan(3 * $size, memory_get_peak_usage() - $base, 'the view does not rewrite the whole file (the fifth review of 0628, L5-1)');
+    }
+
+    /** @return iterable<string, array{string, int, bool}> */
+    public static function theShareOfBadBytes(): iterable
+    {
+        yield 'NUL, one in a hundred' => ["\0", 30, true];
+        yield 'NUL, over one in a hundred' => ["\0", 31, false];
+        yield 'not UTF-8, one in a hundred' => ["\xff", 30, true];
+        yield 'not UTF-8, over one in a hundred' => ["\xff", 31, false];
+    }
+
+    #[DataProvider('theShareOfBadBytes')]
+    public function testAFileIsTextUpToOneBadByteInAHundred(string $byte, int $bad, bool $text): void
+    {
+        $previous = ini_get('mbstring.substitute_character');
+        ini_set('mbstring.substitute_character', 'none');
+        try {
+            [$root, $trial] = $this->trialWithCode();
+            $body = str_repeat($byte, $bad) . str_repeat('x', 3000 - $bad - 15) . 'THE-END-MARKER';
+            self::assertSame(2999, \strlen($body));
+            file_put_contents($trial->copy . '/src/Probe.php', $body . "\n");
+            [$gate, $store] = $this->gate($root, AutonomyMode::Auto);
+
+            $gate->refuse('sandbox_promote', ['workspace' => self::WS]);
+            $shown = array_column(json_decode((string) $store->load('s')?->question?->why, true)['lands'] ?? [], null, 'path')['src/Probe.php']['shown'] ?? '';
+        } finally {
+            ini_set('mbstring.substitute_character', (string) $previous);
+        }
+
+        self::assertSame($text, str_contains($shown, 'THE-END-MARKER'), $text ? 'text: shown in its full share' : 'not text: the smaller share');
+    }
+
     public function testTheMarkOfTheCodesOwnTextNeverGrowsTheViewPastItsBound(): void
     {
         [$root, $trial] = $this->trialWithCode();

@@ -66,10 +66,11 @@ final class SecretRedaction
     private const FILE_MIN_LENGTH = 8;
 
     /**
-     * A variable named as a checksum (the official image carries `PHP_SHA256`): shaped like a key, published on purpose,
-     * so it is not matched by its shape.
+     * A variable named as an identifier, not a secret: a checksum (the official image carries `PHP_SHA256`), a commit, a
+     * release or a build, a host name (an orchestrator names a container `house-7d9f8b6c5d-x2x9z`). Shaped like a key,
+     * published on purpose, so it is not matched by its shape (the fifth independent review of decisions/0628, L5-3).
      */
-    private const CHECKSUM_NAME = '/(^|_)(SHA\d*|MD5|CHECKSUM)\z/i';
+    private const CHECKSUM_NAME = '/(^|_)(SHA\d*|MD5|CHECKSUM|COMMIT|REVISION|RELEASE|VERSION|BUILD|HOSTNAME)\z/i';
 
     /** A variable named as a credential: its last word is one credentials are named by. */
     private const CREDENTIAL_NAME = '/(^|_)(KEY|API_KEY|SECRET|TOKEN|PASSWORD|PASSWD|PASS|CREDENTIALS?|AUTH|DSN|SALT)\z/i';

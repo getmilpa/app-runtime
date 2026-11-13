@@ -195,6 +195,16 @@ final class TheSecretFilesAndTheKnownEnvironmentAreKeptOutTest extends TestCase
         self::assertSame('a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6', SecretRedaction::inText('a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6', null), 'a published checksum is not a secret');
     }
 
+    public function testAVariableNamedAsAnIdentifierIsNotMatchedByItsShape(): void
+    {
+        $this->env('MILPA_TEST_HOSTNAME', 'milpa-house-7d9f8b6c5d-x2x9z');
+        $this->env('MILPA_TEST_GIT_COMMIT', 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678');
+        $this->env('MILPA_TEST_APP_RELEASE', 'v0.223.0-build.20261113');
+        $text = 'milpa-house-7d9f8b6c5d-x2x9z a1b2c3d4e5f60718293a4b5c6d7e8f9012345678 v0.223.0-build.20261113';
+
+        self::assertSame($text, SecretRedaction::inText($text, null), 'an orchestrator\'s identifiers stay readable (the fifth review of 0628, L5-3)');
+    }
+
     public function testAVariableNeitherNamedNorShapedAsACredentialPasses(): void
     {
         $this->env('MILPA_TEST_LAUNCHER_WORDS', 'only-letters-in-this-value');
