@@ -90,16 +90,41 @@ return $loader;
         // second confinement — a user namespace nested in the trial's own is instant on a host but WAITS forever in a
         // container, so the trial timed out at 60s. The enclosing trial already confines the boot (no network, the
         // mask); the check boots plain within it and SAYS which room it ran in.
+        // Inside a REAL trial (greenhouse decisions/0631: a process is in a trial by what its room shows). A bwrap that
+        // EXECS (host-capable); if the check nested a confinement it would be recorded here.
+        $bwrap = $this->bwrap('host');
+        $script = $this->root . '/var/nested-check.php';
+        file_put_contents($script, '<?php require ' . var_export(\dirname(__DIR__, 2) . '/vendor/autoload.php', true) . ';
+$probe = new Milpa\AppRuntime\Support\BootProbe(runner: new Milpa\AppRuntime\Agent\TrialRunner(bwrap: ' . var_export($bwrap, true) . '));
+echo json_encode($probe->check(' . var_export($this->root, true) . ', ["src/Plugins/Normal/Normal.php" => ' . var_export(self::routePlugin('Normal', '/always') . "\n// touched\n", true) . ']));');
+        $inside = \Milpa\AppRuntime\Tests\Fixtures\InsideATrial::run($this->root, $script);
+        if ($inside === null) {
+            self::markTestSkipped('this host offers no unprivileged user namespace for bwrap');
+        }
+        $check = (array) json_decode($inside['stdout'], true);
+
+        self::assertArrayHasKey('why', $check, 'no answer from inside the trial: ' . $inside['stderr']);
+        self::assertNull($check['why'], (string) json_encode($check));
+        self::assertTrue($check['confined'] ?? false, 'the enclosing trial confines this boot, so the check is confined');
+        self::assertStringContainsString('enclosing trial', (string) ($check['room'] ?? ''), 'the room says the boot ran within the enclosing trial, not nested');
+        self::assertSame('', (string) @file_get_contents($this->root . '/bwrap-argv.txt'), 'no bwrap ran: neither a namespace probe nor a nested confinement (the nested one is what hung in a container)');
+    }
+
+    public function testToldItIsATrialOutsideOneTheCheckBootsNothingAndSaysWhy(): void
+    {
+        // The variable alone, outside a trial (greenhouse decisions/0631): not a trial — the check refuses, boots nothing.
         $this->setEnv(TrialRunner::INSIDE_TRIAL_ENV, '1');
-        // A bwrap that EXECS (host-capable); if the check nested a confinement it would be recorded here.
         $probe = new BootProbe(runner: new TrialRunner(bwrap: $this->bwrap('host')));
 
         $check = $probe->check($this->root, ['src/Plugins/Normal/Normal.php' => self::routePlugin('Normal', '/always') . "\n// touched\n"]);
 
-        self::assertNull($check['why'], (string) json_encode($check));
-        self::assertTrue($check['confined'], 'the enclosing trial confines this boot, so the check is confined');
-        self::assertStringContainsString('enclosing trial', $check['room'], 'the room says the boot ran within the enclosing trial, not nested');
-        self::assertSame('', (string) @file_get_contents($this->root . '/bwrap-argv.txt'), 'no bwrap ran: neither a namespace probe nor a nested confinement (the nested one is what hung in a container)');
+        self::assertSame(TrialRunner::FALSE_CLAIM, $check['why']);
+        self::assertFalse($check['confined']);
+        self::assertStringStartsWith('REFUSED', $check['room']);
+        self::assertSame([], glob($this->root . '/var/boot-candidates/*') ?: [], 'no candidate was even built');
+        self::assertSame('', (string) @file_get_contents($this->root . '/bwrap-argv.txt'));
+        self::assertFalse($probe->canConfine(), 'a false claim does not count as a room that confines');
+        self::assertSame(TrialRunner::FALSE_CLAIM, $probe->checkTree($this->root, $this->root)['why']);
     }
 
     public function testTheConfinedCandidateBootHasNoNetworkTheEnvelopeAndTheKeyringMasked(): void

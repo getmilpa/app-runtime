@@ -45,6 +45,7 @@ final class TrialRunner
      * confinement. A user namespace nested in the trial's own is instant on a host but, in a container, neither works
      * nor fails — it waits, and the trial timed out (the 0.219.0 regression t-0104 measured, greenhouse evidence/1186).
      * The enclosing trial already confines (no network, the mask), so the inner check boots plain within it (0607).
+     * The variable alone is never trusted: a process is in a trial when its room shows it ({@see trialClaim()}).
      */
     public const INSIDE_TRIAL_ENV = 'MILPA_TRIAL';
 
@@ -92,10 +93,73 @@ final class TrialRunner
     /**
      * True when this very process runs INSIDE a trial — so a confinement asked here would nest in the trial's own
      * (never do that: {@see INSIDE_TRIAL_ENV}). The enclosing trial already confines whatever this process boots.
+     *
+     * KNOWN BY ITS ROOM, NOT BY WHAT IT IS TOLD (greenhouse decisions/0631): {@see trialClaim()}.
      */
     public static function insideTrial(): bool
     {
-        return getenv(self::INSIDE_TRIAL_ENV) === '1';
+        return self::trialClaim() === true;
+    }
+
+    /**
+     * Whether this process says it runs inside a trial, and whether its room shows it: null when nothing says so;
+     * true when {@see INSIDE_TRIAL_ENV} says so AND the room is a trial's — the confinement's own mark is in place
+     * ({@see MARK}: the null device bound over a file of its home, which no unprivileged process can make) and there is
+     * no route off this host; false when the variable says so and the room does not. A false claim is never trusted:
+     * every door that asks refuses instead of booting plain (decisions/0631).
+     */
+    public static function trialClaim(): ?bool
+    {
+        if (getenv(self::INSIDE_TRIAL_ENV) !== '1') {
+            return null;
+        }
+        $home = getenv('HOME');
+        $mark = \is_string($home) && $home !== '' ? @lstat($home . '/' . self::MARK) : false;
+        $marked = $mark !== false && ($mark['mode'] & 0o170000) === 0o020000 && $mark['rdev'] === self::NULL_DEVICE;
+        // A UDP "connect" sends nothing: it asks the kernel for a route, and a trial's network has none but loopback.
+        $socket = @stream_socket_client('udp://192.0.2.1:9', $errno, $error, 1);
+        if (\is_resource($socket)) {
+            fclose($socket);
+        }
+
+        return $marked && $socket === false;
+    }
+
+    /** What a door says when the variable says «trial» and the room does not, before it refuses. */
+    public const FALSE_CLAIM = 'MILPA_TRIAL=1 is set, but this process is not in a trial: its room shows no confinement '
+        . '(the trial\'s mark is not in place, or it has a route off this host). Nothing was booted; unset MILPA_TRIAL — '
+        . 'a trial sets it for itself (decisions/0631)';
+
+    /**
+     * The file of a trial's home the confinement binds the null device over: the trial's own mark. Under `var/`, which
+     * no copy of a tree ever carries, so a check that copies the tree it runs in never meets it.
+     */
+    public const MARK = 'var/.milpa-trial';
+
+    /** The device number of the null device (major 1, minor 3). */
+    private const NULL_DEVICE = 0x103;
+
+    /**
+     * The confinement's own mark, for a trial whose home is `$home` ({@see trialClaim()}): an empty file made there if
+     * it is not, with the null device bound over it. Comes last, after every bind of the home. Without a home that can
+     * hold it, there is no mark, and the trial is not recognised as one — the safe direction.
+     *
+     * @return list<string>
+     */
+    private static function mark(string $home): array
+    {
+        $path = rtrim($home, '/') . '/' . self::MARK;
+        if (is_link(\dirname($path)) || (!is_dir(\dirname($path)) && !@mkdir(\dirname($path), 0o700, true))) {
+            return [];
+        }
+        if (is_link($path) || (file_exists($path) && !is_file($path))) {
+            return [];
+        }
+        if (!is_file($path) && @file_put_contents($path, '') === false) {
+            return [];
+        }
+
+        return ['--ro-bind', '/dev/null', $path];
     }
 
     /**
@@ -205,7 +269,7 @@ final class TrialRunner
         }
 
         return [...$this->fromNothing(), ...$namespaces, ...self::environmentFloor($tree, $tree), '--ro-bind', '/', '/', '--dev-bind', '/dev/null', '/dev/null',
-            '--bind', $tree, $tree, ...$this->maskArgs($secretsRoot)];
+            '--bind', $tree, $tree, ...$this->maskArgs($secretsRoot), ...self::mark($tree)];
     }
 
     /**
@@ -250,7 +314,7 @@ final class TrialRunner
             throw new \RuntimeException('Work needs a scratch directory of its own.');
         }
         array_push($command, '--bind', $scratch, $scratch); // TMPDIR/MILPA_TRIAL set by environmentFloor()
-        $command = [...$command, ...$this->maskArgs($house)];
+        $command = [...$command, ...$this->maskArgs($house), ...self::mark($scratch)];
         array_push(
             $command,
             '--',
@@ -343,7 +407,7 @@ final class TrialRunner
         if (is_dir($vendor)) {
             array_push($command, '--ro-bind', $vendor, $workspace->copy . '/vendor');
         }
-        $command = [...$command, ...$this->maskArgs($house)];
+        $command = [...$command, ...$this->maskArgs($house), ...self::mark($temporary)];
         array_push(
             $command,
             // TMPDIR/MILPA_TRIAL set by environmentFloor()

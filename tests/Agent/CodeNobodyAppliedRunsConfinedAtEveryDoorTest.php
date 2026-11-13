@@ -208,10 +208,21 @@ return $loader;
     {
         self::assertStringStartsWith('UNCONFINED', RouteRegression::room(false), 'control: outside a trial, unconfined is said as such');
 
+        // Told it is a trial, outside one: the room is not named a trial (greenhouse decisions/0631).
         putenv(TrialRunner::INSIDE_TRIAL_ENV . '=1');
+        self::assertStringStartsWith('UNCONFINED', RouteRegression::room(false));
+        putenv(TrialRunner::INSIDE_TRIAL_ENV);
 
-        self::assertStringStartsWith('within the enclosing trial', RouteRegression::room(false));
-        self::assertStringStartsWith('a trial: confined', RouteRegression::room(true));
+        $script = $this->root . '/var/room.php';
+        file_put_contents($script, '<?php require ' . var_export(\dirname(__DIR__, 2) . '/vendor/autoload.php', true) . ';
+echo Milpa\AppRuntime\Agent\RouteRegression::room(false), "\n", Milpa\AppRuntime\Agent\RouteRegression::room(true), "\n";');
+        $inside = \Milpa\AppRuntime\Tests\Fixtures\InsideATrial::run($this->root, $script);
+        if ($inside === null) {
+            self::markTestSkipped('this host offers no unprivileged user namespace for bwrap');
+        }
+        [$unconfined, $confined] = explode("\n", $inside['stdout']) + ['', ''];
+        self::assertStringStartsWith('within the enclosing trial', $unconfined, $inside['stderr']);
+        self::assertStringStartsWith('a trial: confined', $confined);
     }
 
     /**
