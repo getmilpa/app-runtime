@@ -52,6 +52,10 @@ use Milpa\ToolRuntime\Identity\GrantedAuthorization;
  * gate composes it from what ENTERS and pauses for consent, envelope and all (0067). The trial ran
  * without asking; adopting its consequences is precisely where the human is asked.
  *
+ * In an agent's session the question is asked in every mode, and a yes covers one trial with the content it had
+ * when the person was shown it (greenhouse decisions/0628, {@see \Milpa\AppRuntime\Agent\WhatAPromotionLands}): no
+ * mode, and no yes by name for the session, lands code a person did not see.
+ *
  * ── WHY A MOVED TARGET IS REFUSED, NOT MERGED ──────────────────────────────────────────────────
  *
  * If a path the trial touched has changed on the host since the copy, the target moved: the diff no

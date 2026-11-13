@@ -46,6 +46,14 @@ namespace Milpa\AppRuntime\Config;
  * the model in 5 of 8 requests. {@see ProviderCredentials} is the one reader of those variables, and every value
  * it finds is matched like the overlay's. They need no house root: a caller that does not know it still keeps
  * the environment out.
+ *
+ * ── AND WHAT THE OTHER SECRET FILES AND THE KNOWN ENVIRONMENT CARRY (greenhouse decisions/0628) ───────
+ *
+ * A route the agent wrote returned the house's `.env`, its `auth.json` and a variable of its launcher, and
+ * `route_observe` handed them to the model: none of them was in the overlay. The values of a `.env` and of
+ * `auth.json` at the root are matched now, and so are the variables named as credentials, each in the forms it
+ * takes once encoded. It is a defence: a value transformed by the code that returns it passes (evidence/1170).
+ * The boundary is that a person says yes to that code before it is promoted.
  */
 final class SecretRedaction
 {
@@ -53,6 +61,15 @@ final class SecretRedaction
 
     /** Below this a value is not treated as a secret to match on: it would mask ordinary text. */
     private const MIN_LENGTH = 4;
+
+    /** Below this a value of a secret file or of the environment is not matched: they hold settings too. */
+    private const FILE_MIN_LENGTH = 8;
+
+    /** A variable named as a credential: its last word is one credentials are named by. */
+    private const CREDENTIAL_NAME = '/(^|_)(KEY|API_KEY|SECRET|TOKEN|PASSWORD|PASSWD|PASS|PWD|CREDENTIALS?|AUTH|DSN|SALT)\z/i';
+
+    /** @var array<string, list<string>> the values of the secret files, by root and by what the files were when read */
+    private static array $fileValues = [];
 
     /**
      * Redact every secret value from a tool result, in place of structure: strings are masked, the shape
@@ -93,8 +110,8 @@ final class SecretRedaction
     }
 
     /**
-     * Every value the house keeps as a secret, longest first so a secret that contains another (a token
-     * that ends in a shorter one) is masked whole instead of leaving its tail dangling.
+     * Every value the house keeps as a secret, and the forms it takes once encoded, longest first so a secret that
+     * contains another (a token that ends in a shorter one) is masked whole instead of leaving its tail dangling.
      *
      * @return list<string>
      */
@@ -110,9 +127,129 @@ final class SecretRedaction
                 }
             },
         );
-        usort($values, static fn (string $a, string $b): int => \strlen($b) <=> \strlen($a));
+        array_push($values, ...self::ofTheSecretFiles($root), ...self::ofTheKnownEnvironment());
 
-        return array_values(array_unique($values));
+        $forms = [];
+        foreach ($values as $value) {
+            array_push($forms, ...self::encoded($value));
+        }
+        usort($forms, static fn (string $a, string $b): int => \strlen($b) <=> \strlen($a));
+
+        return array_values(array_unique($forms));
+    }
+
+    /**
+     * A value as it appears in the text a tool returns: as it is, inside a JSON string, in a URL and in HTML. The
+     * ledger is written from rendered JSON, so a secret with a quote or a slash in it reached it escaped and the
+     * plain match missed it (greenhouse decisions/0628).
+     *
+     * @return list<string>
+     */
+    private static function encoded(string $value): array
+    {
+        $json = json_encode($value, \JSON_UNESCAPED_UNICODE);
+        $forms = [$value, rawurlencode($value), htmlspecialchars($value, \ENT_QUOTES | \ENT_SUBSTITUTE)];
+        if (\is_string($json) && \strlen($json) >= 2) {
+            $forms[] = substr($json, 1, -1);
+            $forms[] = substr((string) json_encode($value), 1, -1);
+        }
+
+        return array_values(array_unique(array_filter($forms, static fn (string $f): bool => \strlen($f) >= self::MIN_LENGTH)));
+    }
+
+    /**
+     * The values in the files the house keeps its secrets in, besides the overlay (greenhouse decisions/0628):
+     * every value of a `.env` at the root of the house and every string of its `auth.json`. A house is not born
+     * with either, so what a person put there is what the house keeps out of its tree. Values shorter than
+     * {@see FILE_MIN_LENGTH} are left: a file holds settings beside its credentials.
+     *
+     * An unreadable file is skipped, not withheld: this redaction is a defence, and the boundary is that a person
+     * says yes to the code that would read these files ({@see \Milpa\AppRuntime\Agent\WhatAPromotionLands}).
+     *
+     * @return list<string>
+     */
+    private static function ofTheSecretFiles(?string $root): array
+    {
+        if ($root === null || ! is_dir($root)) {
+            return [];
+        }
+        $files = array_values(array_filter(
+            array_merge(glob($root . '/.env*') ?: [], [$root . '/auth.json']),
+            static fn (string $file): bool => is_file($file) && SecretFiles::isSecret(basename($file)),
+        ));
+        $key = $root;
+        foreach ($files as $file) {
+            $key .= '|' . $file . ':' . (string) @filemtime($file) . ':' . (string) @filesize($file);
+        }
+        if (isset(self::$fileValues[$key])) {
+            return self::$fileValues[$key];
+        }
+
+        $values = [];
+        foreach ($files as $file) {
+            $raw = @file_get_contents($file);
+            if (! \is_string($raw)) {
+                continue;
+            }
+            if (basename($file) === 'auth.json') {
+                $decoded = json_decode($raw, true);
+                if (\is_array($decoded)) {
+                    array_walk_recursive($decoded, static function (mixed $value) use (&$values): void {
+                        if (\is_string($value)) {
+                            $values[] = $value;
+                        }
+                    });
+                }
+
+                continue;
+            }
+            foreach (preg_split('/\R/', $raw) ?: [] as $line) {
+                $line = trim($line);
+                if ($line === '' || $line[0] === '#' || ! str_contains($line, '=')) {
+                    continue;
+                }
+                $value = trim(explode('=', $line, 2)[1]);
+                $quote = $value[0] ?? '';
+                if (($quote === '"' || $quote === "'") && \strlen($value) >= 2 && str_ends_with($value, $quote)) {
+                    $value = substr($value, 1, -1);
+                } else {
+                    $value = trim((string) preg_replace('/\s+#.*$/', '', $value));
+                }
+                $values[] = $value;
+            }
+        }
+        $values = array_values(array_filter($values, static fn (string $v): bool => \strlen($v) >= self::FILE_MIN_LENGTH));
+        self::$fileValues = [$key => $values];
+
+        return $values;
+    }
+
+    /**
+     * The values of the environment a house knows are credentials (greenhouse decisions/0628): a variable whose name
+     * ends in a word credentials are named by, and the userinfo of a URL in any variable. A variable the house cannot
+     * tell from a setting is not matched: this is a defence, not a list of every secret a launcher can hand over.
+     *
+     * @return list<string>
+     */
+    private static function ofTheKnownEnvironment(): array
+    {
+        $values = [];
+        foreach (getenv() as $name => $value) {
+            if (\strlen($value) < self::FILE_MIN_LENGTH) {
+                continue;
+            }
+            if (preg_match(self::CREDENTIAL_NAME, (string) $name) === 1) {
+                $values[] = $value;
+            }
+            if (preg_match('#^[a-z][a-z0-9+.-]*://([^/@\s:]+):([^/@\s]+)@#i', $value, $userinfo) === 1) {
+                $values[] = $value;
+                if (\strlen($userinfo[2]) >= self::MIN_LENGTH) {
+                    $values[] = $userinfo[2];
+                }
+            }
+        }
+
+        return $values;
     }
 
     /**

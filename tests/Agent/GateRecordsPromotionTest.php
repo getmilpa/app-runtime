@@ -42,7 +42,10 @@ final class GateRecordsPromotionTest extends TestCase
         self::assertCount(1, $prom);
         self::assertSame('w1', $prom[0]['workspace']);
         self::assertSame(['storage/plugins.json', 'config/x.php'], $prom[0]['paths']);
-        self::assertNotEmpty($prom[0]['diff_digest']);
+        // The digest is the one a person said yes to (greenhouse decisions/0628); this gate admitted nothing, so it
+        // names none rather than a digest of the paths.
+        self::assertArrayHasKey('diff_digest', $prom[0]);
+        self::assertNull($prom[0]['diff_digest']);
     }
 
     public function testAFailedPromotionRecordsNothing(): void
