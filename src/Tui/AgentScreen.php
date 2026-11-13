@@ -592,15 +592,24 @@ final class AgentScreen implements SurfaceBroadcaster
             };
             $lines[] = (string) ($file['path'] ?? '') . " ({$status})";
             $shown = \is_string($file['shown'] ?? null) ? rtrim($file['shown'], "\n") : '';
+            // Every row of the code carries the quote mark, a wrapped one too: a row of agent-written text must never
+            // read as the house's. The rows are cut here, at this screen's width, so the renderer has nothing to wrap.
+            $room = max(10, $this->width - 6);
             foreach ($shown === '' ? [] : explode("\n", $shown) as $code) {
-                $lines[] = '│ ' . $code;
+                foreach ($code === '' ? [''] : mb_str_split($code, $room) as $k => $row) {
+                    $lines[] = ($k === 0 ? '│ ' : '│↪') . $row;
+                }
             }
         }
         $judged = \is_array($claim['judged'] ?? null) ? $claim['judged'] : [];
         $facts = [];
         foreach ($judged as $section => $part) {
             foreach (\is_array($part) ? $part : ['' => $part] as $key => $value) {
-                $facts[] = trim($section . ' ' . $key) . ': ' . (\is_string($value) ? $value : (string) json_encode($value));
+                $facts[] = trim($section . ' ' . $key) . ': ' . match (true) {
+                    \is_string($value) => $value,
+                    \is_bool($value) => $value ? 'yes' : 'no',
+                    default => (string) json_encode($value),
+                };
             }
         }
         if ($facts !== []) {
@@ -642,6 +651,9 @@ final class AgentScreen implements SurfaceBroadcaster
             $partes[] = 'cambia: ' . implode(', ', $legibles);
             unset($datos['cambios']);
         }
+        // What a promotion lands is painted above the question, quoted (greenhouse decisions/0628): dumped here it
+        // was the agent's code again, raw and unquoted.
+        unset($datos['lands'], $datos['judged'], $datos['digest']);
 
         // The effect ceiling (`base`) and this call's floor (`composed`) are surfaced as their OWN
         // lines by the gate render (they carry the axes a «sí, pero…» can lower); here they would only

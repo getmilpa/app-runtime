@@ -35,7 +35,7 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
             'base' => ['subject' => 'executable'],
             'digest' => 'diff:' . str_repeat('a', 64),
             'lands' => [['path' => 'src/Feed.php', 'status' => 'added', 'sha256' => null, 'shown' => "+<?php\n+return 'MARKER-OF-THE-CODE';\n"]],
-            'judged' => ['trial_run' => ['operation' => 'make', 'exit' => 0]],
+            'judged' => ['trial_run' => ['operation' => 'make', 'exit' => 0], 'producer' => ['ok' => true]],
         ]);
 
         $text = $this->paint(new PendingQuestion('perm:sandbox:promote', 'The agent wants to promote trial «w1»…', ['yes', 'no'], $why));
@@ -44,7 +44,23 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
         self::assertStringContainsString('src/Feed.php (new file)', $text);
         self::assertStringContainsString("│ +return 'MARKER-OF-THE-CODE';", $text, 'the code, quoted as the agent\'s');
         self::assertStringContainsString('trial_run operation: make', $text);
+        self::assertMatchesRegularExpression('/producer ok:\s+yes/u', $text, 'a recorded yes reads as a word');
         self::assertLessThan(strpos($text, 'The agent wants to promote'), strpos($text, 'MARKER-OF-THE-CODE'), 'read before the question');
+    }
+
+    public function testAWrappedRowOfCodeStillCarriesTheQuoteMark(): void
+    {
+        $long = "+\$x = '" . str_repeat('abcdefghij', 25) . "-END-OF-LONG-LINE';";
+        $why = (string) json_encode(['operation' => 'sandbox:promote', 'lands' => [['path' => 'src/F.php', 'status' => 'added', 'shown' => $long . "\n"]]]);
+
+        $text = $this->paint(new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], $why));
+        $rows = array_values(array_filter(explode("\n", $text), static fn (string $row): bool => str_contains($row, 'abcdefghij')));
+
+        self::assertGreaterThan(1, \count($rows), 'the long line takes more than one row');
+        foreach ($rows as $row) {
+            self::assertMatchesRegularExpression('/^\s*│/u', $row, 'every row of agent-written code is quoted');
+        }
+        self::assertStringContainsString('-END-OF-LONG-LINE', $text, 'and its end is shown');
     }
 
     public function testTheControlAQuestionThatIsNotAPromotionPaintsNoCode(): void

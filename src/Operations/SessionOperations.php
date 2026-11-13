@@ -1201,7 +1201,7 @@ final class SessionOperations implements CommandProvider
      *
      * @param array<string, mixed> $input
      *
-     * @return array{ok: bool, session?: string, columns?: array<string, list<array<string, mixed>>>, pending_question?: string, error?: string}
+     * @return array{ok: bool, session?: string, columns?: array<string, list<array<string, mixed>>>, pending_question?: string, pending_promotion?: true, error?: string}
      */
     private function tablero(array $input): array
     {
@@ -1366,6 +1366,12 @@ final class SessionOperations implements CommandProvider
         // un tablero que no la muestra deja al agente parado sin que nadie lo vea.
         if ($session->question !== null) {
             $salida['pending_question'] = $session->question->question;
+            // A PROMOTION IS ANSWERED WHERE ITS CODE IS READ (greenhouse decisions/0628): the board shows no code,
+            // so it says so instead of offering the answer — the terminal and the Desktop's request show it.
+            $fact = json_decode((string) $session->question->why, true);
+            if (\is_array($fact) && (\is_array($fact['lands'] ?? null) || ($fact['operation'] ?? null) === 'sandbox:promote')) {
+                $salida['pending_promotion'] = true;
+            }
         }
 
         return $salida;

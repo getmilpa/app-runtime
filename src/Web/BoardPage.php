@@ -210,7 +210,9 @@ memory and travels only in the request header.</p>
                 // board carries the waiting alert exactly when a question is open, so its presence
                 // is the fold's own answer — closed the moment the stream says so, even when someone
                 // else answered from the terminal.
-                answerBar.hidden = board.querySelector('.milpa-board-waiting') === null;
+                // A promotion is answered where its code is read (greenhouse decisions/0628): this board shows none.
+                answerBar.hidden = board.querySelector('.milpa-board-waiting') === null
+                    || board.querySelector('.milpa-board-waiting--promotion') !== null;
             })
             .catch(function () { status.textContent = 'the board endpoint is unreachable'; });
     }
