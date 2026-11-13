@@ -1907,7 +1907,7 @@ final class SessionOperations implements CommandProvider
             'ok' => true,
             'session' => $id,
             'answered' => $pregunta->id,
-            'granted' => $otorgado,
+            'granted' => $otorgado === null ? null : $this->whatTheYesCovers($pregunta, $otorgado),
             'hint' => $this->comoSeRetoma($id, $almacen),
         ];
     }
@@ -2016,7 +2016,7 @@ final class SessionOperations implements CommandProvider
             'ok' => true,
             'session' => $id,
             'answered' => $pregunta->id,
-            'granted' => $operacion,
+            'granted' => $this->whatTheYesCovers($pregunta, $operacion),
             'envelope' => $sobreEfectivo->toArray(),
             'base' => $base->toArray(),
             'tightened' => $apretadas,
@@ -2135,6 +2135,24 @@ final class SessionOperations implements CommandProvider
      * and the root comes from the kernel. Both absent leaves it a no-op — a reject that can find no
      * trial simply grants and cleans up nothing, never throws.
      */
+    /**
+     * What a yes covers, as the answer says it (the first independent review of greenhouse decisions/0628, L7). A yes
+     * to a promotion's question admits exactly the changes it showed, of that trial: the gate admits it by their digest
+     * alone, and a changed trial is asked again. Saying only the operation's name read as a yes for the rest of the
+     * session.
+     */
+    private function whatTheYesCovers(\Milpa\Agent\PendingQuestion $question, string $operation): string
+    {
+        $fact = json_decode((string) $question->why, true);
+        $digest = \is_array($fact) ? ($fact['digest'] ?? null) : null;
+        $ws = \is_array($fact) && \is_array($fact['arguments'] ?? null) ? ($fact['arguments']['workspace'] ?? null) : null;
+        if (! \is_string($digest) || ! \is_string($ws)) {
+            return $operation;
+        }
+
+        return "{$operation} of trial «{$ws}», exactly {$digest} (only these changes; a changed trial is asked again)";
+    }
+
     private function descartarEnsayoDe(\Milpa\Agent\PendingQuestion $pregunta): void
     {
         $hecho = json_decode((string) $pregunta->why, true);

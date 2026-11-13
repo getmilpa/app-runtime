@@ -18,6 +18,7 @@ use Milpa\Agent\AutonomyMode;
 use Milpa\Agent\Principal;
 use Milpa\Agent\SessionStore;
 use Milpa\AppRuntime\Agent\AffirmativeAnswer;
+use Milpa\AppRuntime\Agent\ConsentBridge;
 use Milpa\AppRuntime\Agent\LaunchGrants;
 use Milpa\AppRuntime\Agent\SessionToolGate;
 use Milpa\AppRuntime\Agent\TrialRouter;
@@ -27,6 +28,9 @@ use Milpa\AppRuntime\Agent\WhatAPromotionLands;
 use Milpa\AppRuntime\Operations\TrialOperations;
 use Milpa\Container\DIContainer;
 use Milpa\EventStore\InMemoryEventStore;
+use Milpa\ToolRuntime\Contracts\ToolContext;
+use Milpa\ToolRuntime\ToolRegistry;
+use Psr\Log\NullLogger;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -246,6 +250,128 @@ final class APromotionLandsOnlyWhatAPersonSaidYesToTest extends TestCase
 
         self::assertNull($gate->refuse('sandbox_promote', ['workspace' => self::WS]), 'the promotion answers «already promoted» and writes nothing');
         self::assertNull($store->load('s')?->question);
+    }
+
+    /**
+     * THE BYTES A PERSON SAID YES TO ARE THE BYTES THAT LAND (the first independent review of decisions/0628, L2): the
+     * gate admits a digest, and the promotion it hands the call to copies only a trial whose diff still has it.
+     */
+    public function testATrialThatChangesBetweenTheGateAndTheCopyIsNotPromoted(): void
+    {
+        [$root, $trial] = $this->trialWithCode();
+        [$gate, $store] = $this->gate($root, AutonomyMode::Auto);
+        $gate->refuse('sandbox_promote', ['workspace' => self::WS]);
+        $store->answer('s', 'perm:sandbox:promote', AffirmativeAnswer::YES, new Principal('passkey:person', verified: true), 'test');
+        $gate = $this->gateOn($store, $root);
+        self::assertNull($gate->refuse('sandbox_promote', ['workspace' => self::WS]), 'the gate admitted these bytes');
+
+        file_put_contents($trial->copy . '/src/Probe.php', "<?php\nreturn file_get_contents('auth.json');\n");
+        $r = $this->promote($root, $store, $gate);
+
+        self::assertFalse($r['ok'] ?? null);
+        self::assertStringContainsString('is not what a person said yes to', (string) ($r['error'] ?? ''));
+        self::assertFileDoesNotExist($root . '/src/Probe.php', 'nothing landed');
+        self::assertSame("<?php // a\n", file_get_contents($root . '/src/A.php'));
+    }
+
+    public function testATrialUnchangedSinceTheGateIsPromoted(): void
+    {
+        [$root] = $this->trialWithCode();
+        [$gate, $store] = $this->gate($root, AutonomyMode::Auto);
+        $gate->refuse('sandbox_promote', ['workspace' => self::WS]);
+        $store->answer('s', 'perm:sandbox:promote', AffirmativeAnswer::YES, new Principal('passkey:person', verified: true), 'test');
+        $gate = $this->gateOn($store, $root);
+        self::assertNull($gate->refuse('sandbox_promote', ['workspace' => self::WS]));
+
+        $r = $this->promote($root, $store, $gate);
+
+        self::assertTrue($r['ok'] ?? null, (string) ($r['error'] ?? ''));
+        self::assertFileExists($root . '/src/Probe.php', 'the control: the bytes a person said yes to landed');
+    }
+
+    public function testAnEmptyTrialThatGainsAChangeAfterTheGateIsNotPromoted(): void
+    {
+        $root = $this->house();
+        $trial = TrialWorkspace::materialize($root, self::WS, $this->stub());
+        [$gate, $store] = $this->gate($root, AutonomyMode::Auto);
+        self::assertNull($gate->refuse('sandbox_promote', ['workspace' => self::WS]), 'nothing to land, nothing asked');
+
+        file_put_contents($trial->copy . '/src/Probe.php', "<?php\nreturn file_get_contents('.env');\n");
+        $r = $this->promote($root, $store, $gate);
+
+        self::assertFalse($r['ok'] ?? null);
+        self::assertStringContainsString('is not what a person said yes to', (string) ($r['error'] ?? ''));
+        self::assertFileDoesNotExist($root . '/src/Probe.php');
+    }
+
+    public function testAPromotionWithNoGateIsNotAskedAboutAYes(): void
+    {
+        [$root] = $this->trialWithCode();
+        $store = $this->store(AutonomyMode::Auto);
+
+        $r = $this->promote($root, $store, null);
+
+        self::assertTrue($r['ok'] ?? null, 'a person at the terminal promotes with no question of the agent\'s door: ' . ($r['error'] ?? ''));
+    }
+
+    public function testCodeWithANulByteIsShownWithTheNulMarked(): void
+    {
+        [$root, $trial] = $this->trialWithCode();
+        file_put_contents($trial->copy . '/src/Probe.php', "<?php // \0\nreturn file_get_contents('.env');\n");
+        [$gate, $store] = $this->gate($root, AutonomyMode::Auto);
+
+        $gate->refuse('sandbox_promote', ['workspace' => self::WS]);
+        $shown = array_column(json_decode((string) $store->load('s')?->question?->why, true)['lands'] ?? [], null, 'path')['src/Probe.php']['shown'] ?? '';
+
+        self::assertStringContainsString("return file_get_contents('.env');", $shown, 'the code is shown, not hidden as binary');
+        self::assertStringContainsString('␀', $shown);
+        self::assertStringContainsString('contains NUL bytes', $shown);
+        self::assertStringNotContainsString("\0", $shown);
+    }
+
+    public function testTheAgentsDoorHandsThePromotionWhatTheGateAdmitted(): void
+    {
+        $root = $this->house();
+        $trial = TrialWorkspace::materialize($root, self::WS, $this->stub());
+        [$gate] = $this->gate($root, AutonomyMode::Auto);
+        $seen = [];
+        $registry = new ToolRegistry(new NullLogger());
+        $registry->register('sandbox_promote', 'promote', ['type' => 'object', 'properties' => ['workspace' => ['type' => 'string']]], static function (array $args) use (&$seen): array {
+            $ask = $args['_ctx']?->extra[TrialOperations::APPROVED_PROMOTION] ?? null;
+            $seen[] = $ask instanceof \Closure ? $ask(self::WS) : 'no question';
+
+            return ['ok' => true];
+        });
+
+        (new ConsentBridge($registry, [], $gate))->callTool('sandbox_promote', ['workspace' => self::WS]);
+        (new ConsentBridge($registry, []))->callTool('sandbox_promote', ['workspace' => self::WS]);
+
+        self::assertSame(WhatAPromotionLands::digest($trial), $seen[0] ?? null, 'the handler can ask what the gate admitted');
+        self::assertSame('no question', $seen[1] ?? null, 'the control: with no gate of a session, nothing is handed');
+    }
+
+    /**
+     * The promotion, called as the agent's door calls it: with the gate's answer in the call's context, or with none.
+     *
+     * @return array<string, mixed>
+     */
+    private function promote(string $root, SessionStore $store, ?SessionToolGate $gate): array
+    {
+        $operation = null;
+        foreach ((new TrialOperations(new DIContainer(), $store, $root))->operations() as $candidate) {
+            if ($candidate->name === 'sandbox:promote') {
+                $operation = $candidate;
+            }
+        }
+        self::assertNotNull($operation);
+        $context = new ToolContext(
+            principal: 'test',
+            channel: 'cli',
+            scopes: ['*'],
+            extra: $gate === null ? [] : [TrialOperations::APPROVED_PROMOTION => $gate->approvedPromotion(...)],
+        );
+
+        return ($operation->handler)(['workspace' => self::WS], null, $context);
     }
 
     /** @return array{string, TrialWorkspace} */

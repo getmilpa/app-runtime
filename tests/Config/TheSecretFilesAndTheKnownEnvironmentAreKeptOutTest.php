@@ -25,6 +25,10 @@ use PHPUnit\Framework\TestCase;
  * observation of the live house handed them to the model: none of them was in the overlay. Each case has its control:
  * the same text, without the file or the variable, keeps the value. It is a defence, and its limit is pinned too: a
  * variable the house cannot tell from a setting passes.
+ *
+ * The first independent review of 0628 measured two that passed and should not have: a `.env` passphrase of words
+ * joined by dashes (L3'), and a launcher variable not named as a credential. A `.env` is now matched unless a value is
+ * shaped like a setting, and a variable of any name is matched when it is shaped like a key.
  */
 final class TheSecretFilesAndTheKnownEnvironmentAreKeptOutTest extends TestCase
 {
@@ -77,8 +81,15 @@ final class TheSecretFilesAndTheKnownEnvironmentAreKeptOutTest extends TestCase
             'APP_URL=http://localhost:8000',
             'APP_TIMEZONE=America/Mexico_City',
             'STORAGE_PATH=/srv/house/storage/a1b2c3d4e5',
+            'MAIL_HOST=smtp.mailgun.org',
+            'DB_HOST=127.0.0.1',
+            'DB_NAME=milpa_house',
+            'APP_NAME="Milpa House Demo"',
+            'SESSION_LIFETIME=12000000',
+            'APP_DEBUG=false',
         ]) . "\n");
-        $text = 'production database http://localhost:8000 America/Mexico_City /srv/house/storage/a1b2c3d4e5';
+        $text = 'production database http://localhost:8000 America/Mexico_City /srv/house/storage/a1b2c3d4e5 '
+            . 'smtp.mailgun.org 127.0.0.1 milpa_house Milpa House Demo 12000000';
 
         self::assertSame($text, SecretRedaction::inText($text, $this->root), 'a setting is not a credential');
     }
@@ -88,6 +99,36 @@ final class TheSecretFilesAndTheKnownEnvironmentAreKeptOutTest extends TestCase
         $this->env('PWD', '/srv/a-house-directory');
 
         self::assertSame('/srv/a-house-directory/src/A.php', SecretRedaction::inText('/srv/a-house-directory/src/A.php', null));
+    }
+
+    public function testAValueOfTheEnvFileNotShapedLikeASettingIsKeptOut(): void
+    {
+        $text = 'login correct-horse-battery-staple id Mx4kTe9 lowercasesecret12345 mail ops@example.invalid';
+        self::assertSame($text, SecretRedaction::inText($text, $this->root), 'the control: with no .env the values pass');
+
+        file_put_contents($this->root . '/.env', implode("\n", [
+            'SMTP_LOGIN=correct-horse-battery-staple',
+            'SERVICE_ID=lowercasesecret12345',
+            'MAIL_FROM=ops@example.invalid',
+            'SHORT=Mx4kTe9',
+        ]) . "\n");
+
+        $redacted = SecretRedaction::inText($text, $this->root);
+        foreach (['correct-horse-battery-staple', 'lowercasesecret12345', 'ops@example.invalid'] as $value) {
+            self::assertStringNotContainsString($value, $redacted);
+        }
+        self::assertStringContainsString('Mx4kTe9', $redacted, 'the limit, stated: a value shorter than eight characters passes');
+    }
+
+    public function testAPhraseOfTheEnvFileNotNamedAsACredentialPasses(): void
+    {
+        file_put_contents($this->root . '/.env', "SMTP_LOGIN=\"correct horse battery staple\"\n");
+
+        self::assertSame(
+            'correct horse battery staple',
+            SecretRedaction::inText('correct horse battery staple', $this->root),
+            'the limit, stated: a phrase with spaces is read as a setting unless it is named as a credential',
+        );
     }
 
     public function testATemplateOfTheEnvFileIsNotReadAsSecrets(): void
@@ -115,12 +156,35 @@ final class TheSecretFilesAndTheKnownEnvironmentAreKeptOutTest extends TestCase
     public function testAVariableNamedAsACredentialIsKeptOut(): void
     {
         $this->env('MILPA_TEST_DB_PASSWORD', 'env-password-0628');
-        $this->env('MILPA_TEST_LAUNCHER_CANARY', 'launcher-value-0628');
 
-        $redacted = SecretRedaction::inText('a=env-password-0628 b=launcher-value-0628', null);
+        self::assertStringNotContainsString('env-password-0628', SecretRedaction::inText('a=env-password-0628', null));
+    }
 
-        self::assertStringNotContainsString('env-password-0628', $redacted);
-        self::assertStringContainsString('launcher-value-0628', $redacted, 'the limit, stated: a variable not named as a credential passes');
+    public function testAVariableShapedLikeAKeyIsKeptOutWhateverItsName(): void
+    {
+        self::assertSame('b=launcher-value-0628-a1b2', SecretRedaction::inText('b=launcher-value-0628-a1b2', null), 'the control');
+        $this->env('MILPA_TEST_LAUNCHER_CANARY', 'launcher-value-0628-a1b2');
+
+        self::assertStringNotContainsString('launcher-value-0628-a1b2', SecretRedaction::inText('b=launcher-value-0628-a1b2', null));
+    }
+
+    public function testAVariableNamedAsAChecksumIsNotMatchedByItsShape(): void
+    {
+        $this->env('MILPA_TEST_SHA256', 'a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6');
+
+        self::assertSame('a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6', SecretRedaction::inText('a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6', null), 'a published checksum is not a secret');
+    }
+
+    public function testAVariableNeitherNamedNorShapedAsACredentialPasses(): void
+    {
+        $this->env('MILPA_TEST_LAUNCHER_WORDS', 'only-letters-in-this-value');
+        $this->env('MILPA_TEST_LAUNCHER_PATH', '/srv/a-launcher-path/v2026');
+
+        self::assertSame(
+            'only-letters-in-this-value /srv/a-launcher-path/v2026',
+            SecretRedaction::inText('only-letters-in-this-value /srv/a-launcher-path/v2026', null),
+            'the limit, stated: a variable the house cannot tell from a setting passes, and a path is a setting',
+        );
     }
 
     public function testThePasswordOfAUrlInTheEnvironmentIsKeptOut(): void

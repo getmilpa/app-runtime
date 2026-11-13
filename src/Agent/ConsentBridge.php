@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Milpa\AppRuntime\Agent;
 
+use Milpa\AppRuntime\Operations\TrialOperations;
 use Milpa\Command\Consent\ConsentGrant;
 use Milpa\Command\Consent\OperationId;
 use Milpa\AiGateway\OptionTable;
@@ -221,6 +222,12 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
             extra: [
                 'consent.grants' => $this->grants,
                 'consent.arguments' => $args,
+                // WHAT A PERSON SAID YES TO, ASKED WHEN THE PROMOTION COPIES (greenhouse decisions/0628; the first
+                // independent review, L2). The gate judges this call before the handler runs, so the handler is
+                // handed a way to ask what the gate admitted, not the answer of a gate that has not run yet.
+                ...($name === 'sandbox_promote' && $this->gate instanceof SessionToolGate
+                    ? [TrialOperations::APPROVED_PROMOTION => $this->gate->approvedPromotion(...)]
+                    : []),
             ],
         ));
 

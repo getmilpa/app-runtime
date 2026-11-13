@@ -50,9 +50,9 @@ namespace Milpa\AppRuntime\Config;
  * ── AND WHAT THE OTHER SECRET FILES AND THE KNOWN ENVIRONMENT CARRY (greenhouse decisions/0628) ───────
  *
  * A route the agent wrote returned the house's `.env`, its `auth.json` and a variable of its launcher, and
- * `route_observe` handed them to the model: none of them was in the overlay. The values of a credentials of a
- * `.env` and every string of `auth.json` at the root are matched now, and so are the variables named as credentials, each in the forms it
- * takes once encoded. It is a defence: a value transformed by the code that returns it passes (evidence/1170).
+ * `route_observe` handed them to the model: none of them was in the overlay. The values of a `.env` that are not
+ * shaped like settings and every string of `auth.json` at the root are matched now, and so are the variables named as
+ * credentials or shaped like keys, each in the forms it takes once encoded. It is a defence: a value transformed by the code that returns it passes (evidence/1170).
  * The boundary is that a person says yes to that code before it is promoted.
  */
 final class SecretRedaction
@@ -64,6 +64,12 @@ final class SecretRedaction
 
     /** Below this a value of a secret file or of the environment is not matched: they hold settings too. */
     private const FILE_MIN_LENGTH = 8;
+
+    /**
+     * A variable named as a checksum (the official image carries `PHP_SHA256`): shaped like a key, published on purpose,
+     * so it is not matched by its shape.
+     */
+    private const CHECKSUM_NAME = '/(^|_)(SHA\d*|MD5|CHECKSUM)\z/i';
 
     /** A variable named as a credential: its last word is one credentials are named by. */
     private const CREDENTIAL_NAME = '/(^|_)(KEY|API_KEY|SECRET|TOKEN|PASSWORD|PASSWD|PASS|CREDENTIALS?|AUTH|DSN|SALT)\z/i';
@@ -159,9 +165,9 @@ final class SecretRedaction
 
     /**
      * The values in the files the house keeps its secrets in, besides the overlay (greenhouse decisions/0628):
-     * every string of `auth.json` at the root of the house, and the values of its `.env` that are credentials
-     * ({@see isACredential()}). A `.env` holds settings beside its credentials, and masking a setting makes what a
-     * tool returns harder to read and to act on. Values shorter than {@see FILE_MIN_LENGTH} are left.
+     * every string of `auth.json` at the root of the house, and every value of its `.env` that is not shaped like a
+     * setting ({@see isACredential()}). A `.env` holds settings beside its credentials, and masking a setting makes
+     * what a tool returns harder to read and to act on. Values shorter than {@see FILE_MIN_LENGTH} are left.
      *
      * An unreadable file is skipped, not withheld: this redaction is a defence, and the boundary is that a person
      * says yes to the code that would read these files ({@see \Milpa\AppRuntime\Agent\WhatAPromotionLands}).
@@ -232,8 +238,11 @@ final class SecretRedaction
 
     /**
      * The values of the environment a house knows are credentials (greenhouse decisions/0628): a variable whose name
-     * ends in a word credentials are named by, and the userinfo of a URL in any variable. A variable the house cannot
-     * tell from a setting is not matched: this is a defence, not a list of every secret a launcher can hand over.
+     * ends in a word credentials are named by, the userinfo of a URL in any variable, and, whatever its name, a value
+     * shaped like a key ({@see isShapedLikeAKey()}): a launcher hands a secret over under any name (the first
+     * independent review of 0628 measured one passing). The environment holds far more settings than a `.env` — paths,
+     * versions, a host name — so only that shape is matched there. A secret of another shape, under a name the house
+     * cannot tell from a setting, passes: this is a defence, not a list of every secret a launcher can hand over.
      *
      * @return list<string>
      */
@@ -244,7 +253,8 @@ final class SecretRedaction
             if (\strlen($value) < self::FILE_MIN_LENGTH) {
                 continue;
             }
-            if (preg_match(self::CREDENTIAL_NAME, (string) $name) === 1) {
+            if (preg_match(self::CREDENTIAL_NAME, (string) $name) === 1
+                || (self::isShapedLikeAKey($value) && preg_match(self::CHECKSUM_NAME, (string) $name) !== 1)) {
                 $values[] = $value;
             }
             array_push($values, ...self::userinfo($value));
@@ -254,10 +264,10 @@ final class SecretRedaction
     }
 
     /**
-     * Whether a value of a `.env` is matched (the first independent review of decisions/0628, L3): one named as a
-     * credential, a URL that carries a password, or one shaped like a key — long, unbroken, letters and digits mixed,
-     * not a URL or a path. A setting (`production`, `http://localhost:8000`, `America/Mexico_City`) is left, so what a
-     * tool returns stays readable.
+     * Whether a value of a `.env` is matched: every value is, unless it is shaped like a setting (Rod's answer to
+     * decisions/0628 masks the values of the secret files; the first independent review, L3', measured the first cut
+     * matching only what looked like a credential, so a passphrase of words passed). One named as a credential, or a
+     * URL that carries a password, is matched whatever its shape.
      */
     private static function isACredential(string $name, string $value): bool
     {
@@ -265,6 +275,30 @@ final class SecretRedaction
             return true;
         }
 
+        return ! self::isShapedLikeASetting($value);
+    }
+
+    /**
+     * A value a `.env` holds as a setting, left so what a tool returns stays readable: a number or a flag, a URL
+     * without a password, a path, a time zone (`America/Mexico_City`), a host name or an address, a word or a
+     * `snake_case` name of letters (`production`, `milpa_app`), or a phrase with spaces (`Milpa House`). Anything else
+     * — a key, a passphrase joined by dashes, a value of letters and digits — is matched.
+     */
+    private static function isShapedLikeASetting(string $value): bool
+    {
+        return preg_match('/\s/', $value) === 1
+            || is_numeric($value)
+            || \in_array(strtolower($value), ['true', 'false', 'null', 'empty', 'yes', 'no', 'on', 'off'], true)
+            || preg_match('#^[a-z][a-z0-9+.-]*://#i', $value) === 1
+            || preg_match('#^(/|\./|\.\./|~/)#', $value) === 1
+            || preg_match('#^[A-Z][A-Za-z_]+(/[A-Z][A-Za-z0-9_+-]+)+\z#', $value) === 1
+            || preg_match('/^[a-z0-9-]+(\.[a-z0-9-]+)+\z/', $value) === 1
+            || (\strlen($value) <= 24 && preg_match('/^[a-z]+(_[a-z]+)*\z/', $value) === 1);
+    }
+
+    /** Long, unbroken, letters and digits mixed, and not a URL or a path: the shape of a key. */
+    private static function isShapedLikeAKey(string $value): bool
+    {
         return \strlen($value) >= 16
             && preg_match('/\s/', $value) !== 1
             && preg_match('/\d/', $value) === 1

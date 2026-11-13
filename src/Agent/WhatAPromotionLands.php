@@ -37,13 +37,27 @@ final class WhatAPromotionLands
     /** Characters shown across all files of one promotion. */
     private const IN_ALL = 24000;
 
+    /** How a NUL byte is shown to the person: visible, and not a byte any file carries by accident. */
+    private const NUL = '␀';
+
     /**
      * The digest of every change a trial would land: the same one the ceiling receipt attests
      * ({@see TrialRouter::subjectAttestationFor()}), so the yes and the receipt name the same content.
      */
     public static function digest(TrialWorkspace $workspace): string
     {
-        return 'diff:' . hash('sha256', (string) json_encode($workspace->diff(), \JSON_UNESCAPED_SLASHES));
+        return self::digestOf($workspace->diff());
+    }
+
+    /**
+     * The same digest, of a diff already read: the promotion compares the diff it is about to copy against the one a
+     * person said yes to, without reading the trial a second time.
+     *
+     * @param array<string, mixed> $diff
+     */
+    public static function digestOf(array $diff): string
+    {
+        return 'diff:' . hash('sha256', (string) json_encode($diff, \JSON_UNESCAPED_SLASHES));
     }
 
     /**
@@ -134,12 +148,15 @@ final class WhatAPromotionLands
         }
         $note = '';
         if (! mb_check_encoding($after, 'UTF-8')) {
-            if (str_contains($after, "\0")) {
-                return 'binary, ' . \strlen($after) . ' bytes';
-            }
             // Text with bytes that are not UTF-8 still runs: it is shown, with those bytes marked.
             $after = mb_scrub($after, 'UTF-8');
             $note = "(not valid UTF-8: the bytes that are not are shown as ?)\n";
+        }
+        if (str_contains($after, "\0")) {
+            // A NUL hides nothing from the house: a file that carries one can still run (the first independent review
+            // of decisions/0628, L6'). It is shown like any text, each NUL marked where it is.
+            $after = str_replace("\0", self::NUL, $after);
+            $note .= '(contains NUL bytes: each is shown as ' . self::NUL . ")\n";
         }
         if ($left <= 0) {
             return 'not shown: the promotion is longer than what is shown at once, and its digest covers this file too';

@@ -110,8 +110,20 @@ final class StreamingSecretRedactionTest extends TestCase
     public function testNoSecretsMeansEveryPushPassesStraightThrough(): void
     {
         $empty = sys_get_temp_dir() . '/milpa-stream-none-' . bin2hex(random_bytes(4));
-        $redactor = new StreamingSecretRedaction($empty);
-        self::assertSame('abcdefgh', $redactor->push('abcdefgh'), 'with no secrets the hold-back is zero');
-        self::assertSame('', $redactor->flush());
+        // The environment counts too (greenhouse decisions/0628): a value of the machine's shaped like a key is matched,
+        // so «no secrets» is asked of an empty environment, put back after.
+        $environment = getenv();
+        foreach (array_keys($environment) as $name) {
+            putenv((string) $name);
+        }
+        try {
+            $redactor = new StreamingSecretRedaction($empty);
+            self::assertSame('abcdefgh', $redactor->push('abcdefgh'), 'with no secrets the hold-back is zero');
+            self::assertSame('', $redactor->flush());
+        } finally {
+            foreach ($environment as $name => $value) {
+                putenv($name . '=' . $value);
+            }
+        }
     }
 }
