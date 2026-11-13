@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.222.4](https://github.com/getmilpa/app-runtime/compare/v0.222.3...v0.222.4) (2026-11-13)
+
+
+### Bug Fixes
+
+* a process is inside a trial by what its room shows, not by what it is told (greenhouse decisions/0631) ([#828](https://github.com/getmilpa/app-runtime/issues/828)) ([2f88395](https://github.com/getmilpa/app-runtime/commit/2f8839566840e41059a678d7a76ac91a38e9af7e))
+
 ## [0.222.3](https://github.com/getmilpa/app-runtime/compare/v0.222.2...v0.222.3) (2026-11-12)
 
 
