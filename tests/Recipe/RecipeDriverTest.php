@@ -105,6 +105,46 @@ final class RecipeDriverTest extends TestCase
         return static fn (): array => [];
     }
 
+    /**
+     * A PAUSE NAMES THE QUESTION IT WAITS ON (greenhouse decisions/0633): a surface that paints it answers with that id,
+     * so its answer never lands on a question that came to wait after.
+     */
+    public function testAPauseNamesTheQuestionTheSessionWaitsOn(): void
+    {
+        $store = new SessionStore(new InMemoryEventStore());
+        $sid = 'recipe:demo';
+        // The door asks the session, as the session gate does, then refuses: that question is the one the run waits on.
+        $asking = new class ($store, $sid) implements GovernedExecutor {
+            public function __construct(private readonly SessionStore $store, private readonly string $sid)
+            {
+            }
+
+            public function callTool(string $operation, array $arguments): mixed
+            {
+                if ($operation === 'demo:mutate') {
+                    $this->store->ask($this->sid, new \Milpa\Agent\PendingQuestion('perm:demo:mutate', 'May I?', ['yes', 'no'], reason: 'permission'));
+
+                    throw new ToolCallRefused("consent needed: {$operation}");
+                }
+
+                return ['ok' => true, 'operation' => $operation];
+            }
+        };
+
+        $result = (new RecipeDriver())->apply($this->recipe(), $asking, $store, $sid, $this->verdict(), $this->installed());
+
+        self::assertTrue($result['paused']);
+        self::assertSame('perm:demo:mutate', $result['pending_question_id']);
+    }
+
+    public function testTheControlAPauseWithNoQuestionNamesNone(): void
+    {
+        $result = (new RecipeDriver())->apply($this->recipe(), $this->pausingExecutor(), new SessionStore(new InMemoryEventStore()), 'recipe:demo', $this->verdict(), $this->installed());
+
+        self::assertTrue($result['paused']);
+        self::assertNull($result['pending_question_id']);
+    }
+
     public function testApplyRunsUntilTheConsentFrontierThenPersistsThePause(): void
     {
         $store = new SessionStore(new InMemoryEventStore());

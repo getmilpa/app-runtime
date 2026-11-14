@@ -149,6 +149,16 @@ final class RecipeDriver
         return $said;
     }
 
+    /** The id of the question the session waits on after a pause, or null when it waits on none. */
+    private function pendingQuestionId(SessionStore $store, string $sessionId): ?string
+    {
+        try {
+            return $store->load($sessionId)?->question?->id;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
     /**
      * Turns a run's outcome into the self-describing result, persisting a fresh pause fail-closed.
      *
@@ -204,6 +214,9 @@ final class RecipeDriver
                 // that classification belongs to the caller, who can inspect this string for the
                 // marker. Dropping it here (as before) left the two frontiers indistinguishable.
                 'pending_reason' => $result->frontier()?->reason,
+                // WHICH QUESTION THE RUN PAUSED ON (greenhouse decisions/0633): a surface that paints this pause names
+                // it when it answers, so an answer from it never lands on a question that came to wait after.
+                'pending_question_id' => $this->pendingQuestionId($store, $sessionId),
                 'executed_count' => $result->executedCount(),
                 'steps_total' => \count($steps),
             ];
