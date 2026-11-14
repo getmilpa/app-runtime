@@ -1260,7 +1260,21 @@ final class SessionOperationsTest extends TestCase
         self::assertFalse($r['ok']);
         self::assertStringContainsString('is not the one waiting now', (string) ($r['error'] ?? ''));
         self::assertSame([], $almacen->load('s1')?->decisions);
+        self::assertFalse($this->llamar('agent:answer', ['session' => 's1', 'answer' => 'no', 'question' => 'perm:config:set'])['ok'], 'a no to another question is refused too');
         self::assertTrue($this->llamar('agent:answer', ['session' => 's1', 'answer' => 'yes', 'question' => 'perm:make'])['ok'], 'the control: the question it was shown is answered');
+    }
+
+    public function testTheAnswerDeclaresTheDigestAndTheQuestionItNames(): void
+    {
+        $answer = null;
+        foreach ($this->proveedor()->operations() as $operation) {
+            if ($operation->name === 'agent:answer') {
+                $answer = $operation;
+            }
+        }
+        self::assertNotNull($answer);
+        self::assertArrayHasKey('digest', $answer->inputSchema['properties'] ?? [], 'what the answer saw is part of its contract (0633)');
+        self::assertArrayHasKey('question', $answer->inputSchema['properties'] ?? []);
     }
 
     public function testAYesToAQuestionWithNoDigestStillNamesTheOperation(): void

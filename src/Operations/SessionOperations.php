@@ -454,7 +454,7 @@ final class SessionOperations implements CommandProvider
                         // answer covers; an answer to it names the same digest, so an answer given to what one screen
                         // showed never lands on a question that changed after.
                         'digest' => ['type' => 'string', 'description' => 'The digest of the changes you were shown (`diff:…`, read with agent:show). Required to answer a question that names one — a promotion — and it must be that question\'s'],
-                        'question' => ['type' => 'string', 'description' => 'The id of the question you were shown; if given, the answer is refused when another question is waiting'],
+                        'question' => ['type' => 'string', 'description' => 'The id of the question you were shown; if given, the answer is refused when a question with another id is waiting (two asks of one operation share an id; a promotion is told apart by its digest)'],
                         'counter' => ['type' => 'string', 'description' => 'A COUNTER instead of answer: your constraint (e.g. «use 200, not 250»). It grants nothing — it re-queues the session so the agent re-proposes the call with your constraint, and that call re-faces the gate. Mutually exclusive with `answer`.'],
                         // THE STRUCTURAL COUNTER (greenhouse decisions/0067): tighten the EFFECT ENVELOPE
                         // the proposed call may run under — the five axes, nothing else. A key that is

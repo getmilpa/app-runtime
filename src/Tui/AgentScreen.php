@@ -93,6 +93,14 @@ final class AgentScreen implements SurfaceBroadcaster
      */
     private ?string $preguntaVista = null;
 
+    /**
+     * What the last frame painted of the waiting question — its id and the digest it named — and what an answer from this
+     * screen names (greenhouse decisions/0633).
+     *
+     * @var array{question?: string, digest?: string}
+     */
+    private array $painted = [];
+
     /** La próxima respuesta es una CONTRAOFERTA (la opción «la tuya»), no una respuesta que otorga. */
     private bool $contraofertando = false;
 
@@ -577,11 +585,17 @@ final class AgentScreen implements SurfaceBroadcaster
     private function questionNodes(?\Milpa\Agent\PendingQuestion $pendiente, ?array $deHijo): array
     {
         $nodos = [];
+        if ($pendiente === null && $deHijo === null) {
+            // No question on screen: nothing was painted, and the next one opens on its own default.
+            $this->painted = [];
+            $this->preguntaVista = null;
+        }
         if ($pendiente !== null) {
             $this->alinearDefault($pendiente);
             $nodos[] = new TuiNode('pregunta', 'text', props: ['text' => '■ ⏸ ' . $pendiente->question]);
             if ($pendiente->why !== null) {
-                $nodos[] = new TuiNode('pregunta-por', 'text', props: ['text' => '  con ' . $this->sobreQue($pendiente->why)]);
+                // The claim carries the trial's paths and the agent's arguments: drawn, never obeyed (0633, M1).
+                $nodos[] = new TuiNode('pregunta-por', 'text', props: ['text' => '  con ' . self::visible($this->sobreQue($pendiente->why))]);
             }
             $techo = $this->ejesDelTecho($pendiente->why);
             if ($techo !== null) {
@@ -602,7 +616,7 @@ final class AgentScreen implements SurfaceBroadcaster
                 // nadie—.
                 'text' => '└ ⏸ (sub-agente ' . $deHijo['session'] . ') ' . $deHijo['question'],
             ]);
-            $this->defaultFor($deHijo['id'] ?? '');
+            $this->defaultFor($deHijo['id'] ?? '', $deHijo['why'] ?? null);
             $nodos[] = new TuiNode('pregunta-op', 'text', props: [
                 'text' => '  ' . $this->afordancias($deHijo['options']),
             ]);
@@ -677,14 +691,24 @@ final class AgentScreen implements SurfaceBroadcaster
     private static function visible(string $text): string
     {
         $text = str_replace("\t", '    ', mb_scrub($text, 'UTF-8'));
-
-        return (string) preg_replace_callback(
+        $text = (string) preg_replace_callback(
             '/[\x{0000}-\x{001F}\x{007F}-\x{009F}\x{2028}\x{2029}]/u',
             static fn (array $c): string => match (true) {
                 mb_ord($c[0]) < 0x20 => mb_chr(0x2400 + mb_ord($c[0])),
                 mb_ord($c[0]) === 0x7F => '␡',
                 default => sprintf('⟨U+%04X⟩', mb_ord($c[0])),
             },
+            $text,
+        );
+
+        // Only characters that take one column in every terminal are drawn as themselves (the second independent review
+        // of 0633's terminal half, H1): the renderer pads a row by characters, so a wide or zero-width one — an emoji, an
+        // ideograph, a combining mark — made the terminal wrap and repaint rows that are not in the diff, and the width a
+        // terminal gives an emoji is not one this process can know. Printable ASCII, accented Latin and common typographic
+        // punctuation stay readable; anything else is written as its code point, which shows truly what lands.
+        return (string) preg_replace_callback(
+            '/[^\x{0020}-\x{007E}\x{00A0}-\x{017F}\x{2010}-\x{2027}\x{2400}-\x{2426}\x{2190}-\x{21FF}]/u',
+            static fn (array $c): string => sprintf('⟨U+%04X⟩', mb_ord($c[0])),
             $text,
         );
     }
@@ -775,19 +799,25 @@ final class AgentScreen implements SurfaceBroadcaster
      */
     private function alinearDefault(\Milpa\Agent\PendingQuestion $pregunta): void
     {
-        $this->defaultFor($pregunta->id);
+        $this->defaultFor($pregunta->id, $pregunta->why);
     }
 
     /**
      * The option a question opens on, by its id — also a sub-agent's question, which arrives without its object
      * (greenhouse decisions/0633: a child's promotion opened on «yes»).
      */
-    private function defaultFor(string $id): void
+    private function defaultFor(string $id, ?string $why = null): void
     {
-        if ($id === $this->preguntaVista) {
+        // WHAT WAS PAINTED IS WHAT THE ANSWER NAMES (the second independent review of 0633's terminal half, M2): the
+        // question and the digest of this frame, kept for the key that answers it — never re-read at that moment, when
+        // another promotion may already be waiting. Every promotion shares its id, so the default is re-armed by the
+        // bytes too: a later promotion opens on «no» again.
+        $this->painted = ['question' => $id] + $this->whatWasShown($id, $why);
+        $key = $id . '|' . ($this->painted['digest'] ?? '');
+        if ($key === $this->preguntaVista) {
             return;
         }
-        $this->preguntaVista = $id;
+        $this->preguntaVista = $key;
         // index 1 is the decline option («no»); 0 is «sí». Only the promotion door defaults to decline.
         $this->opcionPregunta = $id === 'perm:sandbox:promote' ? 1 : 0;
     }
@@ -1089,7 +1119,7 @@ final class AgentScreen implements SurfaceBroadcaster
             // backend legislates which is safe; the screen only routes the form the human typed.
             $sobre = EnvelopeInput::parse($pregunta);
             if ($sobre !== [] && $this->apretar !== null) {
-                $eco = ($this->apretar)($sobre, $this->whatWasShown($sesion->question->id, $sesion->question->why));
+                $eco = ($this->apretar)($sobre, $this->painted);
                 if (!$eco['ok']) {
                     $this->conversation[] = ['quien' => 'agente', 'voz' => 'sistema', 'texto' => '✗ ' . ($eco['error'] ?? '')];
 
@@ -1109,7 +1139,7 @@ final class AgentScreen implements SurfaceBroadcaster
             }
 
             if ($this->contraofertar !== null) {
-                $eco = ($this->contraofertar)($pregunta, $this->whatWasShown($sesion->question->id, $sesion->question->why));
+                $eco = ($this->contraofertar)($pregunta, $this->painted);
                 if (!$eco['ok']) {
                     $this->conversation[] = ['quien' => 'agente', 'voz' => 'sistema', 'texto' => '✗ ' . ($eco['error'] ?? '')];
 
@@ -1134,7 +1164,7 @@ final class AgentScreen implements SurfaceBroadcaster
         }
 
         if ($sesion?->question !== null && $this->contestar !== null) {
-            $eco = ($this->contestar)($pregunta, $this->whatWasShown($sesion->question->id, $sesion->question->why));
+            $eco = ($this->contestar)($pregunta, $this->painted);
 
             if (!$eco['ok']) {
                 $this->conversation[] = ['quien' => 'agente', 'voz' => 'sistema', 'texto' => '✗ ' . ($eco['error'] ?? '')];
@@ -1205,7 +1235,7 @@ final class AgentScreen implements SurfaceBroadcaster
         // del padre va primero —bloquea ESTA pantalla—; la del hijo se atiende con la propia libre.
         $hijo = $this->preguntaDeHijoPendiente();
         if ($hijo !== null && $this->contestarHijo !== null) {
-            $eco = ($this->contestarHijo)($hijo['session'], $pregunta, $this->whatWasShown($hijo['id'] ?? null, $hijo['why'] ?? null));
+            $eco = ($this->contestarHijo)($hijo['session'], $pregunta, $this->painted);
             $this->conversation[] = [
                 'quien' => 'agente',
                 'voz' => 'sistema',

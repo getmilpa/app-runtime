@@ -130,7 +130,7 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
 
     public function testNoControlCharacterOfTheAgentsTextReachesTheTerminal(): void
     {
-        $why = (string) json_encode(['operation' => 'sandbox:promote', 'digest' => self::DIGEST, 'lands' => [[
+        $why = (string) json_encode(['operation' => 'sandbox:promote', 'digest' => "diff:x\r■ FORGED-DIGEST", 'judged' => ['producer' => ['verified' => "ok\r■ FORGED-JUDGED"]], 'lands' => [[
             'path' => "src/A.php\n■ FORGED-PATH-ROW", 'status' => 'added', 'sha256' => null,
             'shown' => "+ROW-ONE\r■ FORGED-ROW\n+\eM\e7overwrite\x08\x07\x7f\u{0085}\u{009B}tail\n",
         ]]]);
@@ -140,7 +140,7 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
         foreach (["\r", "\e", "\x08", "\x07", "\x7f", "\u{0085}", "\u{009B}"] as $control) {
             self::assertStringNotContainsString($control, $text, 'a control is drawn, never obeyed');
         }
-        self::assertStringContainsString('+ROW-ONE␍■ FORGED-ROW', $text, 'the carriage return is shown where it is');
+        self::assertStringContainsString('+ROW-ONE␍⟨U+25A0⟩ FORGED-ROW', $text, 'the carriage return is shown where it is, and the agent cannot draw the house\'s mark');
         self::assertDoesNotMatchRegularExpression('/^\s*■ FORGED/mu', $text, 'no row of agent text starts as the house\'s');
     }
 
@@ -149,7 +149,7 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
         $why = (string) json_encode(['operation' => 'sandbox:promote', 'lands' => [['path' => 'src/F.php', 'status' => 'added', 'shown' => '+' . str_repeat('漢', 120) . "\n" . '+' . str_repeat('🌽', 90) . "\n"]]]);
 
         $text = $this->paint(new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], $why));
-        $rows = array_values(array_filter(explode("\n", $text), static fn (string $row): bool => str_contains($row, '漢') || str_contains($row, '🌽')));
+        $rows = array_values(array_filter(explode("\n", $text), static fn (string $row): bool => str_contains($row, '⟨U+6F22⟩') || str_contains($row, '⟨U+1F33D⟩')));
 
         self::assertGreaterThan(2, \count($rows));
         foreach ($rows as $row) {
@@ -167,6 +167,81 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
             self::assertStringContainsString('tu respuesta…', $text, "{$width}×{$height}: and the input");
             self::assertStringContainsString('[Enter] contestar', $text, "{$width}×{$height}: and the help");
         }
+    }
+
+    public function testEveryRowTakesNoMoreColumnsThanTheScreenWithWideCharacters(): void
+    {
+        $why = (string) json_encode(['operation' => 'sandbox:promote', 'digest' => self::DIGEST, 'lands' => [['path' => 'src/F.php', 'status' => 'added', 'shown' => "+echo '✅ running 🚀 漢字 ＡＢＣ e\u{0301}';\n"]]]);
+
+        $text = $this->paint(new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], $why));
+
+        self::assertStringContainsString('⟨U+1F680⟩', $text, 'a wide character is written as its code point');
+        self::assertStringNotContainsString('🚀', $text);
+        self::assertStringContainsString('⟨U+2705⟩', $text);
+        self::assertStringContainsString('⟨U+0301⟩', $text, 'a combining mark too');
+        foreach (explode("\n", $text) as $row) {
+            self::assertLessThanOrEqual(100, \Milpa\Live\Tui\TuiString::visibleLength($row), 'no row wraps in the terminal (0633, H1): ' . $row);
+        }
+    }
+
+    public function testTheClaimLineDrawsTheTrialsPathsWithoutObeyingThem(): void
+    {
+        $why = (string) json_encode(['operation' => 'sandbox:promote', 'arguments' => ['workspace' => 'w1'], 'cambios' => ["src/a.php\n■ FORGED-CAMBIA\r\eM" => 'added']]);
+
+        $text = $this->paint(new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], $why));
+
+        self::assertStringNotContainsString("\e", $text);
+        self::assertStringNotContainsString("\r", $text);
+        self::assertDoesNotMatchRegularExpression('/^\s*■ FORGED/mu', $text, 'a path never starts a row as the house\'s (0633, M1)');
+    }
+
+    public function testALaterPromotionOpensOnNoAgainAndTheAnswerNamesWhatWasPainted(): void
+    {
+        $other = 'diff:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd';
+        $question = new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], self::promotion());
+        $session = new Session(id: 's1', goal: 'x', question: $question);
+        $sent = [];
+        $screen = new AgentScreen(static fn (string $q): array => ['ok' => true], static function () use (&$session): Session {
+            return $session;
+        }, static function (string $answer, array $seen = []) use (&$sent): array {
+            $sent[] = [$answer, $seen];
+
+            return ['ok' => true];
+        }, 100, 40, false);
+
+        $screen->render();
+        $screen->press('left');
+        self::assertStringContainsString('▸ yes', $screen->render(), 'the person moved to yes on the first');
+
+        $session = new Session(id: 's1', goal: 'x');
+        $screen->render();
+        $second = json_decode(self::promotion(), true);
+        $second['digest'] = $other;
+        $session = new Session(id: 's1', goal: 'x', question: new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], (string) json_encode($second)));
+
+        self::assertStringContainsString('▸ no', $screen->render(), 'other bytes open on no again (0633, M2)');
+
+        // A key handled after the question changed names what the frame painted, not what waits now.
+        $session = new Session(id: 's1', goal: 'x', question: $question);
+        $screen->press('enter');
+        self::assertSame($other, $sent[0][1]['digest'] ?? null, 'the answer names the painted bytes; the house refuses them if others wait');
+    }
+
+    public function testThePromotionAskedAgainAfterItWentAwayOpensOnNo(): void
+    {
+        $question = new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], self::promotion());
+        $session = new Session(id: 's1', goal: 'x', question: $question);
+        $screen = new AgentScreen(static fn (string $q): array => ['ok' => true], static function () use (&$session): Session {
+            return $session;
+        }, null, 100, 40, false);
+
+        $screen->render();
+        $screen->press('left');
+        $session = new Session(id: 's1', goal: 'x', plan: 'a plan, so the screen is the session and not its cover');
+        $screen->render();
+        $session = new Session(id: 's1', goal: 'x', question: $question);
+
+        self::assertStringContainsString('▸ no', $screen->render(), 'a question that went away and came back opens on its own default');
     }
 
     public function testTheControlAQuestionThatIsNotAPromotionPaintsNoCode(): void
