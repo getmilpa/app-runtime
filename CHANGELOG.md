@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [0.224.0](https://github.com/getmilpa/app-runtime/compare/v0.223.0...v0.224.0) (2026-11-14)
+
+
+### Features
+
+* **agent:** an answer names what it was shown; the terminal shows what a promotion lands (greenhouse decisions/0628, 0633) ([#834](https://github.com/getmilpa/app-runtime/issues/834)) ([8fccc74](https://github.com/getmilpa/app-runtime/commit/8fccc74acb6ee3aa81821ab779a88db898059b23))
+* **sequence:** a paused run names the question it waits on (greenhouse decisions/0633) ([#835](https://github.com/getmilpa/app-runtime/issues/835)) ([7f2e0ef](https://github.com/getmilpa/app-runtime/commit/7f2e0ef13bcf0a9010534d563bf314217d5d070b))
+
+
+### Bug Fixes
+
+* **agent:** a promotion copies only the bytes a person said yes to (greenhouse decisions/0628) ([#832](https://github.com/getmilpa/app-runtime/issues/832)) ([2e6b8fe](https://github.com/getmilpa/app-runtime/commit/2e6b8fec692282534f26cdca7aa93aa771a4ede9))
+
 ## [0.223.0](https://github.com/getmilpa/app-runtime/compare/v0.222.4...v0.223.0) (2026-11-13)
 
 
