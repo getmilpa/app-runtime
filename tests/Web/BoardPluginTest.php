@@ -118,6 +118,8 @@ final class BoardPluginTest extends TestCase
 
             self::assertStringContainsString('milpa-board-waiting', $html, $case);
             self::assertSame($marked, str_contains($html, 'milpa-board-waiting--promotion'), $case);
+            self::assertStringContainsString('data-question="perm:x"', $html, "{$case}: the alert names the question it shows (0633)");
+            self::assertSame($marked, str_contains($html, 'chat s1'), "{$case}: the session's screen, named");
         }
 
         $page = (new \ReflectionClass(\Milpa\AppRuntime\Web\BoardPage::class))->getFileName();

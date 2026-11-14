@@ -184,7 +184,7 @@ final class AgentScreen implements SurfaceBroadcaster
      * @param \Closure(): (Session|null)|null                                                                                                                                                    $sesion    la sesión en curso, releída
      *                                                                                                                                                                                                      en cada frame — cambia
      *                                                                                                                                                                                                      después de cada vuelta
-     * @param \Closure(string): array{ok: bool, granted?: string|null, error?: string}|null                                                                                                      $contestar cómo se responde una
+     * @param \Closure(string, array<string, string>=): array{ok: bool, granted?: string|null, error?: string}|null                                                                              $contestar cómo se responde una
      *                                                                                                                                                                                                      pregunta pendiente
      */
     public function __construct(
@@ -222,7 +222,7 @@ final class AgentScreen implements SurfaceBroadcaster
         /**
          * Cómo se le contesta a un sub-agente: (sesión hija, respuesta) → eco.
          *
-         * @var \Closure(string, string): array{ok: bool, granted?: string|null, error?: string}|null
+         * @var \Closure(string, string, array<string, string>=): array{ok: bool, granted?: string|null, error?: string}|null
          */
         private readonly ?\Closure $contestarHijo = null,
         /**
@@ -230,7 +230,7 @@ final class AgentScreen implements SurfaceBroadcaster
          * — no autoriza, re-encola para que el agente re-proponga con esa restricción (decisions/0064).
          * `null` hace que la opción «la tuya» caiga a `contestar` como antes.
          *
-         * @var \Closure(string): array{ok: bool, countered?: string, granted?: string|null, error?: string}|null
+         * @var \Closure(string, array<string, string>=): array{ok: bool, countered?: string, granted?: string|null, error?: string}|null
          */
         private readonly ?\Closure $contraofertar = null,
         /**
@@ -238,7 +238,7 @@ final class AgentScreen implements SurfaceBroadcaster
          * which meets it against the gate's declared ceiling and grants the SAME call if it fits,
          * without returning to the agent (greenhouse evidence/0299, decisions/0067).
          *
-         * @var \Closure(array<string, string>): array{ok: bool, granted?: string|null, tightened?: list<string>, error?: string}|null
+         * @var \Closure(array<string, string>, array<string, string>=): array{ok: bool, granted?: string|null, tightened?: list<string>, error?: string}|null
          */
         private readonly ?\Closure $apretar = null,
         /**
@@ -566,6 +566,52 @@ final class AgentScreen implements SurfaceBroadcaster
     }
 
     /**
+     * The rows of a waiting question — the session's own or a sub-agent's — built before the transcript is budgeted, so
+     * the chrome counts what they measure (the independent review of greenhouse decisions/0633's terminal half, M1: a
+     * fixed three rows left the answer and the input off the bottom of the screen once the code filled the transcript).
+     *
+     * @param array{session: string, question: string, options: list<string>, id: ?string, why: ?string}|null $deHijo
+     *
+     * @return list<TuiNode>
+     */
+    private function questionNodes(?\Milpa\Agent\PendingQuestion $pendiente, ?array $deHijo): array
+    {
+        $nodos = [];
+        if ($pendiente !== null) {
+            $this->alinearDefault($pendiente);
+            $nodos[] = new TuiNode('pregunta', 'text', props: ['text' => '■ ⏸ ' . $pendiente->question]);
+            if ($pendiente->why !== null) {
+                $nodos[] = new TuiNode('pregunta-por', 'text', props: ['text' => '  con ' . $this->sobreQue($pendiente->why)]);
+            }
+            $techo = $this->ejesDelTecho($pendiente->why);
+            if ($techo !== null) {
+                // The ceiling in axes, and the one write on this gate that is not sí/no — «sí, pero…».
+                $nodos[] = new TuiNode('pregunta-techo', 'text', props: ['text' => '  techo: ' . $techo]);
+                $nodos[] = new TuiNode('pregunta-aprieta', 'text', props: ['text' => '  aprieta con «eje=nivel» (p.ej. authority=read)']);
+            }
+            $nodos[] = new TuiNode('pregunta-op', 'text', props: [
+                'text' => '  ' . $this->afordancias($pendiente->options),
+            ]);
+        } elseif ($deHijo !== null) {
+            // La pausa del sub-agente ocupa el mismo lugar que ocuparía la propia: es lo que hay que
+            // hacer. El id va adentro para que quien conteste sepa A QUIÉN le está contestando.
+            $nodos[] = new TuiNode('pregunta', 'text', props: [
+                // `└` porque es trabajo de OTRA sesión, con su propio techo de autonomía: la esquina
+                // dice subordinación sin explicarla, y confundir al hijo con el principal ya costó un
+                // defecto —`--continue` abría la sesión de un hijo y quedabas hablando con el hijo de
+                // nadie—.
+                'text' => '└ ⏸ (sub-agente ' . $deHijo['session'] . ') ' . $deHijo['question'],
+            ]);
+            $this->defaultFor($deHijo['id'] ?? '');
+            $nodos[] = new TuiNode('pregunta-op', 'text', props: [
+                'text' => '  ' . $this->afordancias($deHijo['options']),
+            ]);
+        }
+
+        return $nodos;
+    }
+
+    /**
      * The lines that show what a promotion would land: the files, each with the code as the house shows it, the
      * digest the yes covers, and what the house recorded of the trial — or none when the question is not a
      * promotion's (greenhouse decisions/0628).
@@ -578,8 +624,11 @@ final class AgentScreen implements SurfaceBroadcaster
         if (! \is_array($claim) || ! \is_array($claim['lands'] ?? null)) {
             return [];
         }
-        $digest = \is_string($claim['digest'] ?? null) ? $claim['digest'] : '';
+        $digest = \is_string($claim['digest'] ?? null) ? self::visible($claim['digest']) : '';
         $lines = ['What this promotion lands in the house' . ($digest !== '' ? " — your yes covers exactly these changes ({$digest})" : '') . ':'];
+        // Every row of the code carries the quote mark, a wrapped one too: a row of agent-written text must never read as
+        // the house's. The rows are cut here by the columns they take on this screen, so the renderer has nothing to wrap.
+        $room = max(10, $this->width - 6);
         foreach ($claim['lands'] as $file) {
             if (! \is_array($file)) {
                 continue;
@@ -588,15 +637,15 @@ final class AgentScreen implements SurfaceBroadcaster
                 'added' => 'new file',
                 'modified' => 'changed',
                 'deleted' => 'deleted',
-                default => (string) ($file['status'] ?? ''),
+                default => self::visible((string) ($file['status'] ?? '')),
             };
-            $lines[] = (string) ($file['path'] ?? '') . " ({$status})";
+            // The path is the agent's too: one row, its controls made visible, cut like the code.
+            foreach (self::cutByColumns('▸ ' . self::visible((string) ($file['path'] ?? '')) . " ({$status})", $room) as $k => $row) {
+                $lines[] = ($k === 0 ? '' : '↪ ') . $row;
+            }
             $shown = \is_string($file['shown'] ?? null) ? rtrim($file['shown'], "\n") : '';
-            // Every row of the code carries the quote mark, a wrapped one too: a row of agent-written text must never
-            // read as the house's. The rows are cut here, at this screen's width, so the renderer has nothing to wrap.
-            $room = max(10, $this->width - 6);
             foreach ($shown === '' ? [] : explode("\n", $shown) as $code) {
-                foreach ($code === '' ? [''] : mb_str_split($code, $room) as $k => $row) {
+                foreach (self::cutByColumns(self::visible($code), $room) as $k => $row) {
                     $lines[] = ($k === 0 ? '│ ' : '│↪') . $row;
                 }
             }
@@ -605,11 +654,11 @@ final class AgentScreen implements SurfaceBroadcaster
         $facts = [];
         foreach ($judged as $section => $part) {
             foreach (\is_array($part) ? $part : ['' => $part] as $key => $value) {
-                $facts[] = trim($section . ' ' . $key) . ': ' . match (true) {
+                $facts[] = trim($section . ' ' . $key) . ': ' . self::visible(match (true) {
                     \is_string($value) => $value,
                     \is_bool($value) => $value ? 'yes' : 'no',
                     default => (string) json_encode($value),
-                };
+                });
             }
         }
         if ($facts !== []) {
@@ -617,6 +666,53 @@ final class AgentScreen implements SurfaceBroadcaster
         }
 
         return $lines;
+    }
+
+    /**
+     * Agent-written text as a terminal shows it and never obeys it (the independent review of greenhouse
+     * decisions/0633's terminal half, H2): a carriage return, a bare escape, a backspace or a C1 control rewrote what the
+     * screen displayed, so the code read was not the code that would land. Each control is drawn as a visible symbol; a
+     * tab becomes spaces.
+     */
+    private static function visible(string $text): string
+    {
+        $text = str_replace("\t", '    ', mb_scrub($text, 'UTF-8'));
+
+        return (string) preg_replace_callback(
+            '/[\x{0000}-\x{001F}\x{007F}-\x{009F}\x{2028}\x{2029}]/u',
+            static fn (array $c): string => match (true) {
+                mb_ord($c[0]) < 0x20 => mb_chr(0x2400 + mb_ord($c[0])),
+                mb_ord($c[0]) === 0x7F => '␡',
+                default => sprintf('⟨U+%04X⟩', mb_ord($c[0])),
+            },
+            $text,
+        );
+    }
+
+    /**
+     * A row cut into pieces of at most `$columns` terminal columns — measured as the renderer measures them, by the columns
+     * a character takes and not by how many characters there are: cut by count, a row of wide characters wrapped again
+     * inside the renderer, unquoted.
+     *
+     * @return list<string>
+     */
+    private static function cutByColumns(string $row, int $columns): array
+    {
+        if ($row === '') {
+            return [''];
+        }
+        $pieces = [];
+        $piece = '';
+        foreach (mb_str_split($row) as $char) {
+            if ($piece !== '' && \Milpa\Live\Tui\TuiString::visibleLength($piece . $char) > $columns) {
+                $pieces[] = $piece;
+                $piece = '';
+            }
+            $piece .= $char;
+        }
+        $pieces[] = $piece;
+
+        return $pieces;
     }
 
     private function sobreQue(?string $why): string
@@ -679,12 +775,35 @@ final class AgentScreen implements SurfaceBroadcaster
      */
     private function alinearDefault(\Milpa\Agent\PendingQuestion $pregunta): void
     {
-        if ($pregunta->id === $this->preguntaVista) {
+        $this->defaultFor($pregunta->id);
+    }
+
+    /**
+     * The option a question opens on, by its id — also a sub-agent's question, which arrives without its object
+     * (greenhouse decisions/0633: a child's promotion opened on «yes»).
+     */
+    private function defaultFor(string $id): void
+    {
+        if ($id === $this->preguntaVista) {
             return;
         }
-        $this->preguntaVista = $pregunta->id;
+        $this->preguntaVista = $id;
         // index 1 is the decline option («no»); 0 is «sí». Only the promotion door defaults to decline.
-        $this->opcionPregunta = $pregunta->id === 'perm:sandbox:promote' ? 1 : 0;
+        $this->opcionPregunta = $id === 'perm:sandbox:promote' ? 1 : 0;
+    }
+
+    /**
+     * What this screen showed of the question an answer is for (greenhouse decisions/0633): its id, and the digest of
+     * the changes it names, so the answer is refused if another question — or other bytes — is waiting by then.
+     *
+     * @return array{question?: string, digest?: string}
+     */
+    private function whatWasShown(?string $id, ?string $why): array
+    {
+        $fact = $why === null || $why === '' ? null : json_decode($why, true);
+        $digest = \is_array($fact) && \is_string($fact['digest'] ?? null) ? $fact['digest'] : null;
+
+        return array_filter(['question' => $id, 'digest' => $digest], static fn (?string $value): bool => $value !== null && $value !== '');
     }
 
     /**
@@ -970,7 +1089,7 @@ final class AgentScreen implements SurfaceBroadcaster
             // backend legislates which is safe; the screen only routes the form the human typed.
             $sobre = EnvelopeInput::parse($pregunta);
             if ($sobre !== [] && $this->apretar !== null) {
-                $eco = ($this->apretar)($sobre);
+                $eco = ($this->apretar)($sobre, $this->whatWasShown($sesion->question->id, $sesion->question->why));
                 if (!$eco['ok']) {
                     $this->conversation[] = ['quien' => 'agente', 'voz' => 'sistema', 'texto' => '✗ ' . ($eco['error'] ?? '')];
 
@@ -990,7 +1109,7 @@ final class AgentScreen implements SurfaceBroadcaster
             }
 
             if ($this->contraofertar !== null) {
-                $eco = ($this->contraofertar)($pregunta);
+                $eco = ($this->contraofertar)($pregunta, $this->whatWasShown($sesion->question->id, $sesion->question->why));
                 if (!$eco['ok']) {
                     $this->conversation[] = ['quien' => 'agente', 'voz' => 'sistema', 'texto' => '✗ ' . ($eco['error'] ?? '')];
 
@@ -1015,7 +1134,7 @@ final class AgentScreen implements SurfaceBroadcaster
         }
 
         if ($sesion?->question !== null && $this->contestar !== null) {
-            $eco = ($this->contestar)($pregunta);
+            $eco = ($this->contestar)($pregunta, $this->whatWasShown($sesion->question->id, $sesion->question->why));
 
             if (!$eco['ok']) {
                 $this->conversation[] = ['quien' => 'agente', 'voz' => 'sistema', 'texto' => '✗ ' . ($eco['error'] ?? '')];
@@ -1086,7 +1205,7 @@ final class AgentScreen implements SurfaceBroadcaster
         // del padre va primero —bloquea ESTA pantalla—; la del hijo se atiende con la propia libre.
         $hijo = $this->preguntaDeHijoPendiente();
         if ($hijo !== null && $this->contestarHijo !== null) {
-            $eco = ($this->contestarHijo)($hijo['session'], $pregunta);
+            $eco = ($this->contestarHijo)($hijo['session'], $pregunta, $this->whatWasShown($hijo['id'] ?? null, $hijo['why'] ?? null));
             $this->conversation[] = [
                 'quien' => 'agente',
                 'voz' => 'sistema',
@@ -1215,7 +1334,7 @@ final class AgentScreen implements SurfaceBroadcaster
      * LA DEL PADRE VA PRIMERO: con las dos abiertas, lo tecleado contesta la propia — es la que
      * bloquea esta pantalla. La del hijo espera su turno, visible en cuanto la propia se libere.
      *
-     * @return array{session: string, question: string, options: list<string>}|null
+     * @return array{session: string, question: string, options: list<string>, id: ?string, why: ?string}|null
      */
     private function preguntaDeHijoPendiente(): ?array
     {
@@ -1228,7 +1347,15 @@ final class AgentScreen implements SurfaceBroadcaster
         return \is_array($hijo)
             && \is_string($hijo['session'] ?? null)
             && \is_string($hijo['question'] ?? null)
-            ? ['session' => $hijo['session'], 'question' => $hijo['question'], 'options' => \is_array($hijo['options'] ?? null) ? $hijo['options'] : []]
+            ? [
+                'session' => $hijo['session'],
+                'question' => $hijo['question'],
+                'options' => \is_array($hijo['options'] ?? null) ? $hijo['options'] : [],
+                // Its id and its fact (greenhouse decisions/0633): what the screen shows of a child's promotion, and
+                // what the answer names.
+                'id' => \is_string($hijo['id'] ?? null) ? $hijo['id'] : null,
+                'why' => \is_string($hijo['why'] ?? null) ? $hijo['why'] : null,
+            ]
             : null;
     }
 
@@ -1741,7 +1868,10 @@ final class AgentScreen implements SurfaceBroadcaster
         // house shows it — already masked. It goes at the end of the conversation, right above the question, where
         // the transcript scrolls: the question's own rows have a fixed height and a diff does not. The house's
         // header carries the system mark; every line of the code is quoted with `│`, because the agent wrote it.
-        foreach ($this->whatThePromotionLands($sesion?->question?->why) as $j => $linea) {
+        // A sub-agent's promotion is shown the same way (greenhouse decisions/0633): its question arrived without its
+        // code, and «yes» was one Enter away.
+        $whyShown = $sesion?->question !== null ? $sesion->question->why : ($this->preguntaDeHijoPendiente()['why'] ?? null);
+        foreach ($this->whatThePromotionLands($whyShown) as $j => $linea) {
             $lineas[] = ["lands:{$j}", ($j === 0 ? '■ ' : '  ') . $linea, 'sistema'];
         }
 
@@ -1771,7 +1901,9 @@ final class AgentScreen implements SurfaceBroadcaster
             'multiline' => true,
             'maxLines' => 6,
         ]));
-        $chrome = 6 + $fieldHeight + (($sesion?->question !== null || $deHijo !== null) ? 3 : 0) + $altoTabla;
+        $nodosPregunta = $this->questionNodes($sesion?->question, $deHijo);
+        $altoPregunta = array_sum(array_map(fn (TuiNode $n): int => $this->heightOf($n), $nodosPregunta));
+        $chrome = 6 + $fieldHeight + $altoPregunta + $altoTabla;
 
         // EL ENCABEZADO SE MIDE, NO SE CUENTA. `$hijos` aquí trae la cabecera —título, estado y el
         // TABLERO, que es UN nodo pero pinta `heightFor` filas (evidence/0297)—. Restar
@@ -1956,36 +2088,10 @@ final class AgentScreen implements SurfaceBroadcaster
         $hijos[] = new TuiNode('separador', 'text', props: ['text' => str_repeat('─', 40)]);
 
         // Si está esperando, la PREGUNTA ocupa el lugar del prompt: es lo que hay que hacer, no un
-        // aviso al costado.
+        // aviso al costado. Sus nodos se construyeron antes, para que el chrome cuente lo que miden.
         $pendiente = $sesion?->question;
-        if ($pendiente !== null) {
-            $this->alinearDefault($pendiente);
-            $hijos[] = new TuiNode('pregunta', 'text', props: ['text' => '■ ⏸ ' . $pendiente->question]);
-            if ($pendiente->why !== null) {
-                $hijos[] = new TuiNode('pregunta-por', 'text', props: ['text' => '  con ' . $this->sobreQue($pendiente->why)]);
-            }
-            $techo = $this->ejesDelTecho($pendiente->why);
-            if ($techo !== null) {
-                // The ceiling in axes, and the one write on this gate that is not sí/no — «sí, pero…».
-                $hijos[] = new TuiNode('pregunta-techo', 'text', props: ['text' => '  techo: ' . $techo]);
-                $hijos[] = new TuiNode('pregunta-aprieta', 'text', props: ['text' => '  aprieta con «eje=nivel» (p.ej. authority=read)']);
-            }
-            $hijos[] = new TuiNode('pregunta-op', 'text', props: [
-                'text' => '  ' . $this->afordancias($pendiente->options),
-            ]);
-        } elseif ($deHijo !== null) {
-            // La pausa del sub-agente ocupa el mismo lugar que ocuparía la propia: es lo que hay que
-            // hacer. El id va adentro para que quien conteste sepa A QUIÉN le está contestando.
-            $hijos[] = new TuiNode('pregunta', 'text', props: [
-                // `└` porque es trabajo de OTRA sesión, con su propio techo de autonomía: la esquina
-                // dice subordinación sin explicarla, y confundir al hijo con el principal ya costó un
-                // defecto —`--continue` abría la sesión de un hijo y quedabas hablando con el hijo de
-                // nadie—.
-                'text' => '└ ⏸ (sub-agente ' . $deHijo['session'] . ') ' . $deHijo['question'],
-            ]);
-            $hijos[] = new TuiNode('pregunta-op', 'text', props: [
-                            'text' => '  ' . $this->afordancias($deHijo['options']),
-                        ]);
+        foreach ($nodosPregunta as $nodoPregunta) {
+            $hijos[] = $nodoPregunta;
         }
 
         // LA ACTIVIDAD SUBE A SU PROPIA BARRA, y el renglón de entrada deja de prestarse.

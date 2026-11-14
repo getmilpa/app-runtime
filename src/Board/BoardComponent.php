@@ -47,6 +47,7 @@ final class BoardComponent extends AbstractDashboardComponent
                 'columns' => ['type' => 'object', 'required' => false],
                 'pending_question' => ['type' => 'string', 'required' => false],
                 'pending_promotion' => ['type' => 'bool', 'required' => false],
+                'pending_question_id' => ['type' => 'string', 'required' => false],
                 'session' => ['type' => 'string', 'required' => false],
                 'error' => ['type' => 'string', 'required' => false],
             ],
@@ -55,6 +56,7 @@ final class BoardComponent extends AbstractDashboardComponent
                 'columns' => ['type' => 'object'],
                 'pending_question' => ['type' => 'string'],
                 'pending_promotion' => ['type' => 'bool'],
+                'pending_question_id' => ['type' => 'string'],
                 'session' => ['type' => 'string'],
                 'error' => ['type' => 'string'],
             ],
@@ -79,6 +81,7 @@ final class BoardComponent extends AbstractDashboardComponent
             'columns' => \is_array($columns) ? $columns : [],
             'pending_question' => \is_string($props['pending_question'] ?? null) ? $props['pending_question'] : null,
             'pending_promotion' => ($props['pending_promotion'] ?? false) === true,
+            'pending_question_id' => \is_string($props['pending_question_id'] ?? null) ? $props['pending_question_id'] : null,
             'session' => \is_string($props['session'] ?? null) ? $props['session'] : null,
             'error' => \is_string($props['error'] ?? null) ? $props['error'] : null,
         ];

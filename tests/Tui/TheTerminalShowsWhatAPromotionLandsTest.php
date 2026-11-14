@@ -63,6 +63,112 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
         self::assertStringContainsString('-END-OF-LONG-LINE', $text, 'and its end is shown');
     }
 
+    private const DIGEST = 'diff:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
+
+    /** A promotion's claim as the gate writes it, with files of the size a real trial lands. */
+    private static function promotion(string $workspace = 'w1'): string
+    {
+        $code = static fn (string $name): string => "+<?php\n" . implode('', array_map(static fn (int $i): string => "+// line {$i} of {$name}, ordinary code\n", range(1, 35)));
+
+        return (string) json_encode([
+            'operation' => 'sandbox:promote',
+            'arguments' => ['workspace' => $workspace],
+            'base' => ['authority' => 'write_as_user', 'reversibility' => 'manual_recovery', 'mutation' => 'persistent', 'externality' => 'none', 'subject' => 'executable'],
+            'digest' => self::DIGEST,
+            'lands' => [
+                ['path' => 'src/Plugins/Blog/Blog.php', 'status' => 'added', 'sha256' => null, 'shown' => $code('Blog')],
+                ['path' => 'src/Plugins/Blog/Controllers/ProbeController.php', 'status' => 'added', 'sha256' => null, 'shown' => $code('Probe')],
+            ],
+            'judged' => ['trial_run' => ['operation' => 'make', 'exit' => 0], 'producer' => ['tool' => 'make', 'ok' => true]],
+        ]);
+    }
+
+    /** THE ANSWER NAMES WHAT THE SCREEN SHOWED (greenhouse decisions/0633): the question and the bytes it covers. */
+    public function testAnAnswerFromTheScreenNamesTheQuestionAndItsBytes(): void
+    {
+        $session = new Session(id: 's1', goal: 'x', question: new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], self::promotion()));
+        $sent = null;
+        $screen = new AgentScreen(static fn (string $q): array => ['ok' => true], static fn (): Session => $session, static function (string $answer, array $seen = []) use (&$sent): array {
+            $sent = [$answer, $seen];
+
+            return ['ok' => true];
+        }, 100, 40, false);
+
+        $screen->render();
+        $screen->press('enter');
+
+        self::assertSame(['no', ['question' => 'perm:sandbox:promote', 'digest' => self::DIGEST]], $sent, 'the default is no, and it names what was shown');
+    }
+
+    public function testASubAgentsPromotionIsShownWithItsCodeOpensOnNoAndItsAnswerNamesItsBytes(): void
+    {
+        $session = new Session('jornada', 'x');
+        $sent = null;
+        $screen = new AgentScreen(
+            static fn (string $q): array => ['ok' => true],
+            static fn (): Session => $session,
+            null,
+            100,
+            40,
+            false,
+            preguntaDeHijo: static fn (): array => ['session' => 'jornada.sub-1', 'question' => 'The agent wants to promote trial «wchild1»…', 'options' => ['yes', 'no'], 'id' => 'perm:sandbox:promote', 'why' => self::promotion('wchild1')],
+            contestarHijo: static function (string $child, string $answer, array $seen = []) use (&$sent): array {
+                $sent = [$child, $answer, $seen];
+
+                return ['ok' => true];
+            },
+        );
+
+        $text = preg_replace('/\e\[[0-9;]*m/', '', $screen->render()) ?? '';
+        self::assertStringContainsString('│ +// line 35 of Probe, ordinary code', $text, 'the child\'s code is on the screen, quoted');
+        self::assertStringContainsString('▸ no', $text, 'and the answer opens on no');
+
+        $screen->press('enter');
+
+        self::assertSame(['jornada.sub-1', 'no', ['question' => 'perm:sandbox:promote', 'digest' => self::DIGEST]], $sent);
+    }
+
+    public function testNoControlCharacterOfTheAgentsTextReachesTheTerminal(): void
+    {
+        $why = (string) json_encode(['operation' => 'sandbox:promote', 'digest' => self::DIGEST, 'lands' => [[
+            'path' => "src/A.php\n■ FORGED-PATH-ROW", 'status' => 'added', 'sha256' => null,
+            'shown' => "+ROW-ONE\r■ FORGED-ROW\n+\eM\e7overwrite\x08\x07\x7f\u{0085}\u{009B}tail\n",
+        ]]]);
+
+        $text = $this->paint(new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], $why));
+
+        foreach (["\r", "\e", "\x08", "\x07", "\x7f", "\u{0085}", "\u{009B}"] as $control) {
+            self::assertStringNotContainsString($control, $text, 'a control is drawn, never obeyed');
+        }
+        self::assertStringContainsString('+ROW-ONE␍■ FORGED-ROW', $text, 'the carriage return is shown where it is');
+        self::assertDoesNotMatchRegularExpression('/^\s*■ FORGED/mu', $text, 'no row of agent text starts as the house\'s');
+    }
+
+    public function testRowsOfWideCharactersStayQuoted(): void
+    {
+        $why = (string) json_encode(['operation' => 'sandbox:promote', 'lands' => [['path' => 'src/F.php', 'status' => 'added', 'shown' => '+' . str_repeat('漢', 120) . "\n" . '+' . str_repeat('🌽', 90) . "\n"]]]);
+
+        $text = $this->paint(new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], $why));
+        $rows = array_values(array_filter(explode("\n", $text), static fn (string $row): bool => str_contains($row, '漢') || str_contains($row, '🌽')));
+
+        self::assertGreaterThan(2, \count($rows));
+        foreach ($rows as $row) {
+            self::assertMatchesRegularExpression('/^\s*│/u', $row, 'every row of wide characters is quoted');
+        }
+    }
+
+    public function testTheAnswerAndTheInputStayOnScreenWithARealPromotion(): void
+    {
+        foreach ([[80, 24], [100, 40], [120, 50]] as [$width, $height]) {
+            $session = new Session(id: 's1', goal: 'x', question: new PendingQuestion('perm:sandbox:promote', 'The agent wants to promote trial «w1» into the house: 2 changed file(s), ' . self::DIGEST . '. Do you promote exactly these changes?', ['yes', 'no'], self::promotion()));
+            $text = preg_replace('/\e\[[0-9;]*m/', '', (new AgentScreen(static fn (string $q): array => ['ok' => true], static fn (): Session => $session, null, $width, $height, false))->render()) ?? '';
+
+            self::assertStringContainsString('▸ no', $text, "{$width}×{$height}: the answer row is on screen");
+            self::assertStringContainsString('tu respuesta…', $text, "{$width}×{$height}: and the input");
+            self::assertStringContainsString('[Enter] contestar', $text, "{$width}×{$height}: and the help");
+        }
+    }
+
     public function testTheControlAQuestionThatIsNotAPromotionPaintsNoCode(): void
     {
         $text = $this->paint(new PendingQuestion('perm:make', 'May I make?', ['yes', 'no'], '{"operation":"make","arguments":{"what":"plugin"}}'));

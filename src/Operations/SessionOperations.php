@@ -450,6 +450,11 @@ final class SessionOperations implements CommandProvider
                             'x-milpa-source' => ['tool' => 'agent:sessions', 'path' => 'sessions', 'key' => 'session'],
                         ],
                         'answer' => ['type' => 'string', 'description' => 'Your answer — `yes` authorises the operation for this session, `no` denies it'],
+                        // WHAT THE ANSWER SAW (greenhouse decisions/0633). A promotion's question names the bytes its
+                        // answer covers; an answer to it names the same digest, so an answer given to what one screen
+                        // showed never lands on a question that changed after.
+                        'digest' => ['type' => 'string', 'description' => 'The digest of the changes you were shown (`diff:…`, read with agent:show). Required to answer a question that names one — a promotion — and it must be that question\'s'],
+                        'question' => ['type' => 'string', 'description' => 'The id of the question you were shown; if given, the answer is refused when another question is waiting'],
                         'counter' => ['type' => 'string', 'description' => 'A COUNTER instead of answer: your constraint (e.g. «use 200, not 250»). It grants nothing — it re-queues the session so the agent re-proposes the call with your constraint, and that call re-faces the gate. Mutually exclusive with `answer`.'],
                         // THE STRUCTURAL COUNTER (greenhouse decisions/0067): tighten the EFFECT ENVELOPE
                         // the proposed call may run under — the five axes, nothing else. A key that is
@@ -1201,7 +1206,7 @@ final class SessionOperations implements CommandProvider
      *
      * @param array<string, mixed> $input
      *
-     * @return array{ok: bool, session?: string, columns?: array<string, list<array<string, mixed>>>, pending_question?: string, pending_promotion?: true, error?: string}
+     * @return array{ok: bool, session?: string, columns?: array<string, list<array<string, mixed>>>, pending_question?: string, pending_question_id?: string, pending_promotion?: true, error?: string}
      */
     private function tablero(array $input): array
     {
@@ -1366,6 +1371,8 @@ final class SessionOperations implements CommandProvider
         // un tablero que no la muestra deja al agente parado sin que nadie lo vea.
         if ($session->question !== null) {
             $salida['pending_question'] = $session->question->question;
+            // Which question the board shows, so an answer from it names it (greenhouse decisions/0633).
+            $salida['pending_question_id'] = $session->question->id;
             // A PROMOTION IS ANSWERED WHERE ITS CODE IS READ (greenhouse decisions/0628): the board shows no code,
             // so it says so instead of offering the answer — the terminal and the Desktop's request show it.
             $fact = json_decode((string) $session->question->why, true);
@@ -1848,6 +1855,30 @@ final class SessionOperations implements CommandProvider
 
         $pregunta = $session->question;
 
+        // THE ANSWER NAMES WHAT IT SAW (greenhouse decisions/0633). `agent:answer` answers the question waiting NOW, and a
+        // screen can be showing an older one: a board left open, a request whose «answered» never arrived. So an answer
+        // may name the question it was given, and an answer to a question that names its bytes — a promotion, whose yes
+        // lands agent-written code and whose no discards the trial — must name those bytes. Nothing is written otherwise.
+        $seen = \is_string($input['question'] ?? null) ? trim($input['question']) : '';
+        if ($seen !== '' && $seen !== $pregunta->id) {
+            return [
+                'ok' => false,
+                'error' => "the question you were shown («{$seen}») is not the one waiting now («{$pregunta->id}»); nothing was answered — read it again",
+            ];
+        }
+        $bytes = $this->digestOfTheQuestion($pregunta);
+        if ($bytes !== null) {
+            $named = \is_string($input['digest'] ?? null) ? trim($input['digest']) : '';
+            if ($named !== $bytes) {
+                return [
+                    'ok' => false,
+                    'error' => $named === ''
+                        ? "this question names the changes its answer covers, and the answer names none; nothing was answered — read them with agent:show --session={$id} and answer with --digest={$bytes}"
+                        : "the changes you were shown ({$named}) are not the ones this question names ({$bytes}); nothing was answered — read them again with agent:show --session={$id}",
+                ];
+            }
+        }
+
         // APRETAR EL SOBRE: la contraoferta ESTRUCTURAL (greenhouse decisions/0067). No cambia la
         // llamada —eso sería un `counter`—; cambia cuánto se le permite ser, y se adjudica AQUÍ, sin
         // volver al agente, porque el sistema puede demostrar que el sobre es un meet seguro del techo.
@@ -2150,9 +2181,15 @@ final class SessionOperations implements CommandProvider
     /** Whether a question names the bytes its yes covers: a promotion's, since greenhouse decisions/0628. */
     private function namesItsBytes(\Milpa\Agent\PendingQuestion $question): bool
     {
+        return $this->digestOfTheQuestion($question) !== null;
+    }
+
+    /** The digest a question names as the bytes its answer covers, or null when it names none. */
+    private function digestOfTheQuestion(\Milpa\Agent\PendingQuestion $question): ?string
+    {
         $fact = json_decode((string) $question->why, true);
 
-        return \is_array($fact) && \is_string($fact['digest'] ?? null);
+        return \is_array($fact) && \is_string($fact['digest'] ?? null) ? $fact['digest'] : null;
     }
 
     private function whatTheYesCovers(\Milpa\Agent\PendingQuestion $question, string $operation): string

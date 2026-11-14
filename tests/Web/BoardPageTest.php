@@ -78,7 +78,8 @@ final class BoardPageTest extends TestCase
         $html = (new BoardPage())->render('org-1', '/agent/board', null, '/agent/answer');
 
         self::assertStringContainsString('"/agent/answer"', $html);
-        self::assertStringContainsString('JSON.stringify({ session: session, answer: value })', $html);
+        self::assertStringContainsString('JSON.stringify({ session: session, answer: value, question: shownQuestion() })', $html, 'the question the page showed is named (greenhouse decisions/0633)');
+        self::assertStringContainsString("alert.getAttribute('data-question')", $html);
         self::assertStringContainsString("method: 'POST'", $html);
     }
 

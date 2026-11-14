@@ -227,6 +227,11 @@ memory and travels only in the request header.</p>
     tokenField.addEventListener('input', armButtons);
     tokenField.addEventListener('change', repaint);
 
+    function shownQuestion() {
+        const alert = board.querySelector('.milpa-board-waiting');
+        return alert === null ? '' : (alert.getAttribute('data-question') || '');
+    }
+
     function answer(value) {
         yesButton.disabled = true;
         noButton.disabled = true;
@@ -237,7 +242,9 @@ memory and travels only in the request header.</p>
                 'Content-Type': 'application/json',
                 'Authorization': 'Bearer ' + tokenField.value.trim(),
             },
-            body: JSON.stringify({ session: session, answer: value }),
+            // THE QUESTION THE PAGE SHOWED, named (greenhouse decisions/0633): if another one is waiting by now, the house
+            // refuses instead of answering it.
+            body: JSON.stringify({ session: session, answer: value, question: shownQuestion() }),
         })
             .then(function (r) {
                 return r.json().catch(function () { return null; }).then(function (data) {

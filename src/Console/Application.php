@@ -1217,6 +1217,10 @@ final class Application
                 'session' => $id,
                 'question' => $hijo->question->question,
                 'options' => $hijo->question->options,
+                // What the screen needs to show a promotion's code and to say which question it answers
+                // (greenhouse decisions/0633): the id and the fact, not only the sentence.
+                'id' => $hijo->question->id,
+                'why' => $hijo->question->why,
             ];
         }
 
@@ -1226,12 +1230,14 @@ final class Application
     /**
      * Contesta la pregunta de un sub-agente, por la MISMA operación que contesta las propias.
      *
+     * @param array<string, mixed> $seen what the screen showed of the question (greenhouse decisions/0633)
+     *
      * @return array{ok: bool, granted?: string|null, error?: string}
      */
-    private function contestarAlHijo(string $hijo, string $respuesta): array
+    private function contestarAlHijo(string $hijo, string $respuesta, array $seen = []): array
     {
         /** @var array{ok: bool, granted?: string|null, error?: string} $r */
-        $r = $this->correr('agent:answer', ['session' => $hijo, 'answer' => $respuesta])
+        $r = $this->correr('agent:answer', ['session' => $hijo, 'answer' => $respuesta] + self::seen($seen))
             ?? ['ok' => false, 'error' => 'esta app no declara la operación `agent:answer`'];
 
         return $r;
@@ -1240,12 +1246,14 @@ final class Application
     /**
      * Contesta la pregunta pendiente de la sesión del chat — el `agent:answer` sin salir del TUI.
      *
+     * @param array<string, mixed> $seen what the screen showed of the question (greenhouse decisions/0633)
+     *
      * @return array{ok: bool, granted?: string|null, error?: string}
      */
-    private function contestarEnElChat(string $respuesta): array
+    private function contestarEnElChat(string $respuesta, array $seen = []): array
     {
         /** @var array{ok: bool, granted?: string|null, error?: string} $r */
-        $r = $this->correr('agent:answer', ['session' => $this->sesionDelChatId, 'answer' => $respuesta])
+        $r = $this->correr('agent:answer', ['session' => $this->sesionDelChatId, 'answer' => $respuesta] + self::seen($seen))
             ?? ['ok' => false, 'error' => 'esta app no declara la operación `agent:answer`'];
 
         return $r;
@@ -1254,12 +1262,14 @@ final class Application
     /**
      * Cómo contraoferta el chat: el texto libre va como `counter`, no como `answer` (decisions/0064).
      *
+     * @param array<string, mixed> $seen what the screen showed of the question (greenhouse decisions/0633)
+     *
      * @return array{ok: bool, countered?: string, granted?: string|null, error?: string}
      */
-    private function contraofertarEnElChat(string $contra): array
+    private function contraofertarEnElChat(string $contra, array $seen = []): array
     {
         /** @var array{ok: bool, countered?: string, granted?: string|null, error?: string} $r */
-        $r = $this->correr('agent:answer', ['session' => $this->sesionDelChatId, 'counter' => $contra])
+        $r = $this->correr('agent:answer', ['session' => $this->sesionDelChatId, 'counter' => $contra] + self::seen($seen))
             ?? ['ok' => false, 'error' => 'esta app no declara la operación `agent:answer`'];
 
         return $r;
@@ -1271,16 +1281,33 @@ final class Application
      * projection of the structural counter (greenhouse evidence/0299, decisions/0067).
      *
      * @param array<string, string> $sobre
+     * @param array<string, mixed>  $seen  what the screen showed of the question (greenhouse decisions/0633)
      *
      * @return array{ok: bool, granted?: string|null, envelope?: array<string, mixed>, tightened?: list<string>, error?: string}
      */
-    private function apretarEnElChat(array $sobre): array
+    private function apretarEnElChat(array $sobre, array $seen = []): array
     {
         /** @var array{ok: bool, granted?: string|null, envelope?: array<string, mixed>, tightened?: list<string>, error?: string} $r */
-        $r = $this->correr('agent:answer', ['session' => $this->sesionDelChatId, 'envelope' => $sobre])
+        $r = $this->correr('agent:answer', ['session' => $this->sesionDelChatId, 'envelope' => $sobre] + self::seen($seen))
             ?? ['ok' => false, 'error' => 'esta app no declara la operación `agent:answer`'];
 
         return $r;
+    }
+
+    /**
+     * What the screen showed, as the answer carries it (greenhouse decisions/0633): the question's id and, for a
+     * question that names its bytes, their digest — nothing else rides along.
+     *
+     * @param array<string, mixed> $seen
+     *
+     * @return array<string, string>
+     */
+    private static function seen(array $seen): array
+    {
+        return array_filter(
+            ['question' => $seen['question'] ?? null, 'digest' => $seen['digest'] ?? null],
+            static fn (mixed $value): bool => \is_string($value) && $value !== '',
+        );
     }
 
     /**

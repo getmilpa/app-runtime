@@ -23,6 +23,7 @@ use Milpa\Container\DIContainer;
 use Milpa\EventStore\Event;
 use Milpa\EventStore\EventStoreInterface;
 use Milpa\EventStore\InMemoryEventStore;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -1169,7 +1170,7 @@ final class SessionOperationsTest extends TestCase
         $almacen = $this->almacen();
         $this->pausaDePromocion($almacen, Subject::Executable);
 
-        $r = $this->llamar('agent:answer', ['session' => 's1', 'envelope' => ['subject' => 'configuration']]);
+        $r = $this->llamar('agent:answer', ['session' => 's1', 'digest' => 'diff:' . str_repeat('a', 64), 'envelope' => ['subject' => 'configuration']]);
 
         self::assertFalse($r['ok']);
         self::assertStringContainsString('wider than that envelope', (string) ($r['error'] ?? ''));
@@ -1182,7 +1183,7 @@ final class SessionOperationsTest extends TestCase
         $almacen = $this->almacen();
         $this->pausaDePromocion($almacen, Subject::Configuration);
 
-        $r = $this->llamar('agent:answer', ['session' => 's1', 'envelope' => ['subject' => 'configuration']]);
+        $r = $this->llamar('agent:answer', ['session' => 's1', 'digest' => 'diff:' . str_repeat('a', 64), 'envelope' => ['subject' => 'configuration']]);
 
         self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
         self::assertNull($almacen->load('s1')?->question);
@@ -1198,7 +1199,7 @@ final class SessionOperationsTest extends TestCase
         $almacen = $this->almacen();
         $this->pausaDePromocion($almacen, Subject::Executable);
 
-        $r = $this->llamar('agent:answer', ['session' => 's1', 'answer' => 'yes']);
+        $r = $this->llamar('agent:answer', ['session' => 's1', 'digest' => 'diff:' . str_repeat('a', 64), 'answer' => 'yes']);
 
         self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
         self::assertStringContainsString('trial «wab31ff8973a851da»', (string) $r['granted']);
@@ -1212,10 +1213,54 @@ final class SessionOperationsTest extends TestCase
         $almacen = $this->almacen();
         $this->pausaDePromocion($almacen, Subject::Configuration);
 
-        $r = $this->llamar('agent:answer', ['session' => 's1', 'envelope' => ['subject' => 'configuration']]);
+        $r = $this->llamar('agent:answer', ['session' => 's1', 'digest' => 'diff:' . str_repeat('a', 64), 'envelope' => ['subject' => 'configuration']]);
 
         self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
         self::assertSame([], $almacen->load('s1')?->permissions, 'the yes is in the answer; no row grants the operation');
+    }
+
+    /**
+     * AN ANSWER NAMES WHAT IT SAW (greenhouse decisions/0633): to a question that names its bytes, an answer that names
+     * none, or other bytes, is refused and nothing is written — a «no» too, since a «no» discards the trial.
+     *
+     * @return iterable<string, array{array<string, mixed>, string}>
+     */
+    public static function answersThatNameOtherBytes(): iterable
+    {
+        yield 'a yes naming nothing' => [['answer' => 'yes'], 'names none'];
+        yield 'a no naming nothing' => [['answer' => 'no'], 'names none'];
+        yield 'a yes naming other bytes' => [['answer' => 'yes', 'digest' => 'diff:' . str_repeat('b', 64)], 'are not the ones'];
+        yield 'an envelope naming nothing' => [['envelope' => ['subject' => 'configuration']], 'names none'];
+        yield 'a counter naming nothing' => [['counter' => 'only the config'], 'names none'];
+    }
+
+    #[DataProvider('answersThatNameOtherBytes')]
+    public function testAnAnswerToAPromotionThatNamesOtherBytesIsRefused(array $answer, string $said): void
+    {
+        $almacen = $this->almacen();
+        $this->pausaDePromocion($almacen, Subject::Executable);
+
+        $r = $this->llamar('agent:answer', ['session' => 's1'] + $answer);
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString($said, (string) ($r['error'] ?? ''));
+        self::assertStringContainsString('nothing was answered', (string) ($r['error'] ?? ''));
+        self::assertSame('perm:sandbox:promote', $almacen->load('s1')?->question?->id, 'the question still waits');
+        self::assertSame([], $almacen->load('s1')?->decisions, 'nothing was written');
+    }
+
+    public function testAnAnswerNamingAnotherQuestionIsRefused(): void
+    {
+        $almacen = $this->almacen();
+        $almacen->start('s1', 'g');
+        $almacen->ask('s1', new PendingQuestion('perm:make', '¿Autorizas make?', ['yes', 'no'], reason: 'permission'));
+
+        $r = $this->llamar('agent:answer', ['session' => 's1', 'answer' => 'yes', 'question' => 'perm:config:set']);
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('is not the one waiting now', (string) ($r['error'] ?? ''));
+        self::assertSame([], $almacen->load('s1')?->decisions);
+        self::assertTrue($this->llamar('agent:answer', ['session' => 's1', 'answer' => 'yes', 'question' => 'perm:make'])['ok'], 'the control: the question it was shown is answered');
     }
 
     public function testAYesToAQuestionWithNoDigestStillNamesTheOperation(): void
