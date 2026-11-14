@@ -218,6 +218,7 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
         $this->clock($screen, $now);
 
         $screen->render();
+        $now += 1.0;
         $screen->press('left');
         self::assertStringContainsString('▸ yes', $screen->render(), 'the person moved to yes on the first');
 
@@ -263,15 +264,66 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
         $screen->render();
         $now += 0.05;
         $screen->press('left');
+        $screen->press('left');
         $screen->press('enter');
 
-        self::assertSame([], $sent, 'an Enter 50 ms after the bytes changed answers nothing');
+        self::assertSame([], $sent, 'keys 50 ms after the bytes changed answer nothing');
+        $text = $screen->render();
+        self::assertStringContainsString('▸ no', $text, 'nor do they move the choice: it is back on the promotion\'s default (0633, M1 of the fourth review)');
+        $said = array_filter($screen->conversation(), static fn (array $turn): bool => str_contains((string) ($turn['texto'] ?? ''), 'the promotion on screen changed a moment ago'));
+        self::assertCount(1, $said, 'and the screen says why, once');
 
         $now += 1.0;
         $screen->render();
         $screen->press('enter');
 
-        self::assertSame([['yes', 'diff:' . str_repeat('2', 64)]], $sent, 'once it has been on screen, the Enter answers what is shown — the selection the person can see');
+        self::assertSame([['no', 'diff:' . str_repeat('2', 64)]], $sent, 'once it has been on screen, the Enter answers what is shown — its default');
+    }
+
+    public function testArrowsTypedBeforeThePromotionWasOnScreenDoNotMoveItsChoice(): void
+    {
+        $session = new Session(id: 's1', goal: 'x', question: new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], self::promotion()));
+        $screen = new AgentScreen(static fn (string $q): array => ['ok' => true], static fn (): Session => $session, null, 100, 40, false);
+        $now = 100.0;
+        $this->clock($screen, $now);
+
+        $screen->render();
+        $now += 0.05;
+        $screen->press('left');
+        $screen->press('left');
+
+        self::assertStringContainsString('▸ no', $screen->render(), 'arrows of a burst typed before it was on screen leave it on no');
+    }
+
+    public function testASubAgentsQuestionIsReadOncePerFrame(): void
+    {
+        $reads = 0;
+        $session = new Session('jornada', 'x', plan: 'a plan');
+        $question = static function (string $workspace): array {
+            $why = json_decode(self::promotion($workspace), true);
+            $why['lands'] = [['path' => 'src/F.php', 'status' => 'added', 'sha256' => null, 'shown' => "+// CODE-OF-{$workspace}\n"]];
+            $why['digest'] = 'diff:' . str_repeat($workspace === 'wa' ? 'a' : 'b', 64);
+
+            return ['session' => 'jornada.sub-1', 'question' => "Promote trial «{$workspace}»?", 'options' => ['yes', 'no'], 'id' => 'perm:sandbox:promote', 'why' => (string) json_encode($why)];
+        };
+        $screen = new AgentScreen(
+            static fn (string $q): array => ['ok' => true],
+            static fn (): Session => $session,
+            null,
+            100,
+            40,
+            false,
+            preguntaDeHijo: static function () use (&$reads, $question): array {
+                return $question(++$reads <= 1 ? 'wa' : 'wb');
+            },
+        );
+
+        $text = $screen->render();
+
+        // Whatever reading the frame took, its code and its question row are the same trial's.
+        self::assertSame(str_contains($text, 'Promote trial «wa»'), str_contains($text, 'CODE-OF-wa'), 'one reading for the row and the code');
+        self::assertSame(str_contains($text, 'Promote trial «wb»'), str_contains($text, 'CODE-OF-wb'));
+        self::assertLessThanOrEqual(2, $reads, 'one reading for what is painted, one to choose the screen');
     }
 
     public function testThePromotionAskedAgainAfterItWentAwayOpensOnNo(): void

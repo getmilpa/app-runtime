@@ -104,6 +104,9 @@ final class AgentScreen implements SurfaceBroadcaster
      */
     private array $painted = [];
 
+    /** The promotion whose too-early keys were already explained, so the line is said once. */
+    private ?string $droppedFor = null;
+
     /** When the promotion on screen was first painted, on the screen's clock. */
     private float $paintedSince = 0.0;
 
@@ -858,7 +861,8 @@ final class AgentScreen implements SurfaceBroadcaster
 
     private function now(): float
     {
-        return $this->clock !== null ? (float) ($this->clock)() : microtime(true);
+        // A monotonic clock: a wall clock stepped back would hold every answer, stepped forward would skip the wait.
+        return $this->clock !== null ? (float) ($this->clock)() : hrtime(true) / 1e9;
     }
 
     /**
@@ -1027,6 +1031,20 @@ final class AgentScreen implements SurfaceBroadcaster
         // una condición—. Antes las tres pasaban por teclear, y las dos primeras no tienen por qué.
         $abierta = $this->preguntaAbierta();
         if ($abierta !== null) {
+            // A KEY TYPED BEFORE THIS PROMOTION WAS ON SCREEN DOES NOT DECIDE IT (the third and fourth independent reviews
+            // of greenhouse decisions/0633, M2 and M1). Keys typed together are handled one per frame, so arrows and an
+            // Enter typed while one promotion was shown could pick and answer the next, painted an instant before. Every
+            // answer key is dropped until the bytes have been on screen long enough to read, so the choice stays on the
+            // default the new promotion opened on, and the screen says why — a silent drop invited the second Enter.
+            if (($key === 'left' || $key === 'right' || $key === 'enter') && $this->tooSoonToAnswer()) {
+                if ($this->droppedFor !== $this->preguntaVista) {
+                    $this->droppedFor = $this->preguntaVista;
+                    $this->conversation[] = ['quien' => 'agente', 'voz' => 'sistema', 'texto' => '· the promotion on screen changed a moment ago: read it, then answer'];
+                }
+                $this->loop->repintarTodo();
+
+                return true;
+            }
             if ($key === 'left' || $key === 'right') {
                 $this->opcionPregunta = $key === 'left'
                     ? max(0, $this->opcionPregunta - 1)
@@ -1037,13 +1055,6 @@ final class AgentScreen implements SurfaceBroadcaster
             }
 
             if ($key === 'enter') {
-                // A KEY TYPED BEFORE THIS PROMOTION WAS ON SCREEN DOES NOT ANSWER IT (the third independent review of
-                // greenhouse decisions/0633, M2). Keys typed together are handled one per frame, so an Enter typed while
-                // one promotion was shown could land on the next, painted an instant before. The bytes a yes — or a
-                // discarding no — names must have been on screen for a person to read; until then the key is dropped.
-                if ($this->tooSoonToAnswer()) {
-                    return true;
-                }
                 $eleccion = match ($this->opcionPregunta) {
                     0 => $abierta[0] ?? \Milpa\AppRuntime\Agent\AffirmativeAnswer::YES,
                     1 => $abierta[1] ?? 'no',
