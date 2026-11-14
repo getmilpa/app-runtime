@@ -149,14 +149,25 @@ final class RecipeDriver
         return $said;
     }
 
-    /** The id of the question the session waits on after a pause, or null when it waits on none. */
-    private function pendingQuestionId(SessionStore $store, string $sessionId): ?string
+    /**
+     * The id of the question the session waits on after a pause — only when it is the question of the step the run
+     * paused on (the independent review of this field, L1: a session already waiting on another question named that
+     * one) — or null when it waits on none, or on someone else's.
+     */
+    private function pendingQuestionId(SessionStore $store, string $sessionId, ?string $operation): ?string
     {
         try {
-            return $store->load($sessionId)?->question?->id;
+            $question = $store->load($sessionId)?->question;
         } catch (\Throwable) {
             return null;
         }
+        if ($question === null || $operation === null) {
+            return null;
+        }
+        $fact = json_decode((string) $question->why, true);
+        $asks = $question->id === 'perm:' . $operation || (\is_array($fact) && ($fact['operation'] ?? null) === $operation);
+
+        return $asks ? $question->id : null;
     }
 
     /**
@@ -215,8 +226,9 @@ final class RecipeDriver
                 // marker. Dropping it here (as before) left the two frontiers indistinguishable.
                 'pending_reason' => $result->frontier()?->reason,
                 // WHICH QUESTION THE RUN PAUSED ON (greenhouse decisions/0633): a surface that paints this pause names
-                // it when it answers, so an answer from it never lands on a question that came to wait after.
-                'pending_question_id' => $this->pendingQuestionId($store, $sessionId),
+                // it when it answers, so its answer is refused when another question came to wait after. A later ask
+                // of the SAME operation carries the same id (`perm:<operation>`) and is not told apart — a known limit.
+                'pending_question_id' => $this->pendingQuestionId($store, $sessionId, $result->frontier()?->step->operation),
                 'executed_count' => $result->executedCount(),
                 'steps_total' => \count($steps),
             ];

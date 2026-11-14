@@ -84,6 +84,27 @@ final class RecipeDriverTest extends TestCase
         };
     }
 
+    /** A door that asks the session about one operation, as the session gate does, then refuses it; the rest pass. */
+    private function askingExecutor(SessionStore $store, string $sid, string $refused): GovernedExecutor
+    {
+        return new class ($store, $sid, $refused) implements GovernedExecutor {
+            public function __construct(private readonly SessionStore $store, private readonly string $sid, private readonly string $refused)
+            {
+            }
+
+            public function callTool(string $operation, array $arguments): mixed
+            {
+                if ($operation === $this->refused) {
+                    $this->store->ask($this->sid, new \Milpa\Agent\PendingQuestion('perm:' . $operation, 'May I?', ['yes', 'no'], reason: 'permission'));
+
+                    throw new ToolCallRefused("consent needed: {$operation}");
+                }
+
+                return ['ok' => true, 'operation' => $operation];
+            }
+        };
+    }
+
     /** A fake door that grants everything — the consent the pause was waiting for has arrived. */
     private function grantingExecutor(): GovernedExecutor
     {
@@ -113,28 +134,39 @@ final class RecipeDriverTest extends TestCase
     {
         $store = new SessionStore(new InMemoryEventStore());
         $sid = 'recipe:demo';
-        // The door asks the session, as the session gate does, then refuses: that question is the one the run waits on.
-        $asking = new class ($store, $sid) implements GovernedExecutor {
-            public function __construct(private readonly SessionStore $store, private readonly string $sid)
-            {
-            }
-
-            public function callTool(string $operation, array $arguments): mixed
-            {
-                if ($operation === 'demo:mutate') {
-                    $this->store->ask($this->sid, new \Milpa\Agent\PendingQuestion('perm:demo:mutate', 'May I?', ['yes', 'no'], reason: 'permission'));
-
-                    throw new ToolCallRefused("consent needed: {$operation}");
-                }
-
-                return ['ok' => true, 'operation' => $operation];
-            }
-        };
-
-        $result = (new RecipeDriver())->apply($this->recipe(), $asking, $store, $sid, $this->verdict(), $this->installed());
+        $result = (new RecipeDriver())->apply($this->recipe(), $this->askingExecutor($store, $sid, 'demo:mutate'), $store, $sid, $this->verdict(), $this->installed());
 
         self::assertTrue($result['paused']);
         self::assertSame('perm:demo:mutate', $result['pending_question_id']);
+    }
+
+    public function testAResumeThatPausesAgainNamesTheNewQuestion(): void
+    {
+        $store = new SessionStore(new InMemoryEventStore());
+        $sid = 'recipe:demo';
+        $driver = new RecipeDriver();
+        $first = $driver->apply($this->recipe(), $this->askingExecutor($store, $sid, 'demo:mutate'), $store, $sid, $this->verdict(), $this->installed());
+        self::assertSame('perm:demo:mutate', $first['pending_question_id']);
+        $store->answer($sid, 'perm:demo:mutate', 'yes', new \Milpa\Agent\Principal('person', verified: true), 'test');
+
+        // Resumed: the mutation passes, and the read after it asks a question of its own.
+        $second = $driver->apply($this->recipe(), $this->askingExecutor($store, $sid, 'demo:read'), $store, $sid, $this->verdict(), $this->installed());
+
+        self::assertTrue($second['paused']);
+        self::assertSame('perm:demo:read', $second['pending_question_id']);
+    }
+
+    public function testAQuestionThatIsNotTheStepsIsNotNamed(): void
+    {
+        $store = new SessionStore(new InMemoryEventStore());
+        $sid = 'recipe:demo';
+        $store->start($sid, 'demo');
+        $store->ask($sid, new \Milpa\Agent\PendingQuestion('lab:foreign-question', 'Something else?', ['yes', 'no']));
+
+        $result = (new RecipeDriver())->apply($this->recipe(), $this->pausingExecutor(), $store, $sid, $this->verdict(), $this->installed());
+
+        self::assertTrue($result['paused']);
+        self::assertNull($result['pending_question_id'], 'a question the run did not pause on is not its');
     }
 
     public function testTheControlAPauseWithNoQuestionNamesNone(): void
