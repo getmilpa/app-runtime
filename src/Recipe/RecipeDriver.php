@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Recipe;
 
 use Milpa\Agent\PausedSequence;
 use Milpa\Agent\SessionStore;
+use Milpa\Command\Consent\OperationId;
 use Milpa\AppRuntime\Agent\GovernedExecutor;
 use Milpa\AppRuntime\Agent\GovernedSequenceRunner;
 use Milpa\AppRuntime\Agent\SequenceCursor;
@@ -150,6 +151,28 @@ final class RecipeDriver
     }
 
     /**
+     * The id of the question the session waits on after a pause, when that question is about the operation the run
+     * paused on — every question the gate leaves answerable names its operation in its fact (`why.operation`), and
+     * the two are compared by identity, however the step spelled it (decisions/0030). Null when the session waits
+     * on no such question, or when it could not be read: a surface then names none, as before this field.
+     */
+    private function pendingQuestionId(SessionStore $store, string $sessionId, ?string $operation): ?string
+    {
+        try {
+            $question = $store->load($sessionId)?->question;
+        } catch (\Throwable) {
+            return null;
+        }
+        $fact = json_decode((string) $question?->why, true);
+        $named = \is_array($fact) && \is_string($fact['operation'] ?? null) ? $fact['operation'] : null;
+        if ($question === null || $operation === null || $named === null) {
+            return null;
+        }
+
+        return (new OperationId($named))->is($operation) ? $question->id : null;
+    }
+
+    /**
      * Turns a run's outcome into the self-describing result, persisting a fresh pause fail-closed.
      *
      * @param list<SequenceStep> $steps
@@ -204,6 +227,10 @@ final class RecipeDriver
                 // that classification belongs to the caller, who can inspect this string for the
                 // marker. Dropping it here (as before) left the two frontiers indistinguishable.
                 'pending_reason' => $result->frontier()?->reason,
+                // WHICH QUESTION THE RUN PAUSED ON (greenhouse decisions/0633): a surface that paints this pause names
+                // it when it answers, so its answer is refused when another question came to wait after. A later ask
+                // of the SAME operation carries the same id (`perm:<operation>`) and is not told apart — a known limit.
+                'pending_question_id' => $this->pendingQuestionId($store, $sessionId, $result->frontier()?->step->operation),
                 'executed_count' => $result->executedCount(),
                 'steps_total' => \count($steps),
             ];
