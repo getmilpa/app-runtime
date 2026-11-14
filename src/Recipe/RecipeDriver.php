@@ -16,6 +16,7 @@ namespace Milpa\AppRuntime\Recipe;
 
 use Milpa\Agent\PausedSequence;
 use Milpa\Agent\SessionStore;
+use Milpa\Command\Consent\OperationId;
 use Milpa\AppRuntime\Agent\GovernedExecutor;
 use Milpa\AppRuntime\Agent\GovernedSequenceRunner;
 use Milpa\AppRuntime\Agent\SequenceCursor;
@@ -150,9 +151,10 @@ final class RecipeDriver
     }
 
     /**
-     * The id of the question the session waits on after a pause — only when it is the question of the step the run
-     * paused on (the independent review of this field, L1: a session already waiting on another question named that
-     * one) — or null when it waits on none, or on someone else's.
+     * The id of the question the session waits on after a pause, when that question is about the operation the run
+     * paused on — every question the gate leaves answerable names its operation in its fact (`why.operation`), and
+     * the two are compared by identity, however the step spelled it (decisions/0030). Null when the session waits
+     * on no such question, or when it could not be read: a surface then names none, as before this field.
      */
     private function pendingQuestionId(SessionStore $store, string $sessionId, ?string $operation): ?string
     {
@@ -161,13 +163,13 @@ final class RecipeDriver
         } catch (\Throwable) {
             return null;
         }
-        if ($question === null || $operation === null) {
+        $fact = json_decode((string) $question?->why, true);
+        $named = \is_array($fact) && \is_string($fact['operation'] ?? null) ? $fact['operation'] : null;
+        if ($question === null || $operation === null || $named === null) {
             return null;
         }
-        $fact = json_decode((string) $question->why, true);
-        $asks = $question->id === 'perm:' . $operation || (\is_array($fact) && ($fact['operation'] ?? null) === $operation);
 
-        return $asks ? $question->id : null;
+        return (new OperationId($named))->is($operation) ? $question->id : null;
     }
 
     /**
