@@ -93,8 +93,11 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
 
             return ['ok' => true];
         }, 100, 40, false);
+        $now = 100.0;
+        $this->clock($screen, $now);
 
         $screen->render();
+        $now += 1.0;
         $screen->press('enter');
 
         self::assertSame(['no', ['question' => 'perm:sandbox:promote', 'digest' => self::DIGEST]], $sent, 'the default is no, and it names what was shown');
@@ -119,10 +122,13 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
             },
         );
 
+        $now = 100.0;
+        $this->clock($screen, $now);
         $text = preg_replace('/\e\[[0-9;]*m/', '', $screen->render()) ?? '';
         self::assertStringContainsString('│ +// line 35 of Probe, ordinary code', $text, 'the child\'s code is on the screen, quoted');
         self::assertStringContainsString('▸ no', $text, 'and the answer opens on no');
 
+        $now += 1.0;
         $screen->press('enter');
 
         self::assertSame(['jornada.sub-1', 'no', ['question' => 'perm:sandbox:promote', 'digest' => self::DIGEST]], $sent);
@@ -208,6 +214,8 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
 
             return ['ok' => true];
         }, 100, 40, false);
+        $now = 100.0;
+        $this->clock($screen, $now);
 
         $screen->render();
         $screen->press('left');
@@ -223,8 +231,47 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
 
         // A key handled after the question changed names what the frame painted, not what waits now.
         $session = new Session(id: 's1', goal: 'x', question: $question);
+        $now += 1.0;
         $screen->press('enter');
         self::assertSame($other, $sent[0][1]['digest'] ?? null, 'the answer names the painted bytes; the house refuses them if others wait');
+    }
+
+    /**
+     * A KEY TYPED BEFORE A PROMOTION WAS ON SCREEN DOES NOT ANSWER IT (the third review of 0633, M2): keys typed together
+     * are handled one per frame, and an Enter typed while one promotion was shown must not land on the next.
+     */
+    public function testAnEnterRightAfterThePromotionChangedIsDroppedAndOneAfterReadingAnswers(): void
+    {
+        $first = new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], self::promotion());
+        $second = json_decode(self::promotion(), true);
+        $second['digest'] = 'diff:' . str_repeat('2', 64);
+        $session = new Session(id: 's1', goal: 'x', question: $first);
+        $sent = [];
+        $screen = new AgentScreen(static fn (string $q): array => ['ok' => true], static function () use (&$session): Session {
+            return $session;
+        }, static function (string $answer, array $seen = []) use (&$sent): array {
+            $sent[] = [$answer, $seen['digest'] ?? null];
+
+            return ['ok' => true];
+        }, 100, 40, false);
+        $now = 100.0;
+        $this->clock($screen, $now);
+
+        $screen->render();
+        $now += 5.0;
+        $session = new Session(id: 's1', goal: 'x', question: new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], (string) json_encode($second)));
+        $screen->render();
+        $now += 0.05;
+        $screen->press('left');
+        $screen->press('enter');
+
+        self::assertSame([], $sent, 'an Enter 50 ms after the bytes changed answers nothing');
+
+        $now += 1.0;
+        $screen->render();
+        $screen->press('enter');
+
+        self::assertSame([['yes', 'diff:' . str_repeat('2', 64)]], $sent, 'once it has been on screen, the Enter answers what is shown — the selection the person can see');
     }
 
     public function testThePromotionAskedAgainAfterItWentAwayOpensOnNo(): void
@@ -249,6 +296,14 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
         $text = $this->paint(new PendingQuestion('perm:make', 'May I make?', ['yes', 'no'], '{"operation":"make","arguments":{"what":"plugin"}}'));
 
         self::assertStringNotContainsString('What this promotion lands', $text);
+    }
+
+    /** A clock the test moves: the screen holds a promotion's answer until it has been on screen long enough to read. */
+    private function clock(AgentScreen $screen, float &$now): void
+    {
+        $screen->useClock(static function () use (&$now): float {
+            return $now;
+        });
     }
 
     private function paint(PendingQuestion $question): string

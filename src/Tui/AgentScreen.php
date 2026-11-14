@@ -58,6 +58,9 @@ use Milpa\AppRuntime\Board\BoardTuiRenderer;
  */
 final class AgentScreen implements SurfaceBroadcaster
 {
+    /** Seconds a promotion stays on screen before a key answers it (greenhouse decisions/0633). */
+    private const READ_BEFORE_ANSWER = 0.3;
+
     /**
      * Los cuadros del indicador mientras hay trabajo.
      *
@@ -100,6 +103,16 @@ final class AgentScreen implements SurfaceBroadcaster
      * @var array{question?: string, digest?: string}
      */
     private array $painted = [];
+
+    /** When the promotion on screen was first painted, on the screen's clock. */
+    private float $paintedSince = 0.0;
+
+    /**
+     * The screen's clock, in seconds; null is the wall clock. Set by tests.
+     *
+     * @var (\Closure(): float)|null
+     */
+    private ?\Closure $clock = null;
 
     /** La próxima respuesta es una CONTRAOFERTA (la opción «la tuya»), no una respuesta que otorga. */
     private bool $contraofertando = false;
@@ -818,8 +831,34 @@ final class AgentScreen implements SurfaceBroadcaster
             return;
         }
         $this->preguntaVista = $key;
+        $this->paintedSince = $this->now();
         // index 1 is the decline option («no»); 0 is «sí». Only the promotion door defaults to decline.
         $this->opcionPregunta = $id === 'perm:sandbox:promote' ? 1 : 0;
+    }
+
+    /**
+     * Whether the promotion on screen was painted too recently for a key to answer it: under the time a person takes to
+     * read that it changed (greenhouse decisions/0633, M2 of its third review). Questions that name no bytes are not held.
+     */
+    private function tooSoonToAnswer(): bool
+    {
+        return isset($this->painted['digest']) && $this->now() - $this->paintedSince < self::READ_BEFORE_ANSWER;
+    }
+
+    /**
+     * The clock the screen reads to tell how long a promotion has been on screen, in seconds — the wall clock by default.
+     * A scripted terminal or a test hands its own.
+     *
+     * @param \Closure(): float $clock
+     */
+    public function useClock(\Closure $clock): void
+    {
+        $this->clock = $clock;
+    }
+
+    private function now(): float
+    {
+        return $this->clock !== null ? (float) ($this->clock)() : microtime(true);
     }
 
     /**
@@ -998,6 +1037,13 @@ final class AgentScreen implements SurfaceBroadcaster
             }
 
             if ($key === 'enter') {
+                // A KEY TYPED BEFORE THIS PROMOTION WAS ON SCREEN DOES NOT ANSWER IT (the third independent review of
+                // greenhouse decisions/0633, M2). Keys typed together are handled one per frame, so an Enter typed while
+                // one promotion was shown could land on the next, painted an instant before. The bytes a yes — or a
+                // discarding no — names must have been on screen for a person to read; until then the key is dropped.
+                if ($this->tooSoonToAnswer()) {
+                    return true;
+                }
                 $eleccion = match ($this->opcionPregunta) {
                     0 => $abierta[0] ?? \Milpa\AppRuntime\Agent\AffirmativeAnswer::YES,
                     1 => $abierta[1] ?? 'no',
@@ -1900,7 +1946,10 @@ final class AgentScreen implements SurfaceBroadcaster
         // header carries the system mark; every line of the code is quoted with `│`, because the agent wrote it.
         // A sub-agent's promotion is shown the same way (greenhouse decisions/0633): its question arrived without its
         // code, and «yes» was one Enter away.
-        $whyShown = $sesion?->question !== null ? $sesion->question->why : ($this->preguntaDeHijoPendiente()['why'] ?? null);
+        // A sub-agent's question is read ONCE per frame (0633, M2): its code, its question row and what an answer names
+        // all come from the same reading.
+        $deHijo = $sesion?->question === null ? $this->preguntaDeHijoPendiente() : null;
+        $whyShown = $sesion?->question !== null ? $sesion->question->why : ($deHijo['why'] ?? null);
         foreach ($this->whatThePromotionLands($whyShown) as $j => $linea) {
             $lineas[] = ["lands:{$j}", ($j === 0 ? '■ ' : '  ') . $linea, 'sistema'];
         }
@@ -1920,7 +1969,6 @@ final class AgentScreen implements SurfaceBroadcaster
 
         // separador · badge · barra de estado · prompt · ayuda, más aire; y tres más si hay una
         // pregunta esperando —propia o de un sub-agente—, que se pinta con su motivo y sus opciones.
-        $deHijo = $sesion?->question === null ? $this->preguntaDeHijoPendiente() : null;
         // EL CAMPO CUENTA POR LO QUE MIDE, no por uno. Es lo único del chrome que cambia de tamaño
         // mientras alguien escribe, y darlo por fijo devuelve el desborde: el árbol pasa del alto de
         // la terminal y este motor no recorta, deja la pantalla en blanco. Ya van cuatro veces con
