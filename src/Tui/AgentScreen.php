@@ -827,7 +827,7 @@ final class AgentScreen implements SurfaceBroadcaster
     private function digestPrefix(): string
     {
         // Only a digest of the house's own shape yields one; anything else cannot be answered here, and says so.
-        return preg_match('/\Adiff:([0-9a-f]{4})/', $this->painted['digest'] ?? '', $hex) === 1 ? $hex[1] : '';
+        return preg_match('/\Adiff:([0-9a-f]{4})[0-9a-f]*\z/', $this->painted['digest'] ?? '', $hex) === 1 ? $hex[1] : '';
     }
 
     /**
@@ -837,18 +837,27 @@ final class AgentScreen implements SurfaceBroadcaster
     private function answerThePromotion(): void
     {
         $prefix = $this->digestPrefix();
-        if ($prefix === '' || preg_match('/\A(.*\S)\s+([0-9a-f]{4})\z/iu', trim($this->entrada), $typed) !== 1 || strtolower($typed[2]) !== $prefix) {
+        $answer = preg_match('/\A(.*\S)\s+([0-9a-f]{4})\z/iu', trim($this->entrada), $typed) === 1 && $prefix !== '' && strtolower($typed[2]) === $prefix
+            ? trim($typed[1])
+            : null;
+        $plain = $answer !== null && (\Milpa\AppRuntime\Agent\AffirmativeAnswer::is($answer) || \in_array(mb_strtolower($answer), ['no', 'n'], true));
+        // A sub-agent's answer travels as a plain answer, and to a promotion anything but a yes discards its trial: there,
+        // only yes or no is taken (the sixth independent review of 0633, M1 — a «sí, pero…» typed for a child discarded it).
+        $child = $this->sesionActual()?->question === null;
+        if ($answer === null || ($child && ! $plain)) {
             $this->conversation[] = [
                 'quien' => 'agente',
                 'voz' => 'sistema',
-                'texto' => "· a promotion is answered by typing «yes {$prefix}» or «no {$prefix}» — the start of the digest on screen — then Enter",
+                'texto' => $prefix === ''
+                    ? '· this promotion names its changes in a shape the house does not write: it cannot be answered here'
+                    : "· a promotion is answered by typing «yes {$prefix}» or «no {$prefix}» — the start of the digest on screen — then Enter"
+                        . ($child ? ' (a sub-agent\'s takes only yes or no)' : ''),
             ];
             $this->loop->repintarTodo();
 
             return;
         }
-        $answer = trim($typed[1]);
-        $this->contraofertando = ! \Milpa\AppRuntime\Agent\AffirmativeAnswer::is($answer) && ! \in_array(mb_strtolower($answer), ['no', 'n'], true);
+        $this->contraofertando = ! $plain;
         $this->entrada = $answer;
         $this->opcionPregunta = 0;
         $this->preguntaVista = null;
@@ -879,9 +888,11 @@ final class AgentScreen implements SurfaceBroadcaster
         if (isset($this->painted['digest'])) {
             $prefix = $this->digestPrefix();
 
-            return $prefix === ''
-                ? 'this promotion names its changes in a shape the house does not write: it cannot be answered here'
-                : "type «yes {$prefix}» or «no {$prefix}» (or your «sí, pero…» ending in {$prefix}), then Enter";
+            return match (true) {
+                $prefix === '' => 'this promotion names its changes in a shape the house does not write: it cannot be answered here',
+                $this->sesionActual()?->question === null => "type «yes {$prefix}» or «no {$prefix}», then Enter",
+                default => "type «yes {$prefix}» or «no {$prefix}» (or your «sí, pero…» ending in {$prefix}), then Enter",
+            };
         }
 
         return $this->afordancias($opciones);
@@ -1253,8 +1264,11 @@ final class AgentScreen implements SurfaceBroadcaster
                 $this->conversation[] = [
                     'quien' => 'agente',
                     'voz' => 'sistema',
-                    'texto' => '· para autorizarla, elige «' . ($sesion->question->options[0] ?? \Milpa\AppRuntime\Agent\AffirmativeAnswer::YES)
-                        . '» con ← → y Enter; para seguir sin ella, pide otra cosa',
+                    // A promotion's «no» discarded its trial; there is nothing left to choose with ← → (0633).
+                    'texto' => $sesion->question->id === 'perm:sandbox:promote'
+                        ? '· the promotion was not granted, and its trial was discarded; to go on, ask for something else'
+                        : '· para autorizarla, elige «' . ($sesion->question->options[0] ?? \Milpa\AppRuntime\Agent\AffirmativeAnswer::YES)
+                            . '» con ← → y Enter; para seguir sin ella, pide otra cosa',
                 ];
                 $this->loop->repintarTodo();
 

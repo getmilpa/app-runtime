@@ -179,6 +179,94 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
         self::assertSame([['jornada.sub-1', 'yes', ['question' => 'perm:sandbox:promote', 'digest' => self::DIGEST]]], $sent->getArrayCopy());
     }
 
+    public function testASubAgentsPromotionTakesOnlyYesOrNo(): void
+    {
+        foreach (['subject=configuration cccc', 'make it smaller cccc'] as $typed) {
+            $session = new Session('jornada', 'x');
+            $sent = new \ArrayObject();
+            $screen = new AgentScreen(
+                static fn (string $q): array => ['ok' => true],
+                static fn (): Session => $session,
+                null,
+                100,
+                40,
+                false,
+                preguntaDeHijo: static fn (): array => ['session' => 'jornada.sub-1', 'question' => 'Promote?', 'options' => ['yes', 'no'], 'id' => 'perm:sandbox:promote', 'why' => self::promotion('wchild1')],
+                contestarHijo: static function (string $child, string $answer, array $seen = []) use ($sent): array {
+                    $sent[] = $answer;
+
+                    return ['ok' => true];
+                },
+            );
+
+            $text = preg_replace('/\e\[[0-9;]*m/', '', $screen->render()) ?? '';
+            self::assertStringNotContainsString('sí, pero', $text, 'a child is not offered what its door cannot take');
+            $this->type($screen, $typed);
+            $screen->press('enter');
+
+            self::assertSame([], $sent->getArrayCopy(), "«{$typed}» to a child answers nothing — sent plain, it would discard the trial (0633, M1 of the sixth review)");
+        }
+    }
+
+    public function testTheShortNoTrimmedInputAndTheSeparatorAreRead(): void
+    {
+        $session = new Session(id: 's1', goal: 'x', question: new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], self::promotion()));
+        foreach (['n cccc' => ['no-counter', 'n'], '   yes   cccc   ' => ['no-counter', 'yes'], 'yescccc' => ['nothing', null]] as $typed => [$expect, $answer]) {
+            $sent = new \ArrayObject();
+            $screen = new AgentScreen(
+                static fn (string $q): array => ['ok' => true],
+                static fn (): Session => $session,
+                static function (string $a, array $seen = []) use ($sent): array {
+                    $sent[] = $a;
+
+                    return ['ok' => true];
+                },
+                100,
+                40,
+                false,
+                contraofertar: static function (): array {
+                    self::fail('a yes or a no is never a counter');
+                },
+            );
+            $screen->render();
+            $this->type($screen, $typed);
+            $screen->press('enter');
+
+            self::assertSame($expect === 'nothing' ? [] : [$answer], $sent->getArrayCopy(), "«{$typed}»");
+        }
+    }
+
+    public function testADigestOfAnotherShapeCannotBeAnsweredHere(): void
+    {
+        foreach (['diff:cccczz-not-hex', 'sha256:' . str_repeat('c', 64), 'diff:CCCC' . str_repeat('c', 60)] as $digest) {
+            $why = json_decode(self::promotion(), true);
+            $why['digest'] = $digest;
+            [$screen, $sent] = $this->screenOn((string) json_encode($why));
+
+            self::assertStringContainsString('it cannot be answered here', preg_replace('/\e\[[0-9;]*m/', '', $screen->render()) ?? '', $digest);
+            $this->type($screen, 'yes cccc');
+            $screen->press('enter');
+
+            self::assertSame([], $sent->calls, $digest);
+            $turns = $screen->conversation();
+            self::assertStringContainsString('it cannot be answered here', (string) ($turns[\count($turns) - 1]['texto'] ?? ''), 'and the reply says so, with no empty prefix');
+        }
+    }
+
+    public function testANoToAPromotionSaysItsTrialWasDiscarded(): void
+    {
+        $session = new Session(id: 's1', goal: 'x', question: new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], self::promotion()));
+        $screen = new AgentScreen(static fn (string $q): array => ['ok' => true], static fn (): Session => $session, static fn (string $a, array $seen = []): array => ['ok' => true, 'granted' => null], 100, 40, false);
+
+        $screen->render();
+        $this->type($screen, 'no cccc');
+        $screen->press('enter');
+
+        $said = implode("\n", array_map(static fn (array $turn): string => (string) ($turn['texto'] ?? ''), $screen->conversation()));
+        self::assertStringContainsString('its trial was discarded', $said);
+        self::assertStringNotContainsString('con ← → y Enter', $said, 'no arrows to choose with: a promotion is answered by its digest');
+    }
+
     public function testATightenedYesEndingInTheDigestTravelsAsAnEnvelopeNamingIt(): void
     {
         $session = new Session(id: 's1', goal: 'x', question: new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], self::promotion()));
