@@ -58,9 +58,6 @@ use Milpa\AppRuntime\Board\BoardTuiRenderer;
  */
 final class AgentScreen implements SurfaceBroadcaster
 {
-    /** Seconds a promotion stays on screen before a key answers it (greenhouse decisions/0633). */
-    private const READ_BEFORE_ANSWER = 0.3;
-
     /**
      * Los cuadros del indicador mientras hay trabajo.
      *
@@ -104,18 +101,6 @@ final class AgentScreen implements SurfaceBroadcaster
      */
     private array $painted = [];
 
-    /** The promotion whose too-early keys were already explained, so the line is said once. */
-    private ?string $droppedFor = null;
-
-    /** When the promotion on screen was first painted, on the screen's clock. */
-    private float $paintedSince = 0.0;
-
-    /**
-     * The screen's clock, in seconds; null is the wall clock. Set by tests.
-     *
-     * @var (\Closure(): float)|null
-     */
-    private ?\Closure $clock = null;
 
     /** La próxima respuesta es una CONTRAOFERTA (la opción «la tuya»), no una respuesta que otorga. */
     private bool $contraofertando = false;
@@ -620,7 +605,7 @@ final class AgentScreen implements SurfaceBroadcaster
                 $nodos[] = new TuiNode('pregunta-aprieta', 'text', props: ['text' => '  aprieta con «eje=nivel» (p.ej. authority=read)']);
             }
             $nodos[] = new TuiNode('pregunta-op', 'text', props: [
-                'text' => '  ' . $this->afordancias($pendiente->options),
+                'text' => '  ' . $this->howToAnswer($pendiente->options),
             ]);
         } elseif ($deHijo !== null) {
             // La pausa del sub-agente ocupa el mismo lugar que ocuparía la propia: es lo que hay que
@@ -634,7 +619,7 @@ final class AgentScreen implements SurfaceBroadcaster
             ]);
             $this->defaultFor($deHijo['id'] ?? '', $deHijo['why'] ?? null);
             $nodos[] = new TuiNode('pregunta-op', 'text', props: [
-                'text' => '  ' . $this->afordancias($deHijo['options']),
+                'text' => '  ' . $this->howToAnswer($deHijo['options']),
             ]);
         }
 
@@ -834,35 +819,40 @@ final class AgentScreen implements SurfaceBroadcaster
             return;
         }
         $this->preguntaVista = $key;
-        $this->paintedSince = $this->now();
         // index 1 is the decline option («no»); 0 is «sí». Only the promotion door defaults to decline.
         $this->opcionPregunta = $id === 'perm:sandbox:promote' ? 1 : 0;
     }
 
-    /**
-     * Whether the promotion on screen was painted too recently for a key to answer it: under the time a person takes to
-     * read that it changed (greenhouse decisions/0633, M2 of its third review). Questions that name no bytes are not held.
-     */
-    private function tooSoonToAnswer(): bool
+    /** The first characters of the digest the frame shows: what a person types to answer a promotion. */
+    private function digestPrefix(): string
     {
-        return isset($this->painted['digest']) && $this->now() - $this->paintedSince < self::READ_BEFORE_ANSWER;
+        // Only a digest of the house's own shape yields one; anything else cannot be answered here, and says so.
+        return preg_match('/\Adiff:([0-9a-f]{4})/', $this->painted['digest'] ?? '', $hex) === 1 ? $hex[1] : '';
     }
 
     /**
-     * The clock the screen reads to tell how long a promotion has been on screen, in seconds — the wall clock by default.
-     * A scripted terminal or a test hands its own.
-     *
-     * @param \Closure(): float $clock
+     * Answer the promotion on screen with what the person typed, which must end in the start of its digest: «yes 9f63»,
+     * «no 9f63», or a «sí, pero…» with the same ending. Anything else answers nothing and says how.
      */
-    public function useClock(\Closure $clock): void
+    private function answerThePromotion(): void
     {
-        $this->clock = $clock;
-    }
+        $prefix = $this->digestPrefix();
+        if ($prefix === '' || preg_match('/\A(.*\S)\s+([0-9a-f]{4})\z/iu', trim($this->entrada), $typed) !== 1 || strtolower($typed[2]) !== $prefix) {
+            $this->conversation[] = [
+                'quien' => 'agente',
+                'voz' => 'sistema',
+                'texto' => "· a promotion is answered by typing «yes {$prefix}» or «no {$prefix}» — the start of the digest on screen — then Enter",
+            ];
+            $this->loop->repintarTodo();
 
-    private function now(): float
-    {
-        // A monotonic clock: a wall clock stepped back would hold every answer, stepped forward would skip the wait.
-        return $this->clock !== null ? (float) ($this->clock)() : hrtime(true) / 1e9;
+            return;
+        }
+        $answer = trim($typed[1]);
+        $this->contraofertando = ! \Milpa\AppRuntime\Agent\AffirmativeAnswer::is($answer) && ! \in_array(mb_strtolower($answer), ['no', 'n'], true);
+        $this->entrada = $answer;
+        $this->opcionPregunta = 0;
+        $this->preguntaVista = null;
+        $this->preguntar();
     }
 
     /**
@@ -877,6 +867,24 @@ final class AgentScreen implements SurfaceBroadcaster
         $digest = \is_array($fact) && \is_string($fact['digest'] ?? null) ? $fact['digest'] : null;
 
         return array_filter(['question' => $id, 'digest' => $digest], static fn (?string $value): bool => $value !== null && $value !== '');
+    }
+
+    /**
+     * How the question on screen is answered: a promotion by naming its bytes, any other by the three choices.
+     *
+     * @param list<string> $opciones
+     */
+    private function howToAnswer(array $opciones): string
+    {
+        if (isset($this->painted['digest'])) {
+            $prefix = $this->digestPrefix();
+
+            return $prefix === ''
+                ? 'this promotion names its changes in a shape the house does not write: it cannot be answered here'
+                : "type «yes {$prefix}» or «no {$prefix}» (or your «sí, pero…» ending in {$prefix}), then Enter";
+        }
+
+        return $this->afordancias($opciones);
     }
 
     /**
@@ -1031,17 +1039,12 @@ final class AgentScreen implements SurfaceBroadcaster
         // una condición—. Antes las tres pasaban por teclear, y las dos primeras no tienen por qué.
         $abierta = $this->preguntaAbierta();
         if ($abierta !== null) {
-            // A KEY TYPED BEFORE THIS PROMOTION WAS ON SCREEN DOES NOT DECIDE IT (the third and fourth independent reviews
-            // of greenhouse decisions/0633, M2 and M1). Keys typed together are handled one per frame, so arrows and an
-            // Enter typed while one promotion was shown could pick and answer the next, painted an instant before. Every
-            // answer key is dropped until the bytes have been on screen long enough to read, so the choice stays on the
-            // default the new promotion opened on, and the screen says why — a silent drop invited the second Enter.
-            if (($key === 'left' || $key === 'right' || $key === 'enter') && $this->tooSoonToAnswer()) {
-                if ($this->droppedFor !== $this->preguntaVista) {
-                    $this->droppedFor = $this->preguntaVista;
-                    $this->conversation[] = ['quien' => 'agente', 'voz' => 'sistema', 'texto' => '· the promotion on screen changed a moment ago: read it, then answer'];
-                }
-                $this->loop->repintarTodo();
+            // A PROMOTION IS ANSWERED BY NAMING ITS BYTES (greenhouse decisions/0633; Rod chose this over a wait after
+            // five reviews of timing races). Its yes lands agent-written code and its no discards the trial, so neither is
+            // a bare Enter or an arrow: the person types the answer with the first characters of the digest the frame
+            // shows. Keys typed for one promotion cannot carry the start of another's digest, however fast they arrive.
+            if (isset($this->painted['digest']) && $key === 'enter') {
+                $this->answerThePromotion();
 
                 return true;
             }

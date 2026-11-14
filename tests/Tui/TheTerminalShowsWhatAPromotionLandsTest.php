@@ -83,30 +83,75 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
         ]);
     }
 
-    /** THE ANSWER NAMES WHAT THE SCREEN SHOWED (greenhouse decisions/0633): the question and the bytes it covers. */
-    public function testAnAnswerFromTheScreenNamesTheQuestionAndItsBytes(): void
+    /** THE ANSWER NAMES THE BYTES (greenhouse decisions/0633): typed with the start of the digest the frame shows. */
+    public function testAPromotionIsAnsweredByTypingTheStartOfItsDigest(): void
     {
-        $session = new Session(id: 's1', goal: 'x', question: new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], self::promotion()));
-        $sent = null;
-        $screen = new AgentScreen(static fn (string $q): array => ['ok' => true], static fn (): Session => $session, static function (string $answer, array $seen = []) use (&$sent): array {
-            $sent = [$answer, $seen];
+        foreach (['yes cccc' => 'yes', 'no cccc' => 'no', 'NO CCCC' => 'NO'] as $typed => $answer) {
+            [$screen, $sent] = $this->screenOn(self::promotion());
+            $screen->render();
+            $this->type($screen, $typed);
+            $screen->press('enter');
+
+            self::assertSame([[$answer, ['question' => 'perm:sandbox:promote', 'digest' => self::DIGEST]]], $sent->calls, $typed);
+        }
+    }
+
+    public function testAnEnterOrAnArrowAloneDoesNotAnswerAPromotionAndTheScreenSaysHow(): void
+    {
+        [$screen, $sent] = $this->screenOn(self::promotion());
+
+        $text = preg_replace('/\e\[[0-9;]*m/', '', $screen->render()) ?? '';
+        self::assertStringContainsString('type «yes cccc» or «no cccc»', $text, 'the screen says how');
+        $screen->press('left');
+        $screen->press('enter');
+
+        self::assertSame([], $sent->calls, 'neither a bare Enter nor an arrow answers it');
+        $turns = $screen->conversation();
+        self::assertStringContainsString('a promotion is answered by typing «yes cccc»', (string) ($turns[\count($turns) - 1]['texto'] ?? ''));
+    }
+
+    public function testAnAnswerNamingOtherBytesAnswersNothing(): void
+    {
+        [$screen, $sent] = $this->screenOn(self::promotion());
+        $screen->render();
+        $this->type($screen, 'yes 9f63');
+        $screen->press('enter');
+
+        self::assertSame([], $sent->calls);
+    }
+
+    /**
+     * Keys typed for one promotion cannot answer the next (the timing race of five reviews): what they carry is the start
+     * of the digest the person saw, and the frame now shows another.
+     */
+    public function testAnAnswerTypedForOnePromotionDoesNotAnswerTheNext(): void
+    {
+        $other = json_decode(self::promotion(), true);
+        $other['digest'] = 'diff:' . str_repeat('2', 64);
+        $why = self::promotion();
+        $sent = new \ArrayObject();
+        $session = new Session(id: 's1', goal: 'x', question: new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], $why));
+        $screen = new AgentScreen(static fn (string $q): array => ['ok' => true], static function () use (&$session): Session {
+            return $session;
+        }, static function (string $answer, array $seen = []) use ($sent): array {
+            $sent[] = [$answer, $seen];
 
             return ['ok' => true];
         }, 100, 40, false);
-        $now = 100.0;
-        $this->clock($screen, $now);
 
         $screen->render();
-        $now += 1.0;
+        $this->type($screen, 'yes cccc');
+        $session = new Session(id: 's1', goal: 'x', question: new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], (string) json_encode($other)));
+        $screen->render();
         $screen->press('enter');
 
-        self::assertSame(['no', ['question' => 'perm:sandbox:promote', 'digest' => self::DIGEST]], $sent, 'the default is no, and it names what was shown');
+        self::assertSame([], $sent->getArrayCopy(), 'the start of the old digest answers nothing on the new promotion');
     }
 
-    public function testASubAgentsPromotionIsShownWithItsCodeOpensOnNoAndItsAnswerNamesItsBytes(): void
+    public function testASubAgentsPromotionIsShownWithItsCodeAndAnsweredByItsDigest(): void
     {
         $session = new Session('jornada', 'x');
-        $sent = null;
+        $sent = new \ArrayObject();
         $screen = new AgentScreen(
             static fn (string $q): array => ['ok' => true],
             static fn (): Session => $session,
@@ -115,23 +160,40 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
             40,
             false,
             preguntaDeHijo: static fn (): array => ['session' => 'jornada.sub-1', 'question' => 'The agent wants to promote trial «wchild1»…', 'options' => ['yes', 'no'], 'id' => 'perm:sandbox:promote', 'why' => self::promotion('wchild1')],
-            contestarHijo: static function (string $child, string $answer, array $seen = []) use (&$sent): array {
-                $sent = [$child, $answer, $seen];
+            contestarHijo: static function (string $child, string $answer, array $seen = []) use ($sent): array {
+                $sent[] = [$child, $answer, $seen];
 
                 return ['ok' => true];
             },
         );
 
-        $now = 100.0;
-        $this->clock($screen, $now);
         $text = preg_replace('/\e\[[0-9;]*m/', '', $screen->render()) ?? '';
         self::assertStringContainsString('│ +// line 35 of Probe, ordinary code', $text, 'the child\'s code is on the screen, quoted');
-        self::assertStringContainsString('▸ no', $text, 'and the answer opens on no');
+        self::assertStringContainsString('type «yes cccc»', $text);
 
-        $now += 1.0;
+        $screen->press('enter');
+        self::assertSame([], $sent->getArrayCopy(), 'a bare Enter answers nothing');
+        $this->type($screen, 'yes cccc');
         $screen->press('enter');
 
-        self::assertSame(['jornada.sub-1', 'no', ['question' => 'perm:sandbox:promote', 'digest' => self::DIGEST]], $sent);
+        self::assertSame([['jornada.sub-1', 'yes', ['question' => 'perm:sandbox:promote', 'digest' => self::DIGEST]]], $sent->getArrayCopy());
+    }
+
+    public function testATightenedYesEndingInTheDigestTravelsAsAnEnvelopeNamingIt(): void
+    {
+        $session = new Session(id: 's1', goal: 'x', question: new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], self::promotion()));
+        $sent = new \ArrayObject();
+        $screen = new AgentScreen(static fn (string $q): array => ['ok' => true], static fn (): Session => $session, static fn (string $a, array $s = []): array => ['ok' => true], 100, 40, false, apretar: static function (array $envelope, array $seen = []) use ($sent): array {
+            $sent[] = [$envelope, $seen];
+
+            return ['ok' => true, 'granted' => 'x', 'tightened' => ['subject']];
+        });
+
+        $screen->render();
+        $this->type($screen, 'subject=configuration cccc');
+        $screen->press('enter');
+
+        self::assertSame([[['subject' => 'configuration'], ['question' => 'perm:sandbox:promote', 'digest' => self::DIGEST]]], $sent->getArrayCopy());
     }
 
     public function testNoControlCharacterOfTheAgentsTextReachesTheTerminal(): void
@@ -169,7 +231,7 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
             $session = new Session(id: 's1', goal: 'x', question: new PendingQuestion('perm:sandbox:promote', 'The agent wants to promote trial «w1» into the house: 2 changed file(s), ' . self::DIGEST . '. Do you promote exactly these changes?', ['yes', 'no'], self::promotion()));
             $text = preg_replace('/\e\[[0-9;]*m/', '', (new AgentScreen(static fn (string $q): array => ['ok' => true], static fn (): Session => $session, null, $width, $height, false))->render()) ?? '';
 
-            self::assertStringContainsString('▸ no', $text, "{$width}×{$height}: the answer row is on screen");
+            self::assertStringContainsString('type «yes cccc»', $text, "{$width}×{$height}: the answer row is on screen");
             self::assertStringContainsString('tu respuesta…', $text, "{$width}×{$height}: and the input");
             self::assertStringContainsString('[Enter] contestar', $text, "{$width}×{$height}: and the help");
         }
@@ -199,100 +261,6 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
         self::assertStringNotContainsString("\e", $text);
         self::assertStringNotContainsString("\r", $text);
         self::assertDoesNotMatchRegularExpression('/^\s*■ FORGED/mu', $text, 'a path never starts a row as the house\'s (0633, M1)');
-    }
-
-    public function testALaterPromotionOpensOnNoAgainAndTheAnswerNamesWhatWasPainted(): void
-    {
-        $other = 'diff:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd';
-        $question = new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], self::promotion());
-        $session = new Session(id: 's1', goal: 'x', question: $question);
-        $sent = [];
-        $screen = new AgentScreen(static fn (string $q): array => ['ok' => true], static function () use (&$session): Session {
-            return $session;
-        }, static function (string $answer, array $seen = []) use (&$sent): array {
-            $sent[] = [$answer, $seen];
-
-            return ['ok' => true];
-        }, 100, 40, false);
-        $now = 100.0;
-        $this->clock($screen, $now);
-
-        $screen->render();
-        $now += 1.0;
-        $screen->press('left');
-        self::assertStringContainsString('▸ yes', $screen->render(), 'the person moved to yes on the first');
-
-        $session = new Session(id: 's1', goal: 'x');
-        $screen->render();
-        $second = json_decode(self::promotion(), true);
-        $second['digest'] = $other;
-        $session = new Session(id: 's1', goal: 'x', question: new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], (string) json_encode($second)));
-
-        self::assertStringContainsString('▸ no', $screen->render(), 'other bytes open on no again (0633, M2)');
-
-        // A key handled after the question changed names what the frame painted, not what waits now.
-        $session = new Session(id: 's1', goal: 'x', question: $question);
-        $now += 1.0;
-        $screen->press('enter');
-        self::assertSame($other, $sent[0][1]['digest'] ?? null, 'the answer names the painted bytes; the house refuses them if others wait');
-    }
-
-    /**
-     * A KEY TYPED BEFORE A PROMOTION WAS ON SCREEN DOES NOT ANSWER IT (the third review of 0633, M2): keys typed together
-     * are handled one per frame, and an Enter typed while one promotion was shown must not land on the next.
-     */
-    public function testAnEnterRightAfterThePromotionChangedIsDroppedAndOneAfterReadingAnswers(): void
-    {
-        $first = new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], self::promotion());
-        $second = json_decode(self::promotion(), true);
-        $second['digest'] = 'diff:' . str_repeat('2', 64);
-        $session = new Session(id: 's1', goal: 'x', question: $first);
-        $sent = [];
-        $screen = new AgentScreen(static fn (string $q): array => ['ok' => true], static function () use (&$session): Session {
-            return $session;
-        }, static function (string $answer, array $seen = []) use (&$sent): array {
-            $sent[] = [$answer, $seen['digest'] ?? null];
-
-            return ['ok' => true];
-        }, 100, 40, false);
-        $now = 100.0;
-        $this->clock($screen, $now);
-
-        $screen->render();
-        $now += 5.0;
-        $session = new Session(id: 's1', goal: 'x', question: new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], (string) json_encode($second)));
-        $screen->render();
-        $now += 0.05;
-        $screen->press('left');
-        $screen->press('left');
-        $screen->press('enter');
-
-        self::assertSame([], $sent, 'keys 50 ms after the bytes changed answer nothing');
-        $text = $screen->render();
-        self::assertStringContainsString('▸ no', $text, 'nor do they move the choice: it is back on the promotion\'s default (0633, M1 of the fourth review)');
-        $said = array_filter($screen->conversation(), static fn (array $turn): bool => str_contains((string) ($turn['texto'] ?? ''), 'the promotion on screen changed a moment ago'));
-        self::assertCount(1, $said, 'and the screen says why, once');
-
-        $now += 1.0;
-        $screen->render();
-        $screen->press('enter');
-
-        self::assertSame([['no', 'diff:' . str_repeat('2', 64)]], $sent, 'once it has been on screen, the Enter answers what is shown — its default');
-    }
-
-    public function testArrowsTypedBeforeThePromotionWasOnScreenDoNotMoveItsChoice(): void
-    {
-        $session = new Session(id: 's1', goal: 'x', question: new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], self::promotion()));
-        $screen = new AgentScreen(static fn (string $q): array => ['ok' => true], static fn (): Session => $session, null, 100, 40, false);
-        $now = 100.0;
-        $this->clock($screen, $now);
-
-        $screen->render();
-        $now += 0.05;
-        $screen->press('left');
-        $screen->press('left');
-
-        self::assertStringContainsString('▸ no', $screen->render(), 'arrows of a burst typed before it was on screen leave it on no');
     }
 
     public function testASubAgentsQuestionIsReadOncePerFrame(): void
@@ -326,23 +294,6 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
         self::assertLessThanOrEqual(2, $reads, 'one reading for what is painted, one to choose the screen');
     }
 
-    public function testThePromotionAskedAgainAfterItWentAwayOpensOnNo(): void
-    {
-        $question = new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], self::promotion());
-        $session = new Session(id: 's1', goal: 'x', question: $question);
-        $screen = new AgentScreen(static fn (string $q): array => ['ok' => true], static function () use (&$session): Session {
-            return $session;
-        }, null, 100, 40, false);
-
-        $screen->render();
-        $screen->press('left');
-        $session = new Session(id: 's1', goal: 'x', plan: 'a plan, so the screen is the session and not its cover');
-        $screen->render();
-        $session = new Session(id: 's1', goal: 'x', question: $question);
-
-        self::assertStringContainsString('▸ no', $screen->render(), 'a question that went away and came back opens on its own default');
-    }
-
     public function testTheControlAQuestionThatIsNotAPromotionPaintsNoCode(): void
     {
         $text = $this->paint(new PendingQuestion('perm:make', 'May I make?', ['yes', 'no'], '{"operation":"make","arguments":{"what":"plugin"}}'));
@@ -350,12 +301,28 @@ final class TheTerminalShowsWhatAPromotionLandsTest extends TestCase
         self::assertStringNotContainsString('What this promotion lands', $text);
     }
 
-    /** A clock the test moves: the screen holds a promotion's answer until it has been on screen long enough to read. */
-    private function clock(AgentScreen $screen, float &$now): void
+    /** @return array{AgentScreen, object{calls: list<array{string, array<string, string>}>}} */
+    private function screenOn(string $why): array
     {
-        $screen->useClock(static function () use (&$now): float {
-            return $now;
-        });
+        $session = new Session(id: 's1', goal: 'x', question: new PendingQuestion('perm:sandbox:promote', 'Promote?', ['yes', 'no'], $why));
+        $sent = new class () {
+            /** @var list<array{string, array<string, string>}> */
+            public array $calls = [];
+        };
+        $screen = new AgentScreen(static fn (string $q): array => ['ok' => true], static fn (): Session => $session, static function (string $answer, array $seen = []) use ($sent): array {
+            $sent->calls[] = [$answer, $seen];
+
+            return ['ok' => true];
+        }, 100, 40, false);
+
+        return [$screen, $sent];
+    }
+
+    private function type(AgentScreen $screen, string $text): void
+    {
+        foreach (preg_split('//u', $text, -1, \PREG_SPLIT_NO_EMPTY) ?: [] as $char) {
+            $screen->press($char);
+        }
     }
 
     private function paint(PendingQuestion $question): string
