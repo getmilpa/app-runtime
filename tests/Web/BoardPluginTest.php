@@ -100,6 +100,33 @@ final class BoardPluginTest extends TestCase
         self::assertStringContainsString('plugins_list', $html, 'the finished cycle folded into the done column');
     }
 
+    /**
+     * A PROMOTION IS ANSWERED WHERE ITS CODE IS READ (greenhouse decisions/0628): the board shows no code, so a
+     * question that lands agent-written code is marked, and the page keeps its answer bar closed for it.
+     */
+    public function testAPromotionsQuestionIsMarkedSoTheBoardOffersNoAnswer(): void
+    {
+        foreach ([
+            'promotion' => [(string) json_encode(['operation' => 'sandbox:promote', 'arguments' => ['workspace' => 'w1'], 'lands' => []]), true],
+            'control' => [(string) json_encode(['operation' => 'config:set', 'arguments' => ['key' => 'x']]), false],
+        ] as $case => [$why, $marked]) {
+            $container = $this->containerWithASession();
+            $container->get(SessionStore::class)->ask('s1', new \Milpa\Agent\PendingQuestion('perm:x', 'May I?', ['yes', 'no'], $why, reason: 'permission'));
+            $container->registerService(OperationHttpPolicy::class, $this->policyThat(null));
+
+            $html = (string) (new BoardDataController($container))->data((new ServerRequest('GET', '/board/data?session=s1'))->withQueryParams(['session' => 's1']))->getBody();
+
+            self::assertStringContainsString('milpa-board-waiting', $html, $case);
+            self::assertSame($marked, str_contains($html, 'milpa-board-waiting--promotion'), $case);
+            self::assertStringContainsString('data-question="perm:x"', $html, "{$case}: the alert names the question it shows (0633)");
+            self::assertSame($marked, str_contains($html, 'chat s1'), "{$case}: the session's screen, named");
+        }
+
+        $page = (new \ReflectionClass(\Milpa\AppRuntime\Web\BoardPage::class))->getFileName();
+        self::assertIsString($page);
+        self::assertStringContainsString("board.querySelector('.milpa-board-waiting--promotion') !== null", (string) file_get_contents($page), 'the page reads the marker to keep the bar closed');
+    }
+
     public function testTheDataControllerReturnsThePolicysRefusalUntouched(): void
     {
         $container = $this->containerWithASession();

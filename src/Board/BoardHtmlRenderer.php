@@ -72,9 +72,18 @@ final class BoardHtmlRenderer implements ComponentRendererInterface
         $question = $fold['pending_question'] ?? null;
         if (\is_string($question) && $question !== '') {
             $session = \is_string($fold['session'] ?? null) ? $fold['session'] : '';
-            $html .= '<p class="mui-alert mui-alert--warning milpa-board-waiting">' . $this->esc($question)
-                . ' <span class="milpa-board-waiting-hint">answer from the terminal: '
-                . '<code>php bin/coa agent:answer --session=' . $this->esc($session) . ' --answer=… --sign</code></span></p>';
+            // A promotion's code is not on this board (greenhouse decisions/0628): the alert says where it is read, and
+            // carries the marker the page reads to keep its answer bar closed.
+            // The question the alert shows travels with it, so an answer from this board names it (greenhouse
+            // decisions/0633): a bar left open on an older question is refused, not answered for the newer one.
+            $shown = ' data-question="' . $this->esc(\is_string($fold['pending_question_id'] ?? null) ? $fold['pending_question_id'] : '') . '"';
+            $html .= ($fold['pending_promotion'] ?? false) === true
+                ? '<p class="mui-alert mui-alert--warning milpa-board-waiting milpa-board-waiting--promotion"' . $shown . '>' . $this->esc($question)
+                    . ' <span class="milpa-board-waiting-hint">it lands code an agent wrote, which this board does not show — read it, then answer, in the session\'s screen: '
+                    . '<code>' . $this->esc(\Milpa\AppRuntime\Support\Capabilities::cli() . 'chat ' . $session) . '</code></span></p>'
+                : '<p class="mui-alert mui-alert--warning milpa-board-waiting"' . $shown . '>' . $this->esc($question)
+                    . ' <span class="milpa-board-waiting-hint">answer from the terminal: '
+                    . '<code>php bin/coa agent:answer --session=' . $this->esc($session) . ' --answer=… --sign</code></span></p>';
         }
 
         $html .= '<div class="milpa-board-columns">';

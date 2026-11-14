@@ -140,6 +140,29 @@ final class TheSecretFilesAndTheKnownEnvironmentAreKeptOutTest extends TestCase
         }
     }
 
+    /**
+     * The two length bounds of a setting's shape are what keep a longer passphrase of words masked (the eighth
+     * independent review of 0628, L8-1): one value at the bound stays readable, one just past it is masked.
+     *
+     * @return iterable<string, array{string, bool}>
+     */
+    public static function theBoundsOfASettingsShape(): iterable
+    {
+        yield 'snake_case, 24 characters' => ['abcdefghij_klmnopq_rstuv', true];
+        yield 'snake_case, 25 characters' => ['abcdefghij_klmnopq_rstuvw', false];
+        yield 'dashed, 24 characters' => ['abcdefghijk-lmnopq-rstuv', true];
+        yield 'dashed, 25 characters' => ['abcdefghijk-lmnopq-rstuvw', false];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('theBoundsOfASettingsShape')]
+    public function testASettingsShapeEndsAtItsLength(string $value, bool $readable): void
+    {
+        self::assertSame(24 + ($readable ? 0 : 1), \strlen($value));
+        file_put_contents($this->root . '/.env', "SOME_SETTING={$value}\n");
+
+        self::assertSame($readable, str_contains(SecretRedaction::inText($value, $this->root), $value));
+    }
+
     public function testAPhraseOfTheEnvFileNotNamedAsACredentialPasses(): void
     {
         file_put_contents($this->root . '/.env', "SMTP_LOGIN=\"correct horse battery staple\"\n");

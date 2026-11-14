@@ -210,7 +210,9 @@ memory and travels only in the request header.</p>
                 // board carries the waiting alert exactly when a question is open, so its presence
                 // is the fold's own answer — closed the moment the stream says so, even when someone
                 // else answered from the terminal.
-                answerBar.hidden = board.querySelector('.milpa-board-waiting') === null;
+                // A promotion is answered where its code is read (greenhouse decisions/0628): this board shows none.
+                answerBar.hidden = board.querySelector('.milpa-board-waiting') === null
+                    || board.querySelector('.milpa-board-waiting--promotion') !== null;
             })
             .catch(function () { status.textContent = 'the board endpoint is unreachable'; });
     }
@@ -225,6 +227,11 @@ memory and travels only in the request header.</p>
     tokenField.addEventListener('input', armButtons);
     tokenField.addEventListener('change', repaint);
 
+    function shownQuestion() {
+        const alert = board.querySelector('.milpa-board-waiting');
+        return alert === null ? '' : (alert.getAttribute('data-question') || '');
+    }
+
     function answer(value) {
         yesButton.disabled = true;
         noButton.disabled = true;
@@ -235,7 +242,9 @@ memory and travels only in the request header.</p>
                 'Content-Type': 'application/json',
                 'Authorization': 'Bearer ' + tokenField.value.trim(),
             },
-            body: JSON.stringify({ session: session, answer: value }),
+            // THE QUESTION THE PAGE SHOWED, named (greenhouse decisions/0633): if another one is waiting by now, the house
+            // refuses instead of answering it.
+            body: JSON.stringify({ session: session, answer: value, question: shownQuestion() }),
         })
             .then(function (r) {
                 return r.json().catch(function () { return null; }).then(function (data) {

@@ -1743,8 +1743,15 @@ class AgentOperations implements CommandProvider
     private static function answerHint(string $sessionId, \Milpa\Agent\PendingQuestion $question): string
     {
         // SIGNED (greenhouse decisions/0522): an unsigned call changes nothing that lasts, and an answer does.
-        return 'answer with: ' . Capabilities::cli() . 'agent:answer --session=' . $sessionId
-            . ' --answer=<' . implode('|', $question->options ?: ['your answer']) . '> --sign';
+        // A question that names the bytes its answer covers is read before it is answered, and the answer names them
+        // (greenhouse decisions/0633).
+        $fact = json_decode((string) $question->why, true);
+        $digest = \is_array($fact) && \is_string($fact['digest'] ?? null) ? $fact['digest'] : null;
+
+        return ($digest === null ? '' : 'read what it lands with: ' . Capabilities::cli() . 'agent:show --session=' . $sessionId . ' — then ')
+            . 'answer with: ' . Capabilities::cli() . 'agent:answer --session=' . $sessionId
+            . ' --answer=<' . implode('|', $question->options ?: ['your answer']) . '>'
+            . ($digest === null ? '' : ' --digest=' . $digest) . ' --sign';
     }
 
     /**
