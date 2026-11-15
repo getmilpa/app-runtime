@@ -75,7 +75,7 @@ final class ASeatPromotesThePluginSwitchTest extends TestCase
         [$promote, , $undo] = $this->doors();
 
         self::assertTrue($this->policy()->authorize($this->seat(), $this->tool('sandbox_promote'), ['workspace' => $id])->allowed);
-        $landed = $this->runner()->run($promote, ['workspace' => $id], 'cli', authority: $this->seat());
+        $landed = $this->runner()->run($promote, ['workspace' => $id], 'cli', authority: \Milpa\AppRuntime\Tests\Fixtures\ApprovedPromotion::of($this->seat(), $this->root, $id));
 
         self::assertTrue($landed['ok'], (string) json_encode($landed));
         self::assertSame([self::REGISTRY], $landed['promoted']);
@@ -113,7 +113,7 @@ final class ASeatPromotesThePluginSwitchTest extends TestCase
     {
         $id = $this->trialThatWrites([self::REGISTRY => $this->registry(hello: true, core: false)]);
 
-        $said = $this->runner()->run($this->doors()[0], ['workspace' => $id], 'cli', authority: $this->seat());
+        $said = $this->runner()->run($this->doors()[0], ['workspace' => $id], 'cli', authority: \Milpa\AppRuntime\Tests\Fixtures\ApprovedPromotion::of($this->seat(), $this->root, $id));
 
         self::assertFalse($said['ok'], 'authorized is not admitted: the house as it would be boots first (0512/0515)');
         self::assertStringContainsString('Core is off', (string) json_encode($said));

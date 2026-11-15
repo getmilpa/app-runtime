@@ -151,7 +151,7 @@ final class ACopyOfTheHouseCarriesNoBookOfWhoMayDoWhatTest extends TestCase
                 file_put_contents($trial->copy . '/' . $spelling, '{"written":"in a rehearsal"}' . "\n");
                 $promote = (new TrialOperations(new DIContainer(), root: $this->root))->operations()[0];
 
-                $promoted = ($promote->handler)(['workspace' => $id], null, new ToolContext(principal: 'worker', channel: 'cli', scopes: ['*']));
+                $promoted = ($promote->handler)(['workspace' => $id], null, \Milpa\AppRuntime\Tests\Fixtures\ApprovedPromotion::of(new ToolContext(principal: 'worker', channel: 'cli', scopes: ['*']), $this->root, $id));
 
                 self::assertFalse($promoted['ok'], "a promotion carried {$spelling}: " . json_encode($promoted));
                 self::assertStringStartsWith('a trial never carries', (string) ($promoted['error'] ?? ''), "{$spelling} was refused by its name, not by another check");
@@ -167,7 +167,7 @@ final class ACopyOfTheHouseCarriesNoBookOfWhoMayDoWhatTest extends TestCase
         file_put_contents($trial->copy . '/config/app.php', "<?php return ['promoted' => true];\n");
         $promote = (new TrialOperations(new DIContainer(), root: $this->root))->operations()[0];
 
-        $promoted = ($promote->handler)(['workspace' => 'books-control'], null, new ToolContext(principal: 'worker', channel: 'cli', scopes: ['*']));
+        $promoted = ($promote->handler)(['workspace' => 'books-control'], null, \Milpa\AppRuntime\Tests\Fixtures\ApprovedPromotion::of(new ToolContext(principal: 'worker', channel: 'cli', scopes: ['*']), $this->root, 'books-control'));
 
         self::assertTrue($promoted['ok'], (string) json_encode($promoted));
         self::assertSame("<?php return ['promoted' => true];\n", file_get_contents($this->root . '/config/app.php'));
@@ -197,7 +197,7 @@ final class ACopyOfTheHouseCarriesNoBookOfWhoMayDoWhatTest extends TestCase
             file_put_contents($trial->copy . '/' . $relative, "<?php // written in a rehearsal\n");
             $promote = (new TrialOperations(new DIContainer(), root: $this->root))->operations()[0];
 
-            $promoted = ($promote->handler)(['workspace' => $id], null, new ToolContext(principal: 'worker', channel: 'cli', scopes: ['*']));
+            $promoted = ($promote->handler)(['workspace' => $id], null, \Milpa\AppRuntime\Tests\Fixtures\ApprovedPromotion::of(new ToolContext(principal: 'worker', channel: 'cli', scopes: ['*']), $this->root, $id));
 
             self::assertFalse($promoted['ok'], "a promotion carried {$shown}: " . json_encode($promoted));
             self::assertStringContainsString('not plain printable ASCII — ' . $shown, (string) ($promoted['error'] ?? ''));
@@ -387,7 +387,7 @@ final class ACopyOfTheHouseCarriesNoBookOfWhoMayDoWhatTest extends TestCase
             $promote = (new TrialOperations(new DIContainer(), root: $this->root))->operations()[0];
             self::assertSame('sandbox:promote', $promote->name);
 
-            $promoted = ($promote->handler)(['workspace' => $id], null, new ToolContext(principal: 'worker', channel: 'cli', scopes: ['*']));
+            $promoted = ($promote->handler)(['workspace' => $id], null, \Milpa\AppRuntime\Tests\Fixtures\ApprovedPromotion::of(new ToolContext(principal: 'worker', channel: 'cli', scopes: ['*']), $this->root, $id));
 
             self::assertFalse($promoted['ok'], "a promotion carried {$relative}: " . json_encode($promoted));
             self::assertStringContainsString($relative, (string) ($promoted['error'] ?? ''), 'the refusal names the book');

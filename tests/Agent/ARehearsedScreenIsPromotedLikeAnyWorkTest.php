@@ -240,7 +240,7 @@ final class ARehearsedScreenIsPromotedLikeAnyWorkTest extends TestCase
         $promote = (new TrialOperations(new DIContainer(), root: $this->root))->operations()[0];
         self::assertSame('sandbox:promote', $promote->name);
 
-        return ($promote->handler)(['workspace' => $workspace], null, $authority);
+        return ($promote->handler)(['workspace' => $workspace], null, \Milpa\AppRuntime\Tests\Fixtures\ApprovedPromotion::of($authority, $this->root, $workspace));
     }
 
     private function fakeExecBwrap(): string

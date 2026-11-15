@@ -305,14 +305,15 @@ final class APromotionLandsOnlyWhatAPersonSaidYesToTest extends TestCase
         self::assertFileDoesNotExist($root . '/src/Probe.php');
     }
 
-    public function testAPromotionWithNoGateIsNotAskedAboutAYes(): void
+    public function testAPromotionWithNoGateAndNoPersonIsRefused(): void
     {
         [$root] = $this->trialWithCode();
         $store = $this->store(AutonomyMode::Auto);
 
         $r = $this->promote($root, $store, null);
 
-        self::assertTrue($r['ok'] ?? null, 'a person at the terminal promotes with no question of the agent\'s door: ' . ($r['error'] ?? ''));
+        self::assertFalse($r['ok'] ?? true, 'a tool context alone is not a person signing this promotion');
+        self::assertStringContainsString("a person's yes", $r['error']);
     }
 
     public function testTheAgentsDoorHandsThePromotionWhatTheGateAdmitted(): void

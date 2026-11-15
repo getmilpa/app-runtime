@@ -614,7 +614,7 @@ final class TheHouseAppliesTheVerifiedTrialOfAnAdmittedOperationTest extends Tes
         $promote = (new TrialOperations(new DIContainer(), root: $this->root))->operations()[0];
         self::assertSame('sandbox:promote', $promote->name);
 
-        return ($promote->handler)(['workspace' => $workspace], null, new ToolContext(principal: 'worker', channel: 'cli', scopes: ['*']));
+        return ($promote->handler)(['workspace' => $workspace], null, \Milpa\AppRuntime\Tests\Fixtures\ApprovedPromotion::of(new ToolContext(principal: 'worker', channel: 'cli', scopes: ['*']), $this->root, $workspace));
     }
 
     private static function producer(string $name): Operation

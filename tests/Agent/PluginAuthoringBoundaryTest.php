@@ -91,7 +91,7 @@ final class PluginAuthoringBoundaryTest extends TestCase
             self::assertStringContainsString('Missing required permission', $error->getMessage());
         }
         self::assertFileDoesNotExist($this->root . '/src/Plugins/Owned/control.txt');
-        self::assertTrue($runner->run($operations[0], $input, 'cli', authority: $this->context)['ok']);
+        self::assertTrue($runner->run($operations[0], $input, 'cli', authority: \Milpa\AppRuntime\Tests\Fixtures\ApprovedPromotion::of($this->context, $this->root, $input['workspace']))['ok']);
         self::assertSame('owned', file_get_contents($this->root . '/src/Plugins/Owned/control.txt'));
         try {
             $runner->run($operations[3], $input, 'cli', authority: new ToolContext(scopes: []));
@@ -148,13 +148,13 @@ PHP);
         self::assertSame($initial, file_get_contents($file));
         self::assertFileDoesNotExist($file . '.milpa-part');
         try {
-            $runner->run($promote, ['workspace' => $started['workspace']], 'cli', authority: new ToolContext(scopes: []));
+            $runner->run($promote, ['workspace' => $started['workspace']], 'cli', authority: \Milpa\AppRuntime\Tests\Fixtures\ApprovedPromotion::of(new ToolContext(scopes: []), $this->root, $started['workspace']));
             self::fail('revocation must refuse even a non-executable partial');
         } catch (\RuntimeException $error) {
             self::assertStringContainsString('Missing required permission', $error->getMessage());
         }
         self::assertFileDoesNotExist($file . '.milpa-part');
-        self::assertTrue($runner->run($promote, ['workspace' => $started['workspace']], 'cli', authority: $this->context)['ok']);
+        self::assertTrue($runner->run($promote, ['workspace' => $started['workspace']], 'cli', authority: \Milpa\AppRuntime\Tests\Fixtures\ApprovedPromotion::of($this->context, $this->root, $started['workspace']))['ok']);
         self::assertSame($head, file_get_contents($file . '.milpa-part'));
 
         $bad = $invoke(['mode' => 'finish']);
@@ -167,14 +167,14 @@ PHP);
         foreach (str_split($tail, 2000) as $section) {
             $appended = $invoke(['mode' => 'append', 'content' => $section]);
             self::assertTrue($appended['ok'], json_encode($appended));
-            self::assertTrue($runner->run($promote, ['workspace' => $appended['workspace']], 'cli', authority: $this->context)['ok']);
+            self::assertTrue($runner->run($promote, ['workspace' => $appended['workspace']], 'cli', authority: \Milpa\AppRuntime\Tests\Fixtures\ApprovedPromotion::of($this->context, $this->root, $appended['workspace']))['ok']);
             self::assertSame($initial, file_get_contents($file));
         }
         self::assertGreaterThan(4000, strlen((string) file_get_contents($file . '.milpa-part')));
         $finished = $invoke(['mode' => 'finish']);
         self::assertTrue($finished['ok'], json_encode($finished));
         self::assertSame($initial, file_get_contents($file));
-        self::assertTrue($runner->run($promote, ['workspace' => $finished['workspace']], 'cli', authority: $this->context)['ok']);
+        self::assertTrue($runner->run($promote, ['workspace' => $finished['workspace']], 'cli', authority: \Milpa\AppRuntime\Tests\Fixtures\ApprovedPromotion::of($this->context, $this->root, $finished['workspace']))['ok']);
         self::assertFileDoesNotExist($file . '.milpa-part');
         self::assertSame($head . $tail, file_get_contents($file));
         require $file;
