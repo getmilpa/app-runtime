@@ -166,11 +166,11 @@ final class NoMergeOfWhatCollidesTest extends TestCase
     {
         $promote = (new TrialOperations(new DIContainer(), root: $this->root))->operations()[0];
 
-        return ($promote->handler)(['workspace' => $trial->id], null, new ToolContext(
+        return ($promote->handler)(['workspace' => $trial->id], null, \Milpa\AppRuntime\Tests\Fixtures\ApprovedPromotion::of(new ToolContext(
             principal: 'w',
             channel: 'cli',
             scopes: [ComponentWordOperations::SCOPE, 'milpa:component:data-table:*'],
-        ));
+        ), $this->root, $trial->id));
     }
 
     /** @return array<string, mixed> */

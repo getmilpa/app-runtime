@@ -154,12 +154,12 @@ final class AHouseLearnsAWordTest extends TestCase
 
         $promote = (new TrialOperations(new DIContainer(), root: $house))->operations()[0];
         try {
-            ($promote->handler)(['workspace' => $trial->id], null, new ToolContext(principal: 'w', channel: 'cli', scopes: ['milpa:component:data-table:*']));
+            ($promote->handler)(['workspace' => $trial->id], null, \Milpa\AppRuntime\Tests\Fixtures\ApprovedPromotion::of(new ToolContext(principal: 'w', channel: 'cli', scopes: ['milpa:component:data-table:*']), $house, $trial->id));
             self::fail('declaring screens is not defining the language');
         } catch (\RuntimeException $refused) {
             self::assertStringContainsString("'" . ComponentWordOperations::SCOPE . "'", $refused->getMessage());
         }
-        $result = ($promote->handler)(['workspace' => $trial->id], null, new ToolContext(principal: 'w', channel: 'cli', scopes: [ComponentWordOperations::SCOPE]));
+        $result = ($promote->handler)(['workspace' => $trial->id], null, \Milpa\AppRuntime\Tests\Fixtures\ApprovedPromotion::of(new ToolContext(principal: 'w', channel: 'cli', scopes: [ComponentWordOperations::SCOPE]), $house, $trial->id));
         self::assertTrue($result['ok'], json_encode($result) ?: '');
         self::assertContains('evidence-balance', array_column($this->call($this->session($house), 'screen:types', [])['types'], 'name'));
     }

@@ -172,7 +172,7 @@ final class WhatTheJudgeCannotReadItDoesNotLendTest extends TestCase
         $promote = (new TrialOperations(new DIContainer(), root: $this->house->root))->operations()[0];
         self::assertSame('sandbox:promote', $promote->name);
 
-        $promoted = ($promote->handler)(['workspace' => 'wbook'], null, new ToolContext(principal: 'worker', channel: 'cli', scopes: ['*']));
+        $promoted = ($promote->handler)(['workspace' => 'wbook'], null, \Milpa\AppRuntime\Tests\Fixtures\ApprovedPromotion::of(new ToolContext(principal: 'worker', channel: 'cli', scopes: ['*']), $this->house->root, 'wbook'));
 
         self::assertFalse($promoted['ok']);
         self::assertStringContainsString('a trial never carries the book of standing grants', $promoted['error']);
