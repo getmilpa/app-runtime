@@ -492,10 +492,21 @@ final class TrialOperations implements CommandProvider
         // THE BYTES A PERSON SAID YES TO ARE THE BYTES THAT LAND (greenhouse decisions/0628; the first independent
         // review, L2). On the agent's door the gate admitted a digest of this trial's diff; if the trial changed since,
         // this is not what anyone said yes to. Every file read below is checked against this same diff, so the copy is
-        // bound to the digest end to end. A call with no gate (a person at the terminal) carries no such question.
+        // bound to the digest end to end. A surfaced call without this gate is admitted only by the signature of
+        // a person, never by a seat or a bearer token (greenhouse decisions/0628, C12 H-1).
         $approved = $authority?->extra[self::APPROVED_PROMOTION] ?? null;
         if ($approved instanceof \Closure && $approved($id) !== WhatAPromotionLands::digestOf($diff)) {
             return ['ok' => false, 'error' => "trial «{$id}» is not what a person said yes to: it changed after the question was asked, so ask again; nothing was promoted"];
+        }
+        if ($authority !== null && !$approved instanceof \Closure) {
+            try {
+                $person = $this->personSignedPromotion($root, $input);
+            } catch (\RuntimeException $error) {
+                return ['ok' => false, 'error' => $error->getMessage() . '; nothing was promoted'];
+            }
+            if (!$person) {
+                return ['ok' => false, 'error' => "trial «{$id}» needs a person's yes to its current digest; nothing was promoted. Read the promotion with agent:show and answer with agent:answer in its session, then resume it; or a person signs sandbox:promote from the terminal"];
+            }
         }
         // A TRIAL CARRIES PLAIN NAMES ONLY (the third independent review of greenhouse decisions/0625, M1). A
         // case-folding filesystem resolves a name by rules of its own — it folds Unicode case and ignores invisible
@@ -939,6 +950,26 @@ final class TrialOperations implements CommandProvider
      * said yes to ({@see \Milpa\AppRuntime\Agent\SessionToolGate::approvedPromotion()}).
      */
     public const APPROVED_PROMOTION = 'promotion.approved';
+
+    /**
+     * A direct promotion's signature names this call and belongs to a key the house never seated. The verified
+     * grant is installed by the console, not read from an operation's input. A token cannot supply one. A broken
+     * enrollment ledger refuses rather than mistaking an unreadable seat for a person's key.
+     *
+     * @param array<string, mixed> $input
+     */
+    private function personSignedPromotion(string $root, array $input): bool
+    {
+        $granted = $this->container->has(GrantedAuthorization::class) ? $this->container->get(GrantedAuthorization::class) : null;
+        if (!$granted instanceof GrantedAuthorization
+            || !(new \Milpa\Command\Consent\OperationId('sandbox:promote'))->is($granted->authorization->operation)
+            || $granted->authorization->arguments != $input
+        ) {
+            return false;
+        }
+
+        return !(new \Milpa\AppRuntime\Identity\FileEnrollmentStore($root . '/storage/identity/enrollments.json'))->contains($granted->signer->fingerprint);
+    }
 
     private const ADMIT_INPUT = [
         'type' => 'object',
