@@ -67,7 +67,7 @@ final class APromotionAtEveryDoorNeedsAPersonTest extends TestCase
         }
         $answer = $this->promote($root, $container, $context);
         self::assertFalse($answer['ok'], json_encode($answer) ?: '');
-        self::assertFileDoesNotExist($root . '/src/Marker.php');
+        self::assertFileDoesNotExist($root . '/src/Plugins/Blog/Marker.php');
         self::assertNotNull(TrialWorkspace::open($root, 'w1'), 'refusing preserves the trial');
     }
 
@@ -77,18 +77,18 @@ final class APromotionAtEveryDoorNeedsAPersonTest extends TestCase
         $this->signed($container, ['workspace' => 'w1']);
         $answer = $this->promote($root, $container, new ToolContext(principal: 'key:' . self::KEY, channel: 'cli', scopes: ['*']));
         self::assertTrue($answer['ok'], json_encode($answer) ?: '');
-        self::assertSame("<?php // approved marker\n", file_get_contents($root . '/src/Marker.php'));
+        self::assertSame("<?php // approved marker\n", file_get_contents($root . '/src/Plugins/Blog/Marker.php'));
     }
 
     /** @return array{string, DIContainer} */
     private function house(): array
     {
         $root = sys_get_temp_dir() . '/milpa-promotion-person-' . bin2hex(random_bytes(4));
-        mkdir($root . '/src', 0o700, true);
+        mkdir($root . '/src/Plugins/Blog', 0o700, true);
         file_put_contents($root . '/src/A.php', "<?php // original\n");
         $this->roots[] = $root;
         $workspace = TrialWorkspace::materialize($root, 'w1', dirname(__DIR__) . '/Fixtures/trial-stub-runner.php');
-        file_put_contents($workspace->copy . '/src/Marker.php', "<?php // approved marker\n");
+        file_put_contents($workspace->copy . '/src/Plugins/Blog/Marker.php', "<?php // approved marker\n");
 
         return [$root, new DIContainer()];
     }
