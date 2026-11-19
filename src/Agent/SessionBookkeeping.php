@@ -56,6 +56,8 @@ use Milpa\Command\Effect\Subject;
 
 final readonly class SessionBookkeeping implements ContractProducer
 {
+    private SessionHouseDebt $debt;
+
     public function __construct(
         private SessionStore $sessions,
         private string $sessionId,
@@ -67,7 +69,10 @@ final readonly class SessionBookkeeping implements ContractProducer
         // Which calls last, by their own declaration ({@see LastingCalls}, greenhouse decisions/0523): the claim
         // door reads the house's closure through the same function, with the same reading, as the final answer.
         private ?\Closure $lasting = null,
+        private ?string $root = null,
+        ?SessionHouseDebt $debt = null,
     ) {
+        $this->debt = $debt ?? new SessionHouseDebt($sessions, $sessionId, $events, $root);
     }
 
     /**
@@ -80,7 +85,7 @@ final readonly class SessionBookkeeping implements ContractProducer
      */
     public static function names(): array
     {
-        return ['plan', 'todo', 'work:claim-verified'];
+        return ['plan', 'todo', 'work:claim-verified', SessionHouseDebt::REPORT, SessionHouseDebt::READ];
     }
 
     /**
@@ -240,6 +245,7 @@ final readonly class SessionBookkeeping implements ContractProducer
                 ),
                 surfaces: ['mcp'],
             ),
+            ...$this->debt->operations(),
         ];
     }
 

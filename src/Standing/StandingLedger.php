@@ -228,6 +228,10 @@ final class StandingLedger
      * counted under that grant). A no and a «fired» a run DID produce are written whatever was spent; what a writer
      * that spent its budget would say does not run ({@see HouseStandingJudge::overspent()}).
      *
+     * The ledger can change between calls, including before a second read under its lock.
+     *
+     * @phpstan-impure
+     *
      * @return array{lines: int, stopped: bool}
      */
     public function spentBy(string $writer): array

@@ -60,8 +60,8 @@ final class WorkClaimVerifiedTest extends TestCase
             (new SessionBookkeeping($this->almacen, 's1', $this->eventos))->operations(),
         );
 
-        self::assertSame(['plan', 'todo', 'work:claim-verified'], $names);
-        self::assertSame(['plan', 'todo', 'work:claim-verified'], SessionBookkeeping::names());
+        self::assertSame(['plan', 'todo', 'work:claim-verified', 'HouseDebt', 'HouseDebtRead'], $names);
+        self::assertSame(['plan', 'todo', 'work:claim-verified', 'HouseDebt', 'HouseDebtRead'], SessionBookkeeping::names());
     }
 
     /** SURFACE LAW: `done` left the schema — the model cannot even ask for it by enum. */

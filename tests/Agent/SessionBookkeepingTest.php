@@ -182,7 +182,7 @@ final class SessionBookkeepingTest extends TestCase
     {
         foreach ((new SessionBookkeeping($this->almacen, 's1'))->operations() as $operacion) {
             self::assertSame(['mcp'], $operacion->surfaces, "«{$operacion->name}» no es de otra superficie");
-            self::assertTrue($operacion->mutating, 'apenda, y lo declara');
+            self::assertSame($operacion->name !== 'HouseDebtRead', $operacion->mutating, 'only the dedicated reader does not append');
         }
     }
 
@@ -219,8 +219,8 @@ final class SessionBookkeepingTest extends TestCase
     public function testItDoesNotBuyLessScrutinyByLyingAboutMutating(): void
     {
         foreach ($this->operaciones() as $op) {
-            self::assertTrue($op->mutating, "«{$op->name}» apenda, y sigue diciéndolo");
-            self::assertNotSame(Mutation::None, $op->effects?->mutation, "«{$op->name}» no finge que no muta");
+            self::assertSame($op->name !== 'HouseDebtRead', $op->mutating);
+            self::assertSame($op->name === 'HouseDebtRead' ? Mutation::None : Mutation::Persistent, $op->effects?->mutation);
         }
     }
 
@@ -229,7 +229,7 @@ final class SessionBookkeepingTest extends TestCase
     {
         foreach ($this->operaciones() as $op) {
             self::assertSame(\Milpa\Command\Effect\Externality::None, $op->effects?->externality, "«{$op->name}»");
-            self::assertSame(\Milpa\Command\Effect\Authority::None, $op->effects?->authority, "«{$op->name}»");
+            self::assertSame($op->name === 'HouseDebtRead' ? \Milpa\Command\Effect\Authority::Read : \Milpa\Command\Effect\Authority::None, $op->effects?->authority, "«{$op->name}»");
         }
     }
 }

@@ -93,6 +93,16 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
      */
     private ?SessionToolGate $sessionGate;
 
+    private ?ToolContext $installedContext = null;
+
+    /** Preserve the caller context around a nested invocation and its temporary observation object. */
+    public function setContext(ToolContext $context): void
+    {
+        $this->installedContext = $context;
+        parent::setContext($context);
+    }
+
+
     /**
      * @param list<ConsentGrant> $grants every yes this session has already collected — not the last
      *                                   one. Passing them one at a time overwrote the context and
@@ -194,6 +204,23 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
             $args = \is_array($decoded) ? $decoded : $args;
         }
 
+        $witnessOwner = new \stdClass();
+        $appendWitness = $this->sessionGate?->appendWitnessFor($name, $args, $witnessOwner);
+        $previousContext = $this->installedContext;
+        try {
+            return $this->callWithinContext($name, $args, $appendWitness, $witnessOwner);
+        } finally {
+            $appendWitness?->expire($witnessOwner);
+            $this->setContext($previousContext ?? ToolContext::cli());
+            $this->installedContext = $previousContext;
+        }
+    }
+
+    /** The normal governed call, with an optional host-only observation scoped to this invocation.
+     * @param array<string, mixed> $args
+     */
+    private function callWithinContext(string $name, array $args, ?JournalAppendWitness $appendWitness, object $witnessOwner): mixed
+    {
         ($this->grown)?->__invoke($name);
 
         // THE SAME EXACTNESS, ONE LAYER EARLIER. `PolicyGate` decides on a `ConsentGrant` too, and it
@@ -223,13 +250,24 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
         // presentó un token acuñado, sus scopes son los del token; si no presentó nada, se queda el
         // comodín del default — que es la decisión de Rod (2026-09-11) y lo único que impide repetir la
         // regresión de v0.29.0 (greenhouse decisions/0311).
+        $baseContext = $this->installedContext;
+        $planned = $baseContext !== null && $baseContext->isPlanMode();
+        $extra = $baseContext->extra ?? [];
+        unset($extra[JournalAppendWitness::CONTEXT_KEY]);
         $this->setContext(new ToolContext(
-            principal: $this->principalOfTheCaller(),
-            channel: $this->channel,
-            scopes: $this->scopesOfTheCaller(),
+            principal: $baseContext !== null ? $baseContext->principal : $this->principalOfTheCaller(),
+            channel: $baseContext->channel ?? $this->channel,
+            scopes: $baseContext->scopes ?? $this->scopesOfTheCaller(),
+            request_id: $baseContext?->request_id,
+            ip: $baseContext?->ip,
+            userAgent: $baseContext?->userAgent,
+            mode: $baseContext->mode ?? 'execute',
+            resultBudget: $baseContext?->resultBudget,
             extra: [
+                ...$extra,
                 'consent.grants' => $this->grants,
                 'consent.arguments' => $args,
+                ...($appendWitness === null ? [] : [JournalAppendWitness::CONTEXT_KEY => $appendWitness]),
                 // WHAT A PERSON SAID YES TO, ASKED WHEN THE PROMOTION COPIES (greenhouse decisions/0628; the first
                 // independent review, L2). The gate judges this call before the handler runs, so the handler is
                 // handed a way to ask what the gate admitted, not the answer of a gate that has not run yet.
@@ -240,13 +278,13 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
         ));
 
         try {
-            $result = parent::callTool($name, $args);
+            $result = $this->callWithReceipt($name, $args);
         } catch (\Throwable $rechazo) {
             // AN ATTEMPT IS NOT A FACT — but a work call that failed after its state changed is not only an attempt
             // (greenhouse decisions/0588, rule 5): the house saw it, so the receipt says what it left.
             $landed = ($this->landed)?->__invoke($name, $args);
             if (\is_array($landed) && ($landed['changed'] ?? null) === true) {
-                $this->declareIfEffect($name, $args, $this->grantThatCovers($name, $args), $landed);
+                $this->declareIfEffect($name, $args, $this->grantThatCovers($name, $args), $landed, $appendWitness, $witnessOwner, $planned);
             }
             // THE DENIAL TRAVELS UNTOUCHED — a bridge that reshapes what it carries is not a
             // bridge, and an observation carries no authority to soften one. Before it goes, the
@@ -303,7 +341,7 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
             // The token was never the authority. It binds an attempt — this operation, these
             // arguments, once, before it expires (`decisions/0031`, untouched). The authority is the
             // grant, and the grant is just as durable whichever path the effect profile chose.
-            $this->declareIfEffect($name, $args, $this->grantThatCovers($name, $args));
+            $this->declareIfEffect($name, $args, $this->grantThatCovers($name, $args), appendWitness: $appendWitness, witnessOwner: $witnessOwner, planned: $planned);
 
             return $this->redactForModel($result);
         }
@@ -328,7 +366,7 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
             // The token names this very call, so it goes back through the ordinary path — gate first,
             // store second. Reaching into the store directly would be this class deciding it is
             // trusted, which is the shape of the defect it exists to remove.
-            $executed = parent::callTool($name, ['confirm_token' => $token] + $args);
+            $executed = $this->callWithReceipt($name, ['confirm_token' => $token] + $args);
         } catch (\Throwable $murió) {
             // EXPIRY, and single use, both land here. The store refuses a token it has already
             // consumed or that ran out of time, and refusing is correct: the authority is still
@@ -360,9 +398,29 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
             'session' => $grant->session,
         ];
 
-        $this->declareIfEffect($name, $args, $grant);
+        $this->declareIfEffect($name, $args, $grant, appendWitness: $appendWitness, witnessOwner: $witnessOwner, planned: $planned);
 
         return $this->redactForModel($executed);
+    }
+
+    /** Every actual gated invocation, including confirmation, has its own receipt boundary.
+     * @param array<string, mixed> $args
+     */
+    private function callWithReceipt(string $name, array $args): mixed
+    {
+        $attempt = $this->sessionGate?->beginCallReceipt($name, $args, $this->installedContext !== null && $this->installedContext->isPlanMode());
+        try {
+            return parent::callTool($name, $args);
+        } catch (\Throwable $error) {
+            if ($attempt !== null) {
+                $this->sessionGate->recordUnrecordedFailure($attempt, $error->getMessage());
+            }
+            throw $error;
+        } finally {
+            if ($attempt !== null) {
+                $this->sessionGate->finishCallReceipt($attempt);
+            }
+        }
     }
 
     /**
@@ -434,8 +492,14 @@ final class ConsentBridge extends GatedToolCalls implements GovernedExecutor
      * @param array<string, mixed>      $args
      * @param array<string, mixed>|null $landed what the house saw of a work call, when the caller already asked
      */
-    private function declareIfEffect(string $tool, array $args, ?ConsentGrant $grant, ?array $landed = null): void
+    private function declareIfEffect(string $tool, array $args, ?ConsentGrant $grant, ?array $landed = null, ?JournalAppendWitness $appendWitness = null, ?object $witnessOwner = null, bool $planned = false): void
     {
+        if ($planned) {
+            return;
+        }
+        if ($appendWitness !== null && ($witnessOwner === null || !$appendWitness->consume($witnessOwner))) {
+            return;
+        }
         if ($this->executions === null || $this->catalogue->getDefinition($tool)?->mutating !== true) {
             return;
         }
