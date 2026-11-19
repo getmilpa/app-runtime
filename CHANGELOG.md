@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.225.0](https://github.com/getmilpa/app-runtime/compare/v0.224.0...v0.225.0) (2026-11-19)
+
+
+### Features
+
+* let residents report session-bound house debt ([128aa2f](https://github.com/getmilpa/app-runtime/commit/128aa2f61aa8272afec8cec05cdc6dc4a6bb23d7))
+* let residents report session-bound house debt ([0f36e63](https://github.com/getmilpa/app-runtime/commit/0f36e6350ab31612d40ba30a873d57aa3982facf))
+
 ## [0.224.0](https://github.com/getmilpa/app-runtime/compare/v0.223.0...v0.224.0) (2026-11-15)
 
 
