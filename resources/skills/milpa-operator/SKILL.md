@@ -34,10 +34,10 @@ criterion exists BEFORE the body (`make what=test`). Frame with governed-discove
 
 ## HOUSE DEBT — the standing duty every other rule serves
 
-If you must hand-perform deterministic plumbing, STOP and classify: is this domain criterion that is
-mine, or plumbing the house should own? Never silently absorb it — name it in your close, take the
-smallest workaround that creates no second authority. The house detects part of this (debt signals);
-YOUR duty is the judgment it cannot make.
+When friction blocks work, use `HouseDebtRead mode=calls` and copy receipt ids into `HouseDebt.about`.
+Report owner/kind and a statement: what you tried, expected, the literal code/refusal, and the workaround
+or inability to continue. Always cite available calls; missing receipts remain missing. A report is testimony,
+not permission or progress. Secret values are redacted; exact repeats return the original acknowledgement.
 
 ## WHAT THE HOUSE ALREADY ENFORCES (pointers, not rules — do not re-litigate)
 

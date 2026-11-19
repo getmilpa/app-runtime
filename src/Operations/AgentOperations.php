@@ -215,6 +215,9 @@ class AgentOperations implements CommandProvider
 
     private ?RunTermination $runTermination = null;
 
+    /** @var array<string, \Milpa\AppRuntime\Agent\SessionHouseDebt>|null shared only while one run composes its catalogue and gates */
+    private ?array $debtProducers = null;
+
     /** The lease this invocation holds on the session it runs, while it runs (greenhouse decisions/0513 §3). */
     private ?RunLease $runLease = null;
 
@@ -1706,7 +1709,7 @@ class AgentOperations implements CommandProvider
         $store = $this->sessions();
         $sessionTools = $store === null ? [] : array_map(
             static fn (Operation $operation): string => $operation->name,
-            (new SessionBookkeeping($store, '·enumerando·', $this->sessionEvents))->operations(),
+            ($this->sessionBookkeeping($store, '·enumerando·'))->operations(),
         );
 
         $appName = $config?->get('app.name');
@@ -1862,7 +1865,7 @@ class AgentOperations implements CommandProvider
         // sea. Lo que no se hace nunca es meterlas al catálogo como si la app las ofreciera sin una.
         $id = $sessionId !== '' ? $sessionId : '·enumerando·';
 
-        $ops = (new SessionBookkeeping($store, $id, $this->sessionEvents, $this->lastingCalls()))->operations();
+        $ops = ($this->sessionBookkeeping($store, $id, $this->lastingCalls()))->operations();
 
         if (!class_exists(SubAgentSpawner::class)) {
             return $ops;
@@ -2136,9 +2139,12 @@ class AgentOperations implements CommandProvider
      */
     private function run(array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array
     {
+        $previousProducers = $this->debtProducers;
+        $this->debtProducers = [];
         try {
             return $this->leg($input, $context, $authority);
         } finally {
+            $this->debtProducers = $previousProducers;
             FatalTermination::disarm();
         }
     }
@@ -2537,7 +2543,7 @@ class AgentOperations implements CommandProvider
                 // ATADAS a esta sesión: el id se captura, no se le pide al modelo. Uno que el modelo
                 // pudiera nombrar es uno que puede errar, y escribirle el plan a otra sesión no es una
                 // equivocación recuperable — quien la lea mañana verá un plan que su agente no escribió.
-                $contabilidad = (new SessionBookkeeping($store, $sessionId, $this->sessionEvents, $this->lastingCalls()))->operations();
+                $contabilidad = ($this->sessionBookkeeping($store, $sessionId, $this->lastingCalls()))->operations();
 
                 // LA DELEGACIÓN (Q-P19-P). El hijo es una sesión con `parentId` corriendo por los
                 // MISMOS rieles: mismo orquestador, misma compuerta —que ya pide el techo del linaje
@@ -2586,7 +2592,7 @@ class AgentOperations implements CommandProvider
 
                         $registroHijo = $this->toolsOfThisApp(
                             [
-                                ...(new SessionBookkeeping($store, $hijoId, $this->sessionEvents, $this->lastingCalls()))->operations(),
+                                ...($this->sessionBookkeeping($store, $hijoId, $this->lastingCalls()))->operations(),
                                 $canalDelHijo->messageOperation(),
                             ],
                             registroPropio: true,
@@ -4473,6 +4479,19 @@ class AgentOperations implements CommandProvider
         );
     }
 
+    /** Share only the closed debt producer during this run; notebook/lasting state is never cached. */
+    private function sessionBookkeeping(SessionStore $store, string $sessionId, ?\Closure $lasting = null): SessionBookkeeping
+    {
+        $root = $this->redactRoot();
+        $key = json_encode([spl_object_id($store), $sessionId, $this->sessionEvents === null ? null : spl_object_id($this->sessionEvents), $root], \JSON_THROW_ON_ERROR);
+        $debt = $this->debtProducers[$key] ?? new \Milpa\AppRuntime\Agent\SessionHouseDebt($store, $sessionId, $this->sessionEvents, $root);
+        if ($this->debtProducers !== null) {
+            $this->debtProducers[$key] = $debt;
+        }
+
+        return new SessionBookkeeping($store, $sessionId, $this->sessionEvents, $lasting, $root, $debt);
+    }
+
     /**
      * The authorized producers whose tools reach a gate through the registry's `$extra` and never
      * through `Operations::all()` — the session's own notebook and delegation.
@@ -4487,7 +4506,7 @@ class AgentOperations implements CommandProvider
      */
     private function contractProducers(SessionStore $store, string $sessionId): array
     {
-        $productores = [new SessionBookkeeping($store, $sessionId, $this->sessionEvents)];
+        $productores = [$this->sessionBookkeeping($store, $sessionId)];
 
         if (class_exists(SubAgentSpawner::class)) {
             $productores[] = new SubAgentSpawner(

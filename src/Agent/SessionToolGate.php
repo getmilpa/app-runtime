@@ -107,6 +107,83 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      */
     public const UNJUDGEABLE = 'UNJUDGEABLE';
 
+    /** @var array<int, array{tool: string, arguments: array<string, mixed>, recorded: bool, planned: bool}> actual synchronous bridge attempts */
+    private array $receiptAttempts = [];
+    private int $nextReceiptAttempt = 0;
+
+    /** Only the closed producer bound to this gate can request an append witness.
+     * @param array<string, mixed> $arguments
+     */
+    public function appendWitnessFor(string $tool, array $arguments, object $owner): ?JournalAppendWitness
+    {
+        $operation = $this->operationFor($tool);
+
+        return $operation instanceof SessionDebtWriteOperation && $operation->belongsTo($this->sessions, $this->session->id)
+            ? $operation->witness($owner, $arguments) : null;
+    }
+
+    /** Identify an actual invocation, including repeated identical calls, without changing a recorder protocol.
+     * @param array<string, mixed> $arguments
+     */
+    public function beginCallReceipt(string $tool, array $arguments, bool $planned = false): int
+    {
+        $id = ++$this->nextReceiptAttempt;
+        $this->receiptAttempts[$id] = ['tool' => $tool, 'arguments' => $arguments, 'recorded' => false, 'planned' => $planned];
+
+        return $id;
+    }
+
+    /** End the invocation even when a refusal or an exception leaves the bridge. */
+    public function finishCallReceipt(int $id): void
+    {
+        unset($this->receiptAttempts[$id]);
+    }
+
+    /** Preserve a failure the gate returned before the normal recorder, without feeding loop or authority state. */
+    public function recordUnrecordedFailure(int $id, string $reason): void
+    {
+        $attempt = $this->receiptAttempts[$id] ?? null;
+        if ($attempt === null || $attempt['recorded']) {
+            return;
+        }
+        try {
+            $kept = \Milpa\AppRuntime\Config\SecretRedaction::inText($reason, $this->houseRoot);
+            $arguments = \Milpa\AppRuntime\Config\SecretRedaction::inResult($attempt['arguments'], $this->houseRoot);
+            $this->sessions->recordToolCall($this->session->id, $attempt['tool'], $arguments, $kept, false, false, mb_strlen($kept));
+            $this->receiptAttempts[$id]['recorded'] = true;
+        } catch (\Throwable) {
+            // An observation must not replace the original refusal or claim that it was persisted.
+        }
+    }
+
+    /** Mark only the innermost matching invocation; nested identical calls keep separate receipts.
+     * @param array<string, mixed> $arguments
+     */
+    private function callReceiptRecorded(string $tool, array $arguments): void
+    {
+        foreach (array_reverse(array_keys($this->receiptAttempts)) as $id) {
+            if ($this->receiptAttempts[$id]['tool'] === $tool && $this->receiptAttempts[$id]['arguments'] === $arguments) {
+                $this->receiptAttempts[$id]['recorded'] = true;
+                return;
+            }
+        }
+    }
+
+    /** The bridge's captured host mode, never a claim inside the tool's result.
+     * @param array<string, mixed> $arguments
+     */
+    private function callWasPlanned(string $tool, array $arguments): bool
+    {
+        foreach (array_reverse(array_keys($this->receiptAttempts)) as $id) {
+            $attempt = $this->receiptAttempts[$id];
+            if ($attempt['tool'] === $tool && $attempt['arguments'] === $arguments) {
+                return $attempt['planned'];
+            }
+        }
+
+        return false;
+    }
+
     /**
      * @param list<Operation>        $operations        las de esta app — de ahí salen `mutating` y
      *                                                  `requiresConfirmation`, que son declaraciones de la
@@ -241,6 +318,11 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             return self::UNJUDGEABLE . ": «{$tool}» resolves to no Operation of this app and no producer"
                 . ' states its effect. Registering an executable tool does not grant authority in the'
                 . ' governed path; a judgeable contract does.';
+        }
+
+        if (($operacion instanceof SessionDebtReadOperation || $operacion instanceof SessionDebtWriteOperation)
+            && !$operacion->belongsTo($this->sessions, $this->session->id)) {
+            return self::UNJUDGEABLE . ': the journal reader belongs to another store or session.';
         }
 
         // THE SESSION'S OWN NOTEBOOK IS NOT WORLD-GATED — S2 by profile (greenhouse decisions/0028,
@@ -769,6 +851,10 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      */
     private function readsOwnRecordedCall(Operation $operation, array $arguments): bool
     {
+        if ($operation instanceof SessionDebtReadOperation) {
+            // The closed producer captures both identities; a coinciding class or name is not enough.
+            return $operation->belongsTo($this->sessions, $this->session->id);
+        }
         if (!$this->isRecordedReader($operation) || ($arguments['session'] ?? null) !== $this->session->id
             || !\is_int($arguments['seq'] ?? null) || $arguments['seq'] < 1) {
             return false;
@@ -830,7 +916,8 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
     /** A declared reader contract, never an exemption based on a coinciding tool name. */
     private function isRecordedReader(Operation $operation): bool
     {
-        return $operation instanceof SessionResultOperation || $operation instanceof SessionArgumentOperation;
+        return $operation instanceof SessionResultOperation || $operation instanceof SessionArgumentOperation
+            || $operation instanceof SessionDebtReadOperation;
     }
 
     /**
@@ -1250,6 +1337,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             false,
             mb_strlen($kept),
         );
+        $this->callReceiptRecorded($tool, $arguments);
     }
 
     /**
@@ -1277,6 +1365,16 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
      */
     public function recorded(string $tool, array $arguments, string $result, bool $ok): void
     {
+        if ($this->callWasPlanned($tool, $arguments)) {
+            // Planning validates a contract but runs no handler: no prerequisite, loop, trial, inverse or effect.
+            if (!$this->esContabilidad($tool)) {
+                $kept = \Milpa\AppRuntime\Config\SecretRedaction::inText($result, $this->houseRoot);
+                $safeArguments = \Milpa\AppRuntime\Config\SecretRedaction::inResult($arguments, $this->houseRoot);
+                $this->sessions->recordToolCall($this->session->id, $tool, $safeArguments, $kept, $ok, false, mb_strlen($kept));
+            }
+            $this->callReceiptRecorded($tool, $arguments);
+            return;
+        }
         // La contabilidad NO se apunta como llamada. Su efecto ya está en el stream con su propio
         // evento —`plan_set`, `todo_changed`— y el reductor lo devuelve como estado, que es como llega
         // a la ventana. Registrarla además como turno diría lo mismo dos veces y le cobraría a la
@@ -1387,6 +1485,7 @@ final class SessionToolGate implements ToolCallGate, ToolCallRecorder, Execution
             $pidioConfirmacion = ToolResult::asksForConfirmation($result),
             $this->effectObservationSeq($tool, $arguments),
         );
+        $this->callReceiptRecorded($tool, $arguments);
 
         // LA RECETA PARA DESHACER, dejada donde quien deshaga va a buscarla.
         //

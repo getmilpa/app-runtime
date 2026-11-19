@@ -182,7 +182,7 @@ final class HouseContextReadTest extends TestCase
         self::assertContains('house:context', $declared, 'the house op itself sits in the catalogue it reports');
 
         // sessionTools — the notebook's names: this fixture stores sessions, so the three exist.
-        self::assertSame(['plan', 'todo', 'work:claim-verified'], $answer['sessionTools']);
+        self::assertSame(['plan', 'todo', 'work:claim-verified', 'HouseDebt', 'HouseDebtRead'], $answer['sessionTools']);
 
         // conventions — the layout the generators actually write to, verbatim.
         self::assertSame(
