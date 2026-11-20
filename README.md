@@ -1818,3 +1818,60 @@ session's closures. Application registrations keep their name precedence,
 definitions and callbacks; native policy, confirmation, rate-limit and event
 services remain shared. Explicit private child registries retain their existing
 seed boundary. Measured with A→B→A invocations in Greenhouse evidence/1246.
+
+### Caller-owned finite report tasks
+
+Trusted PHP host code may opt one session into a finite report criterion:
+
+```php
+use Milpa\AppRuntime\Agent\CallerReportTask;
+
+$task = CallerReportTask::failedReadOnlyAttempt('report-session', 'task-1', 'probe');
+$result = $operations->runReportTask(
+    ['session' => 'report-session', 'prompt' => $instructions],
+    $task,
+    $invocationContext,
+    $toolAuthority,
+);
+```
+
+`$operations` is this app's `AgentOperations` instance. The entry uses its native
+factory, session lifecycle, tool registry and permission gates. The host supplies
+instructions and existing invocation/tool authority; choosing this criterion grants
+no tool permissions. It is a PHP capability of trusted application code, not proof
+of human identity. No command, HTTP field, prompt or model tool selects the criterion.
+
+The criterion accepts only an exact `{"finding_id":"<64 lowercase hex digits>"}`
+answer referring to one native `environment` / `tool_error` HouseDebt report of
+exactly one failed readonly call to the selected tool. Its sealed call reference
+must match, and the latest model input in the current invocation must contain one
+correlated `HouseDebtRead` findings request/reply delivering that report. Provider
+call IDs and sealed house call receipts are different identities. A host tool name
+override keeps its normal precedence; shaped output without native evidence cannot
+satisfy this criterion. Acceptance establishes that finite report relation, not
+truth of the agent's testimony, repair, material progress or verified work closure.
+
+Declare before the session's first execution. Session, logical task ID, target tool
+and criterion are immutable in the durable stream. To resume after interruption,
+call this entry again with the identical task; the original attempt/report remains
+eligible, but readback must be delivered in a fresh input. A second target attempt
+violates exactly-one. Ordinary invocation cannot downgrade an already declared
+session. Diagnostic/delivery contracts cannot be combined with this criterion.
+Nested entries are refused, and active binding clears even after exceptions.
+
+An accepted durable judgment consumes the task **before** the caller receives its
+result. A lost result therefore cannot be retried as a new acceptance. This is
+conservative consumption, not guaranteed delivery. A new logical task needs a new
+session; trusted host code must reconcile uncertainty explicitly.
+
+This opt-in requires installed stable `milpa/agent >=0.53.4 <1.0`,
+`milpa/ai-gateway >=0.42.0 <1.0` and `milpa/event-store >=0.4 <1.0`. Agent 0.53.4
+preserves the native call metadata the judge needs. Missing/older packages or an
+unrecognized development version return `report_task_dependency` before session
+access. Composer's installed normalized versions are the compatibility source of
+truth; metadata is not package authentication. The dependencies remain optional,
+and ordinary agent operations retain their existing compatibility floor.
+
+Measured on fresh published consumers in Greenhouse E1248, following the E1244 LAB
+candidate and the E1246 ordinary invocation-registry repair. No general task DSL,
+remote caller authentication or resident rollout is introduced.

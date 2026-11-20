@@ -202,6 +202,9 @@ class AgentOperations implements CommandProvider
      */
     private ?EventStoreInterface $sessionEvents = null;
 
+    /** Trusted host entry state; never populated from model or command arguments. */
+    private ?\Milpa\AppRuntime\Agent\CallerReportTask $callerReportTask = null;
+
     /**
      * The session log last composed over an app's own `var/agent-sessions.jsonl`, shared by every
      * {@see self::sessions()} of this process — the leg's seven and the console's receipt — so one leg
@@ -254,6 +257,39 @@ class AgentOperations implements CommandProvider
 
     public function __construct(private readonly DIContainerInterface $container)
     {
+    }
+
+    /**
+     * Run one caller-owned finite report task through the native lifecycle and factory.
+     * This PHP-only opt-in trusts application code, not prompt text or attributed identity.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    public function runReportTask(array $input, \Milpa\AppRuntime\Agent\CallerReportTask $task, ?InvocationContext $context = null, ?ToolContext $authority = null): array
+    {
+        if ($this->callerReportTask !== null) {
+            return ['ok' => false, 'error' => 'report_task_reentrant'];
+        }
+        if (($input['session'] ?? $task->session) !== $task->session) {
+            return ['ok' => false, 'error' => 'report_task_foreign_session'];
+        }
+        // Only this opt-in needs native call provenance; ordinary agent compatibility stays unchanged.
+        foreach (['milpa/agent' => '0.53.4.0', 'milpa/ai-gateway' => '0.42.0.0', 'milpa/event-store' => '0.4.0.0'] as $package => $minimum) {
+            $version = \Composer\InstalledVersions::isInstalled($package) ? \Composer\InstalledVersions::getVersion($package) : null;
+            if (!is_string($version) || preg_match('/^\d+\.\d+\.\d+\.\d+$/D', $version) !== 1
+                || version_compare($version, $minimum, '<') || version_compare($version, '1.0.0.0', '>=')) {
+                return ['ok' => false, 'error' => 'report_task_dependency', 'package' => $package, 'minimum' => $minimum];
+            }
+        }
+        $input['session'] = $task->session;
+        $this->callerReportTask = $task;
+        try {
+            return $this->runUnlessItEchoes($input, $context, $authority);
+        } finally {
+            $this->callerReportTask = null;
+        }
     }
 
     /**
@@ -896,7 +932,7 @@ class AgentOperations implements CommandProvider
                     subject: Subject::Data,
                 ),
                 description: 'Ask the agent to do something using the operations of this app',
-                handler: fn (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array => $this->runUnlessItEchoes($input, $context, $authority),
+                handler: fn (array $input, ?InvocationContext $context = null, ?ToolContext $authority = null): array => $this->callerReportTask !== null ? ['ok' => false, 'error' => 'report_task_nested_entry'] : $this->runUnlessItEchoes($input, $context, $authority),
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
@@ -2296,6 +2332,21 @@ class AgentOperations implements CommandProvider
             }
             // A run with a store always has a session id by here: an empty one was given a name above.
             $rows = $store !== null ? $store->stream($sessionId) : [];
+            $reportTask = \Milpa\AppRuntime\Agent\ReportTaskContract::read($rows, $sessionId);
+            if ($this->callerReportTask !== null) {
+                if ($store === null || $this->sessionEvents === null || !$this->orchestratorAdmitsAnswerJudge()) {
+                    throw new \RuntimeException('report_task_requires_store_and_judge');
+                }
+                if ($this->callerReportTask->session !== $sessionId) {
+                    throw new \InvalidArgumentException('report_task_foreign_session');
+                }
+                if (array_intersect(['diagnostic', 'delivery', 'expectation', 'deliveryCandidate'], array_keys($input)) !== []) {
+                    throw new \InvalidArgumentException('report_task_mixed_contract');
+                }
+                \Milpa\AppRuntime\Agent\ReportTaskContract::validate($rows, $this->callerReportTask);
+            } elseif ($reportTask !== null) {
+                throw new \InvalidArgumentException('report_task_requires_host_entry');
+            }
             $diagnostic = DiagnosticContract::read($rows, $sessionId);
             $diagnosticAsked = array_key_exists('diagnostic', $input) ? DiagnosticContract::validate($rows, $sessionId, $input['diagnostic']) : null;
             if ($diagnostic !== null || $diagnosticAsked !== null) {
@@ -2421,6 +2472,10 @@ class AgentOperations implements CommandProvider
 
                 $historial = $sesion?->window($herencia) ?? $historial;
                 $declaredWindow = $sesion?->classifiedWindow($herencia);
+            }
+
+            if ($this->callerReportTask !== null) {
+                \Milpa\AppRuntime\Agent\ReportTaskContract::record($this->sessionEvents, $this->callerReportTask, ObservedExecutor::fromContext($context));
             }
 
             if ($diagnosticAsked !== null) {
@@ -2927,6 +2982,8 @@ class AgentOperations implements CommandProvider
             $diagnosticRows = $store !== null ? $store->stream($sessionId) : [];
             $currentDiagnostic = DiagnosticContract::read($diagnosticRows, $sessionId);
             $beforeDiagnostic = $diagnosticRows === [] ? 0 : $diagnosticRows[array_key_last($diagnosticRows)]->seq;
+            $currentReportTask = $this->callerReportTask === null ? null
+                : \Milpa\AppRuntime\Agent\ReportTaskContract::read($diagnosticRows, $sessionId);
 
             $respuesta = $this->ask(
                 $prompt,
@@ -2945,6 +3002,17 @@ class AgentOperations implements CommandProvider
                 $grabadora,
                 $this->tableroDePlan($sessionId, $store),
             );
+            if ($currentReportTask !== null && ($this->runTermination === null || $this->runTermination->reason === RunEnd::FinalAnswer)) {
+                $judgments = array_values(array_filter($store->stream($sessionId), static fn ($event) =>
+                    $event->seq > $beforeDiagnostic && $event->type === \Milpa\AppRuntime\Agent\SessionReportTaskJudge::EVENT));
+                $verdict = $this->terminationObservation()['answerVerdict'] ?? null;
+                if (count($judgments) !== 1 || ($verdict['status'] ?? null) !== 'accepted'
+                    || $judgments[0]->payload !== ['candidate' => $respuesta, 'verdict' => $verdict]
+                    || ($verdict['candidateSha256'] ?? null) !== hash('sha256', $respuesta)
+                    || ($verdict['evidence']['criterionSha256'] ?? null) !== $currentReportTask['sha256']) {
+                    throw new \RuntimeException('report_task_missing_current_judgment');
+                }
+            }
             if ($currentDiagnostic !== null && ($this->runTermination === null || $this->runTermination->reason === RunEnd::FinalAnswer)) {
                 $judgments = array_values(array_filter($store->stream($sessionId), static fn ($e) =>
                     $e->seq > $beforeDiagnostic && $e->type === SessionDiagnosticJudge::EVENT));
@@ -3578,6 +3646,34 @@ class AgentOperations implements CommandProvider
             $salida = AgentEndpoint::derivedOutputTokens($config instanceof Config ? $config : null);
         }
         $outputArguments = $salida === null ? [] : ['outputTokens' => $salida];
+
+        if ($this->callerReportTask !== null) {
+            $store = $this->sessions();
+            if ($store === null || $this->sessionEvents === null || $this->promptSession?->id !== $this->callerReportTask->session) {
+                throw new \RuntimeException('report_task_factory_binding');
+            }
+            $rows = $store->stream($this->callerReportTask->session);
+            $declared = \Milpa\AppRuntime\Agent\ReportTaskContract::read($rows, $this->callerReportTask->session);
+            if ($declared === null || $declared['task'] !== $this->callerReportTask->toArray()) {
+                throw new \RuntimeException('report_task_factory_declaration');
+            }
+            return new AgentOrchestrator(
+                $modeloRemoto,
+                $cliente,
+                $pasos,
+                new NullLogger(),
+                null,
+                $tablero,
+                $lazyTools,
+                $sonda,
+                $contexto,
+                ...['answerJudge' => new \Milpa\AppRuntime\Agent\SessionReportTaskJudge(
+                    $this->sessionEvents,
+                    $this->callerReportTask->session,
+                    $rows[array_key_last($rows)]->seq
+                ), ...$outputArguments]
+            );
+        }
 
         if ($this->promptSession !== null && ($store = $this->sessions()) !== null
             && ($diagnostic = DiagnosticContract::read($store->stream($this->promptSession->id), $this->promptSession->id)) !== null) {
