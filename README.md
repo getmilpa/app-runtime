@@ -1808,3 +1808,13 @@ generation. This switch changes model generation only; it does not change tools,
 limits or acceptance criteria.
 
 Ordering prerequisites complete only after a successful dispatch and an affirmative `ok` when the operation declares one. Failed results, pending confirmation and known incomplete results remain pending across session reloads. Legacy complete results without an `ok` declaration retain their dispatch outcome; this does not judge the quality of a plan or guide (Greenhouse 0833–0834).
+
+### Session-local agent tool projection
+
+Each ordinary agent invocation projects its session notebook, HouseDebt and
+delegation tools into a local copy of the native kernel registry. Reusing one
+`AgentOperations` instance across sessions therefore does not reuse the previous
+session's closures. Application registrations keep their name precedence,
+definitions and callbacks; native policy, confirmation, rate-limit and event
+services remain shared. Explicit private child registries retain their existing
+seed boundary. Measured with A→B→A invocations in Greenhouse evidence/1246.

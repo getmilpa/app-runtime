@@ -6289,6 +6289,13 @@ class AgentOperations implements CommandProvider
         $registry = $registroPropio ? new ToolRegistry(new NullLogger()) : $kernel->toolRegistry();
         if (!$registry instanceof ToolRegistry) {
             $registry = new ToolRegistry(new NullLogger());
+        } elseif (!$registroPropio) {
+            // Keep the application's registered tools and shared policy services, but project this
+            // invocation's notebook, debt and delegation closures into its own registration table.
+            // Mutating the kernel table would bind later ordinary sessions to the first session.
+            // Existing host registrations keep their name precedence; children retain their private seed.
+            // Measured by greenhouse evidence/1246, independently from the report-task candidate.
+            $registry = clone $registry;
         }
 
         // TODO lo que esta app declara, no sólo lo que los plugins arrancaron: `kernel->commands()`
