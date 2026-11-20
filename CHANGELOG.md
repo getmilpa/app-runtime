@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.225.1](https://github.com/getmilpa/app-runtime/compare/v0.225.0...v0.225.1) (2026-11-20)
+
+
+### Bug Fixes
+
+* **agent:** isolate ordinary session tool projections ([a84cc4e](https://github.com/getmilpa/app-runtime/commit/a84cc4eb576190320dae9ba2159759f6949ffb0a))
+* **agent:** isolate ordinary session tool projections ([f858eb7](https://github.com/getmilpa/app-runtime/commit/f858eb7e9114445ec955d1d42430b103a6b451f6))
+
 ## [0.225.0](https://github.com/getmilpa/app-runtime/compare/v0.224.0...v0.225.0) (2026-11-19)
 
 
