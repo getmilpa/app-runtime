@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.226.0](https://github.com/getmilpa/app-runtime/compare/v0.225.1...v0.226.0) (2026-11-20)
+
+
+### Features
+
+* add caller-owned finite report tasks ([88da763](https://github.com/getmilpa/app-runtime/commit/88da76384285af1a9d5759c30fa59b5be5ef0f1f))
+* add caller-owned finite report tasks (greenhouse E1248) ([c3e2282](https://github.com/getmilpa/app-runtime/commit/c3e228268900b4b6023766e80b7502ed54bd85d0))
+
 ## [0.225.1](https://github.com/getmilpa/app-runtime/compare/v0.225.0...v0.225.1) (2026-11-20)
 
 
